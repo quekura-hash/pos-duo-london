@@ -211,6 +211,7 @@ actualizado?
 | P-09 | Hub en Caja 1 o equipo dedicado |
 | P-10 | Catálogos de DÚO y London: ¿comparten Item # y códigos? |
 | P-11 | Excel reales (catálogo, existencias, ventas) |
+| P-13 | Mientras un código esté duplicado: ¿se permite la elección provisional del cajero (hoy, marcada y revisable) o se bloquea la venta de esos artículos hasta que Administración resuelva? |
 | P-12 | Nuevo cobro con tarjeta mientras hay otro intento pendiente: `permitir_con_aviso` o `bloquear_solo_tarjeta` |
 
 ## 8. Pruebas sintéticas previstas (Etapa 0 → 1)
@@ -227,3 +228,23 @@ Todo con datos sintéticos; sin datos personales de tickets reales.
 - Identidad: importación con conflictos de código/Item #; ninguna fusión automática; Item # no se
   modifica.
 - Situaciones A, B y C por separado, con ambas políticas de P-01.
+
+## 9. Resolución administrativa de códigos duplicados [P]
+
+Un código duplicado nunca se fusiona ni se corrige solo. Flujo:
+1. **Detección**: al sincronizar, el central reporta `codigo_duplicado`. El POS no adivina: escanear ese código da `CODIGO_AMBIGUO`.
+2. **Contingencia provisional** (política P-13 pendiente): el cajero puede elegir el artículo por identificador; esa línea queda marcada `ambiguo` con los candidatos y aparece en la bandeja de Administración. No es la solución: es un registro para corregir después.
+3. **Resolución**: solo Administración, con motivo obligatorio y auditoría (usuario, valor anterior y nuevo), mediante una de dos decisiones:
+   - **Reasignar código**: un artículo recibe otro código (el nuevo no puede existir ya; se conserva como texto, con ceros).
+   - **Fusionar**: declarar que son el mismo artículo; el absorbido queda como alias del vigente, sus existencias se cuentan bajo el vigente, su Item # queda en el registro de la fusión y nada se borra.
+4. **Propagación**: la resolución viaja del central a hubs y cajas como cualquier operación de catálogo. Una caja aislada sigue viendo el conflicto hasta recibirla.
+5. **Historia**: los tickets conservan el `item_id` y el código con los que se vendieron; ninguna resolución reescribe ventas pasadas.
+No existe "archivar" ni "descartar un alta" en esta etapa (sigue siendo propuesta sin aprobar).
+
+## 10. Arbitraje de existencias del hub [P]
+
+Con hub alcanzable, la caja pide al hub una **reserva** por venta antes de confirmar; el hub serializa a las dos cajas. Disponible = saldo del hub − reservas abiertas y vigentes. La reserva se cierra renglón por renglón al llegar el movimiento de venta, se libera si la confirmación falla y vence por vigencia técnica si la caja desaparece. Reintentos con el mismo identificador son idempotentes mientras la reserva siga vigente; un rechazo o una reserva liberada se vuelven a evaluar. Con P-02 `bloquear` el hub rechaza; con `permitir_y_conciliar` concede y avisa la sobreventa. Sin hub no hay arbitraje: rige la vista local y P-01/P-02.
+
+## 11. Recuperación en dos clases [P]
+
+Ver `pruebas-sinteticas-etapa-0.md`. Lo recuperable (lo que existe en hub/central) se restaura completo; lo que nunca salió de la caja se declara `desconocido`, y toda la existencia de la tienda queda marcada **no verificada** hasta un conteo físico por artículo. Acotar la marca requeriría una secuencia por caja en cada operación (propuesta, no implementada).

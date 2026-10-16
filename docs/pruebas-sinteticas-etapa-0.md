@@ -10,13 +10,14 @@ Ejecutar: `npm install && npm test` (Node ≥ 22.18; usa `node:sqlite`, experime
 
 | Etiqueta | Qué es | Pruebas |
 |---|---|---|
-| `[memoria]` | Motor completo sobre un almacenamiento en memoria. Sin disco; "reinicio" no aplica. | 61 |
-| `[sqlite]` | El **mismo** motor sobre archivos SQLite (WAL, `synchronous=FULL`), con cierre y reapertura de la base (reinicio), pérdida de archivo y copia de respaldo. | 66 |
-| `[sqlite — proceso real]` | Un proceso hijo inicia una transacción y se le envía `SIGKILL`; se reabre el archivo. También el disparador de la base. | 3 |
-| `[memoria — lógica pura]` | Importación de catálogo, centavos, objeto de políticas. Sin nodos ni red. | 10 |
+| `[memoria]` | Motor completo sobre almacenamiento en memoria, todo en un proceso. Sin disco; "reinicio" no aplica. | 83 |
+| `[sqlite]` | El **mismo** motor sobre archivos SQLite (WAL, `synchronous=FULL`), en un proceso, con cierre y reapertura (reinicio), pérdida de archivo y copia de respaldo. | 88 |
+| `[procesos reales]` | **Un hub real y dos procesos de caja separados** (procesos del sistema operativo), cada uno con su archivo SQLite, hablando por HTTP en `127.0.0.1`; `kill -9` reales. Ver sección propia. | 11 |
+| `[sqlite — proceso real]` | Un proceso hijo inicia una transacción y se le envía `SIGKILL`; disparador de la base. | 3 |
+| `[memoria — lógica pura]` | Importación de catálogo, centavos, objeto de políticas. | 10 |
 
-Total: 140 pruebas, 0 fallos (última ejecución). La "pérdida de conexión" es un interruptor del
-transporte simulado (los mensajes no viajan por sockets); no es una red real.
+Total: **195 pruebas, 0 fallos** (última ejecución; `npm test` ≈ 21 s). Las pruebas de procesos se repitieron 4 veces seguidas sin
+variación. En las pruebas en un solo proceso, la "pérdida de conexión" es un interruptor del transporte simulado.
 
 ## Políticas pendientes: configuración explícita de ensayo
 
@@ -87,12 +88,44 @@ Hallazgos por estrategia:
 - Con hub, la autoridad **previene** la doble devolución. Con ambas cajas aisladas **no se puede prevenir**: ambas operaciones se conservan y se señala `devolucion_excede_vendido`. ✔
 - `kill -9` a mitad de una transacción: sin venta, folio ni cola parcial; lo confirmado antes sobrevive. La base rechaza tarjeta en caja solo-efectivo. ✔
 
+### Recuperación con movimientos disponibles vs. operaciones nunca replicadas (`11`)
+El informe de rehidratación separa dos clases y nunca estima la segunda:
+- **Recuperable** (existe en hub/central): catálogo, *todos* los movimientos de la tienda y las operaciones propias que sí llegaron. RP1 verifica el conteo exacto contra el hub.
+- **No replicado** (se perdió con el disco): contenido `desconocido`; se informa la evidencia disponible (rango de folios cubierto por el techo, o `ninguna`).
+- **Existencias**: toda la tienda queda `no_verificadas` (lo perdido no se puede atribuir a artículos). Las ventas no se frenan. Solo un **conteo físico** limpia la marca, artículo por artículo, mediante movimiento (contar 46 con saldo 50 → delta −4; contar de nuevo no suma). RP3–RP5. ✔
+- **Hub reconstruido desde el central** (RP6/RP7): restaura techos, reenvía el relevo perdido a las cajas y pide a las cajas reenviar lo que ellas conservan; si ninguna caja se perdió no hay existencias dudosas; si una caja también se perdió, se marca. ✔
+
+### Arbitraje del hub (`12`, en proceso; y `14`, con procesos reales)
+- AR1 carrera sin sincronizar: el hub concede la última pieza a una sola caja (P-02 `bloquear`); la rechazada no consume folio. ✔
+- AR2 `permitir_y_conciliar`: se conceden ambas, la segunda recibe `sobreventa:*` y queda −1 señalado. ✔
+- AR3/AR3b reintento idempotente; un rechazo o una liberación **no** se heredan en el reintento. AR4 fallo → reserva liberada. AR5 reserva huérfana vence por vigencia técnica. AR6 sin hub no hay reservas. ✔
+
+### Integración con procesos reales (`14`)
+Un proceso hub (servidor HTTP, SQLite) + dos procesos caja (motor completo, SQLite, cliente HTTP). Cada prueba crea archivos nuevos.
+- X1 venta de Caja 2 llega al hub y se refleja en Caja 1; series independientes. ✔
+- X2 24 ventas disparadas a la vez desde los dos procesos: folios 1..12 por caja sin huecos ni duplicados; existencias exactas en hub y cajas; reporte por caja conserva su serie. ✔
+- X3 8 rondas de la última pieza pedida simultáneamente (P-02 `bloquear`): **exactamente una** venta por ronda, la otra `SIN_EXISTENCIA`, sin saldo negativo, sin huecos de folio, reservas cerradas. ✔
+- X4 mismo escenario con `permitir_y_conciliar`: ambas proceden, solo una recibe el aviso, −1 señalado en las 4 rondas. ✔
+- X5 el hub procesa pero pierde 3 respuestas (conexión destruida) y doble envío simultáneo del mismo cobro: una venta, un movimiento, un folio. ✔
+- X6 **hub muerto con `kill -9`** y P-01 `vender_autonomo_con_aviso`: se vende aislado, al relanzar el hub (mismo archivo y puerto) convergen; sobreventa señalada, no perdida. ✔
+- X7 hub muerto con P-01 `bloquear_ventas_nuevas`: `VENTA_BLOQUEADA`, folio intacto, el carrito completa al volver. ✔
+- X8 el hub reiniciado conserva sus reservas; una reserva huérfana vence y la pieza vuelve a estar disponible. ✔
+- X9 **caja muerta con `kill -9`** con venta pendiente y carrito abierto: folio, carrito y cola sobreviven; reenvío sin duplicar. ✔
+- X10 partición de una caja (interruptor): converge. X11 el techo de folios del hub persiste a su reinicio. ✔
+
+### Resolución administrativa de códigos duplicados (`13`)
+Ver `arquitectura-etapa-0.md` §9. CD1 Administración ve artículos en conflicto, existencias por tienda y ventas con elección provisional; CD2 el cajero no
+puede listar ni resolver; CD3 reasignar código (se propaga a todas las cajas, conserva ceros, no toca tickets históricos); CD4 validaciones; CD5 fusionar
+(alias, existencias sumadas, Item # absorbido registrado, historia intacta); CD6 validaciones; CD7 una caja aislada sigue viendo el conflicto hasta recibir la resolución;
+CD8 una venta aislada del absorbido se cuenta bajo el vigente. ✔
+
 ## Verificación de que las pruebas detectan fallos
 
 Se rompió deliberadamente cada mecanismo y se confirmó que su prueba falla: deduplicación (receptor y almacenamiento),
 atomicidad de la venta, permiso del cajero, regla de Caja 2, bloqueo por disco nuevo, reutilización del intento de tarjeta,
 límite de devolución, relevo de inventario entre cajas, cerco por ticket y fusión por código. Las 10 mutaciones fueron
-detectadas (la primera, de una sola capa, no: hub y almacenamiento deduplican por separado).
+detectadas (la de una sola capa de deduplicación no: hub y almacenamiento deduplican por separado).
+En esta ronda se repitió con 7 mecanismos nuevos (arbitraje, cierre de reservas, marca de existencias, permiso de Administración, alcance del conteo, rechazo pegajoso, reenvío desde cajas): las 7 fueron detectadas.
 
 ## Fallos y hallazgos durante el desarrollo
 
@@ -101,16 +134,25 @@ detectadas (la primera, de una sola capa, no: hub y almacenamiento deduplican po
 3. **Item #.** Cada estrategia trae un costo distinto (pendiente, saltos, bloqueo tras pérdida); la elección es del propietario (P-07).
 4. **Doble devolución aislada y crédito/abono:** solo detección, no prevención.
 5. Tipos: un error de tipado en un auxiliar de pruebas, corregido. `npm run typecheck` pasa.
+6. **Rechazos y liberaciones pegajosos (hallado por X8 con procesos reales).** El hub devolvía el mismo "no" (y el mismo "sí" de una reserva ya liberada) al reintentar el mismo carrito. Corregido: solo se repite lo vigente; el resto se reevalúa. Las pruebas en un solo proceso no lo habían visto.
+7. **Reconstruir un hub no basta con copiar del central.** Se pierden la cola de relevo hacia las cajas y las confirmaciones: se añadió el reenvío completo desde las cajas, que conservan sus operaciones y los movimientos de su par.
+8. **Divergencia tras pérdida doble (RP7):** el *movimiento* de una venta puede sobrevivir en la caja par y la *venta* (folio, pagos) no. Existencias y registro de ventas quedan inconsistentes hasta un conteo físico.
+9. **La marca de existencias es de toda la tienda** porque lo perdido no se puede atribuir a artículos. Acotarla exigiría numerar las operaciones de cada caja (secuencia propia) para detectar huecos; propuesto, no implementado.
 
 ## Limitaciones (no se declara validado)
 
-- **Sin concurrencia real.** El simulador es de un solo hilo; las "carreras" son entrelazados escritos a mano. No se modeló el arbitraje del hub ni dos procesos escribiendo el mismo SQLite.
-- **Sin red real**: no hay sockets, latencia, pérdida parcial ni reloj desfasado. Un "hub caído" es un interruptor.
+- **Concurrencia parcial.** Las pruebas `[procesos reales]` sí ejecutan dos cajas en paralelo contra un hub real. Aun así: el árbitro es correcto porque el hub procesa cada solicitud de forma síncrona en un solo hilo; no se probó un hub con varios hilos ni dos procesos escribiendo el mismo archivo SQLite. Las pruebas en un solo proceso siguen usando entrelazados escritos a mano.
+- **Red local de laboratorio, no una red real.** Todo corre en una sola máquina Linux por `127.0.0.1`: sin latencia, pérdida parcial de paquetes, reordenamiento, reloj desfasado ni Windows. Las fallas son: `kill -9` de procesos (reales), conexión destruida tras procesar (real) y un interruptor de partición (simulado). Nunca se probó un cable desconectado ni un `switch` caído.
+- **Sin autenticación ni cifrado**: cualquier proceso local puede llamar al hub. Un hub real requiere emparejamiento/credenciales por equipo.
+- **Sincronización explícita**: en las pruebas la caja sincroniza cuando la prueba lo ordena; no hay sincronización automática en segundo plano, ni reintentos con espera creciente.
+- **La llamada HTTP bloqueante de la caja** (hilo auxiliar + `Atomics.wait`) es una técnica de laboratorio para conservar el motor síncrono; no se recomienda como diseño final de la aplicación.
+- **Sin central** en las pruebas de procesos: el enlace hub↔central solo existe en las pruebas de un solo proceso.
 - **SQLite**: `node:sqlite` es experimental y no es necesariamente el controlador de producción. `kill -9` prueba atomicidad ante caída del proceso, **no** corte de energía ni fallo de disco.
 - **Recuperación**: la restauración usa copias de archivo del propio simulador. **No se validó ningún procedimiento real de respaldo/restauración.** Las ventas perdidas con el disco no se recuperan.
 - **Hub**: se probó perder hub y caja a la vez solo en dos casos (R3/R3b); la recuperación del propio hub no está modelada más allá de eso.
 - **Permisos**: se imponen en las funciones de consulta con un `Actor` ya dado; no hay autenticación, PIN, ni propagación de cambios de permisos sin conexión.
 - **Alcance no cubierto**: apartados, crédito de empleadas, descuentos programables, ticket de regalo/impresión, cambios con renglón negativo (sin serie propia: P-08), conteo por denominaciones, reembolso a tarjeta, exportación `.xlsx` real, panel remoto, UI.
 - **Hardware**: nada probado con impresora, cajón, escáner ni terminal.
+- **Marcas de existencias**: un conteo físico es manual; no hay flujo guiado ni importación de conteo (propósito 4 del Excel) todavía.
 - **Catálogo compartido entre tiendas** se asumió en las pruebas de alta (P-10 pendiente).
 - **Incidencias**: se detectan a demanda sobre la bitácora; no hay flujo de resolución persistente.

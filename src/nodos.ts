@@ -1,13 +1,15 @@
 import { ErrorDominio } from './errores.ts';
 import type { Politicas } from './politicas.ts';
-import { catalogo, devoluciones, devueltoPorLinea, intentos, stock, ventas, type Devolucion, type Intento } from './proyecciones.ts';
+import { catalogo, devoluciones, devueltoPorLinea, existenciaVerificada, intentos, resolverAlias, stock, ventas, type Devolucion, type ExistenciaVerificada, type Intento } from './proyecciones.ts';
 import type { Repo } from './repo.ts';
 import { validarOpEntrante } from './reglas.ts';
 import type { Articulo, CajaCfg, Linea, Op, Pago, Venta } from './tipos.ts';
-import { crearOp, fechaLocal, uuid, type Reloj } from './util.ts';
+import { crearOp, fechaLocal, uuid } from './util.ts';
 
 export interface Ctx {
-  reloj: Reloj;
+  reloj: { now(): string };
+  /** Parámetro técnico (no comercial): vigencia de una reserva del hub que nadie confirmó. */
+  ttlReservaMs: number;
   politicas: Politicas;
   cajasCfg: CajaCfg[];
   tiendas: string[];
@@ -30,10 +32,31 @@ export interface Enlace {
   bloqueItemNo(k: number): { desde: number; hasta: number } | null;
   consultarVenta(saleId: string): Venta | null;
   devueltoAutoritativo(saleId: string): Map<string, { qty: number; importe: number }> | null;
+  /** Arbitraje del hub sobre existencias. null = el hub no respondió. Idempotente por `ref`. */
+  reservar(ref: string, caja: number, lineas: { item_id: string; qty: number }[]): ResultadoReserva | null;
+  liberar(ref: string): void;
 }
 
-const BROADCAST_TIENDA = new Set(['inv.movement', 'item.created', 'item.item_no_assigned']);
-const CATALOGO = new Set(['item.created', 'item.item_no_assigned']);
+export interface ResultadoReserva {
+  ok: boolean;
+  motivo?: string;
+  /** Artículos con existencia insuficiente que se concedieron de todos modos (P-02=permitir_y_conciliar). */
+  sobreventa?: string[];
+  faltantes?: string[];
+  idempotente?: boolean;
+}
+
+interface Reserva {
+  ref: string;
+  caja: number;
+  lineas: { item_id: string; qty: number }[];
+  hasta: number;
+  estado: 'abierta' | 'cerrada' | 'liberada';
+  resultado: ResultadoReserva;
+}
+
+const BROADCAST_TIENDA = new Set(['inv.movement', 'inv.conteo', 'inv.verificacion_pendiente', 'item.created', 'item.item_no_assigned']);
+const CATALOGO = new Set(['item.created', 'item.item_no_assigned', 'item.codigo_corregido', 'item.fusion']);
 
 // ───────────────────────────── Hub ─────────────────────────────
 
@@ -65,6 +88,7 @@ export class Hub {
         return;
       }
       this.repo.appendOp(op);
+      if (op.tipo === 'inv.movement' && op.payload.tipo === 'venta') this.consumirReserva(op.payload.doc, op.payload.item_id, -op.payload.delta);
       if (desde.startsWith('caja:')) {
         this.repo.encolar(op.op_id, 'central');
         if (BROADCAST_TIENDA.has(op.tipo)) {
@@ -74,6 +98,67 @@ export class Hub {
         for (const n of this.cajasDeTienda()) this.repo.encolar(op.op_id, `caja:${this.tienda}/${n}`);
       }
     });
+  }
+
+  // ── arbitraje de existencias ──
+  private reservas(): Reserva[] {
+    return this.repo.kvGet<Reserva[]>('reservas') ?? [];
+  }
+  /**
+   * Serializa la concesión de existencias entre cajas. Disponible = saldo del hub − reservas abiertas y vigentes.
+   * La reserva se cierra renglón por renglón cuando llega el movimiento de venta correspondiente, así que no hay
+   * ventana en la que la pieza esté libre mientras la venta viaja de la caja al hub.
+   */
+  reservar(ref: string, caja: number, lineas: { item_id: string; qty: number }[]): ResultadoReserva {
+    const ahora = Date.parse(this.ctx.reloj.now());
+    const previa = this.reservas().find((r) => r.ref === ref);
+    // Solo se repite la respuesta de lo que sigue vigente (reserva abierta o ya consumida por su venta).
+    // Un rechazo, una liberación o una vigencia vencida se vuelven a evaluar: reintentar no hereda un "no" viejo
+    // ni un "sí" que ya no aparta existencia.
+    if (previa && (previa.estado === 'cerrada' || (previa.estado === 'abierta' && previa.hasta > ahora))) return { ...previa.resultado, idempotente: true };
+    const todas = this.reservas().filter((r) => r.ref !== ref);
+    const abiertas = todas.filter((r) => r.estado === 'abierta' && r.hasta > ahora);
+    const saldo = stock(this.repo.ops(), this.tienda);
+    const pedido = new Map<string, number>();
+    for (const l of lineas) pedido.set(l.item_id, (pedido.get(l.item_id) ?? 0) + l.qty);
+    const faltantes: string[] = [];
+    for (const [item, q] of pedido) {
+      const apartado = abiertas.reduce((a, r) => a + r.lineas.filter((l) => l.item_id === item).reduce((b, l) => b + l.qty, 0), 0);
+      if ((saldo.get(item) ?? 0) - apartado < q) faltantes.push(item);
+    }
+    if (faltantes.length && this.ctx.politicas.P02_existencia_insuficiente === 'bloquear') {
+      this.repo.kvSet('reservas', todas); // un rechazo no se guarda
+      return { ok: false, motivo: 'existencia_insuficiente', faltantes };
+    }
+    const resultado: ResultadoReserva = faltantes.length ? { ok: true, sobreventa: faltantes } : { ok: true };
+    this.repo.kvSet('reservas', [...todas, { ref, caja, lineas: [...pedido].map(([item_id, qty]) => ({ item_id, qty })), hasta: ahora + this.ctx.ttlReservaMs, estado: 'abierta' as const, resultado }]);
+    return resultado;
+  }
+  liberar(ref: string): void {
+    this.repo.kvSet('reservas', this.reservas().map((r) => (r.ref === ref && r.estado === 'abierta' ? { ...r, estado: 'liberada' as const } : r)));
+  }
+  private consumirReserva(ref: string, itemId: string, qty: number) {
+    const todas = this.reservas();
+    if (!todas.some((r) => r.ref === ref && r.estado === 'abierta')) return;
+    this.repo.kvSet('reservas', todas.map((r) => {
+      if (r.ref !== ref || r.estado !== 'abierta') return r;
+      const lineas = r.lineas.map((l) => (l.item_id === itemId ? { ...l, qty: Math.max(0, l.qty - qty) } : l)).filter((l) => l.qty > 0);
+      return lineas.length ? { ...r, lineas } : { ...r, lineas, estado: 'cerrada' as const };
+    }));
+  }
+  reservasAbiertas(): Reserva[] {
+    const ahora = Date.parse(this.ctx.reloj.now());
+    return this.reservas().filter((r) => r.estado === 'abierta' && r.hasta > ahora);
+  }
+
+  /** Marca el inventario de la tienda como no verificable tras reconstruir este hub desde el central. */
+  registrarRehidratacion(informe: object) {
+    const op = crearOp('inv.verificacion_pendiente', this.tienda, null, this.id, this.ctx.reloj.now(), { tienda: this.tienda, caja: null, motivo: 'hub_reconstruido_desde_central', ...informe });
+    if (this.repo.appendOp(op)) {
+      this.repo.encolar(op.op_id, 'central');
+      for (const n of this.cajasDeTienda()) this.repo.encolar(op.op_id, `caja:${this.tienda}/${n}`);
+    }
+    return op;
   }
 
   hwm(caja: number): number {
@@ -136,6 +221,16 @@ export class Central {
         }
       }
     });
+  }
+
+  /** Consola de Administración: operaciones del central que se propagan a todos los hubs y cajas. */
+  emitirAdmin(tipo: string, payload: unknown): Op {
+    const op = crearOp(tipo, null, null, this.id, this.ctx.reloj.now(), payload);
+    this.repo.tx(() => {
+      this.repo.appendOp(op);
+      for (const t of this.ctx.tiendas) this.repo.encolar(op.op_id, `hub:${t}`);
+    });
+    return op;
   }
 
   anclas(tienda: string, caja: number): Anclas {
@@ -337,7 +432,7 @@ export class Caja {
 
   // ── catálogo y altas (incluye alta sin internet) ──
   buscarPorCodigo(codigo: string): Articulo[] {
-    return [...catalogo(this.ops()).values()].filter((a) => a.codigo === codigo);
+    return [...catalogo(this.ops()).values()].filter((a) => a.codigo === codigo && !a.alias_de);
   }
 
   altaArticulo(d: { codigo: string; marca: string; descripcion: string; estilo: string; lote: string; departamento: string; precio: number; existencia_inicial?: number }): Articulo {
@@ -379,6 +474,31 @@ export class Caja {
     });
   }
 
+  // ── verificación de existencias ──
+  /** Marca TODA la existencia de la tienda como no verificable: lo perdido no se puede atribuir a artículos concretos. */
+  registrarRehidratacion(informe: object): Op {
+    const op = this.emitir('inv.verificacion_pendiente', { tienda: this.tienda, caja: this.caja, motivo: 'operaciones_no_replicadas_posibles', ...informe });
+    return op;
+  }
+  existenciaVerificada(itemId: string): ExistenciaVerificada {
+    const cat = catalogo(this.ops());
+    return existenciaVerificada(this.ops(), this.tienda, resolverAlias(cat, itemId));
+  }
+  articulosNoVerificados(): string[] {
+    const ops = this.ops();
+    return [...catalogo(ops).values()].filter((a) => !a.alias_de && !existenciaVerificada(ops, this.tienda, a.item_id).verificada).map((a) => a.item_id);
+  }
+  /** Conteo físico: ajusta a lo contado mediante movimiento (contar 10 deja 10) y limpia SOLO la marca de ese artículo. */
+  contarFisico(itemId: string, contado: number, usuario: string) {
+    const previo = this.existenciaVerificada(itemId);
+    const delta = contado - previo.saldo;
+    this.repo.tx(() => {
+      this.emitir('inv.conteo', { item_id: itemId, tienda: this.tienda, contado, saldo_previo: previo.saldo, delta, usuario, cubre: previo.pendientes });
+      this.emitir('inv.movement', { item_id: itemId, tienda: this.tienda, delta, tipo: 'conteo', doc: `conteo:${itemId}`, caja: this.caja });
+    });
+    return { saldo_previo: previo.saldo, delta };
+  }
+
   // ── carrito (borrador durable) ──
   private cartGet(id: string): Carrito {
     const c = this.repo.kvGet<Carrito>(`cart:${id}`);
@@ -406,8 +526,10 @@ export class Caja {
     const c = this.cartGet(cartId);
     this.exigirSinCobroPendiente(c);
     let art: Articulo | undefined;
-    if (l.item_id) art = catalogo(this.ops()).get(l.item_id);
-    else {
+    if (l.item_id) {
+      const cat = catalogo(this.ops());
+      art = cat.get(resolverAlias(cat, l.item_id)); // un artículo fusionado redirige al vigente
+    } else {
       const r = this.buscarPorCodigo(l.codigo!);
       if (r.length > 1) throw new ErrorDominio('CODIGO_AMBIGUO', `el código ${l.codigo} corresponde a ${r.length} artículos`, r.map((a) => a.item_id));
       art = r[0];
@@ -419,6 +541,9 @@ export class Caja {
       linea_id: uuid(), item_id: art.item_id, codigo: art.codigo, descripcion: art.descripcion,
       qty: l.qty, precio_unit: precio, descuento, importe: l.qty * precio - descuento,
     };
+    const candidatos = this.buscarPorCodigo(art.codigo).map((a) => a.item_id);
+    // Elección provisional ante un código duplicado: se marca para que Administración la revise.
+    if (candidatos.length > 1) linea.ambiguo = { codigo: art.codigo, candidatos };
     c.lineas.push(linea);
     this.repo.tx(() => {
       this.repo.kvSet(`cart:${cartId}`, c);
@@ -449,7 +574,8 @@ export class Caja {
     if (previa) return ventas([previa]).get(cartId)!; // doble clic / reintento: misma venta, mismo folio
     const c = this.cartGet(cartId);
     this.exigirSinCobroPendiente(c);
-    if (!this.enlace.hubAlcanzable() && this.ctx.politicas.P01_hub_no_disponible === 'bloquear_ventas_nuevas') {
+    const hubOk = this.enlace.hubAlcanzable();
+    if (!hubOk && this.ctx.politicas.P01_hub_no_disponible === 'bloquear_ventas_nuevas') {
       throw new ErrorDominio('VENTA_BLOQUEADA', 'hub no disponible (P-01 en ensayo: bloquear_ventas_nuevas); el carrito se conserva');
     }
     if (c.lineas.length === 0) throw new ErrorDominio('CARRITO_VACIO', cartId);
@@ -459,14 +585,39 @@ export class Caja {
       // Un cobro con tarjeta solo entra por un intento persistido y resuelto (iniciarCobroTarjeta/resolverIntento).
       throw new ErrorDominio('TARJETA_REQUIERE_INTENTO', 'el cobro con tarjeta debe pasar por un intento registrado antes de usar la terminal');
     }
-    if (this.ctx.politicas.P02_existencia_insuficiente === 'bloquear') {
-      const st = stock(this.ops(), this.tienda);
-      const pedido = new Map<string, number>();
-      for (const l of c.lineas) pedido.set(l.item_id, (pedido.get(l.item_id) ?? 0) + l.qty);
-      for (const [item, q] of pedido) if ((st.get(item) ?? 0) < q) throw new ErrorDominio('SIN_EXISTENCIA', `existencia insuficiente de ${item}`);
+    // Arbitraje: con hub, la existencia la concede el hub (serializa a las dos cajas); sin hub, rige la vista local.
+    let reservado = false;
+    let avisos: string[] = [];
+    if (hubOk) {
+      const r = this.enlace.reservar(c.id, this.caja, c.lineas.map((l) => ({ item_id: l.item_id, qty: l.qty })));
+      if (r === null) {
+        if (this.ctx.politicas.P01_hub_no_disponible === 'bloquear_ventas_nuevas') throw new ErrorDominio('VENTA_BLOQUEADA', 'el hub dejó de responder durante la venta');
+        this.exigirExistenciaLocal(c);
+      } else if (!r.ok) {
+        throw new ErrorDominio('SIN_EXISTENCIA', `el hub no concede existencia de ${(r.faltantes ?? []).join(', ')}`, r);
+      } else {
+        reservado = true;
+        avisos = (r.sobreventa ?? []).map((i) => `sobreventa:${i}`);
+      }
+    } else {
+      this.exigirExistenciaLocal(c);
     }
-    this.renovarSiHaceFalta();
-    return this.confirmar(c, pagos, cajero);
+    try {
+      this.renovarSiHaceFalta();
+      const v = this.confirmar(c, pagos, cajero);
+      return avisos.length ? { ...v, avisos } : v;
+    } catch (e) {
+      if (reservado) this.enlace.liberar(c.id);
+      throw e;
+    }
+  }
+
+  private exigirExistenciaLocal(c: Carrito) {
+    if (this.ctx.politicas.P02_existencia_insuficiente !== 'bloquear') return;
+    const st = stock(this.ops(), this.tienda);
+    const pedido = new Map<string, number>();
+    for (const l of c.lineas) pedido.set(l.item_id, (pedido.get(l.item_id) ?? 0) + l.qty);
+    for (const [item, q] of pedido) if ((st.get(item) ?? 0) < q) throw new ErrorDominio('SIN_EXISTENCIA', `existencia insuficiente de ${item}`);
   }
 
   /** Una sola transacción: folio + venta + movimientos + cola de salida. Todo o nada. */

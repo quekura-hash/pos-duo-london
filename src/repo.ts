@@ -13,6 +13,8 @@ export interface Repo {
   encolar(opId: string, destino: string): void;
   pendientes(destino: string): Op[];
   ack(opId: string, destino: string): void;
+  /** Vuelve a dejar pendiente (acked=0) una operación ya confirmada: reenvío completo tras reconstruir al destinatario. */
+  reencolar(opId: string, destino: string): void;
   kvGet<T>(k: string): T | undefined;
   kvSet(k: string, v: unknown): void;
   cerrar(): void;
@@ -76,6 +78,9 @@ export class MemoriaRepo implements Repo {
   }
   ack(opId: string, destino: string) {
     this.e.outbox.set(`${opId}|${destino}`, true);
+  }
+  reencolar(opId: string, destino: string) {
+    this.e.outbox.set(`${opId}|${destino}`, false);
   }
   kvGet<T>(k: string) {
     const v = this.e.kv.get(k);
@@ -175,6 +180,9 @@ export class SqliteRepo implements Repo {
   }
   ack(opId: string, destino: string) {
     this.db.prepare('UPDATE outbox SET acked=1 WHERE op_id=? AND destino=?').run(opId, destino);
+  }
+  reencolar(opId: string, destino: string) {
+    this.db.prepare('INSERT INTO outbox(op_id,destino,acked) VALUES (?,?,0) ON CONFLICT(op_id,destino) DO UPDATE SET acked=0').run(opId, destino);
   }
   kvGet<T>(k: string) {
     const r = this.db.prepare('SELECT v FROM kv WHERE k=?').get(k) as { v: string } | undefined;

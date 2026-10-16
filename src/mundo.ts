@@ -5,6 +5,7 @@ import type { Politicas } from './politicas.ts';
 import { devueltoPorLinea, ventas } from './proyecciones.ts';
 import { MemoriaRepo, SqliteRepo, type Repo } from './repo.ts';
 import type { Articulo, CajaCfg, Op } from './tipos.ts';
+import { opsSemilla } from './semilla.ts';
 import { Reloj } from './util.ts';
 
 export interface FabricaRepo {
@@ -60,6 +61,22 @@ export const CAJAS_ESTANDAR: CajaCfg[] = [
   { tienda: 'LON', caja: 2, metodos: ['efectivo'] },
 ];
 
+export interface InformeRehidratacion {
+  fuentes: string[];
+  recuperado: { catalogo: number; movimientos: number; operaciones_propias: number };
+  no_replicado: {
+    alcance: 'operaciones_propias_de_la_caja' | 'operaciones_originadas_solo_en_el_hub' | 'operaciones_del_hub_y_de_cajas_perdidas';
+    contenido: 'desconocido';
+    evidencia: 'techo_de_folios' | 'ninguna';
+    folios_sin_evidencia: { desde: number; hasta: number } | null;
+  };
+  existencias: { estado: 'no_verificadas' | 'verificables_si_las_cajas_reenvian'; alcance: 'todos_los_articulos_de_la_tienda' | 'ninguno'; verificacion_op: string | null };
+  /** Operaciones que las cajas vuelven a enviar al hub reconstruido (conservan sus propias operaciones). */
+  reenviadas_por_cajas?: number;
+  /** Compatibilidad: total de operaciones copiadas. */
+  copiadas: number;
+}
+
 export interface OpcionesMundo {
   fabrica: FabricaRepo;
   politicas: Politicas;
@@ -88,7 +105,7 @@ export class Mundo {
     const cajasCfg = o.cajasCfg ?? CAJAS_ESTANDAR;
     this.fabrica = o.fabrica;
     this.ctx = {
-      reloj: this.reloj, politicas: o.politicas, cajasCfg,
+      reloj: this.reloj, ttlReservaMs: 120_000, politicas: o.politicas, cajasCfg,
       tiendas: [...new Set(cajasCfg.map((c) => c.tienda))], catalogoCompartido: o.catalogoCompartido ?? true,
     };
     this.central = new Central(this.abrir('central'), this.ctx);
@@ -138,6 +155,8 @@ export class Mundo {
         return { ceiling: techos.length ? Math.max(...techos) : null, hwm: Math.max(...fuentes.map((f) => f.hwm)), fuente: fuentes.map((f) => f.fuente).join('+') };
       },
       bloqueItemNo: (k) => (w.centralArriba(t, n) ? w.central.bloqueItemNo(k) : null),
+      reservar: (ref, caja, lineas) => (w.hubArriba(t, n) ? w.hub(t).reservar(ref, caja, lineas) : null),
+      liberar: (ref) => { if (w.hubArriba(t, n)) w.hub(t).liberar(ref); },
       consultarVenta(saleId) {
         if (w.hubArriba(t, n)) {
           const v = ventas(w.hub(t).repo.ops()).get(saleId);
@@ -184,20 +203,102 @@ export class Mundo {
     return c;
   }
   /**
-   * Reconstruye una caja con almacenamiento nuevo desde el hub: catálogo, movimientos de la tienda y las
-   * operaciones propias que el hub sí recibió. Lo que nunca llegó al hub NO se recupera por esta vía.
+   * Reconstruye una caja desde los nodos alcanzables (hub y, si llega, central).
+   * Separa DOS clases de información:
+   *  - recuperable: lo que existe en esas fuentes (catálogo, todos los movimientos de la tienda, operaciones propias recibidas);
+   *  - no replicado: lo que la caja nunca envió y se perdió con su disco. Su contenido es DESCONOCIDO y se marca; no se estima.
    */
-  rehidratarCaja(t: string, n: number): { copiadas: number } {
-    if (!this.hubArriba(t, n)) throw new Error('sin acceso al hub: no se puede rehidratar');
+  rehidratarCaja(t: string, n: number): InformeRehidratacion {
+    const fuentes: { nombre: string; ops: Op[] }[] = [];
+    if (this.hubArriba(t, n)) fuentes.push({ nombre: 'hub', ops: this.hub(t).repo.ops() });
+    if (this.centralArriba(t, n)) fuentes.push({ nombre: 'central', ops: this.central.repo.ops() });
+    if (!fuentes.length) throw new Error('sin acceso al hub ni al central: no se puede rehidratar');
     const caja = this.caja(t, n);
-    let copiadas = 0;
-    for (const op of this.hub(t).repo.ops()) {
-      const catalogoOMov = op.tipo.startsWith('item.') || (op.tipo === 'inv.movement' && op.payload.tienda === t);
-      const propia = op.tienda === t && op.caja === n && !op.tipo.startsWith('folio.lease');
-      if ((catalogoOMov || propia) && caja.repo.appendOp(op)) copiadas++;
+    const rec = { catalogo: 0, movimientos: 0, operaciones_propias: 0 };
+    for (const f of fuentes) {
+      for (const op of f.ops) {
+        const esCatalogo = op.tipo.startsWith('item.');
+        const esInv = op.tipo.startsWith('inv.') && op.payload?.tienda === t;
+        const esPropia = op.tienda === t && op.caja === n && !op.tipo.startsWith('folio.lease') && !op.tipo.startsWith('inv.');
+        if (!(esCatalogo || esInv || esPropia)) continue;
+        if (caja.repo.appendOp(op)) {
+          if (esCatalogo) rec.catalogo++;
+          else if (esInv) rec.movimientos++;
+          else rec.operaciones_propias++;
+        }
+      }
     }
-    return { copiadas };
+    const an = caja.enlace.anclasFolios();
+    const sinEvidencia = an && an.ceiling != null && an.ceiling > an.hwm ? { desde: an.hwm + 1, hasta: an.ceiling } : null;
+    const no_replicado = {
+      alcance: 'operaciones_propias_de_la_caja' as const,
+      contenido: 'desconocido' as const,
+      evidencia: an?.ceiling != null ? ('techo_de_folios' as const) : ('ninguna' as const),
+      folios_sin_evidencia: sinEvidencia,
+    };
+    const marca = caja.registrarRehidratacion({ fuentes: fuentes.map((f) => f.nombre), recuperado: rec, no_replicado });
+    return {
+      fuentes: fuentes.map((f) => f.nombre), recuperado: rec, no_replicado,
+      existencias: { estado: 'no_verificadas', alcance: 'todos_los_articulos_de_la_tienda', verificacion_op: marca.op_id },
+      copiadas: rec.catalogo + rec.movimientos + rec.operaciones_propias,
+    };
   }
+
+  /** Reconstruye un hub desde el central. Lo que solo estuvo en el hub (nunca llegó al central) se pierde y se marca. */
+  rehidratarHub(t: string): InformeRehidratacion {
+    if (this.internet.get(t) === false || this.centralCaido) throw new Error('sin acceso al central');
+    const hub = this.hub(t);
+    const rec = { catalogo: 0, movimientos: 0, operaciones_propias: 0 };
+    const techos = new Map<number, number>();
+    for (const op of this.central.repo.ops()) {
+      const esCatalogo = op.tipo.startsWith('item.');
+      const esInv = op.tipo.startsWith('inv.') && op.payload?.tienda === t;
+      const esTienda = op.tienda === t && !op.tipo.startsWith('inv.');
+      if (op.tipo === 'folio.lease_granted' && op.tienda === t) techos.set(op.caja!, Math.max(techos.get(op.caja!) ?? 0, op.payload.techo));
+      if (!(esCatalogo || esInv || esTienda)) continue;
+      if (hub.repo.appendOp(op)) {
+        if (esCatalogo) rec.catalogo++;
+        else if (esInv) rec.movimientos++;
+        else rec.operaciones_propias++;
+      }
+    }
+    for (const [caja, techo] of techos) hub.repo.kvSet(`techo:${caja}`, techo);
+    // La cola de relevo del hub se perdió: se reenvía a las cajas todo el catálogo e inventario (las cajas deduplican).
+    for (const op of hub.repo.ops()) {
+      if (op.tipo.startsWith('item.') || (op.tipo.startsWith('inv.') && op.payload?.tienda === t)) {
+        for (const c of this.ctx.cajasCfg.filter((x) => x.tienda === t)) hub.repo.encolar(op.op_id, `caja:${t}/${c.caja}`);
+      }
+    }
+    // Las cajas conservan sus propias operaciones: se les pide reenviar todo lo que el hub reconstruido no tenga.
+    let reenviadas = 0;
+    let cajaPerdida = false;
+    for (const c of this.ctx.cajasCfg.filter((x) => x.tienda === t)) {
+      const caja = this.caja(t, c.caja);
+      if (caja.estadoFolios().estado !== 'activa') cajaPerdida = true;
+      for (const op of caja.repo.ops()) {
+        const propia = op.caja === c.caja && op.tienda === t && !op.tipo.startsWith('folio.lease');
+        const compartida = op.tipo.startsWith('item.') || (op.tipo.startsWith('inv.') && op.payload?.tienda === t); // lo que la caja aprendió de su par
+        if ((propia || compartida) && !hub.repo.tieneOp(op.op_id)) {
+          caja.repo.reencolar(op.op_id, `hub:${t}`);
+          reenviadas++;
+        }
+      }
+    }
+    // Si alguna caja también perdió su historia, lo que solo vivía en el hub y en esa caja es irrecuperable.
+    const no_replicado = {
+      alcance: cajaPerdida ? ('operaciones_del_hub_y_de_cajas_perdidas' as const) : ('operaciones_originadas_solo_en_el_hub' as const),
+      contenido: 'desconocido' as const, evidencia: 'ninguna' as const, folios_sin_evidencia: null,
+    };
+    const marca = cajaPerdida ? hub.registrarRehidratacion({ fuentes: ['central'], recuperado: rec, no_replicado }) : null;
+    return {
+      fuentes: ['central'], recuperado: rec, no_replicado, reenviadas_por_cajas: reenviadas,
+      existencias: cajaPerdida
+        ? { estado: 'no_verificadas', alcance: 'todos_los_articulos_de_la_tienda', verificacion_op: marca!.op_id }
+        : { estado: 'verificables_si_las_cajas_reenvian', alcance: 'ninguno', verificacion_op: null },
+      copiadas: rec.catalogo + rec.movimientos + rec.operaciones_propias,
+    };
+  }
+
   respaldarCaja(t: string, n: number): string {
     return this.fabrica.respaldar!(this.repos.get(`caja-${t}-${n}`)!, `caja-${t}-${n}`);
   }
@@ -223,19 +324,10 @@ export class Mundo {
 
   // ── catálogo sintético (migración inicial: existencia inicial como movimientos) ──
   sembrar(items: Omit<Articulo, 'item_id' | 'origen'>[], existencias: Record<string, number>[] = []): Articulo[] {
-    const out: Articulo[] = items.map((x, i) => ({ ...x, item_id: `seed${i + 1}`, origen: 'migracion' }));
+    const { articulos, ops } = opsSemilla(items, existencias, this.reloj.now());
     const repos = [this.central.repo, ...[...this.hubs.values()].map((h) => h.repo), ...[...this.cajas.values()].map((c) => c.repo)];
-    out.forEach((a, i) => {
-      for (const r of repos) {
-        r.appendOp({ op_id: `item:${a.item_id}`, tipo: 'item.created', tienda: null, caja: null, origen: 'migracion', ocurrio_en: this.reloj.now(), payload: a });
-      }
-      for (const [t, q] of Object.entries(existencias[i] ?? {})) {
-        for (const r of repos) {
-          r.appendOp({ op_id: `seed:mov:${a.item_id}:${t}`, tipo: 'inv.movement', tienda: t, caja: null, origen: 'migracion', ocurrio_en: this.reloj.now(), payload: { item_id: a.item_id, tienda: t, delta: q, tipo: 'existencia_inicial', doc: 'migracion' } });
-        }
-      }
-    });
-    return out;
+    for (const r of repos) for (const op of ops) r.appendOp(op);
+    return articulos;
   }
 
   // ── transporte: entrega con ack, reintento y pérdida de ack inyectable ──

@@ -12,19 +12,63 @@ export function catalogo(ops: Op[]): Map<string, Articulo> {
       const a = m.get(o.payload.item_id);
       if (a && a.item_no == null) a.item_no = o.payload.item_no;
     }
+    // Resoluciones administrativas de códigos duplicados (con auditoría en el payload).
+    if (o.tipo === 'item.codigo_corregido') {
+      const a = m.get(o.payload.item_id);
+      if (a) a.codigo = o.payload.codigo_nuevo;
+    }
+    if (o.tipo === 'item.fusion') {
+      const a = m.get(o.payload.absorbido_id);
+      if (a) a.alias_de = o.payload.conservado_id;
+    }
   }
   return m;
+}
+
+/** Sigue la cadena de fusiones hasta el artículo vigente. */
+export function resolverAlias(cat: Map<string, Articulo>, id: string): string {
+  let actual = id;
+  for (let i = 0; i < 10; i++) {
+    const a = cat.get(actual);
+    if (!a?.alias_de) return actual;
+    actual = a.alias_de;
+  }
+  return actual;
 }
 
 /** Existencia = suma de movimientos de la tienda. Nunca "último saldo recibido". */
 export function stock(ops: Op[], tienda: string): Map<string, number> {
   const m = new Map<string, number>();
+  const fusiones = ops.some((o) => o.tipo === 'item.fusion');
+  const cat = fusiones ? catalogo(ops) : null;
   for (const o of ops) {
     if (o.tipo === 'inv.movement' && o.payload.tienda === tienda) {
-      m.set(o.payload.item_id, (m.get(o.payload.item_id) ?? 0) + o.payload.delta);
+      const id = cat ? resolverAlias(cat, o.payload.item_id) : o.payload.item_id;
+      m.set(id, (m.get(id) ?? 0) + o.payload.delta);
     }
   }
   return m;
+}
+
+export interface ExistenciaVerificada {
+  saldo: number;
+  verificada: boolean;
+  /** Ids de las marcas `inv.verificacion_pendiente` que aún cubren este artículo. */
+  pendientes: string[];
+}
+
+/**
+ * Una existencia es NO verificada mientras haya una marca de verificación pendiente de la tienda que no haya
+ * sido cubierta por un conteo físico de ese artículo. Solo un conteo físico la limpia.
+ */
+export function existenciaVerificada(ops: Op[], tienda: string, itemId: string): ExistenciaVerificada {
+  const pend = ops.filter((o) => o.tipo === 'inv.verificacion_pendiente' && o.payload.tienda === tienda).map((o) => o.op_id);
+  const cubiertas = new Set<string>();
+  for (const o of ops) {
+    if (o.tipo === 'inv.conteo' && o.payload.tienda === tienda && o.payload.item_id === itemId) for (const id of o.payload.cubre) cubiertas.add(id);
+  }
+  const pendientes = pend.filter((id) => !cubiertas.has(id));
+  return { saldo: stock(ops, tienda).get(itemId) ?? 0, verificada: pendientes.length === 0, pendientes };
 }
 
 export function ventas(ops: Op[]): Map<string, Venta> {

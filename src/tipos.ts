@@ -29,6 +29,8 @@ export interface Linea {
   precio_unit: number;
   descuento: number;
   importe: number;
+  /** Vendida mientras su código estaba duplicado: la elección fue provisional y queda para revisión administrativa. */
+  ambiguo?: { codigo: string; candidatos: string[] };
 }
 
 export interface Venta {
@@ -42,6 +44,8 @@ export interface Venta {
   total: number;
   pagos: Pago[];
   estado: 'confirmada' | 'cancelada';
+  /** Avisos del arbitraje del hub al confirmar (p. ej. sobreventa). No forman parte de la operación persistida. */
+  avisos?: string[];
 }
 
 export interface Articulo {
@@ -55,6 +59,8 @@ export interface Articulo {
   departamento: string;
   precio: number;
   origen: string;
+  /** Si no es null, este registro fue fusionado explícitamente por Administración con otro artículo. */
+  alias_de?: string | null;
 }
 
 export interface CajaCfg {
