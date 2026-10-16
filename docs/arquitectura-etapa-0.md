@@ -17,6 +17,16 @@ por omisión silencioso.
 - Importes en centavos enteros. Hora en UTC con zona `America/Hermosillo`; `ocurrió_en` y
   `sincronizado_en` separados.
 
+## 0.1 Reglas de negocio confirmadas sobre cajas, folios y reportes [C]
+
+- Cada una de las cuatro cajas lleva sus propias ventas, folios consecutivos y cortes, independientes de las demás.
+- Los folios continúan mes con mes, sin reiniciarse.
+- El cajero consulta únicamente las ventas y cortes de **su** caja.
+- Solo Administración genera reportes consolidados de todas las cajas, o de una o varias cajas seleccionadas (incluso de tiendas distintas), por el periodo requerido.
+- Cada venta conserva tienda, caja y folio originales al consultar, sincronizar o exportar; nunca se renumera para un reporte.
+- Las dos cajas de cada tienda comparten el inventario de esa tienda.
+- Caja 1 admite efectivo, tarjeta y mixto; Caja 2, solo efectivo.
+
 ## 1. Tres situaciones distintas (no mezclar)
 
 | Situación | Qué falla | Estado |
@@ -70,8 +80,10 @@ Reglas de diseño:
 
 ## 3. Recuperación sin reutilizar folios
 
-Objetivo: tras perder el disco de una caja, **ningún folio emitido pudo haber sido reutilizado**,
-incluso si hubo ventas que nunca llegaron al hub ni al central.
+Regla: **si no se puede asegurar que un folio no se reutilizará, se bloquea su emisión hasta resolverlo.**
+Nunca se promete una recuperación sin huecos cuando la evidencia es incompleta. Lo que se garantiza es
+*no reutilización*, no *no pérdida*: las ventas que nunca salieron de la caja y se perdieron con su disco
+no se pueden reconstruir (ver limitaciones en `pruebas-sinteticas-etapa-0.md`).
 
 Mecanismos acumulables:
 
@@ -88,12 +100,19 @@ Mecanismos acumulables:
    - `K` provisional: 30 (en el corte de referencia hay ~13 tickets/día/caja; se afinará).
    - **[?] Requiere que el propietario acepte huecos documentados.** Sin esa aceptación, este
      mecanismo no se activa.
-4. **Recuperación manual (alternativa sin huecos)**: un administrador declara el siguiente folio
-   tras revisar evidencia física (último ticket impreso, corte impreso, bitácora de papel). El
-   sistema rechaza cualquier valor menor o igual a cualquier HWM conocido y exige confirmación.
+4. **Atestación manual (alternativa sin arrendamiento)**: un administrador declara el siguiente folio
+   citando evidencia física (último ticket impreso, corte impreso, bitácora de papel). El sistema
+   **no puede verificarla**: solo rechaza valores menores o iguales a lo conocido (HWM / techo), exige
+   una referencia de evidencia, exige confirmación explícita si no hay acceso a hub ni central, y
+   deja un registro marcado `verificable: false`. Puede dejar huecos documentados; no los evita.
 5. **Cerco por ticket escaneado**: si se escanea un ticket de la serie de una caja con folio mayor
    que su contador, se bloquea la emisión y se abre incidencia.
-6. Una caja restaurada entra en estado `recuperación`: no emite folios hasta completar 3 o 4.
+6. Una caja restaurada (disco nuevo o respaldo) entra en estado `recuperación`: no emite folios hasta
+   completar 3 o 4. La recuperación automática (3) solo procede si existe un **techo registrado** en
+   hub o central; sin techo (evidencia incompleta) o sin acceso a ninguno, la emisión sigue bloqueada.
+7. Una caja con disco nuevo debe **rehidratarse** desde el hub (catálogo, existencias, sus operaciones
+   ya recibidas) antes de poder vender; lo que nunca llegó al hub no vuelve y las existencias quedan
+   sobreestimadas hasta un conteo físico.
 
 Límite honesto: si se perdieran *a la vez* la caja, el hub, el respaldo y no hubiera conexión al
 central, el folio solo se podría reconstruir con evidencia física (mecanismo 4). Los respaldos
@@ -110,7 +129,11 @@ La terminal bancaria es un efecto externo irreversible desde la caja. Orden obli
    Con aprobación, una sola transacción pasa el intento a `aprobado` y confirma venta, pago, folio y
    movimientos. Nunca se simula una aprobación.
 4. Si el equipo se apaga o falla entre 2 y 3, al reiniciar existe un intento `iniciado` sin
-   resolver. La caja muestra **"Cobro pendiente de conciliar"** y no permite seguir sin resolverlo:
+   resolver. Se conserva y **no se vuelve a cobrar**: reintentar sobre el mismo carrito devuelve el
+   mismo intento. El bloqueo se limita a ese carrito (no se modifica ni se completa por ningún medio
+   mientras esté pendiente). Las operaciones independientes de la caja continúan (ventas en efectivo de
+   otros carritos, devoluciones, corte). Cómo tratar un *nuevo* cobro con tarjeta mientras hay un
+   pendiente es política pendiente (P-12). Resolución:
    - **Aprobado en la terminal** → capturar los datos del comprobante, recuperar el borrador y
      completar la venta (o registrar el pago contra la venta recuperada).
    - **No aprobado / cancelado en la terminal** → marcar el intento como `no_cobrado`.
@@ -182,12 +205,13 @@ actualizado?
 | P-03 | Devolución de una venta de otra caja o tienda; excepciones sin ticket |
 | P-04 | Reparto del límite de crédito entre tiendas desconectadas |
 | P-05 | Regla de sospecha de abono duplicado |
-| P-06 | Huecos documentados de folio tras recuperación (activa el arrendamiento) |
+| P-06 | Huecos documentados de folio tras recuperación (activa el arrendamiento; sin ella solo hay atestación manual) |
 | P-07 | Estrategia de Item # para altas nuevas (a, b o c) |
 | P-08 | Series para devoluciones/abonos y momento exacto de asignación del folio |
 | P-09 | Hub en Caja 1 o equipo dedicado |
 | P-10 | Catálogos de DÚO y London: ¿comparten Item # y códigos? |
 | P-11 | Excel reales (catálogo, existencias, ventas) |
+| P-12 | Nuevo cobro con tarjeta mientras hay otro intento pendiente: `permitir_con_aviso` o `bloquear_solo_tarjeta` |
 
 ## 8. Pruebas sintéticas previstas (Etapa 0 → 1)
 

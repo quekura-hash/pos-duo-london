@@ -1,0 +1,16 @@
+{
+  "name": "pos-duo-london",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "POS DÚO / London — Etapa 0: simulador y pruebas sintéticas",
+  "engines": { "node": ">=22.18" },
+  "scripts": {
+    "test": "node --no-warnings --test --test-reporter=spec \"test/*.test.ts\"",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0"
+  }
+}
