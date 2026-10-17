@@ -2,3 +2,4 @@ node_modules
 dist
 *.xlsx
 datos-reales/
+docs/capturas/*real*

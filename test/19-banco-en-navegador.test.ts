@@ -210,7 +210,7 @@ describe('[navegador real] Inventario real de DÚO en la página (solo con POS_I
     await page.waitForSelector('#dlg-importar[open]', { timeout: 60000 });
     const msLeer = Date.now() - t0;
     assert.match((await page.textContent('#imp-resumen'))!, /21220 artículos · con código 20565 · sin código 655 · sin descripción 8810 · sin marca 0 · precio no vendible 187/);
-    await page.screenshot({ path: join(RAIZ, 'docs', 'capturas', '12-importar-inventario-real.png') });
+    await page.screenshot({ path: join(RAIZ, 'dist', 'captura-inventario-real.png') });
     t0 = Date.now();
     await page.fill('#imp-duo', '10');
     await page.click('#imp-cargar');
