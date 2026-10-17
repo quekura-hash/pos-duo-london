@@ -205,7 +205,7 @@ export function renderTicketDevolucionTexto(d: Devolucion, v: Venta, cfg: Negoci
     L.push(dos(`${dl.qty} pza.`, formatoMXN(dl.importe), c));
   }
   L.push(regla, dos('TOTAL DEVUELTO', formatoMXN(d.importe), c));
-  for (const r of d.reembolsos) L.push(dos(r.metodo === 'efectivo' ? 'Reembolso en efectivo MXN' : `A tarjeta de regalo ${r.tarjeta}`, formatoMXN(r.monto), c));
+  for (const r of d.reembolsos) L.push(dos(r.metodo === 'efectivo' ? 'Reembolso en efectivo MXN' : r.metodo === 'tarjeta' ? 'Reverso a tarjeta bancaria' : `A tarjeta de regalo ${r.tarjeta}`, formatoMXN(r.monto), c));
   L.push(regla, centrar(codigoTicket(d.tienda, d.caja, d.folio ?? 0, negocios), c));
   return L.join('\n') + '\n';
 }

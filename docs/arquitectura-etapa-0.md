@@ -374,11 +374,24 @@ P-06 (pantalla de folio), P-10 (flujo de almacén y confirmación al primer esca
 - **Corte**: pesos y dólares se concilian **por separado**. Pesos físicos = fondo + cobros en pesos + pesos recibidos con dólares − cambio entregado + entradas − reembolsos en efectivo − retiros. Dólares físicos = fondo USD + dólares recibidos + entradas USD − retiros USD. El cambio no es descuento ni reembolso. Fondos, entradas y retiros llevan su moneda; hay **conteo de dólares por denominación** (US$100, 50, 20, 10, 5, 2 y 1) con diferencia contra lo esperado.
 - **Reportes**: «Dólares recibidos» (Administración) lista cada cobro con su tasa y versión y el equivalente **de esa operación** (no el de la última tasa del día), totales por caja (los cancelados no suman) y se exporta a Excel.
 
-### Pendientes y límites de esta primera versión
+### Cierre de pendientes P-27 a P-30 (decididos por el propietario)
 
-| ID | Pendiente |
-|---|---|
-| P-27 | Devolución de una venta pagada (en todo o en parte) con dólares: hoy se reembolsa **en pesos** por el importe en MXN, sin devolver dólares. Falta decidir si se devuelven dólares y a qué tasa |
-| P-28 | Billetes de dólar aceptados (dañados, antiguos, falsos), monedas y topes de cambio. Hoy se acepta cualquier importe y no hay tope |
-| P-29 | Reglas para editar la tasa (rango razonable, doble aprobación, aviso a Administración). Hoy solo se exige permiso y un valor positivo |
-| P-30 | Qué pasa con una venta cancelada que se pagó con dólares: se excluye del corte; el reintegro físico al cliente (pesos o dólares) no se modela |
+| ID | Decisión | Estado |
+|---|---|---|
+| P-27 | **Devoluciones**: el efectivo se reembolsa **exclusivamente en pesos**, con los **importes originales** de la venta (sin recalcular con la tasa de hoy); los dólares recibidos permanecen en el cajón. En pagos combinados cada método se devuelve por su vía: tarjeta de regalo → al saldo de la misma tarjeta; **tarjeta bancaria → reverso a esa tarjeta (no sale efectivo; se hace en la terminal)**. Parciales: proporcional por método, nunca más de lo pagado por cada uno; la última devolución absorbe el redondeo | Hecho |
+| P-28 | **Billetes USD**: se aceptan billetes de 1, 2, 5, 10, 20, 50 y 100; **no monedas** (el importe recibido es un número entero de dólares; el hub también lo exige). El cajero puede **rechazar un billete dañado o sospechoso** con el procedimiento operativo (devolverlo al cliente, pedir otro y capturar solo lo aceptado); queda una constancia sin mover dinero. **El sistema no detecta falsificaciones** | Hecho |
+| P-29 | **Tipo de cambio**: se conserva la edición rápida con el lápiz y los permisos por usuario; un cambio de **más del 10 %** (hacia arriba o abajo; exactamente 10 % no) pide una **confirmación adicional** (el central la exige y el historial guarda la variación y que fue confirmada). Sin doble autorización para cambios normales | Hecho |
+| P-30 | **Cancelaciones**: *anulada* = antes de recibir dinero (sin folio, pagos ni movimiento; solo auditoría `sale.voided`); *cancelada* = después de recibir efectivo (el cobro y el cambio **se conservan** en el libro y se suma la salida de pesos de la cancelación, con los importes originales). Todo movimiento físico (fondo, cobro, cambio, entrada, retiro, devolución, cancelación) vive en un **libro por moneda inmutable** del que sale el efectivo esperado: nada se elimina ni se edita para cuadrar un corte | Hecho |
+| — | **Cortes consolidados**: Administración tiene la vista «Cortes» con columnas separadas de PESOS y DÓLARES (fondo, cobros, cambio, entradas, devoluciones, cancelaciones, retiros, esperado, contado y diferencia por moneda). El equivalente histórico en MXN de los dólares va aparte y marcado como **contable**, no como dinero físico. Se agregó el conteo físico de **pesos** (billetes y monedas) porque la diferencia por moneda lo necesita | Hecho |
+| — | **Cambio disponible**: se **advierte** (sin bloquear) cuando el cambio en pesos supera los pesos que se *sabe* que hay en la caja. «Se sabe» = hay un fondo inicial en pesos registrado hoy (saldo del libro del día); sin fondo no se inventa disponibilidad y no hay advertencia. El cobro ordinario en pesos nunca advierte | Hecho |
+| — | **Tasa sin verificar** (tienda desconectada): política configurable `tasa_sin_verificar` = `{ advertir_horas, bloquear_usd_horas }` (por omisión advierte a las **12 h** y **nunca bloquea**). La antigüedad cuenta desde la última verificación contra el central (hub e internet) o, si nunca hubo, desde que se fijó la tasa. Con bloqueo configurado, pasado el límite **no se reciben dólares** en cobros nuevos (uno ya iniciado se completa); los cobros en pesos jamás se afectan. La barra izquierda y el cobro en dólares muestran la advertencia | Hecho; los valores por omisión son de ensayo |
+
+### Límites y riesgos de esta versión
+
+- **Reverso a tarjeta bancaria** no está integrado con la terminal: el sistema lo registra y el cajero lo hace a mano (antes, una devolución de una venta con tarjeta salía como efectivo).
+- **Cancelar una venta con dólares** deja los dólares en el cajón y entrega pesos (decisión P-27); si en la práctica se devolvieran los dólares, hay que cambiar la regla.
+- **Cancelación y permisos**: no hay permiso por usuario para cancelar una venta ya cobrada ni botón en pantalla; el servicio y la ruta existen. Falta decidir quién puede.
+- **Efectivo conocido** solo con fondo del día; no se arrastra el saldo de un día al siguiente.
+- La verificación de la tasa la anota la capa de servicio cuando hay hub e internet; en la demo local el enlace a internet es «sin dato», así que nunca verifica y la antigüedad crece.
+- Los cortes guardados **antes** de esta versión no traen las columnas por moneda (se muestran con ceros en dólares y el esperado en pesos).
+- Los billetes se capturan como un total en dólares enteros por cobro; el desglose por denominación se hace en el conteo del corte.

@@ -1,4 +1,5 @@
 import type { Articulo, Op, Venta } from './tipos.ts';
+import { fechaLocal } from './util.ts';
 
 // Proyecciones puras sobre la bitácora. El estado derivado nunca se sincroniza: se recalcula.
 
@@ -83,7 +84,8 @@ export interface Devolucion {
   /** Folio de la MISMA serie que las ventas de la caja (P-08). Las devoluciones anteriores a esta regla no lo tienen. */
   folio?: number;
   /** Cómo se regresó el dinero: a la tarjeta de regalo con que se pagó y, el resto, en efectivo. */
-  reembolsos: { metodo: 'efectivo' | 'tarjeta_regalo'; monto: number; tarjeta?: string }[];
+  /** `efectivo` = pesos que salen del cajón; `tarjeta` = reverso a la tarjeta bancaria original (no sale efectivo); `tarjeta_regalo` = saldo a la misma tarjeta. */
+  reembolsos: { metodo: 'efectivo' | 'tarjeta' | 'tarjeta_regalo'; monto: number; tarjeta?: string }[];
   ocurrio_en: string;
   motivo: string;
   cajero: string;
@@ -252,4 +254,58 @@ export function aplicarPermiso(m: Map<string, Set<string>>, o: { tipo: string; p
   const s = m.get(o.payload.usuario) ?? new Set<string>();
   if (o.payload.valor) s.add(o.payload.permiso); else s.delete(o.payload.permiso);
   m.set(o.payload.usuario, s);
+}
+
+/**
+ * Libro de movimientos FÍSICOS de una caja, por moneda. Es una proyección de operaciones inmutables: nada se borra ni se edita,
+ * así que ningún corte se cuadra quitando movimientos. Signo: + entra al cajón, − sale.
+ *  - cobro: lo recibido (pesos o dólares); cambio: pesos entregados; devolucion / cancelacion: pesos que salen por un reembolso.
+ *  - Una venta cancelada DESPUÉS de recibir dinero conserva su cobro y su cambio y suma el movimiento de la cancelación.
+ */
+export interface MovimientoCaja {
+  ocurrio_en: string;
+  fecha: string;
+  moneda: 'MXN' | 'USD';
+  tipo: 'fondo_inicial' | 'entrada' | 'retiro' | 'cobro' | 'cambio' | 'devolucion' | 'cancelacion';
+  monto: number;
+  ref?: string;
+  /** Solo dólares de un cobro: tasa de ESA operación. */
+  tasa?: number;
+  tasa_version?: number;
+}
+export function efectivoDeVenta(v: Venta): number {
+  return v.pagos.filter((p) => p.metodo === 'efectivo' || p.metodo === 'efectivo_usd').reduce((a, p) => a + p.monto, 0);
+}
+export function movimientosCaja(ops: Op[], tienda: string, caja: number): MovimientoCaja[] {
+  const out: MovimientoCaja[] = [];
+  const vs = ventas(ops);
+  const propia = (t: string | null | undefined, c: number | null | undefined) => t === tienda && c === caja;
+  for (const o of ops) {
+    const p = o.payload;
+    if (o.tipo === 'cash.movement' && propia(p.tienda, p.caja)) {
+      out.push({ ocurrio_en: o.ocurrio_en, fecha: p.fecha, moneda: p.moneda ?? 'MXN', tipo: p.tipo, monto: p.tipo === 'retiro' ? -p.monto : p.monto, ref: o.op_id });
+    } else if (o.tipo === 'sale.confirmed' && propia(p.tienda, p.caja)) {
+      const fecha = fechaLocal(o.ocurrio_en);
+      for (const pg of p.pagos as Venta['pagos']) {
+        if (pg.metodo === 'efectivo') {
+          out.push({ ocurrio_en: o.ocurrio_en, fecha, moneda: 'MXN', tipo: 'cobro', monto: pg.recibido ?? pg.monto, ref: p.sale_id });
+          if ((pg.cambio ?? 0) > 0) out.push({ ocurrio_en: o.ocurrio_en, fecha, moneda: 'MXN', tipo: 'cambio', monto: -pg.cambio!, ref: p.sale_id });
+        } else if (pg.metodo === 'efectivo_usd') {
+          out.push({ ocurrio_en: o.ocurrio_en, fecha, moneda: 'USD', tipo: 'cobro', monto: pg.usd!, ref: p.sale_id, tasa: pg.tasa, tasa_version: pg.tasa_version });
+          if (pg.pesos_recibidos! > 0) out.push({ ocurrio_en: o.ocurrio_en, fecha, moneda: 'MXN', tipo: 'cobro', monto: pg.pesos_recibidos!, ref: p.sale_id });
+          if (pg.cambio_mxn! > 0) out.push({ ocurrio_en: o.ocurrio_en, fecha, moneda: 'MXN', tipo: 'cambio', monto: -pg.cambio_mxn!, ref: p.sale_id });
+        }
+      }
+    } else if (o.tipo === 'return.registered' && propia(p.tienda, p.caja)) {
+      const efectivo = ((p.reembolsos ?? [{ metodo: 'efectivo', monto: p.importe }]) as { metodo: string; monto: number }[]).filter((r) => r.metodo === 'efectivo').reduce((a, r) => a + r.monto, 0);
+      if (efectivo > 0) out.push({ ocurrio_en: o.ocurrio_en, fecha: fechaLocal(o.ocurrio_en), moneda: 'MXN', tipo: 'devolucion', monto: -efectivo, ref: p.devolucion_id });
+    } else if (o.tipo === 'sale.cancelled') {
+      const v = vs.get(p.sale_id);
+      if (!v || !propia(v.tienda, v.caja)) continue;
+      // Cancelada después de recibir efectivo: los pesos reembolsados salen del cajón (importes originales, sin recalcular con otra tasa).
+      const efectivo = p.reembolsos ? (p.reembolsos as { metodo: string; monto: number }[]).filter((r) => r.metodo === 'efectivo').reduce((a, r) => a + r.monto, 0) : efectivoDeVenta(v);
+      if (efectivo > 0) out.push({ ocurrio_en: o.ocurrio_en, fecha: fechaLocal(o.ocurrio_en), moneda: 'MXN', tipo: 'cancelacion', monto: -efectivo, ref: p.sale_id });
+    }
+  }
+  return out;
 }

@@ -1,4 +1,4 @@
-import { usdAMxn } from './dinero.ts';
+import { esImporteEnBilletesUsd, usdAMxn } from './dinero.ts';
 import type { CajaCfg, Op } from './tipos.ts';
 
 /**
@@ -16,6 +16,7 @@ export function validarOpEntrante(op: Op, cfg: CajaCfg[]): string | null {
         const bad = !Number.isInteger(p.usd) || p.usd <= 0 || !Number.isInteger(p.tasa) || p.tasa <= 0 || !Number.isInteger(p.tasa_version) || p.tasa_version < 1
           || !Number.isInteger(p.pesos_recibidos) || p.pesos_recibidos < 0 || !Number.isInteger(p.cambio_mxn) || p.cambio_mxn < 0;
         if (bad) return 'efectivo_usd_incompleto';
+        if (!esImporteEnBilletesUsd(p.usd)) return 'efectivo_usd_no_billetes'; // solo billetes: dólares enteros, sin monedas
         // El hub recalcula: el equivalente y el cambio deben cuadrar exactamente con lo recibido.
         const eq = usdAMxn(p.usd, p.tasa);
         if (p.equivalente !== eq) return 'efectivo_usd_equivalente_incorrecto';

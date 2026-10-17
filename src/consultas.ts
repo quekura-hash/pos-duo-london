@@ -95,6 +95,27 @@ export interface FilaCorte {
   efectivo_esperado: number;
   folio_inicial: number | null;
   folio_final: number | null;
+  /** Dinero FÍSICO por moneda (pesos y dólares nunca se mezclan). Los cortes guardados antes de existir los dólares no traen estos campos. */
+  mxn?: ResumenMoneda;
+  usd?: ResumenMoneda & {
+    /** Equivalente CONTABLE en MXN con la tasa de cada operación: no es dinero físico del cajón. */
+    equivalente_historico_mxn: number;
+  };
+  ventas_anuladas_antes_de_cobro?: number;
+  cancelaciones_posteriores_al_cobro?: number;
+  billetes_usd_rechazados?: number;
+}
+export interface ResumenMoneda {
+  fondo: number;
+  cobros: number;
+  cambio: number;
+  entradas: number;
+  devoluciones: number;
+  cancelaciones: number;
+  retiros: number;
+  esperado: number;
+  contado: number | null;
+  diferencia: number | null;
 }
 
 export function cortesPorCaja(actor: Actor, ops: Op[], f: Filtro = {}): FilaCorte[] {
@@ -191,7 +212,7 @@ export function dolaresPorCaja(actor: Actor, ops: Op[], f: Filtro = {}): Reporte
   filas.sort((a, b) => a.tienda.localeCompare(b.tienda) || a.caja - b.caja || a.folio - b.folio);
   const por = new Map<string, ReporteDolares['porCaja'][number]>();
   for (const r of filas) {
-    if (r.estado === 'cancelada') continue; // una venta cancelada no suma dólares al corte
+    // Una venta cancelada SÍ suma: los dólares recibidos siguen en el cajón (el reembolso fue en pesos). La fila la marca como cancelada.
     const k = `${r.tienda}/${r.caja}`;
     const a = por.get(k) ?? { tienda: r.tienda, caja: r.caja, cobros: 0, usd: 0, equivalente_historico: 0 };
     a.cobros++; a.usd += r.usd; a.equivalente_historico += r.equivalente;

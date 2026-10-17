@@ -17,7 +17,7 @@ async function api(ruta, cuerpo) {
   const j = window.__POS_ATENDER__
     ? (await window.__POS_ATENDER__(cuerpo === undefined ? 'GET' : 'POST', ruta, cuerpo)).json
     : await (await fetch(ruta, cuerpo === undefined ? {} : { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(cuerpo) })).json();
-  if (!j.ok) { const e = new Error(j.error?.mensaje ?? 'Error'); e.codigo = j.error?.codigo; throw e; }
+  if (!j.ok) { const e = new Error(j.error?.mensaje ?? 'Error'); e.codigo = j.error?.codigo; e.detalle = j.error?.detalle; throw e; }
   return j;
 }
 
@@ -124,7 +124,7 @@ const folioTexto = () => (S.ultimoFolio ? `Folio ${String(S.ultimoFolio).padStar
 // ── navegación ──
 const NAV = {
   venta: ['Venta', 'cart'], ventas: ['Historial', 'clock'], creditos: ['Créditos', 'card'], corte: ['Corte de caja', 'chart'],
-  tarjetas: ['Tarjetas de regalo', 'gift'], reportes: ['Reportes', 'chart'], dolares: ['Dólares recibidos', 'dollar'], inventario: ['Inventario', 'box'], tipo_cambio: ['Tipo de cambio', 'refresh'],
+  tarjetas: ['Tarjetas de regalo', 'gift'], reportes: ['Reportes', 'chart'], cortes: ['Cortes', 'cash'], dolares: ['Dólares recibidos', 'dollar'], inventario: ['Inventario', 'box'], tipo_cambio: ['Tipo de cambio', 'refresh'],
 };
 function pintarNav() {
   const items = S.sesion.rol === 'cajero' ? S.sesion.nav.flatMap((v) => (v === 'ventas' ? [v, 'creditos'] : [v])) : S.sesion.nav;
@@ -137,7 +137,7 @@ async function ir(v) {
   S.vista = v;
   pintarNav();
   await pintarEncabezado();
-  await ({ venta: vistaVenta, corte: vistaCorte, ventas: vistaVentas, reportes: vistaReportes, inventario: vistaInventario, tarjetas: vistaTarjetas, devolucion: vistaDevolucion, dolares: vistaDolares, tipo_cambio: vistaTipoCambio })[v]();
+  await ({ venta: vistaVenta, corte: vistaCorte, ventas: vistaVentas, reportes: vistaReportes, inventario: vistaInventario, tarjetas: vistaTarjetas, devolucion: vistaDevolucion, dolares: vistaDolares, tipo_cambio: vistaTipoCambio, cortes: vistaCortes })[v]();
 }
 
 // ── venta ──
@@ -231,8 +231,12 @@ function htmlEfectivo(etiquetaPesos) {
     <button class="btn" id="btn-usd" type="button" style="width:100%;margin-bottom:8px">${ico('dollar')}<span>Agregar dólares USD</span></button>
     <div id="bloque-usd" hidden>
       <div class="campo"><label for="usd">Dólares recibidos (USD)</label><input id="usd" inputmode="decimal" autocomplete="off" placeholder="0.00"></div>
+      <div id="msg-usd" class="mensaje error" role="alert"></div>
       <div class="saldo-tarjeta" id="info-tasa" role="status" aria-live="polite"></div>
+      <div id="aviso-sin-verificar" class="mensaje aviso" role="status" hidden></div>
+      <button class="btn" id="btn-rechazar-billete" type="button" style="width:100%;margin-bottom:8px;font-size:13px">${ico('x')}<span>Rechazar un billete (dañado o sospechoso)</span></button>
       <button class="btn" id="btn-tasa-nueva" type="button" hidden style="width:100%;margin-bottom:8px">${ico('refresh')}<span>Usar la tasa vigente</span></button>
+      <div id="aviso-cambio" class="mensaje aviso" role="status" hidden></div>
       <dl class="calc-usd"><dt>Equivalente de los USD</dt><dd id="usd-equivalente">$0.00</dd><dt>Total recibido equivalente</dt><dd id="total-recibido">$0.00</dd></dl>
     </div>
     <div class="cambio" id="linea-cambio"><span id="lbl-cambio">Cambio</span><b id="cambio">$0.00</b></div>`;
@@ -242,6 +246,7 @@ function engancharEfectivo() {
   $('#usd').addEventListener('input', recalcular);
   $('#btn-usd').addEventListener('click', () => (S.usdAbierto ? cerrarUsd() : abrirUsd()));
   $('#btn-tasa-nueva').addEventListener('click', () => abrirUsd(true));
+  $('#btn-rechazar-billete').addEventListener('click', abrirRechazoBillete);
 }
 async function abrirUsd(renovar = false) {
   try {
@@ -266,6 +271,9 @@ function cerrarUsd() {
 function pintarInfoTasa() {
   const t = S.tasa;
   if (!t || !$('#info-tasa')) return;
+  const sv = S.estado?.tipo_cambio?.sin_verificar;
+  const av = $('#aviso-sin-verificar');
+  if (av) { av.hidden = !sv || sv.nivel === 'ok'; if (sv && sv.nivel !== 'ok') av.textContent = `La tasa lleva ${sv.horas} h sin verificarse contra el central${sv.bloquear_usd_horas ? ` (a las ${sv.bloquear_usd_horas} h ya no se reciben dólares)` : ''}. Los cobros en pesos no se afectan.`; }
   $('#info-tasa').innerHTML = `Tasa de este cobro: <b id="tasa-aplicada">$${esc(t.bloqueada.texto)} MXN por USD</b> (v${t.bloqueada.version})${t.hay_nueva ? `<br><span id="aviso-tasa-nueva" style="color:var(--aviso)">La tasa vigente cambió a $${esc(t.vigente.texto)} (v${t.vigente.version}). Este cobro conserva la que tenía.</span>` : ''}`;
   $('#btn-tasa-nueva').hidden = !t.hay_nueva;
 }
@@ -363,12 +371,22 @@ function calcEfectivo(aplicar) {
   const usdTxt = S.usdAbierto ? ($('#usd')?.value ?? '') : '';
   const pesos = pesosTxt.trim() === '' ? (S.usdAbierto ? 0 : null) : parseMXN(pesosTxt);
   const usdC = usdTxt.trim() === '' ? 0 : parseMXN(usdTxt);
-  const valido = pesos !== null && usdC !== null && (usdC === 0 || !!S.tasa);
+  const billetes = usdC !== null && usdC % 100 === 0; // solo billetes: dólares enteros, sin centavos ni monedas
+  const valido = pesos !== null && usdC !== null && billetes && (usdC === 0 || !!S.tasa);
   const equivalente = valido && usdC > 0 ? usdAMxn(usdC, S.tasa.bloqueada.tasa) : 0;
   const recibido = valido ? pesos + equivalente : 0;
-  return { pesos: pesos ?? 0, usd: usdC ?? 0, valido, equivalente, recibido, ok: valido && aplicar > 0 && recibido >= aplicar, escribio: pesosTxt.trim() !== '' || usdTxt.trim() !== '' };
+  return { pesos: pesos ?? 0, usd: usdC ?? 0, valido, billetes: usdC === null || billetes, equivalente, recibido, ok: valido && aplicar > 0 && recibido >= aplicar, escribio: pesosTxt.trim() !== '' || usdTxt.trim() !== '' };
 }
 function pintarCambio(aplicar, c) {
+  if ($('#msg-usd')) $('#msg-usd').textContent = c.billetes ? '' : 'Solo se aceptan billetes de dólar (1, 2, 5, 10, 20, 50 y 100): sin centavos ni monedas.';
+  // Advertencia (no bloquea): el cambio en pesos excede lo que se SABE que hay en el cajón; sin fondo del día no se puede saber.
+  const cambio = c.ok ? c.recibido - aplicar : 0;
+  const ef = S.estado?.efectivo?.mxn;
+  const excede = c.usd > 0 && cambio > c.pesos && ef?.conocido && cambio > ef.disponible + c.pesos;
+  if ($('#aviso-cambio')) {
+    $('#aviso-cambio').hidden = !excede;
+    if (excede) $('#aviso-cambio').textContent = `Advertencia: el cambio (${mxn(cambio)}) supera los pesos que se sabe que hay en la caja (${mxn(Math.max(0, ef.disponible) + c.pesos)}). Puede cobrar, pero reponga cambio o reciba más pesos.`;
+  }
   if ($('#usd-equivalente')) { $('#usd-equivalente').textContent = mxn(c.equivalente); $('#total-recibido').textContent = mxn(c.recibido); }
   const falta = c.valido && c.escribio && aplicar > 0 && c.recibido < aplicar;
   $('#lbl-cambio').textContent = falta ? 'Faltan' : 'Cambio';
@@ -487,7 +505,7 @@ function mostrarTicket(r) {
     <h2 id="dlg-titulo" style="margin:0 0 4px">Venta guardada</h2>
     <p style="margin:0" id="resumen-venta">Folio <b>${String(r.venta.folio).padStart(6, '0')}</b> · ticket <b>${esc(r.codigo_ticket)}</b> · cambio <b id="dlg-cambio">${mxn(r.cambio)}</b>${r.venta.pagos.some((p) => p.metodo === 'efectivo_usd') ? ` · dólares recibidos <b id="dlg-usd">${usd(r.venta.pagos.find((p) => p.metodo === 'efectivo_usd').usd)}</b>` : ''}${regalo ? ` · saldo de la tarjeta <b id="dlg-saldo-regalo">${mxn(regalo.saldo_despues ?? 0)}</b>` : ''}</p>
     <div id="estado-impresion" class="mensaje ${imp.ok ? 'ok' : 'error'}" role="status">${imp.ok ? 'Ticket enviado a la impresora.' : `La impresora falló: ${esc(imp.error)}. La venta SÍ quedó guardada; reintente la impresión.`}</div>
-    ${(r.avisos ?? []).length ? `<div class="mensaje aviso" id="avisos-venta">${r.avisos.map(esc).join(' · ')}</div>` : ''}
+    ${(r.avisos ?? []).length ? `<div class="mensaje aviso" id="avisos-venta">${r.avisos.map((a) => esc(/^cambio_excede_efectivo_mxn:/.test(a) ? `Advertencia: el cambio entregado superó en ${mxn(Number(a.split(':')[1]))} los pesos que se sabía que había en la caja: revise el efectivo.` : a)).join(' · ')}</div>` : ''}
     <pre class="ticket" id="ticket-texto" tabindex="0">${esc(r.ticket_texto)}</pre>
     <div class="filas"><button class="btn" id="btn-reimprimir" type="button">${ico('printer')}<span>${imp.ok ? 'Reimprimir ticket' : 'Reintentar impresión'}</span></button><button class="btn btn-primario" id="btn-nueva" type="button" style="width:auto;flex:1">${ico('plus')}<span>Nueva venta</span></button></div>`;
   dlg.showModal();
@@ -512,16 +530,35 @@ function mostrarTicket(r) {
 const FILAS_CORTE = [
   ['tickets', 'Tickets', (v) => v], ['ventas_brutas', 'Mercancía antes de descuentos', mxn], ['descuentos', 'Descuentos', mxn], ['ventas_mercancia', 'Ventas de mercancía', mxn],
   ['tarjetas_regalo_vendidas', 'Tarjetas de regalo vendidas o recargadas (no son ventas de mercancía)', mxn], ['ventas', 'Total de tickets de venta', mxn],
-  ['devoluciones', 'Devoluciones', mxn], ['devoluciones_en_efectivo', 'Devoluciones en efectivo', mxn], ['devoluciones_a_tarjeta_regalo', 'Devoluciones a tarjeta de regalo', mxn], ['ventas_netas', 'Ventas netas de mercancía', mxn], ['cobros_efectivo', 'Cobros en efectivo (MXN)', mxn], ['cobros_efectivo_usd', 'Cobros en efectivo con dólares (MXN que liquidan)', mxn], ['cobros_tarjeta', 'Cobros con tarjeta bancaria', mxn], ['cobros_tarjeta_regalo', 'Cobros con tarjeta de regalo', mxn],
+  ['devoluciones', 'Devoluciones', mxn], ['devoluciones_en_efectivo', 'Devoluciones en efectivo', mxn], ['devoluciones_a_tarjeta_regalo', 'Devoluciones a tarjeta de regalo', mxn], ['ventas_netas', 'Ventas netas de mercancía', mxn], ['cobros_efectivo', 'Cobros en efectivo (MXN)', mxn], ['cobros_efectivo_usd', 'Cobros en efectivo con dólares (MXN que liquidan)', mxn], ['devoluciones_a_tarjeta', 'Reversos a tarjeta bancaria (no sale efectivo)', mxn], ['cobros_tarjeta', 'Cobros con tarjeta bancaria', mxn], ['cobros_tarjeta_regalo', 'Cobros con tarjeta de regalo', mxn],
   ['fondo_inicial', 'Fondo inicial en pesos', mxn], ['entradas', 'Entradas en pesos', mxn], ['retiros', 'Retiros en pesos', mxn], ['pesos_recibidos_con_usd', 'Pesos recibidos junto con dólares', mxn], ['cambio_mxn_con_usd', 'Cambio entregado en pesos por cobros con dólares', mxn],
   ['efectivo_esperado', 'EFECTIVO MXN esperado en el cajón (pesos físicos)', mxn],
   ['fondo_inicial_usd', 'Fondo inicial en dólares', usd], ['usd_recibidos', 'Dólares recibidos en cobros', usd], ['entradas_usd', 'Entradas en dólares', usd], ['retiros_usd', 'Retiros en dólares', usd],
   ['efectivo_usd_esperado', 'EFECTIVO USD esperado en el cajón (dólares físicos)', usd],
   ['usd_equivalente_mxn_historico', 'Equivalente en MXN de los dólares recibidos (tasa de cada operación)', mxn],
   ['conteo_usd', 'Dólares contados (último conteo del día)', (v) => (v ? usd(v.contado) : '—')], ['diferencia_usd', 'Diferencia de dólares (contado − esperado)', (v) => (v === null ? '—' : (v < 0 ? '-' : '') + usd(Math.abs(v)))],
+  ['conteo_mxn', 'Pesos contados (último conteo del día)', (v) => (v ? mxn(v.contado) : '—')], ['diferencia_mxn', 'Diferencia de pesos (contado − esperado)', (v) => (v === null ? '—' : mxn(v))],
+  ['ventas_anuladas_antes_de_cobro', 'Ventas anuladas antes de recibir dinero (sin movimiento físico)', (v) => v], ['cancelaciones_posteriores_al_cobro', 'Ventas canceladas después de recibir efectivo (el cobro queda y se suma la salida)', (v) => v], ['billetes_usd_rechazados', 'Billetes en dólares rechazados (dañados o sospechosos)', (v) => v],
   ['folio_inicial', 'Folio inicial (ventas y devoluciones)', (v) => (v ?? '—')], ['folio_final', 'Folio final', (v) => (v ?? '—')], ['tickets_cancelados', 'Tickets cancelados', (v) => v],
 ];
-const DENOM = [100, 50, 20, 10, 5, 2, 1];
+// Dólares: se cuentan billetes (la clave es el valor en DÓLARES y el importe se calcula en centavos). Pesos: la clave son centavos.
+const DENOM_USD = [100, 50, 20, 10, 5, 2, 1];
+const DENOM_MXN = [100000, 50000, 20000, 10000, 5000, 2000, 1000, 500, 200, 100, 50];
+function panelConteo(moneda, esperado) {
+  const usdM = moneda === 'USD';
+  const filas = (usdM ? DENOM_USD : DENOM_MXN).map((d) => ({ clave: d, unidad: usdM ? d * 100 : d, etiqueta: usdM ? `US$${d}` : mxn(d) }));
+  return `<section class="panel" aria-label="Conteo de ${usdM ? 'dólares' : 'pesos'}">
+    <h2 style="margin-top:0">${ico(usdM ? 'dollar' : 'cash')} Conteo de ${usdM ? 'dólares' : 'pesos'}</h2>
+    <form id="form-conteo-${moneda}" autocomplete="off">
+      <div class="tabla-cont"><table><thead><tr><th>${usdM ? 'Billete' : 'Billete o moneda'}</th><th class="num">Cantidad</th><th class="num">Importe</th></tr></thead><tbody>
+      ${filas.map((f) => `<tr><th scope="row">${f.etiqueta}</th><td class="num"><input type="number" min="0" step="1" value="0" data-conteo="${moneda}" data-clave="${f.clave}" data-unidad="${f.unidad}" style="width:72px;text-align:right;padding:4px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie)" aria-label="${usdM ? 'Billetes' : 'Piezas'} de ${f.etiqueta}"></td><td class="num" data-importe-${moneda}="${f.unidad}">${usdM ? 'US$0.00' : '$0.00'}</td></tr>`).join('')}
+      </tbody></table></div>
+      <p style="margin:8px 0">Total contado: <b id="conteo-total-${moneda}">${usdM ? 'US$0.00' : '$0.00'}</b> · esperado: <b>${usdM ? usd(esperado) : mxn(esperado)}</b></p>
+      <button class="btn btn-primario" id="btn-conteo-${moneda}" type="submit">${ico('check')}<span>Guardar conteo de ${usdM ? 'dólares' : 'pesos'}</span></button>
+    </form>
+    <div id="msg-conteo-${moneda}" class="mensaje" role="status" aria-live="polite"></div>
+  </section>`;
+}
 async function vistaCorte() {
   const j = await api('/api/corte');
   const v = j.vivo;
@@ -533,17 +570,8 @@ async function vistaCorte() {
     <div id="estado-corte">${j.cerrado ? `<div class="mensaje ${j.desactualizado ? 'aviso' : 'ok'}">Corte cerrado${j.desactualizado ? ': hay operaciones posteriores al cierre (no se reescribe el corte cerrado).' : '.'}</div>` : ''}</div>
     <button class="btn" id="btn-cerrar-corte" type="button" ${j.cerrado ? 'disabled' : ''}>${ico('check')}<span>Cerrar corte del día</span></button></div>
     <div class="cuadricula" style="margin-top:12px">
-      <section class="panel" aria-label="Conteo de dólares">
-        <h2 style="margin-top:0">${ico('dollar')} Conteo de dólares</h2>
-        <form id="form-conteo-usd" autocomplete="off">
-          <div class="tabla-cont"><table><thead><tr><th>Billete</th><th class="num">Cantidad</th><th class="num">Importe</th></tr></thead><tbody>
-          ${DENOM.map((d) => `<tr><th scope="row">US$${d}</th><td class="num"><input type="number" min="0" step="1" value="0" data-denom="${d}" style="width:72px;text-align:right;padding:4px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie)" aria-label="Billetes de ${d} dólares"></td><td class="num" data-importe="${d}">US$0.00</td></tr>`).join('')}
-          </tbody></table></div>
-          <p style="margin:8px 0">Total contado: <b id="conteo-total">US$0.00</b> · esperado: <b>${usd(v.efectivo_usd_esperado)}</b></p>
-          <button class="btn btn-primario" id="btn-conteo-usd" type="submit">${ico('check')}<span>Guardar conteo de dólares</span></button>
-        </form>
-        <div id="msg-conteo" class="mensaje" role="status" aria-live="polite"></div>
-      </section>
+      ${panelConteo('USD', v.efectivo_usd_esperado)}
+      ${panelConteo('MXN', v.efectivo_esperado)}
       <section class="panel" aria-label="Movimientos de efectivo">
         <h2 style="margin-top:0">${ico('cash')} Movimientos de efectivo</h2>
         <form id="form-movimiento" autocomplete="off">
@@ -556,19 +584,24 @@ async function vistaCorte() {
       </section>
     </div>`;
   $('#btn-cerrar-corte').addEventListener('click', async () => { await api('/api/corte/cerrar', {}); await vistaCorte(); });
-  const totalConteo = () => [...document.querySelectorAll('[data-denom]')].reduce((a, i) => {
-    const n = Number(i.value) || 0;
-    $(`[data-importe="${i.dataset.denom}"]`).textContent = usd(Number(i.dataset.denom) * 100 * n);
-    return a + Number(i.dataset.denom) * 100 * n;
-  }, 0);
-  for (const i of document.querySelectorAll('[data-denom]')) i.addEventListener('input', () => { $('#conteo-total').textContent = usd(totalConteo()); });
-  $('#form-conteo-usd').addEventListener('submit', async (ev) => {
-    ev.preventDefault();
-    const d = {};
-    for (const i of document.querySelectorAll('[data-denom]')) if (Number(i.value) > 0) d[i.dataset.denom] = Number(i.value);
-    const m = $('#msg-conteo');
-    try { await api('/api/efectivo/conteo-usd', { denominaciones: d }); await vistaCorte(); } catch (e) { m.className = 'mensaje error'; m.textContent = e.message; }
-  });
+  for (const moneda of ['USD', 'MXN']) {
+    const fmt = moneda === 'USD' ? usd : mxn;
+    const campos = () => [...document.querySelectorAll(`[data-conteo="${moneda}"]`)];
+    const totalConteo = () => campos().reduce((acc, i) => {
+      const unidad = Number(i.dataset.unidad);
+      const n = Number(i.value) || 0;
+      $(`[data-importe-${moneda}="${unidad}"]`).textContent = fmt(unidad * n);
+      return acc + unidad * n;
+    }, 0);
+    for (const i of campos()) i.addEventListener('input', () => { $(`#conteo-total-${moneda}`).textContent = fmt(totalConteo()); });
+    $(`#form-conteo-${moneda}`).addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const d = {};
+      for (const i of campos()) if (Number(i.value) > 0) d[i.dataset.clave] = Number(i.value);
+      const m = $(`#msg-conteo-${moneda}`);
+      try { await api('/api/efectivo/conteo', { moneda, denominaciones: d }); await vistaCorte(); } catch (e) { m.className = 'mensaje error'; m.textContent = e.message; }
+    });
+  }
   $('#form-movimiento').addEventListener('submit', async (ev) => {
     ev.preventDefault();
     const m = $('#msg-mov');
@@ -822,7 +855,7 @@ async function devolverVenta(form) {
     const d = r.devolucion;
     const dlg = $('#dlg-ticket');
     dlg.innerHTML = `<h2 id="dlg-titulo" style="margin:0 0 4px">Devolución registrada</h2>
-      <p style="margin:0" id="resumen-devolucion">Folio <b>${String(d.folio).padStart(6, '0')}</b> · devuelto <b>${mxn(d.importe)}</b>${d.reembolsos.map((x) => ` · ${x.metodo === 'efectivo' ? 'efectivo' : `a la tarjeta ${esc(x.tarjeta)}`} <b>${mxn(x.monto)}</b>`).join('')}</p>
+      <p style="margin:0" id="resumen-devolucion">Folio <b>${String(d.folio).padStart(6, '0')}</b> · devuelto <b>${mxn(d.importe)}</b>${d.reembolsos.map((x) => ` · ${x.metodo === 'efectivo' ? 'efectivo' : x.metodo === 'tarjeta' ? 'reverso a la tarjeta bancaria (hágalo en la terminal)' : `a la tarjeta ${esc(x.tarjeta)}`} <b>${mxn(x.monto)}</b>`).join('')}</p>
       <div class="mensaje ${r.impresion.ok ? 'ok' : 'error'}" id="estado-impresion" role="status">${r.impresion.ok ? 'Ticket enviado a la impresora.' : `La impresora falló: ${esc(r.impresion.error)}. La devolución SÍ quedó guardada.`}</div>
       <pre class="ticket" id="ticket-texto" tabindex="0">${esc(r.ticket_texto)}</pre>
       <div class="filas"><button class="btn btn-primario" id="btn-cerrar" type="button">${ico('check')}<span>Listo</span></button></div>`;
@@ -843,11 +876,13 @@ async function pintarTipoCambio() {
   if (!t) return;
   S.tc = t;
   const lapiz = t.puede_editar ? `<button type="button" id="btn-editar-tc" class="tc-lapiz" aria-label="Editar tipo de cambio" title="Editar tipo de cambio">${ico('pencil')}</button>` : '';
+  const sv = t.sin_verificar;
+  const alerta = sv && sv.nivel !== 'ok' ? `<small class="det tc-estado mal" data-tc="sin-verificar">Sin verificar hace ${sv.horas} h${sv.nivel === 'bloqueada_usd' ? ': NO se reciben dólares' : ''}</small>` : '';
   const estado = t.verificado === true ? ['ok', 'Sincronizado con el central'] : t.verificado === false ? ['mal', 'Sin conexión: no se puede verificar si hay una tasa nueva'] : ['', 'Sin dato de conexión con el central'];
   el.innerHTML = t.configurado
     ? `<div class="tc-linea"><span data-tc="tasa">Dólar: <b>$${esc(t.texto)} MXN</b></span>${lapiz}</div>
        <small class="det" data-tc="fecha">Actualizado ${esc(fechaCorta(t.actualizado_en))} · v${t.version}${t.cambiado_por ? ` · ${esc(t.cambiado_por)}` : ''}</small>
-       <small class="det tc-estado ${estado[0]}" data-tc="estado">${estado[1]}</small>`
+       <small class="det tc-estado ${estado[0]}" data-tc="estado">${estado[1]}</small>${alerta}`
     : `<div class="tc-linea"><span data-tc="tasa">Dólar: <b>sin definir</b></span>${lapiz}</div><small class="det">No se pueden recibir dólares hasta fijar el tipo de cambio.</small>`;
   $('#btn-editar-tc')?.addEventListener('click', abrirEditarTc);
 }
@@ -864,6 +899,8 @@ function abrirEditarTc() {
     <p class="nota">Aplica a los cobros nuevos de todas las tiendas conectadas. Los cobros ya iniciados y las ventas anteriores conservan su tasa. Requiere conexión con el servicio central.</p>`;
   dlg.showModal();
   $('#tc-valor').select();
+  let confirmado = false;
+  $('#tc-valor').addEventListener('input', () => { confirmado = false; $('#tc-guardar').innerHTML = `${ico('check')}<span>Guardar para todas las tiendas</span>`; $('#tc-msg').textContent = ''; $('#tc-msg').className = 'mensaje'; });
   $('#tc-cancelar').addEventListener('click', () => dlg.close());
   $('#form-tc').addEventListener('submit', async (ev) => {
     ev.preventDefault();
@@ -871,12 +908,75 @@ function abrirEditarTc() {
     const tasa = parseTasa($('#tc-valor').value);
     if (tasa === null) { m.className = 'mensaje error'; m.textContent = 'Escriba un número positivo, con hasta 4 decimales (por ejemplo 18.00).'; return; }
     try {
-      await api(S.sesion.rol === 'admin' ? '/api/admin/tipo-cambio' : '/api/tipo-cambio', { tasa });
+      await api(S.sesion.rol === 'admin' ? '/api/admin/tipo-cambio' : '/api/tipo-cambio', { tasa, ...(confirmado ? { confirmar: true } : {}) });
       dlg.close();
       await pintarEncabezado();
       if (S.vista === 'tipo_cambio') await vistaTipoCambio();
+    } catch (e) {
+      m.className = 'mensaje error';
+      if (e.codigo === 'CONFIRMACION_REQUERIDA') {
+        // Cambio de más del 10 %: una confirmación adicional (no se pide doble autorización).
+        const pct = (Math.abs(e.detalle.variacion_pb) / 100).toFixed(2);
+        m.textContent = `Atención: este cambio es de ${e.detalle.variacion_pb > 0 ? '+' : '−'}${pct} % (de $${(e.detalle.anterior / 10000).toFixed(2)} a $${(e.detalle.nueva / 10000).toFixed(2)}). ¿Es correcto?`;
+        confirmado = true;
+        $('#tc-guardar').innerHTML = `${ico('check')}<span>Sí, confirmar el cambio</span>`;
+      } else m.textContent = e.message;
+    }
+  });
+}
+
+// ── procedimiento operativo: rechazar un billete dañado o sospechoso ──
+function abrirRechazoBillete() {
+  const dlg = $('#dlg-tc');
+  dlg.innerHTML = `<h2 id="tc-titulo" style="margin:0 0 4px">Rechazar un billete</h2>
+    <p class="nota" style="margin:0 0 8px"><b>Procedimiento:</b> devuelva el billete al cliente, pídale otro y capture solo lo que acepta. Aquí queda constancia (sin mover dinero). El sistema <b>no detecta falsificaciones</b>: la revisión es del cajero.</p>
+    <form id="form-rechazo" autocomplete="off">
+      <div class="campo"><label for="rb-denom">Billete</label><select id="rb-denom" style="width:100%;padding:8px;border:1px solid var(--borde);border-radius:8px;background:var(--superficie)">${[100, 50, 20, 10, 5, 2, 1].map((d) => `<option value="${d}">US$${d}</option>`).join('')}</select></div>
+      <div class="campo"><label for="rb-cantidad">Cantidad</label><input id="rb-cantidad" type="number" min="1" step="1" value="1"></div>
+      <div class="campo"><label for="rb-motivo">Motivo</label><select id="rb-motivo" style="width:100%;padding:8px;border:1px solid var(--borde);border-radius:8px;background:var(--superficie)"><option value="danado">Dañado</option><option value="sospechoso">Sospechoso</option></select></div>
+      <div class="campo"><label for="rb-nota">Nota (opcional)</label><input id="rb-nota" class="texto"></div>
+      <div id="rb-msg" class="mensaje" role="status" aria-live="polite"></div>
+      <div class="filas"><button class="btn" id="rb-cancelar" type="button">${ico('x')}<span>Cancelar</span></button><button class="btn btn-primario" id="rb-guardar" type="submit" style="width:auto;flex:2">${ico('check')}<span>Registrar rechazo</span></button></div>
+    </form>`;
+  dlg.showModal();
+  $('#rb-cancelar').addEventListener('click', () => dlg.close());
+  $('#form-rechazo').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const m = $('#rb-msg');
+    try {
+      await api('/api/efectivo/billete-rechazado', { denominacion: Number($('#rb-denom').value), cantidad: Number($('#rb-cantidad').value), motivo: $('#rb-motivo').value, nota: $('#rb-nota').value });
+      dlg.close();
+      msg('Rechazo registrado. Devuelva el billete al cliente y capture solo los billetes aceptados.', 'aviso');
     } catch (e) { m.className = 'mensaje error'; m.textContent = e.message; }
   });
+}
+
+// ── Administración: cortes consolidados con pesos y dólares en columnas separadas ──
+async function vistaCortes() {
+  const hoy = new Date(Date.now() - 7 * 3600e3).toISOString().slice(0, 10);
+  $('#vista').innerHTML = `<div class="titulo-vista">${ico('cash')}<h1>Cortes de caja</h1></div>
+    <form class="filtros panel" id="filtros-cortes"><label>Desde <input type="date" id="cor-desde" value="${hoy}"></label><label>Hasta <input type="date" id="cor-hasta" value="${hoy}"></label>
+      <button class="btn btn-primario" type="submit" style="width:auto">${ico('search')}<span>Consultar</span></button></form>
+    <div id="resultado-cortes"></div>`;
+  const consultar = async () => {
+    const { cortes } = await api('/api/admin/cortes', { desde: $('#cor-desde').value, hasta: $('#cor-hasta').value });
+    const vacio = { fondo: 0, cobros: 0, cambio: 0, entradas: 0, devoluciones: 0, cancelaciones: 0, retiros: 0, esperado: 0, contado: null, diferencia: null };
+    const fila = (c) => ({ ...c, mxn: c.mxn ?? { ...vacio, esperado: c.efectivo_esperado ?? 0 }, usd: c.usd ?? { ...vacio, equivalente_historico_mxn: 0 } });
+    const rows = cortes.map(fila);
+    const suma = (k, m) => rows.reduce((a, r) => a + (r[m][k] ?? 0), 0);
+    const dif = (v, f) => (v === null ? '—' : (v < 0 ? '-' : '') + f(Math.abs(v)));
+    const bloque = (r, m, f) => ['fondo', 'cobros', 'cambio', 'entradas', 'devoluciones', 'cancelaciones', 'retiros', 'esperado'].map((k) => `<td class="num" data-col="${m}-${k}">${f(r[m][k])}</td>`).join('')
+      + `<td class="num" data-col="${m}-contado">${r[m].contado === null ? '—' : f(r[m].contado)}</td><td class="num" data-col="${m}-diferencia"><b>${dif(r[m].diferencia, f)}</b></td>`;
+    const total = (m, f) => ['fondo', 'cobros', 'cambio', 'entradas', 'devoluciones', 'cancelaciones', 'retiros', 'esperado'].map((k) => `<td class="num" data-total="${m}-${k}"><b>${f(suma(k, m))}</b></td>`).join('') + '<td></td><td></td>';
+    $('#resultado-cortes').innerHTML = `<div class="panel"><p class="nota" style="margin-top:0">Cortes cerrados. <b>Pesos y dólares son dinero físico distinto</b> y nunca se suman. El equivalente en MXN de los dólares es un dato contable (cada operación con su tasa), no pesos dentro del cajón.</p>
+      <div class="tabla-cont"><table id="tabla-cortes"><thead>
+        <tr><th rowspan="2">Tienda</th><th rowspan="2">Caja</th><th rowspan="2">Fecha</th><th rowspan="2" class="num">Tickets</th><th rowspan="2" class="num">Ventas netas MXN</th><th colspan="10">PESOS (MXN) físicos</th><th colspan="10">DÓLARES (USD) físicos</th><th rowspan="2" class="num">Equivalente histórico MXN de los USD (contable)</th></tr>
+        <tr>${['Fondo', 'Cobros', 'Cambio', 'Entradas', 'Devol.', 'Cancel.', 'Retiros', 'Esperado', 'Contado', 'Diferencia'].map((h) => `<th class="num">${h}</th>`).join('')}${['Fondo', 'Cobros', 'Cambio', 'Entradas', 'Devol.', 'Cancel.', 'Retiros', 'Esperado', 'Contado', 'Diferencia'].map((h) => `<th class="num">${h}</th>`).join('')}</tr></thead><tbody>
+      ${rows.map((r) => `<tr data-corte="${esc(r.tienda)}-${r.caja}-${esc(r.fecha)}"><td>${esc(r.tienda)}</td><td>${r.caja}</td><td>${esc(r.fecha)}</td><td class="num">${r.tickets}</td><td class="num">${mxn(r.ventas_netas)}</td>${bloque(r, 'mxn', mxn)}${bloque(r, 'usd', usd)}<td class="num" data-col="equivalente">${mxn(r.usd.equivalente_historico_mxn ?? r.usd_equivalente_mxn_historico ?? 0)}</td></tr>`).join('') || '<tr><td colspan="26" class="vacio">Sin cortes cerrados en el periodo.</td></tr>'}
+      ${rows.length ? `<tr><th colspan="5" scope="row">Total</th>${total('mxn', mxn)}${total('usd', usd)}<td class="num" data-total="equivalente"><b>${mxn(rows.reduce((a, r) => a + (r.usd.equivalente_historico_mxn ?? 0), 0))}</b></td></tr>` : ''}</tbody></table></div></div>`;
+  };
+  $('#filtros-cortes').addEventListener('submit', async (ev) => { ev.preventDefault(); await consultar(); });
+  await consultar();
 }
 
 // ── Administración: dólares recibidos y tipo de cambio ──

@@ -174,7 +174,7 @@ export class Mundo {
         if (w.centralArriba(t, n)) return ventas(w.central.repo.ops()).get(saleId) ?? null;
         return null;
       },
-      fijarTipoCambio: (tasa, usuario, base) => (w.centralArriba(t, n) ? w.central.fijarTipoCambio(tasa, usuario, base) : null),
+      fijarTipoCambio: (tasa, usuario, base, confirmar) => (w.centralArriba(t, n) ? w.central.fijarTipoCambio(tasa, usuario, base, confirmar) : null),
       buscarVentas: (q) => {
         if (!w.hubArriba(t, n)) return null;
         const a = localizarVentas(w.hub(t).repo.ops(), t, q);

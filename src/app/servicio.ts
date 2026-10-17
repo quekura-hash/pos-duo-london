@@ -63,6 +63,8 @@ export class ServicioCaja {
       metodos: this.caja.cfg.metodos,
       ahora, fecha_local: fechaLocal(ahora),
       tipo_cambio: this.vistaTipoCambio(),
+      // Pesos que se SABE que hay en el cajón (solo con fondo del día registrado); null = no se puede saber.
+      efectivo: { mxn: this.caja.efectivoMxnConocido() },
       ultimo_folio: this.caja.estadoFolios().ultimo,
       folios: this.caja.estadoFolios().estado,
       conexion: { hub: this.conexion.hubAlcanzable(), internet: this.conexion.internet(), pendientes: this.conexion.pendientes(), ultima_sync: this.conexion.ultimaSync() },
@@ -81,19 +83,22 @@ export class ServicioCaja {
     const t = this.caja.tipoCambio();
     const hub = this.conexion.hubAlcanzable();
     const internet = this.conexion.internet();
+    if (t && hub && internet === true) this.caja.registrarVerificacionTasa();
     return {
       configurado: !!t, version: t?.version ?? null, tasa: t?.tasa ?? null, texto: t ? formatoTasa(t.tasa) : null,
       actualizado_en: t?.ocurrio_en ?? null, cambiado_por: t?.usuario ?? null,
       verificado: !hub ? false : internet === null ? null : internet,
       puede_editar: this.caja.puedeEditarTipoCambio(this.actor.usuario),
+      // Antigüedad de la última verificación contra el central y qué dice la política (advertencia / bloqueo de dólares, no de pesos).
+      sin_verificar: t ? this.caja.estadoTasa() : null,
     };
   }
   tipoCambio() {
     return this.vistaTipoCambio();
   }
   /** Edita la tasa global (permiso por usuario y conexión con el central). Devuelve la nueva vista para actualizar la pantalla. */
-  async fijarTipoCambio(tasa: number) {
-    this.caja.fijarTipoCambio(tasa, this.actor.usuario);
+  async fijarTipoCambio(tasa: number, confirmarVariacion = false) {
+    this.caja.fijarTipoCambio(tasa, this.actor.usuario, false, confirmarVariacion);
     try { await this.conexion.sincronizar?.(); } catch { /* el cambio ya quedó en el central; llegará a las demás cajas al sincronizar */ }
     return this.vistaTipoCambio();
   }
@@ -106,8 +111,26 @@ export class ServicioCaja {
     this.caja.movimientoEfectivo(tipo, monto, moneda);
     return this.caja.corteEnVivo(fechaLocal(this.reloj.now()));
   }
+  registrarConteo(moneda: 'MXN' | 'USD', denominaciones: Record<string, number>) {
+    return this.caja.registrarConteo({ moneda, denominaciones, usuario: this.actor.usuario });
+  }
   registrarConteoUsd(denominaciones: Record<string, number>) {
-    return this.caja.registrarConteoUsd({ denominaciones, usuario: this.actor.usuario });
+    return this.registrarConteo('USD', denominaciones);
+  }
+  /** Procedimiento operativo: billete dañado o sospechoso rechazado (solo constancia; no hay detección automática de falsificaciones). */
+  billeteRechazado(denominacion: number, motivo: 'danado' | 'sospechoso', nota?: string, cantidad = 1) {
+    this.caja.registrarBilleteRechazado({ denominacion, cantidad, motivo, nota, usuario: this.actor.usuario });
+    return { ok: true };
+  }
+  /** Venta anulada ANTES de recibir dinero (sin folio ni movimiento físico). */
+  anularVenta(cartId: string, motivo: string) {
+    this.caja.anularCarrito(cartId, motivo, this.actor.usuario);
+    return { cart: this.caja.abrirCarrito() };
+  }
+  /** Venta cancelada DESPUÉS de recibir efectivo: conserva el cobro y suma la salida de pesos. */
+  cancelarVenta(saleId: string, motivo: string) {
+    const v = this.caja.cancelarVenta(saleId, motivo);
+    return { venta: v };
   }
 
   /** Reutiliza la venta en curso (sobrevive a reinicios) o abre una nueva. */
@@ -336,7 +359,7 @@ export class ServicioAdmin {
   private fuente: () => Op[];
   readonly cajas: { tienda: string; caja: number }[];
   private inv?: FuenteInventario;
-  private central?: { fijarTipoCambio(tasa: number, usuario: string, versionBase: number): import('../nodos.ts').ResultadoTipoCambio; asignarPermiso(usuario: string, permiso: string, valor: boolean, por: string): Op };
+  private central?: { fijarTipoCambio(tasa: number, usuario: string, versionBase: number, confirmarVariacion?: boolean): import('../nodos.ts').ResultadoTipoCambio; asignarPermiso(usuario: string, permiso: string, valor: boolean, por: string): Op };
   constructor(o: { actor: Extract<Actor, { rol: 'admin' }>; fuente: () => Op[]; cajas: { tienda: string; caja: number }[]; inventario?: FuenteInventario; central?: ServicioAdmin['central'] }) {
     this.central = o.central;
     this.actor = o.actor;
@@ -373,11 +396,14 @@ export class ServicioAdmin {
       permisos: [...asignados].map(([usuario, p]) => ({ usuario, editar_tipo_cambio: p.has('editar_tipo_cambio') })),
     };
   }
-  fijarTipoCambio(tasa: number) {
+  fijarTipoCambio(tasa: number, confirmarVariacion = false) {
     if (!this.central) throw new ErrorDominio('SIN_CENTRAL', 'esta sesión no tiene acceso al servicio central');
     const base = tipoCambioVigente(this.fuente())?.version ?? 0;
-    const r = this.central.fijarTipoCambio(tasa, this.actor.usuario, base);
-    if (!r.ok) throw new ErrorDominio(r.motivo === 'tasa_invalida' ? 'TASA_INVALIDA' : 'CONFIG_DESACTUALIZADA', r.motivo === 'tasa_invalida' ? 'el tipo de cambio debe ser un número positivo' : 'el tipo de cambio cambió mientras se editaba');
+    const r = this.central.fijarTipoCambio(tasa, this.actor.usuario, base, confirmarVariacion);
+    if (!r.ok) {
+      if (r.motivo === 'confirmacion_requerida') throw new ErrorDominio('CONFIRMACION_REQUERIDA', `el cambio es de ${(r.variacion_pb! / 100).toFixed(2)} % respecto a la tasa vigente: confirme para continuar`, { variacion_pb: r.variacion_pb, anterior: r.vigente!.tasa, nueva: tasa });
+      throw new ErrorDominio(r.motivo === 'tasa_invalida' ? 'TASA_INVALIDA' : 'CONFIG_DESACTUALIZADA', r.motivo === 'tasa_invalida' ? 'el tipo de cambio debe ser un número positivo' : 'el tipo de cambio cambió mientras se editaba');
+    }
     return this.tipoCambio();
   }
   asignarPermisoTipoCambio(usuario: string, valor: boolean) {

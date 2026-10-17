@@ -25,6 +25,12 @@ export interface Politicas {
    * Con 'solo_tienda_emisora' el central no la reparte a los demás hubs.
    */
   P23_tarjeta_regalo_entre_tiendas?: 'compartida' | 'solo_tienda_emisora';
+  /**
+   * Tasa de dólar sin verificar (tienda desconectada del central). Opcional; por omisión solo advierte después de 12 h y nunca bloquea.
+   * `advertir_horas`: desde cuántas horas sin verificar se muestra una advertencia clara.
+   * `bloquear_usd_horas`: desde cuántas horas sin verificar se dejan de recibir DÓLARES (null = nunca). Los cobros en pesos jamás se afectan.
+   */
+  tasa_sin_verificar?: { advertir_horas: number; bloquear_usd_horas: number | null };
   /** Parámetros numéricos del arrendamiento / bloques. */
   K_folios: number;
   K_item_no: number;
@@ -47,11 +53,19 @@ export function crearPoliticasEnsayo(v: Omit<Politicas, 'estado'>): Politicas {
     if (!validos.includes(val)) throw new ErrorDominio('POLITICA_INVALIDA', `${k}=${val}`);
   }
   if (v.P23_tarjeta_regalo_entre_tiendas !== undefined && !['compartida', 'solo_tienda_emisora'].includes(v.P23_tarjeta_regalo_entre_tiendas)) throw new ErrorDominio('POLITICA_INVALIDA', `P23=${v.P23_tarjeta_regalo_entre_tiendas}`);
+  const tv = v.tasa_sin_verificar;
+  if (tv !== undefined) {
+    if (!Number.isInteger(tv.advertir_horas) || tv.advertir_horas < 1) throw new ErrorDominio('POLITICA_INVALIDA', 'tasa_sin_verificar.advertir_horas debe ser entero >= 1');
+    if (tv.bloquear_usd_horas !== null && (!Number.isInteger(tv.bloquear_usd_horas) || tv.bloquear_usd_horas < tv.advertir_horas)) throw new ErrorDominio('POLITICA_INVALIDA', 'tasa_sin_verificar.bloquear_usd_horas debe ser null o un entero >= advertir_horas');
+  }
   for (const k of ['K_folios', 'K_item_no'] as const) {
     if (!Number.isInteger(v[k]) || v[k] < 1) throw new ErrorDominio('POLITICA_INVALIDA', `${k} debe ser entero >= 1`);
   }
   return { ...v, estado: 'ENSAYO_NO_APROBADO' };
 }
+
+/** Valores por omisión de la tasa sin verificar (ensayo, sin aprobar): advertir a las 12 h, no bloquear. */
+export const TASA_SIN_VERIFICAR_OMISION = { advertir_horas: 12, bloquear_usd_horas: null } as const;
 
 /** Ninguna política de este repositorio está aprobada para producción. */
 export function exigirPoliticasAprobadas(p: Politicas): never {

@@ -224,6 +224,21 @@ Pruebas `D0–D13` (`test/22`, memoria y SQLite), `UI11–UI12` (Chromium sobre 
 - UI11 en el navegador: barra con tasa, fecha, versión y estado; lápiz solo con permiso; «Faltan $49» y «Cambio $51» en pantalla; cambio de tasa durante el cobro (aviso y tasa conservada); edición con validación; sin conexión no se puede editar ni verificar; corte con pesos y dólares, movimientos por moneda, conteo por denominaciones; reimpresión. UI12 Administración: historial de tasas, permisos, dólares recibidos y exportación real a Excel. B-dolares en el archivo único. ✔
 - Comprobación por mutación: quitar el bloqueo de tasa por cobro, el cambio del corte de pesos, el redondeo, el control de versión, la revalidación del hub, el permiso o el orden por versión rompe al menos una prueba. ✔
 
+## Cierre de P-27 a P-30 y cortes consolidados
+
+Pruebas `T0`, `C1–C6`, `B1–B2`, `F1`, `E1`, `S1–S2`, `K1–K2` (`test/23`, memoria y SQLite) y `UI13` (Chromium sobre SQLite):
+
+- C1 devolución parcial de una venta con dólares: reembolso solo en pesos con los importes originales aunque la tasa cambió; no se excede lo pagado; los dólares siguen en el cajón. ✔
+- C2 pago con tarjeta bancaria + efectivo: cada método por su vía, proporcional y exacto en total, ticket «Reverso a tarjeta bancaria». C3 tarjeta de regalo + dólares + efectivo. ✔
+- C4–C5 anulada ≠ cancelada: la anulación no mueve dinero ni folio; la cancelación conserva cobro y cambio y suma la salida; el libro anterior no cambia; no se cancela lo ya devuelto. ✔
+- C6 el libro por moneda es la fuente del esperado de pesos y dólares. ✔
+- B1–B2 solo billetes (sin centavos ni monedas, también en el hub); rechazo de billetes dañados o sospechosos solo como constancia. ✔
+- F1 más del 10 % pide confirmación (exactamente 10 % no; también a la baja y desde Administración) y queda en el historial. ✔
+- E1 advertencia de cambio solo con efectivo conocido, sin bloquear; sin fondo no se inventa. ✔
+- S1–S2 tasa sin verificar: advierte, bloquea solo dólares si la política lo define, un cobro iniciado se completa, los pesos no se afectan; verificar la restablece; por omisión solo advierte. ✔
+- K1–K2 cortes consolidados con columnas de pesos y dólares, diferencias por moneda y el equivalente histórico aparte. ✔
+- UI13 en el navegador: mensaje de solo billetes, rechazo de billete, advertencia de cambio que no bloquea, confirmación de un cambio de tasa de más del 10 %, conteo de pesos con diferencia, y la vista «Cortes» de Administración. ✔
+
 ## Limitaciones (no se declara validado)
 
 - **Concurrencia parcial.** Las pruebas `[procesos reales]` sí ejecutan dos cajas en paralelo contra un hub real. Aun así: el árbitro es correcto porque el hub procesa cada solicitud de forma síncrona en un solo hilo; no se probó un hub con varios hilos ni dos procesos escribiendo el mismo archivo SQLite. Las pruebas en un solo proceso siguen usando entrelazados escritos a mano.
@@ -250,3 +265,4 @@ Pruebas `D0–D13` (`test/22`, memoria y SQLite), `UI11–UI12` (Chromium sobre 
 - **Localizar ventas de la otra caja** muestra a un cajero en qué caja se hizo una venta (sin importes ni pagos); es una excepción a «el cajero solo ve su caja» pedida por el propietario. Sin hub solo se ven las ventas de la propia caja.
 - **Cambio** (devolver y vender otra cosa) no tiene flujo propio: se devuelve y se hace una venta nueva; no hay crédito a favor.
 - **Dólares**: solo en pruebas con datos sintéticos; **nada probado con billetes reales, detector de billetes falsos, cajón ni impresora**. El conteo es de billetes (sin monedas). La devolución de una venta pagada en dólares se reembolsa en pesos (P-27). El corte consolidado de Administración (`cortes`) todavía no trae las columnas de dólares: el detalle está en el reporte «Dólares recibidos» y en el corte de cada caja.
+- **Cierre de dólares**: la integración del reverso con la terminal bancaria, el permiso para cancelar ventas cobradas, los valores definitivos de la política de tasa sin verificar y el arrastre del efectivo conocido de un día al siguiente están pendientes. Todo probado con datos sintéticos; nada con billetes reales, cajón ni impresora.

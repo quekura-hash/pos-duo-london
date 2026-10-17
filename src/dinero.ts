@@ -42,3 +42,29 @@ export function totalDenominacionesUsd(d: Record<string, number>): number {
   }
   return total;
 }
+
+/** Solo se aceptan BILLETES de dólar: el importe recibido es un número entero de dólares (sin centavos ni monedas). */
+export const esImporteEnBilletesUsd = (usdCentavos: number) => Number.isInteger(usdCentavos) && usdCentavos > 0 && usdCentavos % 100 === 0;
+
+/** Denominaciones de pesos que se cuentan en el cajón, en centavos (billetes y monedas). */
+export const DENOMINACIONES_MXN = [100000, 50000, 20000, 10000, 5000, 2000, 1000, 500, 200, 100, 50] as const;
+
+export function totalDenominacionesMxn(d: Record<string, number>): number {
+  let total = 0;
+  for (const [k, n] of Object.entries(d)) {
+    if (!(DENOMINACIONES_MXN as readonly number[]).includes(Number(k))) throw new RangeError(`denominación no válida: ${k}`);
+    if (!Number.isInteger(n) || n < 0) throw new RangeError(`cantidad inválida de la denominación ${k}`);
+    total += Number(k) * n;
+  }
+  return total;
+}
+
+/** Un cambio de tipo de cambio mayor a este porcentaje pide una confirmación adicional (sin doble autorización). */
+export const UMBRAL_CONFIRMACION_TASA_PCT = 10;
+
+/** Variación en puntos base (1 pb = 0.01 %) entre la tasa vigente y la nueva, con enteros; positiva = sube. */
+export function variacionTasaPb(vigente: number, nueva: number): number {
+  return Math.round(((nueva - vigente) * 10000) / vigente);
+}
+/** ¿La nueva tasa difiere MÁS del 10 % de la vigente? (exactamente 10 % no pide confirmación). */
+export const superaUmbralTasa = (vigente: number, nueva: number) => Math.abs(nueva - vigente) * 100 > vigente * UMBRAL_CONFIRMACION_TASA_PCT;

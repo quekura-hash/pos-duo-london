@@ -229,7 +229,7 @@ porAlmacen('Pagos en dólares en efectivo', (alm) => {
     t.after(ctx.limpiar);
     const { caja, cart } = carrito(ctx, 'DUO', 1, 125000);
     const v = caja.cobrarEfectivoMixto(cart, { usd: 5000, pesos: 50000 }, 'Ana');
-    ctx.m.central.fijarTipoCambio(250000, 'admin', 1); ctx.m.pump();
+    ctx.m.central.fijarTipoCambio(250000, 'admin', 1, true); ctx.m.pump();
     const txt = renderTicketTexto(construirTicket(ventas(caja.ops()).get(v.sale_id)!));
     assert.match(txt, /TOTAL +\$1,250\.00/);
     assert.match(txt, /USD recibidos +US\$50\.00/);
@@ -285,8 +285,8 @@ porAlmacen('Pagos en dólares en efectivo', (alm) => {
     const admin = { rol: 'admin' as const, usuario: 'galo' };
     const r = dolaresPorCaja(admin, ctx.m.central.repo.ops());
     assert.equal(r.filas.length, 3);
-    assert.deepEqual(r.porCaja.map((x) => [x.tienda, x.caja, x.usd, x.equivalente_historico]), [['DUO', 1, 5000, 90000], ['LON', 2, 6000, 114000]], 'cada operación con su tasa; lo cancelado no suma');
-    assert.deepEqual([r.usd, r.equivalente_historico], [11000, 204000]);
+    assert.deepEqual(r.porCaja.map((x) => [x.tienda, x.caja, x.usd, x.equivalente_historico]), [['DUO', 1, 5000, 90000], ['LON', 2, 6100, 115900]], 'cada operación con su tasa; los dólares de una venta cancelada siguen físicamente en el cajón');
+    assert.deepEqual([r.usd, r.equivalente_historico], [11100, 205900]);
     const hoja = hojaDolares(r);
     assert.equal(hoja.encabezados[7], 'Tipo de cambio (MXN por USD)');
     assert.deepEqual(hoja.filas[0]!.slice(0, 12), ['DUO', 1, 1, '2026-10-01', '08:00', 'Ana', '50.00', '18.00', 1, '900.00', '500.00', '150.00']);

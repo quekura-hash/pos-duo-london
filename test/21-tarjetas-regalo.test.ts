@@ -254,11 +254,11 @@ porAlmacen('Tarjetas de regalo: alta, cobro, cancelación, arbitraje y conflicto
     const lin = v.lineas[0]!.linea_id;
     const d1 = c.devolver({ sale_id: v.sale_id, renglones: [{ linea_id: lin, qty: 1 }], motivo: 'talla' });
     // 12000 devueltos: 12000*5000/24000 = 2500 a la tarjeta y 9500 en efectivo
-    assert.deepEqual(d1.reembolsos, [{ metodo: 'tarjeta_regalo', monto: 2500, tarjeta: 'DEV' }, { metodo: 'efectivo', monto: 9500 }]);
+    assert.deepEqual(d1.reembolsos, [{ metodo: 'efectivo', monto: 9500 }, { metodo: 'tarjeta_regalo', monto: 2500, tarjeta: 'DEV' }]);
     assert.equal(d1.folio, v.folio + 1, 'mismo consecutivo que las ventas');
     assert.equal(c.saldoTarjeta('DEV'), 2500);
     const d2 = c.devolver({ sale_id: v.sale_id, renglones: [{ linea_id: lin, qty: 1 }], motivo: 'talla' });
-    assert.deepEqual(d2.reembolsos, [{ metodo: 'tarjeta_regalo', monto: 2500, tarjeta: 'DEV' }, { metodo: 'efectivo', monto: 9500 }]);
+    assert.deepEqual(d2.reembolsos, [{ metodo: 'efectivo', monto: 9500 }, { metodo: 'tarjeta_regalo', monto: 2500, tarjeta: 'DEV' }]);
     assert.equal(c.saldoTarjeta('DEV'), 5000, 'la tarjeta recupera exactamente lo que pagó');
     const corte = c.corteEnVivo('2026-10-01');
     assert.deepEqual([corte.devoluciones, corte.devoluciones_en_efectivo, corte.devoluciones_a_tarjeta_regalo, corte.folios_de_devolucion], [24000, 19000, 5000, 2]);
