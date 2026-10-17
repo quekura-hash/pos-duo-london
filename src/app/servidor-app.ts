@@ -6,7 +6,7 @@ import { atender } from './rutas.ts';
 import type { ServicioAdmin, ServicioCaja } from './servicio.ts';
 
 const PUBLICO = join(import.meta.dirname, 'publico');
-const TIPOS: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8' };
+const TIPOS: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.png': 'image/png' };
 
 function leer(req: IncomingMessage): Promise<any> {
   return new Promise((res) => {

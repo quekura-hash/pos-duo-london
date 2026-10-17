@@ -9,13 +9,13 @@
 </head>
 <body>
   <div class="app">
+    <header class="encabezado" id="encabezado" aria-label="Estado de la caja"></header>
     <aside class="nav" aria-label="Navegación principal">
-      <div class="marca">POS<span>DÚO · London</span></div>
       <nav id="nav"></nav>
       <p class="prueba" role="note"><strong>MODO DE PRUEBA</strong><br>Datos sintéticos · usuarios de prueba sin autenticación</p>
     </aside>
-    <header class="encabezado" id="encabezado" aria-label="Estado de la caja"></header>
     <main id="vista" tabindex="-1"></main>
+    <footer class="pie" id="pie" aria-label="Estado de la sesión"></footer>
   </div>
   <dialog id="dlg-ticket" aria-labelledby="dlg-titulo"></dialog>
   <script src="app.js" type="module"></script>

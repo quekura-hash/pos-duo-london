@@ -9,7 +9,7 @@ porAlmacen('API HTTP local de la aplicación (cajero y Administración)', (alm) 
     const app = await appCajero(ctx, 'DUO', 1, 'Ana');
     t.after(async () => { await app.cerrar(); ctx.limpiar(); });
     const s = await api(app.url, '/api/sesion');
-    assert.deepEqual([s.json.rol, s.json.tienda, s.json.caja, s.json.nav], ['cajero', 'DUO', 1, ['venta', 'corte', 'ventas']]);
+    assert.deepEqual([s.json.rol, s.json.tienda, s.json.caja, s.json.nav], ['cajero', 'DUO', 1, ['venta', 'ventas', 'corte', 'tarjetas']]);
     const { cart } = (await api(app.url, '/api/venta/actual', {})).json;
     const e = (await api(app.url, '/api/venta/escanear', { cart, codigo: '0002026090782' })).json;
     assert.equal(e.resultado, 'agregado');
@@ -69,7 +69,7 @@ porAlmacen('API HTTP local de la aplicación (cajero y Administración)', (alm) 
     assert.deepEqual(varias.porCaja.map((c: any) => [c.tienda, c.caja, c.tickets]).sort(), [['DUO', 1, 3], ['LON', 2, 1]]);
     assert.equal((await api(adm.url, '/api/venta/actual', {})).status, 403, 'Administración no opera la caja');
     assert.equal((await api(adm.url, '/api/estado')).status, 403);
-    assert.deepEqual((await api(adm.url, '/api/sesion')).json.nav, ['reportes', 'inventario']);
+    assert.deepEqual((await api(adm.url, '/api/sesion')).json.nav, ['reportes', 'inventario', 'tarjetas']);
   });
 
   it('H4 impresora que falla: HTTP 200, la venta existe, y /reimprimir la reenvía con el mismo folio', async (t) => {

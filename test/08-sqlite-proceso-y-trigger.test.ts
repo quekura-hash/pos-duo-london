@@ -8,9 +8,9 @@ import { SqliteRepo } from '../src/repo.ts';
 import type { Op } from '../src/tipos.ts';
 
 const HIJO = join(import.meta.dirname, 'ayudas', 'hijo-crash.ts');
-const CAJAS = [
-  { tienda: 'DUO', caja: 1, metodos: ['efectivo', 'tarjeta'] as ('efectivo' | 'tarjeta')[] },
-  { tienda: 'DUO', caja: 2, metodos: ['efectivo'] as ('efectivo' | 'tarjeta')[] },
+const CAJAS: import('../src/tipos.ts').CajaCfg[] = [
+  { tienda: 'DUO', caja: 1, metodos: ['efectivo', 'tarjeta', 'tarjeta_regalo'] },
+  { tienda: 'DUO', caja: 2, metodos: ['efectivo', 'tarjeta_regalo'] },
 ];
 
 function matarEnTransaccion(ruta: string, modo: string): Promise<void> {
@@ -24,8 +24,9 @@ function matarEnTransaccion(ruta: string, modo: string): Promise<void> {
   });
 }
 
+let n = 0;
 const venta = (caja: number, pagos: object[]): Op => ({
-  op_id: `sale:x${caja}${pagos.length}`, tipo: 'sale.confirmed', tienda: 'DUO', caja, origen: `caja:DUO/${caja}`,
+  op_id: `sale:x${caja}-${++n}`, tipo: 'sale.confirmed', tienda: 'DUO', caja, origen: `caja:DUO/${caja}`,
   ocurrio_en: '2026-10-01T00:00:00Z', payload: { sale_id: 'x', tienda: 'DUO', caja, folio: 1, total: 1, pagos },
 });
 
@@ -54,13 +55,14 @@ describe('[sqlite — proceso real] kill -9 a mitad de transacción y restriccio
     assert.equal(repo.kvGet('folio:ultimo'), 1, 'el contador y la venta confirmada son consistentes');
   });
 
-  it('S3 la base misma rechaza tarjeta en una caja solo-efectivo (tercera barrera, aun sin pasar por el dominio)', (t) => {
+  it('S3 la base misma rechaza tarjeta BANCARIA en una caja sin terminal (tercera barrera, aun sin pasar por el dominio)', (t) => {
     const dir = mkdtempSync(join(tmpdir(), 'pos-trg-'));
     t.after(() => rmSync(dir, { recursive: true, force: true }));
     const repo = new SqliteRepo(join(dir, 'c.db'), CAJAS);
     t.after(() => repo.cerrar());
-    assert.throws(() => repo.appendOp(venta(2, [{ metodo: 'tarjeta', monto: 1 }])), /caja_solo_efectivo/);
-    assert.throws(() => repo.appendOp(venta(2, [{ metodo: 'efectivo', monto: 1 }, { metodo: 'tarjeta', monto: 0 }])), /caja_solo_efectivo/);
+    assert.throws(() => repo.appendOp(venta(2, [{ metodo: 'tarjeta', monto: 1 }])), /caja_sin_tarjeta_bancaria/);
+    assert.throws(() => repo.appendOp(venta(2, [{ metodo: 'efectivo', monto: 1 }, { metodo: 'tarjeta', monto: 0 }])), /caja_sin_tarjeta_bancaria/);
+    assert.equal(repo.appendOp(venta(2, [{ metodo: 'tarjeta_regalo', monto: 1 }])), true, 'la tarjeta de regalo no es bancaria');
     assert.equal(repo.appendOp(venta(2, [{ metodo: 'efectivo', monto: 1 }])), true);
     assert.equal(repo.appendOp(venta(1, [{ metodo: 'tarjeta', monto: 1 }])), true, 'Caja 1 sí admite tarjeta');
   });

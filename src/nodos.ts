@@ -1,7 +1,7 @@
 import { ErrorDominio } from './errores.ts';
 import type { Politicas } from './politicas.ts';
 import { Indice } from './indice.ts';
-import { catalogo, devoluciones, devueltoPorLinea, existenciaVerificada, intentos, perdidasDocumentales, stock, ventas, type Devolucion, type ExistenciaVerificada, type Intento, type PerdidaDocumental } from './proyecciones.ts';
+import { catalogo, devoluciones, devueltoPorLinea, existenciaVerificada, intentos, perdidasDocumentales, stock, ventas, type Devolucion, type ExistenciaVerificada, type Intento, type PerdidaDocumental, type TarjetaRegalo } from './proyecciones.ts';
 import type { Repo } from './repo.ts';
 import { validarOpEntrante } from './reglas.ts';
 import type { Articulo, CajaCfg, Linea, Op, Pago, Venta } from './tipos.ts';
@@ -34,8 +34,14 @@ export interface Enlace {
   consultarVenta(saleId: string): Venta | null;
   devueltoAutoritativo(saleId: string): Map<string, { qty: number; importe: number }> | null;
   /** Arbitraje del hub sobre existencias. null = el hub no respondió. Idempotente por `ref`. */
-  reservar(ref: string, caja: number, lineas: { item_id: string; qty: number }[]): ResultadoReserva | null;
+  reservar(ref: string, caja: number, lineas: { item_id: string; qty: number }[], tarjetas?: TarjetaApartada[]): ResultadoReserva | null;
   liberar(ref: string): void;
+}
+
+/** Saldo de una tarjeta de regalo que una venta en curso aparta (el dinero no se puede conceder dos veces). */
+export interface TarjetaApartada {
+  codigo: string;
+  monto: number;
 }
 
 export interface ResultadoReserva {
@@ -44,6 +50,8 @@ export interface ResultadoReserva {
   /** Artículos con existencia insuficiente que se concedieron de todos modos (P-02=permitir_y_conciliar). */
   sobreventa?: string[];
   faltantes?: string[];
+  /** Tarjetas de regalo sin saldo suficiente o inexistentes. */
+  tarjetas_sin_saldo?: string[];
   idempotente?: boolean;
 }
 
@@ -51,14 +59,15 @@ interface Reserva {
   ref: string;
   caja: number;
   lineas: { item_id: string; qty: number }[];
+  tarjetas?: TarjetaApartada[];
   hasta: number;
   estado: 'abierta' | 'cerrada' | 'liberada';
   resultado: ResultadoReserva;
 }
 
-const BROADCAST_TIENDA = new Set(['inv.movement', 'inv.conteo', 'inv.verificacion_pendiente', 'doc.perdida_posible', 'item.created', 'item.item_no_assigned']);
+const BROADCAST_TIENDA = new Set(['inv.movement', 'inv.conteo', 'inv.verificacion_pendiente', 'doc.perdida_posible', 'item.created', 'item.item_no_assigned', 'giftcard.emitida', 'giftcard.uso', 'giftcard.reintegro']);
 // Lo que el central baja a hubs y cajas (catálogo y resoluciones administrativas).
-const CATALOGO = new Set(['item.created', 'item.item_no_assigned', 'item.codigo_corregido', 'doc.perdida_resuelta']);
+const CATALOGO = new Set(['item.created', 'item.item_no_assigned', 'item.codigo_corregido', 'doc.perdida_resuelta', 'giftcard.emitida', 'giftcard.uso', 'giftcard.reintegro']);
 
 // ───────────────────────────── Hub ─────────────────────────────
 
@@ -93,6 +102,7 @@ export class Hub {
       }
       this.repo.appendOp(op);
       if (op.tipo === 'inv.movement' && op.payload.tipo === 'venta') this.consumirReserva(op.payload.doc, op.payload.item_id, -op.payload.delta);
+      if (op.tipo === 'giftcard.uso') this.consumirTarjeta(op.payload.sale_id, op.payload.codigo);
       if (desde.startsWith('caja:')) {
         this.repo.encolar(op.op_id, 'central');
         if (BROADCAST_TIENDA.has(op.tipo)) {
@@ -113,13 +123,14 @@ export class Hub {
    * La reserva se cierra renglón por renglón cuando llega el movimiento de venta correspondiente, así que no hay
    * ventana en la que la pieza esté libre mientras la venta viaja de la caja al hub.
    */
-  reservar(ref: string, caja: number, lineas: { item_id: string; qty: number }[]): ResultadoReserva {
+  reservar(ref: string, caja: number, lineas: { item_id: string; qty: number }[], tarjetas: TarjetaApartada[] = []): ResultadoReserva {
     const ahora = Date.parse(this.ctx.reloj.now());
     const previa = this.reservas().find((r) => r.ref === ref);
     // Solo se repite la respuesta de lo que sigue vigente (reserva abierta o ya consumida por su venta).
     // Un rechazo, una liberación o una vigencia vencida se vuelven a evaluar: reintentar no hereda un "no" viejo
     // ni un "sí" que ya no aparta existencia.
-    if (previa && (previa.estado === 'cerrada' || (previa.estado === 'abierta' && previa.hasta > ahora))) return { ...previa.resultado, idempotente: true };
+    const mismasTarjetas = JSON.stringify(previa?.tarjetas ?? []) === JSON.stringify(tarjetas);
+    if (previa && mismasTarjetas && (previa.estado === 'cerrada' || (previa.estado === 'abierta' && previa.hasta > ahora))) return { ...previa.resultado, idempotente: true };
     const todas = this.reservas().filter((r) => r.ref !== ref);
     const abiertas = todas.filter((r) => r.estado === 'abierta' && r.hasta > ahora);
     const pedido = new Map<string, number>();
@@ -129,12 +140,24 @@ export class Hub {
       const apartado = abiertas.reduce((a, r) => a + r.lineas.filter((l) => l.item_id === item).reduce((b, l) => b + l.qty, 0), 0);
       if (this.idx.saldo(this.tienda, item) - apartado < q) faltantes.push(item);
     }
+    // Dinero: una tarjeta de regalo nunca se sobregira (no depende de P-02, que es solo de existencias).
+    const sinSaldo: string[] = [];
+    const porTarjeta = new Map<string, number>();
+    for (const t of tarjetas) porTarjeta.set(t.codigo, (porTarjeta.get(t.codigo) ?? 0) + t.monto);
+    for (const [codigo, monto] of porTarjeta) {
+      const apartado = abiertas.reduce((a, r) => a + (r.tarjetas ?? []).filter((t) => t.codigo === codigo).reduce((b, t) => b + t.monto, 0), 0);
+      if ((this.idx.tarjeta(codigo)?.saldo ?? 0) - apartado < monto) sinSaldo.push(codigo);
+    }
+    if (sinSaldo.length) {
+      this.repo.kvSet('reservas', todas);
+      return { ok: false, motivo: 'tarjeta_sin_saldo', tarjetas_sin_saldo: sinSaldo };
+    }
     if (faltantes.length && this.ctx.politicas.P02_existencia_insuficiente === 'bloquear') {
       this.repo.kvSet('reservas', todas); // un rechazo no se guarda
       return { ok: false, motivo: 'existencia_insuficiente', faltantes };
     }
     const resultado: ResultadoReserva = faltantes.length ? { ok: true, sobreventa: faltantes } : { ok: true };
-    this.repo.kvSet('reservas', [...todas, { ref, caja, lineas: [...pedido].map(([item_id, qty]) => ({ item_id, qty })), hasta: ahora + this.ctx.ttlReservaMs, estado: 'abierta' as const, resultado }]);
+    this.repo.kvSet('reservas', [...todas, { ref, caja, lineas: [...pedido].map(([item_id, qty]) => ({ item_id, qty })), tarjetas: [...porTarjeta].map(([codigo, monto]) => ({ codigo, monto })), hasta: ahora + this.ctx.ttlReservaMs, estado: 'abierta' as const, resultado }]);
     return resultado;
   }
   liberar(ref: string): void {
@@ -146,7 +169,16 @@ export class Hub {
     this.repo.kvSet('reservas', todas.map((r) => {
       if (r.ref !== ref || r.estado !== 'abierta') return r;
       const lineas = r.lineas.map((l) => (l.item_id === itemId ? { ...l, qty: Math.max(0, l.qty - qty) } : l)).filter((l) => l.qty > 0);
-      return lineas.length ? { ...r, lineas } : { ...r, lineas, estado: 'cerrada' as const };
+      return lineas.length || r.tarjetas?.length ? { ...r, lineas } : { ...r, lineas, estado: 'cerrada' as const };
+    }));
+  }
+  private consumirTarjeta(ref: string, codigo: string) {
+    const todas = this.reservas();
+    if (!todas.some((r) => r.ref === ref && r.estado === 'abierta')) return;
+    this.repo.kvSet('reservas', todas.map((r) => {
+      if (r.ref !== ref || r.estado !== 'abierta') return r;
+      const tarjetas = (r.tarjetas ?? []).filter((t) => t.codigo !== codigo);
+      return r.lineas.length || tarjetas.length ? { ...r, tarjetas } : { ...r, tarjetas, estado: 'cerrada' as const };
     }));
   }
   reservasAbiertas(): Reserva[] {
@@ -219,6 +251,10 @@ export class Central {
         return;
       }
       this.repo.appendOp(op);
+      // P-23 (ensayo): una tarjeta de regalo vale en las dos tiendas, así que el central reparte su libro mayor a los demás hubs.
+      if (op.tipo.startsWith('giftcard.') && (this.ctx.politicas.P23_tarjeta_regalo_entre_tiendas ?? 'compartida') === 'compartida') {
+        for (const t of this.ctx.tiendas) if (`hub:${t}` !== desde) this.repo.encolar(op.op_id, `hub:${t}`);
+      }
       if (op.tipo === 'item.created') {
         if (this.ctx.catalogoCompartido) for (const t of this.ctx.tiendas) if (`hub:${t}` !== desde) this.repo.encolar(op.op_id, `hub:${t}`);
         if (this.ctx.politicas.P07_item_no === 'a_central' && op.payload.item_no == null) {
@@ -661,6 +697,63 @@ export class Caja {
       if (!Number.isInteger(p.monto) || p.monto <= 0) throw new ErrorDominio('PAGO_INVALIDO', 'monto inválido');
     }
     if (pagos.reduce((a, p) => a + p.monto, 0) !== total) throw new ErrorDominio('PAGO_INVALIDO', 'los pagos no suman el total');
+    const vistas = new Set<string>();
+    for (const p of pagos) {
+      if (p.metodo !== 'tarjeta_regalo') continue;
+      if (!p.tarjeta?.trim()) throw new ErrorDominio('TARJETA_REGALO_REQUERIDA', 'falta el código de la tarjeta de regalo');
+      if (vistas.has(p.tarjeta)) throw new ErrorDominio('PAGO_INVALIDO', `la tarjeta ${p.tarjeta} aparece dos veces en el cobro`);
+      vistas.add(p.tarjeta);
+    }
+  }
+  private tarjetasDe(pagos: Pago[]): TarjetaApartada[] {
+    return pagos.filter((p) => p.metodo === 'tarjeta_regalo').map((p) => ({ codigo: p.tarjeta!, monto: p.monto }));
+  }
+  /** Vista local del saldo (puede ir atrasada respecto a otra tienda; con hub, el hub es quien concede). */
+  saldoTarjeta(codigo: string): number | null {
+    const t = this.idx.tarjeta(codigo.trim());
+    return t ? t.saldo : null;
+  }
+  tarjetaRegalo(codigo: string): TarjetaRegalo | null {
+    return this.idx.tarjeta(codigo.trim()) ?? null;
+  }
+  tarjetasRegaloTodas(): TarjetaRegalo[] {
+    return this.idx.tarjetasTodas();
+  }
+
+  /**
+   * Alta de una tarjeta de regalo. Es un ingreso de efectivo (el cliente la paga), NO una venta: no consume folio de
+   * ticket (P-24, sin aprobar) y entra al efectivo esperado del corte de esta caja.
+   */
+  altaTarjetaRegalo(d: { codigo: string; monto: number; cajero?: string; cliente?: string }): TarjetaRegalo {
+    const codigo = String(d.codigo ?? '').trim();
+    if (!codigo) throw new ErrorDominio('DATOS_REQUERIDOS', 'falta el código de la tarjeta');
+    if (!Number.isInteger(d.monto) || d.monto <= 0) throw new ErrorDominio('PAGO_INVALIDO', 'el monto de la tarjeta es un entero positivo en centavos');
+    if (this.idx.tarjeta(codigo)) throw new ErrorDominio('TARJETA_EXISTE', `la tarjeta ${codigo} ya está dada de alta`);
+    this.emitir('giftcard.emitida', { codigo, monto: d.monto, tienda: this.tienda, caja: this.caja, cajero: d.cajero ?? 'cajero', cliente: d.cliente ?? null, medio: 'efectivo' });
+    return this.idx.tarjeta(codigo)!;
+  }
+
+  /**
+   * Cobro con tarjeta de regalo: aplica el saldo (todo o parte) y el resto se cobra en efectivo.
+   * `recibido` es el efectivo entregado para el resto; si el saldo cubre el total no hace falta.
+   */
+  cobrarConTarjetaRegalo(cartId: string, codigo: string, recibido: number | undefined, cajero = 'cajero'): Venta {
+    const previa = this.repo.getOp(`sale:${cartId}`);
+    if (previa) return ventas([previa]).get(cartId)!;
+    const cod = codigo.trim();
+    const t = this.idx.tarjeta(cod);
+    if (!t) throw new ErrorDominio('TARJETA_INEXISTENTE', `la tarjeta ${cod} no está dada de alta`);
+    const c = this.cartGet(cartId);
+    const total = c.lineas.reduce((a, l) => a + l.importe, 0);
+    if (t.saldo <= 0) throw new ErrorDominio('SALDO_INSUFICIENTE', `la tarjeta ${cod} no tiene saldo`, { saldo: 0 });
+    const aplicado = Math.min(t.saldo, total);
+    const pagos: Pago[] = [{ metodo: 'tarjeta_regalo', monto: aplicado, tarjeta: cod, saldo_despues: t.saldo - aplicado }];
+    const resto = total - aplicado;
+    if (resto > 0) {
+      if (!Number.isInteger(recibido) || recibido! < resto) throw new ErrorDominio('EFECTIVO_INSUFICIENTE', 'el saldo no cubre el total: falta cobrar el resto en efectivo', { saldo: t.saldo, total, resto, recibido: recibido ?? null });
+      pagos.push({ metodo: 'efectivo', monto: resto, recibido, cambio: recibido! - resto });
+    }
+    return this.cobrar(cartId, pagos, cajero);
   }
 
   cobrar(cartId: string, pagos: Pago[], cajero = 'cajero'): Venta {
@@ -686,12 +779,16 @@ export class Caja {
     }
     // Arbitraje: con hub, la existencia la concede el hub (serializa a las dos cajas); sin hub, rige la vista local.
     let reservado = false;
+    const tarjetas = this.tarjetasDe(pagos);
     let avisos: string[] = noVerificados.map((i) => `inventario_no_verificado:${i}`);
     if (hubOk) {
-      const r = this.enlace.reservar(c.id, this.caja, c.lineas.map((l) => ({ item_id: l.item_id, qty: l.qty })));
+      const r = this.enlace.reservar(c.id, this.caja, c.lineas.map((l) => ({ item_id: l.item_id, qty: l.qty })), tarjetas);
       if (r === null) {
         if (this.ctx.politicas.P01_hub_no_disponible === 'bloquear_ventas_nuevas') throw new ErrorDominio('VENTA_BLOQUEADA', 'el hub dejó de responder durante la venta');
         this.exigirExistenciaLocal(c);
+        this.exigirSaldoLocal(tarjetas);
+      } else if (!r.ok && r.motivo === 'tarjeta_sin_saldo') {
+        throw new ErrorDominio('SALDO_INSUFICIENTE', `la tarjeta de regalo ${r.tarjetas_sin_saldo!.join(', ')} no existe o no tiene saldo suficiente`, r);
       } else if (!r.ok) {
         throw new ErrorDominio('SIN_EXISTENCIA', `el hub no concede existencia de ${this.nombresDe(r.faltantes ?? [])}`, r);
       } else {
@@ -700,6 +797,7 @@ export class Caja {
       }
     } else {
       this.exigirExistenciaLocal(c);
+      this.exigirSaldoLocal(tarjetas);
     }
     try {
       this.renovarSiHaceFalta();
@@ -717,6 +815,15 @@ export class Caja {
       const a = this.idx.articulo(id);
       return a ? `${[a.descripcion, a.marca].filter(Boolean).join(' ') || 'artículo'} (Item # ${a.item_no ?? 'pendiente'})` : id;
     }).join(', ');
+  }
+
+  /** Sin hub: solo se puede validar contra lo que esta caja conoce (limitación documentada; ver P-01). */
+  private exigirSaldoLocal(tarjetas: TarjetaApartada[]) {
+    for (const t of tarjetas) {
+      const s = this.idx.tarjeta(t.codigo);
+      if (!s) throw new ErrorDominio('TARJETA_INEXISTENTE', `la tarjeta ${t.codigo} no está dada de alta en esta caja`);
+      if (s.saldo < t.monto) throw new ErrorDominio('SALDO_INSUFICIENTE', `la tarjeta ${t.codigo} tiene saldo ${s.saldo / 100}`, { saldo: s.saldo });
+    }
   }
 
   private exigirExistenciaLocal(c: Carrito) {
@@ -759,6 +866,9 @@ export class Caja {
         sale_id: c.id, tienda: this.tienda, caja: this.caja, folio, cajero, lineas: c.lineas, total, pagos,
       }, `sale:${c.id}`);
       this.ctx.fallo?.('tras_venta');
+      for (const p of pagos) {
+        if (p.metodo === 'tarjeta_regalo') this.emitir('giftcard.uso', { codigo: p.tarjeta, monto: p.monto, sale_id: c.id, tienda: this.tienda, caja: this.caja }, `gcuso:${c.id}:${p.tarjeta}`);
+      }
       for (const l of c.lineas) {
         this.emitir('inv.movement', { item_id: l.item_id, tienda: this.tienda, delta: -l.qty, tipo: 'venta', doc: c.id, caja: this.caja }, `mov:${c.id}:${l.linea_id}`);
       }
@@ -774,6 +884,9 @@ export class Caja {
     if (v.estado === 'cancelada') return v;
     this.repo.tx(() => {
       this.emitir('sale.cancelled', { sale_id: saleId, motivo }, `cancel:${saleId}`);
+      for (const p of v.pagos) {
+        if (p.metodo === 'tarjeta_regalo') this.emitir('giftcard.reintegro', { codigo: p.tarjeta, monto: p.monto, sale_id: saleId, tienda: this.tienda, caja: this.caja, motivo: 'cancelacion' }, `gcre:${saleId}:${p.tarjeta}`);
+      }
       for (const l of v.lineas) this.emitir('inv.movement', { item_id: l.item_id, tienda: this.tienda, delta: l.qty, tipo: 'cancelacion', doc: saleId, caja: this.caja }, `mov:cancel:${saleId}:${l.linea_id}`);
     });
     return ventas(this.opsVentas()).get(saleId)!;
@@ -888,7 +1001,7 @@ export class Caja {
   }
   /** Corte "en vivo": se calcula SOLO con las operaciones de esta caja y refleja todo lo ocurrido hasta ahora. No se guarda. */
   corteEnVivo(fecha: string) {
-    const ops = this.opsDe('sale.confirmed', 'sale.cancelled', 'return.registered', 'cash.movement');
+    const ops = this.opsDe('sale.confirmed', 'sale.cancelled', 'return.registered', 'cash.movement', 'giftcard.emitida');
     const propia = (t: string | null, c: number | null) => t === this.tienda && c === this.caja;
     const vs = [...ventas(ops).values()].filter((v) => propia(v.tienda, v.caja) && fechaLocal(v.ocurrio_en) === fecha);
     const confirmadas = vs.filter((v) => v.estado === 'confirmada');
@@ -898,6 +1011,8 @@ export class Caja {
     const lineas = confirmadas.flatMap((v) => v.lineas);
     const efectivoCobrado = suma(confirmadas.flatMap((v) => v.pagos.filter((p) => p.metodo === 'efectivo').map((p) => p.monto)));
     const tarjeta = suma(confirmadas.flatMap((v) => v.pagos.filter((p) => p.metodo === 'tarjeta').map((p) => p.monto)));
+    const regalo = suma(confirmadas.flatMap((v) => v.pagos.filter((p) => p.metodo === 'tarjeta_regalo').map((p) => p.monto)));
+    const altas = ops.filter((o) => o.tipo === 'giftcard.emitida' && propia(o.payload.tienda, o.payload.caja) && fechaLocal(o.ocurrio_en) === fecha).map((o) => o.payload.monto as number);
     const fondo = suma(mov.filter((m) => m.tipo === 'fondo_inicial').map((m) => m.monto));
     const entradas = suma(mov.filter((m) => m.tipo === 'entrada').map((m) => m.monto));
     const retiros = suma(mov.filter((m) => m.tipo === 'retiro').map((m) => m.monto));
@@ -909,8 +1024,8 @@ export class Caja {
       ventas_brutas: suma(lineas.map((l) => l.qty * l.precio_unit)), descuentos: suma(lineas.map((l) => l.descuento)),
       ventas: suma(confirmadas.map((v) => v.total)), devoluciones: reembolsos,
       ventas_netas: suma(confirmadas.map((v) => v.total)) - reembolsos,
-      cobros_efectivo: efectivoCobrado, cobros_tarjeta: tarjeta, fondo_inicial: fondo, entradas, retiros,
-      efectivo_esperado: fondo + efectivoCobrado + entradas - reembolsos - retiros,
+      cobros_efectivo: efectivoCobrado, cobros_tarjeta: tarjeta, cobros_tarjeta_regalo: regalo, tarjetas_regalo_emitidas: suma(altas), tarjetas_regalo_emitidas_n: altas.length, fondo_inicial: fondo, entradas, retiros,
+      efectivo_esperado: fondo + efectivoCobrado + suma(altas) + entradas - reembolsos - retiros,
       folio_inicial: folios.length ? Math.min(...folios) : null, folio_final: folios.length ? Math.max(...folios) : null,
       perdida_documental_abierta: this.perdidasDocumentalesAbiertas().map((x) => x.perdida_id),
     };

@@ -20,6 +20,11 @@ export interface Politicas {
   P12_tarjeta_con_pendiente: 'permitir_con_aviso' | 'bloquear_solo_tarjeta';
   /** P-14: vender artículos cuya existencia está marcada no verificada (ALTERNATIVA DE ENSAYO, no aprobada). */
   P14_venta_con_inventario_no_verificado: 'permitir_con_aviso' | 'bloquear_articulo_no_verificado';
+  /**
+   * P-23 (opcional; sin aprobar): ¿una tarjeta de regalo vale en las dos tiendas? Si se omite se ensaya 'compartida'.
+   * Con 'solo_tienda_emisora' el central no la reparte a los demás hubs.
+   */
+  P23_tarjeta_regalo_entre_tiendas?: 'compartida' | 'solo_tienda_emisora';
   /** Parámetros numéricos del arrendamiento / bloques. */
   K_folios: number;
   K_item_no: number;
@@ -41,6 +46,7 @@ export function crearPoliticasEnsayo(v: Omit<Politicas, 'estado'>): Politicas {
     if (val === undefined) throw new ErrorDominio('POLITICA_FALTANTE', `falta ${k}: no hay valor por omisión`);
     if (!validos.includes(val)) throw new ErrorDominio('POLITICA_INVALIDA', `${k}=${val}`);
   }
+  if (v.P23_tarjeta_regalo_entre_tiendas !== undefined && !['compartida', 'solo_tienda_emisora'].includes(v.P23_tarjeta_regalo_entre_tiendas)) throw new ErrorDominio('POLITICA_INVALIDA', `P23=${v.P23_tarjeta_regalo_entre_tiendas}`);
   for (const k of ['K_folios', 'K_item_no'] as const) {
     if (!Number.isInteger(v[k]) || v[k] < 1) throw new ErrorDominio('POLITICA_INVALIDA', `${k} debe ser entero >= 1`);
   }

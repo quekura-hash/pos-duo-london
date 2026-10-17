@@ -154,21 +154,21 @@ export class SqliteRepo implements Repo {
         PRIMARY KEY(op_id, destino));
       CREATE TABLE IF NOT EXISTS kv(k TEXT PRIMARY KEY, v TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS cajas(
-        tienda TEXT NOT NULL, caja INTEGER NOT NULL, solo_efectivo INTEGER NOT NULL,
+        tienda TEXT NOT NULL, caja INTEGER NOT NULL, sin_tarjeta_bancaria INTEGER NOT NULL,
         PRIMARY KEY(tienda, caja));
       -- Tercera barrera (además del dominio y la validación del hub): la base rechaza
-      -- ventas con tarjeta en una caja configurada solo-efectivo.
-      CREATE TRIGGER IF NOT EXISTS ops_caja_solo_efectivo BEFORE INSERT ON ops
+      -- ventas con TARJETA BANCARIA en una caja sin terminal (la tarjeta de regalo no es bancaria).
+      CREATE TRIGGER IF NOT EXISTS ops_caja_sin_tarjeta_bancaria BEFORE INSERT ON ops
       WHEN NEW.tipo = 'sale.confirmed'
-        AND EXISTS (SELECT 1 FROM cajas c WHERE c.tienda = NEW.tienda AND c.caja = NEW.caja AND c.solo_efectivo = 1)
+        AND EXISTS (SELECT 1 FROM cajas c WHERE c.tienda = NEW.tienda AND c.caja = NEW.caja AND c.sin_tarjeta_bancaria = 1)
         AND EXISTS (SELECT 1 FROM json_each(json_extract(NEW.payload, '$.pagos'))
-                    WHERE json_extract(value, '$.metodo') <> 'efectivo')
-      BEGIN SELECT RAISE(ABORT, 'caja_solo_efectivo'); END;
+                    WHERE json_extract(value, '$.metodo') = 'tarjeta')
+      BEGIN SELECT RAISE(ABORT, 'caja_sin_tarjeta_bancaria'); END;
     `);
     for (const c of cajas) {
       this.db
-        .prepare('INSERT OR REPLACE INTO cajas(tienda,caja,solo_efectivo) VALUES (?,?,?)')
-        .run(c.tienda, c.caja, c.metodos.every((m) => m === 'efectivo') ? 1 : 0);
+        .prepare('INSERT OR REPLACE INTO cajas(tienda,caja,sin_tarjeta_bancaria) VALUES (?,?,?)')
+        .run(c.tienda, c.caja, c.metodos.includes('tarjeta') ? 0 : 1);
     }
   }
 

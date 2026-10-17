@@ -10,6 +10,7 @@ export function validarOpEntrante(op: Op, cfg: CajaCfg[]): string | null {
     if (!c) return `caja_desconocida:${op.tienda}/${op.caja}`;
     for (const p of op.payload.pagos ?? []) {
       if (!c.metodos.includes(p.metodo)) return `metodo_no_permitido:${p.metodo}@${op.tienda}/${op.caja}`;
+      if (p.metodo === 'tarjeta_regalo' && !p.tarjeta) return 'tarjeta_regalo_sin_codigo';
     }
     if (op.payload.tienda !== op.tienda || op.payload.caja !== op.caja) return 'identidad_inconsistente';
     const suma = (op.payload.pagos ?? []).reduce((a: number, p: any) => a + p.monto, 0);

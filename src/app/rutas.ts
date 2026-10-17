@@ -31,8 +31,8 @@ export async function atender(o: { cajero?: ServicioCaja; admin?: ServicioAdmin 
     switch (`${metodo} ${url.pathname}`) {
       case 'GET /api/sesion':
         return ok(C
-          ? { rol: 'cajero', usuario: C.actor.usuario, tienda: C.caja.tienda, caja: C.caja.caja, nav: ['venta', 'corte', 'ventas'] }
-          : { rol: 'admin', usuario: A!.actor.usuario, cajas: A!.cajas, nav: ['reportes', 'inventario'] });
+          ? { rol: 'cajero', usuario: C.actor.usuario, tienda: C.caja.tienda, caja: C.caja.caja, nav: ['venta', 'ventas', 'corte', 'tarjetas'] }
+          : { rol: 'admin', usuario: A!.actor.usuario, cajas: A!.cajas, nav: ['reportes', 'inventario', 'tarjetas'] });
       // ── cajero ──
       case 'GET /api/estado': return ok({ estado: exigirCajero().estado() });
       case 'POST /api/venta/actual': { const c = exigirCajero(); const cart = c.carritoActual(); return ok({ cart, carrito: c.vista(cart) }); }
@@ -42,6 +42,10 @@ export async function atender(o: { cajero?: ServicioCaja; admin?: ServicioAdmin 
       case 'POST /api/venta/cantidad': return ok({ carrito: exigirCajero().cambiarCantidad(b.cart, b.linea_id, Number(b.qty)) });
       case 'POST /api/venta/quitar': return ok({ carrito: exigirCajero().quitarLinea(b.cart, b.linea_id) });
       case 'POST /api/venta/cobrar-efectivo': return ok(await exigirCajero().cobrarEfectivo(b.cart, Number(b.recibido)));
+      case 'POST /api/venta/cobrar-regalo': return ok(await exigirCajero().cobrarTarjetaRegalo(b.cart, String(b.codigo ?? ''), b.recibido === undefined || b.recibido === null ? undefined : Number(b.recibido)));
+      case 'GET /api/tarjeta': return ok({ tarjeta: exigirCajero().consultarTarjeta(q.get('codigo') ?? '') });
+      case 'POST /api/tarjeta/alta': return ok(await exigirCajero().altaTarjetaRegalo(String(b.codigo ?? ''), Number(b.monto)));
+      case 'GET /api/tarjetas': return ok({ tarjetas: exigirCajero().tarjetasPropias() });
       case 'POST /api/venta/reimprimir': return ok(await exigirCajero().reimprimir(b.sale_id));
       case 'GET /api/buscar': return ok({ ...exigirCajero().buscarConTotal(q.get('q') ?? '') });
       case 'GET /api/ventas': {
@@ -63,6 +67,7 @@ export async function atender(o: { cajero?: ServicioCaja; admin?: ServicioAdmin 
       // ── administración ──
       case 'GET /api/admin/cajas': return ok({ cajas: exigirAdmin().cajas });
       case 'POST /api/admin/reporte': return ok({ reporte: exigirAdmin().reporte({ cajas: b.cajas, desde: b.desde, hasta: b.hasta }) });
+      case 'GET /api/admin/tarjetas': return ok({ tarjetas: exigirAdmin().tarjetasRegalo() });
       case 'GET /api/admin/inventario': return ok(exigirAdmin().inventario(q.get('completo') === '1'));
       case 'POST /api/admin/cortes': return ok({ cortes: exigirAdmin().cortes({ cajas: b.cajas, desde: b.desde, hasta: b.hasta }) });
       default: return { status: 404, json: { ok: false, error: { codigo: 'RUTA_INEXISTENTE', mensaje: url.pathname } } };

@@ -38,7 +38,7 @@ function rpc(metodo: string, args: any[]) {
     case 'anclas': return hub.anclas(args[0]);
     case 'consultarVenta': return ventas(repo.ops()).get(args[0]) ?? null;
     case 'devuelto': return [...devueltoPorLinea(repo.ops(), args[0])];
-    case 'reservar': return hub.reservar(args[0], args[1], args[2]);
+    case 'reservar': return hub.reservar(args[0], args[1], args[2], args[3] ?? []);
     case 'liberar': hub.liberar(args[0]); return true;
     default: throw new Error(`rpc desconocido: ${metodo}`);
   }

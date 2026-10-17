@@ -56,10 +56,10 @@ export function fabricaSqlite(dir: string): FabricaRepo {
 }
 
 export const CAJAS_ESTANDAR: CajaCfg[] = [
-  { tienda: 'DUO', caja: 1, metodos: ['efectivo', 'tarjeta'] },
-  { tienda: 'DUO', caja: 2, metodos: ['efectivo'] },
-  { tienda: 'LON', caja: 1, metodos: ['efectivo', 'tarjeta'] },
-  { tienda: 'LON', caja: 2, metodos: ['efectivo'] },
+  { tienda: 'DUO', caja: 1, metodos: ['efectivo', 'tarjeta', 'tarjeta_regalo'] },
+  { tienda: 'DUO', caja: 2, metodos: ['efectivo', 'tarjeta_regalo'] },
+  { tienda: 'LON', caja: 1, metodos: ['efectivo', 'tarjeta', 'tarjeta_regalo'] },
+  { tienda: 'LON', caja: 2, metodos: ['efectivo', 'tarjeta_regalo'] },
 ];
 
 export interface InformeRehidratacion {
@@ -160,7 +160,7 @@ export class Mundo {
         return { ceiling: techos.length ? Math.max(...techos) : null, hwm: Math.max(...fuentes.map((f) => f.hwm)), fuente: fuentes.map((f) => f.fuente).join('+') };
       },
       bloqueItemNo: (k) => (w.centralArriba(t, n) ? w.central.bloqueItemNo(k) : null),
-      reservar: (ref, caja, lineas) => (w.hubArriba(t, n) ? w.hub(t).reservar(ref, caja, lineas) : null),
+      reservar: (ref, caja, lineas, tarjetas) => (w.hubArriba(t, n) ? w.hub(t).reservar(ref, caja, lineas, tarjetas) : null),
       liberar: (ref) => { if (w.hubArriba(t, n)) w.hub(t).liberar(ref); },
       consultarVenta(saleId) {
         if (w.hubArriba(t, n)) {

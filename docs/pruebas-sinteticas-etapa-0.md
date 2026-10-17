@@ -192,6 +192,25 @@ En la ronda del inventario se rompieron 7 más (vender precio no vendible, códi
 12. **Corte guardado vs. corte en vivo.** Antes, pedir el corte de nuevo recalculaba pero no reescribía el guardado, mezclando ambos. Ahora el en vivo no se guarda y el cierre se guarda una vez; una venta posterior lo marca desactualizado.
 13. **Renglón de campos del ticket partido a mitad de un campo** (`Lote:` / `20260913`). Ahora se parte entre campos completos.
 
+## Tarjetas de regalo y pantalla según la maqueta
+
+Pruebas `TR1–TR12` (`test/21`, **memoria y SQLite**), `UI8–UI9` (`test/18`, Chromium sobre SQLite) y `B-regalo` (`test/19`, página única en el navegador):
+
+- TR1 alta = ingreso de efectivo sin folio, reflejada en el corte; rechaza duplicado, código vacío, monto 0 y monto con decimales de centavo. ✔
+- TR2 cobro total con la tarjeta: descuenta saldo, no entra al efectivo cobrado, el ticket muestra tarjeta y saldo restante, reintento idempotente. ✔
+- TR3 saldo menor al total: resto en efectivo (recibido/cambio); sin efectivo suficiente, tarjeta inexistente o sin saldo se rechazan sin consumir folio. ✔
+- TR4 no se sobregira, no se repite la tarjeta en un cobro, se exige el código. ✔
+- TR5 cancelar reintegra el saldo una sola vez. ✔
+- TR6 dos cajas con la misma tarjeta y sin sincronizar entre ventas: el hub concede a una sola. ✔  TR7 reservas de saldo del hub (apartar, rechazo no heredado, liberar, idempotencia, tarjeta desconocida). ✔
+- TR8 P-23: la tarjeta de DÚO se usa en London y el saldo regresa a DÚO; con `solo_tienda_emisora` no se reparte. ✔
+- TR9 Caja 2 acepta tarjeta de regalo y rechaza tarjeta bancaria; el trigger de SQLite permite la primera y bloquea la segunda (`test/08`). ✔
+- TR10 conflictos: alta repetida entre tiendas aisladas (no suma saldo, se señala) y sobregiro por dos cajas sin hub (se señala). ✔  TR11 comprobante sin folio ni IVA. ✔
+- TR12 **limitación**: una tarjeta que el hub aún no conoce se rechaza hasta sincronizar. ✔ (documentado, no un defecto oculto)
+- UI8 logo de cada tienda arriba a la izquierda (cargó), sin la palabra «apartado» en pantalla, todo botón visible con icono, botones futuros deshabilitados con «Próximamente», formas de pago correctas por caja. ✔
+- UI9 en el navegador: alta con comprobante, duplicado, consulta de saldo, cobro total, cobro parcial con efectivo, tarjeta agotada, corte (efectivo esperado = resto en efectivo + alta) y libro de Administración; el cajero recibe 403 en la ruta del libro. ✔
+- B-regalo en el archivo único: logos incrustados, alta en DÚO y cobro en London, Caja 2 con Tarjeta bancaria deshabilitada. ✔
+- Comprobación por mutación: quitar la validación de saldo del hub rompe TR4/TR6/TR7/TR12; quitar el reintegro rompe TR5; quitar las altas del efectivo esperado rompe TR1–TR3. ✔
+
 ## Limitaciones (no se declara validado)
 
 - **Concurrencia parcial.** Las pruebas `[procesos reales]` sí ejecutan dos cajas en paralelo contra un hub real. Aun así: el árbitro es correcto porque el hub procesa cada solicitud de forma síncrona en un solo hilo; no se probó un hub con varios hilos ni dos procesos escribiendo el mismo archivo SQLite. Las pruebas en un solo proceso siguen usando entrelazados escritos a mano.
@@ -205,8 +224,8 @@ En la ronda del inventario se rompieron 7 más (vender precio no vendible, códi
 - **Hub**: se probó perder hub y caja a la vez solo en dos casos (R3/R3b); la recuperación del propio hub no está modelada más allá de eso.
 - **Permisos**: se imponen en las funciones de consulta con un `Actor` ya dado; no hay autenticación, PIN, ni propagación de cambios de permisos sin conexión.
 - **Inventario**: solo se implementó la carga inicial del catálogo y la exportación. No hay actualización por código desde un segundo archivo, entradas de mercancía, conteo por Excel ni `.xls`. Las etiquetas (costura/precio), pedimento, precio alterno y departamentos se **conservan** pero no se usan. El archivo real no trae existencias: las de las pruebas son sintéticas.
-- **Alcance no cubierto**: apartados, crédito de empleadas, descuentos programables, ticket de regalo (botón visible y deshabilitado), cambios con renglón negativo (sin serie propia: P-08), conteo por denominaciones, reembolso a tarjeta, exportación `.xlsx` real, panel remoto, venta en espera, edición de precio/descripción en la pantalla (existe en el motor, no en la interfaz), alta de artículo desde la pantalla, cobro con tarjeta desde la pantalla, devoluciones desde la pantalla.
-- **Diseño visual**: el mockup aprobado no se recibió; la interfaz se construyó a partir de la descripción textual y **no se ha comparado con él**.
+- **Alcance no cubierto**: apartados (se retiraron de la interfaz por decisión del propietario), crédito de empleadas, descuentos programables, ticket de regalo (botón visible y deshabilitado), cambios con renglón negativo (sin serie propia: P-08), conteo por denominaciones, reembolso a tarjeta, exportación `.xlsx` real, panel remoto, venta en espera, edición de precio/descripción en la pantalla (existe en el motor, no en la interfaz), alta de artículo desde la pantalla, cobro con tarjeta desde la pantalla, devoluciones desde la pantalla.
+- **Diseño visual**: la interfaz sigue la maqueta recibida (barra superior con logo, navegación lateral con iconos, panel «Resumen de venta», formas de pago, botones inferiores y pie). Se comparó a ojo con capturas, **no** píxel a píxel; los iconos son SVG propios, no los de la maqueta, y la columna Lote se añadió a la tabla (la maqueta no la trae).
 - **Hardware**: nada probado con impresora, cajón, escáner ni terminal. La "impresora" es un archivo; el ESC/POS está verificado solo por estructura de bytes. El ancho de 42 columnas es un supuesto. Un escáner se simula escribiendo el código y pulsando Enter.
 - **Navegador y sistema**: solo Chromium en Linux; no Windows, no la ventana Electron, no pantallas táctiles ni teclado numérico físico.
 - **Interfaz**: la prueba de navegador usa el motor en el mismo proceso (no el hub real por HTTP); usuarios sintéticos sin autenticación; el indicador de internet muestra "Sin dato" fuera de la simulación; la interfaz **no tiene botón de sincronización** (existe la ruta `/api/sincronizar`); en las pruebas la dispara la prueba y en `npm run demo` ocurre cada 2 s.
@@ -214,3 +233,4 @@ En la ronda del inventario se rompieron 7 más (vender precio no vendible, códi
 - **Marcas de existencias**: un conteo físico es manual; no hay flujo guiado ni importación de conteo (propósito 4 del Excel) todavía.
 - **Catálogo compartido entre tiendas** se asumió en las pruebas de alta (P-10 pendiente).
 - **Incidencias**: se detectan a demanda sobre la bitácora; no hay flujo de resolución persistente.
+- **Tarjetas de regalo**: sin vigencia, vencimiento, cargos, recarga ni reposición por pérdida; sin devolución a tarjeta (P-26); el alta no tiene folio propio (P-24); el saldo sin hub se valida solo con lo que la caja conoce (el conflicto se detecta después); no se probó con lector ni con tarjetas físicas reales.

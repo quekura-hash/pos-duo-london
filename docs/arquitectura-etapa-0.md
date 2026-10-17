@@ -25,7 +25,7 @@ por omisión silencioso.
 - Solo Administración genera reportes consolidados de todas las cajas, o de una o varias cajas seleccionadas (incluso de tiendas distintas), por el periodo requerido.
 - Cada venta conserva tienda, caja y folio originales al consultar, sincronizar o exportar; nunca se renumera para un reporte.
 - Las dos cajas de cada tienda comparten el inventario de esa tienda.
-- Caja 1 admite efectivo, tarjeta y mixto; Caja 2, solo efectivo.
+- Caja 1 admite efectivo, tarjeta bancaria y mixto; Caja 2, sin terminal bancaria (efectivo). La **tarjeta de regalo** es una forma de pago interna, no bancaria: ambas cajas la admiten (P-25, sin aprobar).
 
 ## 1. Tres situaciones distintas (no mezclar)
 
@@ -220,6 +220,10 @@ actualizado?
 | P-20 | Existencias: el archivo no trae cantidades. Las de prueba son sintéticas y marcadas; falta la existencia inicial real por ubicación |
 | P-21 | Significado de «Etiqt-Costura» (Yes en 21,220) y «Etiqt- precio» (vacío en todos) para la migración: se conservan tal cual; la regla "lo cargado antes entra como etiquetado" cubre ambos checks o solo el de costura |
 | P-22 | Departamentos: 199 valores distintos, 9,926 con «System» (sin clasificar) y sinónimos (Women's, WOMEN, DAMA…); se conservan sin normalizar |
+| P-23 | Tarjeta de regalo entre tiendas: en ensayo vale en DÚO y London (el central reparte el libro de tarjetas). Configurable `P23_tarjeta_regalo_entre_tiendas` = `compartida` / `solo_tienda_emisora`; sin aprobar |
+| P-24 | El alta de una tarjeta de regalo es un ingreso de efectivo **sin folio de ticket** (se imprime un comprobante aparte). Falta decidir si debe tener serie/folio propio y cómo se reporta fiscal y contablemente |
+| P-25 | Caja 2 acepta tarjeta de regalo (no es tarjeta bancaria). Falta confirmarlo |
+| P-26 | Devoluciones de una venta pagada con tarjeta de regalo: hoy una **devolución** se registra como reembolso en efectivo; una **cancelación** sí reintegra el saldo a la tarjeta. Falta la regla (¿reintegrar a la tarjeta, vale, efectivo?) y la política de vigencia/vencimiento y cargos de la tarjeta |
 | P-13 | Mientras un código esté duplicado: ¿se permite la elección provisional del cajero (hoy, marcada y revisable) o se bloquea la venta de esos artículos hasta que Administración resuelva? |
 | P-12 | Nuevo cobro con tarjeta mientras hay otro intento pendiente: `permitir_con_aviso` o `bloquear_solo_tarjeta` |
 
@@ -290,3 +294,15 @@ Escanear → agregar → cobrar en efectivo → guardar venta, pago y folio → 
 - **Salida**: Administración exporta el inventario a `.xlsx` (Item #, Código, Marca, Descripción, Estilo, Lote, Departamento, Precio de venta, Precio alterno, Código alterno, etiquetas, y existencia y verificación por tienda). Texto como texto, precios numéricos exactos, sin fórmulas ejecutables.
 - **No implementado todavía**: actualizar el catálogo por código desde un segundo archivo, entradas de mercancía, conteo físico por Excel, reporte de conflictos entre archivos, `.xls`.
 - **Escala**: con ~21,000 artículos las proyecciones se mantienen de forma incremental (índice de catálogo, existencias y marcas) en lugar de recalcularse desde la bitácora en cada escaneo; la memoria ya no se copia en cada transacción.
+
+## 14. Tarjetas de regalo [P]
+
+- **Libro mayor, no un saldo guardado**: operaciones `giftcard.emitida`, `giftcard.uso` y `giftcard.reintegro`. Saldo = emitido − usos + reintegros (proyección pura `tarjetasRegalo` y el mismo cálculo incremental en `Indice`).
+- **Alta** (`Caja.altaTarjetaRegalo`): código (texto, conserva ceros) y monto en centavos; rechaza código vacío, monto no positivo y código ya dado de alta localmente. Es entrada de efectivo de la caja: **no usa folio**, suma al `efectivo_esperado` del corte (`tarjetas_regalo_emitidas`) y no cuenta como venta. Se imprime un comprobante que no es ticket de venta (P-24).
+- **Cobro** (`cobrarConTarjetaRegalo`): se aplica `min(saldo, total)` y el resto se cobra en efectivo (con recibido y cambio). Una misma tarjeta no puede repetirse en un cobro. Cada pago con tarjeta de regalo guarda `tarjeta` y `saldo_despues`, el ticket los imprime y el corte los separa (`cobros_tarjeta_regalo`): el efectivo esperado **no** suma lo pagado con tarjeta (ese dinero entró al darla de alta).
+- **Arbitraje**: igual que las existencias, el hub concede el saldo. `Hub.reservar` recibe también las tarjetas; aparta saldo (saldo del hub − reservas abiertas), siempre rechaza si no alcanza (no depende de P-02, que es solo de existencias) y la reserva se cierra al llegar el `giftcard.uso` de la venta. Un rechazo no se hereda; una tarjeta que el hub no conoce no tiene saldo.
+- **Sin hub** (P-01 con venta autónoma): solo se valida contra lo que esa caja conoce. Dos cajas aisladas pueden gastar el mismo saldo; el conflicto se detecta después (`tarjeta_regalo_sobregirada`) y las altas repetidas del mismo código en tiendas aisladas también (`tarjeta_regalo_duplicada`; la repetida **no suma saldo**).
+- **Replicación**: caja → hub → (hermana de la tienda) y → central → hub de la otra tienda (P-23). Mientras el hub no conozca una tarjeta recién emitida, esta se rechaza al cobrar (el servicio dispara la sincronización al dar de alta para acortar esa ventana).
+- **Cancelación**: `sale.cancelled` emite `giftcard.reintegro` por cada pago con tarjeta de regalo (una sola vez). **Devolución**: sin cambio (reembolso en efectivo) hasta definir P-26.
+- **Base de datos**: la restricción SQLite que protege a la Caja 2 ahora prohíbe solo la tarjeta **bancaria** (`caja_sin_tarjeta_bancaria`); la de regalo no.
+- **Interfaz** (maqueta aprobada): logo de la tienda arriba a la izquierda, navegación con iconos (Venta, Historial, Créditos [deshabilitado], Corte de caja, Tarjetas de regalo; Administración: Reportes, Inventario, Tarjetas de regalo), forma de pago Efectivo / Tarjeta / Mixto / **Tarjeta de regalo**, y los botones de funciones aún inexistentes (Nuevo artículo, Editar, Cambio o devolución, Aplicar descuento, Venta en espera, Ticket de regalo, Tarjeta bancaria, Mixto) **visibles, deshabilitados y rotulados «Próximamente»**. **No hay Apartados** (ni menú ni botón). La columna Lote se conserva aunque la maqueta no la dibuje (regla del documento de especificación).

@@ -1,4 +1,4 @@
-import type { PerdidaDocumental } from './proyecciones.ts';
+import { aplicarTarjeta, type PerdidaDocumental, type TarjetaRegalo } from './proyecciones.ts';
 import type { Repo } from './repo.ts';
 import type { Articulo } from './tipos.ts';
 
@@ -23,6 +23,7 @@ export class Indice {
   private marcas = new Map<string, string[]>(); // tienda -> ids de inv.verificacion_pendiente
   private cubiertas = new Map<string, Set<string>>(); // `${tienda}|${item}` -> ids cubiertos por un conteo
   private perdidas = new Map<string, PerdidaDocumental>();
+  private tarjetas = new Map<string, TarjetaRegalo>();
 
   constructor(repo: Repo) {
     this.repo = repo;
@@ -31,7 +32,7 @@ export class Indice {
   private reiniciar() {
     this.seq = 0;
     this.cat = new Map(); this.porCodigo = new Map(); this.porAlterno = new Map(); this.porItemNo = new Map(); this.texto = new Map();
-    this.stock = new Map(); this.marcas = new Map(); this.cubiertas = new Map(); this.perdidas = new Map();
+    this.stock = new Map(); this.marcas = new Map(); this.cubiertas = new Map(); this.perdidas = new Map(); this.tarjetas = new Map();
   }
 
   actualizar() {
@@ -63,6 +64,7 @@ export class Indice {
 
   private aplicar(o: { tipo: string; op_id: string; payload: any; ocurrio_en: string }) {
     const p = o.payload;
+    if (o.tipo.startsWith('giftcard.')) aplicarTarjeta(this.tarjetas, o);
     switch (o.tipo) {
       case 'item.created': {
         const a: Articulo = { ...p };
@@ -167,6 +169,14 @@ export class Indice {
   todas(): PerdidaDocumental[] {
     this.actualizar();
     return [...this.perdidas.values()];
+  }
+  tarjeta(codigo: string): TarjetaRegalo | undefined {
+    this.actualizar();
+    return this.tarjetas.get(codigo);
+  }
+  tarjetasTodas(): TarjetaRegalo[] {
+    this.actualizar();
+    return [...this.tarjetas.values()];
   }
   totalArticulos(): number {
     this.actualizar();

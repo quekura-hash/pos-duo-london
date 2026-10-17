@@ -2,10 +2,10 @@ import { cortesPorCaja, reporteConsolidado, ventasPorCaja, type Filtro } from '.
 import { ErrorDominio } from '../errores.ts';
 import type { Impresora } from '../impresion.ts';
 import type { Caja } from '../nodos.ts';
-import { catalogo, ventas } from '../proyecciones.ts';
+import { catalogo, tarjetasRegalo, ventas } from '../proyecciones.ts';
 import { hojaInventario, type Hoja } from '../inventario.ts';
-import { construirTicket, NEGOCIOS, renderTicketEscPos, renderTicketTexto, type NegocioCfg } from '../ticket.ts';
-import type { Actor, Articulo, Linea, Op } from '../tipos.ts';
+import { construirComprobanteRegalo, construirTicket, NEGOCIOS, renderComprobanteRegaloTexto, renderTextoEscPos, renderTicketEscPos, renderTicketTexto, type NegocioCfg } from '../ticket.ts';
+import type { Actor, Articulo, Linea, Op, Venta } from '../tipos.ts';
 import { fechaLocal } from '../util.ts';
 
 export interface Conexion {
@@ -26,6 +26,8 @@ export interface VistaCarrito {
   ventas_brutas: number;
   descuentos: number;
   total: number;
+  /** Existencia de ESTA tienda por artículo de la venta (para el panel de detalle). */
+  existencias: Record<string, { saldo: number; verificada: boolean }>;
 }
 
 /**
@@ -55,6 +57,7 @@ export class ServicioCaja {
     return {
       tienda: this.caja.tienda, caja: this.caja.caja, usuario: this.actor.usuario,
       negocio: this.negocios[this.caja.tienda]!.nombre,
+      metodos: this.caja.cfg.metodos,
       ahora, fecha_local: fechaLocal(ahora),
       ultimo_folio: this.caja.estadoFolios().ultimo,
       folios: this.caja.estadoFolios().estado,
@@ -81,6 +84,7 @@ export class ServicioCaja {
       ventas_brutas: c.lineas.reduce((a, l) => a + l.qty * l.precio_unit, 0),
       descuentos: c.lineas.reduce((a, l) => a + l.descuento, 0),
       total: c.lineas.reduce((a, l) => a + l.importe, 0),
+      existencias: Object.fromEntries(c.lineas.map((l) => { const e = this.caja.existenciaVerificada(l.item_id); return [l.item_id, { saldo: e.saldo, verificada: e.verificada }]; })),
     };
   }
 
@@ -151,12 +155,48 @@ export class ServicioCaja {
    * Una falla de impresión no revierte ni duplica nada: la venta queda guardada y el ticket se reimprime con el mismo folio.
    */
   async cobrarEfectivo(cartId: string, recibido: number) {
-    const venta = this.caja.cobrarEfectivo(cartId, recibido, this.actor.usuario);
+    return this.finalizarCobro(this.caja.cobrarEfectivo(cartId, recibido, this.actor.usuario));
+  }
+  /** Tarjeta de regalo (todo el saldo necesario) y, si no alcanza, el resto en efectivo. */
+  async cobrarTarjetaRegalo(cartId: string, codigo: string, recibido?: number) {
+    return this.finalizarCobro(this.caja.cobrarConTarjetaRegalo(cartId, codigo, recibido, this.actor.usuario));
+  }
+  private async finalizarCobro(venta: Venta) {
     const yaImpreso = this.caja.impresionesDe(venta.sale_id).some((i) => i.resultado === 'ok');
     const imp = yaImpreso
       ? { ticket_texto: renderTicketTexto(construirTicket(venta, this.negocios[venta.tienda]!, 0, this.negocios)), codigo_ticket: construirTicket(venta, undefined, 0, this.negocios).codigo_ticket, impresion: { ok: true } }
       : await this.imprimirVenta(venta.sale_id, 'original', 0);
-    return { venta, avisos: venta.avisos ?? [], ...imp, cambio: (venta.pagos[0]?.cambio ?? 0) };
+    return { venta, avisos: venta.avisos ?? [], ...imp, cambio: venta.pagos.find((p) => p.metodo === 'efectivo')?.cambio ?? 0 };
+  }
+
+  // ── tarjetas de regalo ──
+  consultarTarjeta(codigo: string) {
+    const t = this.caja.tarjetaRegalo(codigo);
+    if (!t) throw new ErrorDominio('TARJETA_INEXISTENTE', `la tarjeta ${codigo.trim()} no está dada de alta (o aún no llega a esta caja)`);
+    return this.vistaTarjeta(t);
+  }
+  private vistaTarjeta(t: ReturnType<Caja['tarjetaRegalo']> & {}) {
+    return { codigo: t.codigo, emitido: t.emitido, usado: t.usado, reintegrado: t.reintegrado, saldo: t.saldo, tienda: t.tienda, caja: t.caja, ocurrio_en: t.ocurrio_en };
+  }
+  /** Alta de una tarjeta: ingreso de efectivo de esta caja + comprobante impreso (no es un ticket de venta). */
+  async altaTarjetaRegalo(codigo: string, monto: number) {
+    const t = this.caja.altaTarjetaRegalo({ codigo, monto, cajero: this.actor.usuario });
+    // El hub concede el saldo: se intenta que conozca la tarjeta de inmediato (si no hay hub, queda en cola y se usa tras sincronizar).
+    try { await this.conexion.sincronizar?.(); } catch { /* sin red: la tarjeta queda dada de alta localmente */ }
+    const comp = construirComprobanteRegalo({ codigo: t.codigo, monto: t.emitido, tienda: t.tienda, caja: t.caja, cajero: t.cajero, ocurrio_en: t.ocurrio_en }, this.negocios);
+    const texto = renderComprobanteRegaloTexto(comp);
+    let impresion: { ok: boolean; error?: string };
+    try {
+      await this.impresora.imprimir({ ref: `regalo:${t.codigo}`, texto, bytes: renderTextoEscPos(texto, { abrirCajon: true }) });
+      impresion = { ok: true };
+    } catch (e) {
+      impresion = { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+    return { tarjeta: this.vistaTarjeta(t), comprobante_texto: texto, impresion };
+  }
+  /** Tarjetas dadas de alta POR ESTA caja (el cajero no ve el resto del libro). */
+  tarjetasPropias() {
+    return this.caja.tarjetasRegaloTodas().filter((t) => t.tienda === this.caja.tienda && t.caja === this.caja.caja).map((t) => this.vistaTarjeta(t));
   }
 
   async reimprimir(saleId: string) {
@@ -232,6 +272,14 @@ export class ServicioAdmin {
       precio_no_vendible: arts.filter((a) => !(a.precio > 0)).length, por_tienda: porTienda,
     };
     return { resumen, hoja: completo ? hoja : { ...hoja, filas: hoja.filas.slice(0, 20) } };
+  }
+  /** Libro mayor de tarjetas de regalo de todas las tiendas (solo Administración). */
+  tarjetasRegalo() {
+    const m = tarjetasRegalo(this.fuente());
+    return [...m.values()].sort((a, b) => b.ocurrio_en.localeCompare(a.ocurrio_en)).map((t) => ({
+      codigo: t.codigo, emitido: t.emitido, usado: t.usado, reintegrado: t.reintegrado, saldo: t.saldo,
+      tienda: t.tienda, caja: t.caja, cajero: t.cajero, ocurrio_en: t.ocurrio_en, duplicadas: t.duplicadas.length,
+    }));
   }
   reporte(f: Filtro = {}) {
     return reporteConsolidado(this.actor, this.fuente(), f);

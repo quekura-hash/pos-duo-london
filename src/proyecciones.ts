@@ -169,3 +169,39 @@ export function perdidasDocumentales(ops: Op[]): PerdidaDocumental[] {
   }
   return [...m.values()];
 }
+
+export interface TarjetaRegalo {
+  codigo: string;
+  emitido: number;
+  usado: number;
+  reintegrado: number;
+  /** Saldo = emitido − usos + reintegros. */
+  saldo: number;
+  tienda: string;
+  caja: number;
+  cajero: string;
+  ocurrio_en: string;
+  /** Altas posteriores con el mismo código (conflicto de negocio: no suman saldo, se señalan). */
+  duplicadas: { op_id: string; tienda: string; caja: number; monto: number }[];
+}
+
+/** Libro mayor de tarjetas de regalo: el saldo nunca se guarda, se deriva de emisiones, usos y reintegros. */
+export function tarjetasRegalo(ops: Op[]): Map<string, TarjetaRegalo> {
+  const m = new Map<string, TarjetaRegalo>();
+  for (const o of ops) aplicarTarjeta(m, o);
+  return m;
+}
+
+export function aplicarTarjeta(m: Map<string, TarjetaRegalo>, o: { tipo: string; op_id: string; payload: any; ocurrio_en: string }) {
+  const p = o.payload;
+  if (o.tipo === 'giftcard.emitida') {
+    const t = m.get(p.codigo);
+    if (t) t.duplicadas.push({ op_id: o.op_id, tienda: p.tienda, caja: p.caja, monto: p.monto });
+    else m.set(p.codigo, { codigo: p.codigo, emitido: p.monto, usado: 0, reintegrado: 0, saldo: p.monto, tienda: p.tienda, caja: p.caja, cajero: p.cajero, ocurrio_en: o.ocurrio_en, duplicadas: [] });
+  } else if (o.tipo === 'giftcard.uso' || o.tipo === 'giftcard.reintegro') {
+    const t = m.get(p.codigo);
+    if (!t) return;
+    if (o.tipo === 'giftcard.uso') t.usado += p.monto; else t.reintegrado += p.monto;
+    t.saldo = t.emitido - t.usado + t.reintegrado;
+  }
+}

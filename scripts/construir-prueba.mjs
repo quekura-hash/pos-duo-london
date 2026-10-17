@@ -19,6 +19,8 @@ const r = await build({
 });
 const bundle = r.outputFiles[0].text.replace(/<\/script/gi, '<\\/script');
 const exceljs = readFileSync(join(raiz, 'node_modules/exceljs/dist/exceljs.min.js'), 'utf8').replace(/<\/script/gi, '<\\/script');
+const logo = (n) => 'data:image/png;base64,' + readFileSync(join(raiz, 'src/app/publico', n)).toString('base64');
+const logos = JSON.stringify({ DUO: logo('logo-duo.png'), LON: logo('logo-london.png') });
 const css = readFileSync(join(raiz, 'src/app/publico/estilos.css'), 'utf8');
 const app = readFileSync(join(raiz, 'src/app/publico/app.js'), 'utf8').replace(/<\/script/gi, '<\\/script');
 
@@ -33,7 +35,7 @@ const marcado = `
 <div class="banco" role="region" aria-label="Controles de la prueba">
   <strong>PRUEBA con datos sintéticos · en memoria (se borra al recargar) · políticas de ensayo, no aprobadas</strong>
   <label>Sesión <select id="sesion-prueba">
-    <option value="DUO/1">Cajero · DÚO Caja 1 (efectivo, tarjeta, mixto)</option><option value="DUO/2">Cajero · DÚO Caja 2 (solo efectivo)</option>
+    <option value="DUO/1">Cajero · DÚO Caja 1 (efectivo, tarjeta bancaria, tarjeta de regalo)</option><option value="DUO/2">Cajero · DÚO Caja 2 (efectivo y tarjeta de regalo; sin terminal bancaria)</option>
     <option value="LON/1">Cajero · London Caja 1</option><option value="LON/2">Cajero · London Caja 2</option><option value="admin">Administración</option></select></label>
   <label><input type="checkbox" id="falla-hub"> Hub de la tienda caído (simulado)</label>
   <label><input type="checkbox" id="falla-imp"> La siguiente impresión falla (una vez, simulada)</label>
@@ -47,13 +49,13 @@ const marcado = `
   <details><summary id="resumen-ayuda">Artículos de prueba: qué escanear</summary><div id="ayuda"></div></details>
 </div>
 <div class="app">
+  <header class="encabezado" id="encabezado" aria-label="Estado de la caja"></header>
   <aside class="nav" aria-label="Navegación principal">
-    <div class="marca">POS<span>DÚO · London</span></div>
     <nav id="nav"></nav>
     <p class="prueba" role="note"><strong>MODO DE PRUEBA</strong><br>Datos sintéticos · usuarios de prueba sin autenticación</p>
   </aside>
-  <header class="encabezado" id="encabezado" aria-label="Estado de la caja"></header>
   <main id="vista" tabindex="-1"></main>
+  <footer class="pie" id="pie" aria-label="Estado de la sesión"></footer>
 </div>
 <dialog id="dlg-ticket" aria-labelledby="dlg-titulo"></dialog>
 <dialog id="dlg-importar" aria-labelledby="dlg-imp-titulo"></dialog>`;
@@ -64,7 +66,7 @@ ${css}
 ${estiloBanco}
 </style>
 ${marcado}
-<script>window.__POS_MANUAL__ = true;</script>
+<script>window.__POS_MANUAL__ = true; window.__POS_LOGOS__ = ${logos};</script>
 <script>
 ${app}
 </script>

@@ -62,7 +62,7 @@ export interface Ticket {
   codigo_ticket: string;
   lineas: LineaTicket[];
   total: number;
-  pagos: { etiqueta: string; monto: number; recibido?: number; cambio?: number }[];
+  pagos: { etiqueta: string; monto: number; recibido?: number; cambio?: number; tarjeta?: string; saldo_despues?: number }[];
   leyendas: string[];
   columnas: number;
   reimpresion: number;
@@ -79,7 +79,7 @@ export function construirTicket(v: Venta, cfg: NegocioCfg = NEGOCIOS[v.tienda]!,
       qty: l.qty, precio_unit: l.precio_unit, descuento: l.descuento, importe: l.importe,
     })),
     total: v.total,
-    pagos: v.pagos.map((p) => ({ etiqueta: p.metodo === 'efectivo' ? 'Efectivo MXN' : 'Tarjeta', monto: p.monto, recibido: p.recibido, cambio: p.cambio })),
+    pagos: v.pagos.map((p) => ({ etiqueta: p.metodo === 'efectivo' ? 'Efectivo MXN' : p.metodo === 'tarjeta_regalo' ? 'Tarjeta de regalo' : 'Tarjeta', monto: p.monto, recibido: p.recibido, cambio: p.cambio, tarjeta: p.tarjeta, saldo_despues: p.saldo_despues })),
     leyendas: cfg.leyendas, columnas: cfg.columnas, reimpresion,
   };
 }
@@ -130,6 +130,7 @@ export function renderTicketTexto(t: Ticket): string {
   L.push(regla, dos('TOTAL', formatoMXN(t.total), c));
   for (const p of t.pagos) {
     L.push(dos(p.etiqueta, formatoMXN(p.monto), c));
+    if (p.tarjeta) L.push(dos(`  Tarjeta: ${p.tarjeta}`, p.saldo_despues !== undefined ? `Saldo ${formatoMXN(p.saldo_despues)}` : '', c));
     if (p.recibido !== undefined) L.push(dos('Recibido', formatoMXN(p.recibido), c), dos('Cambio', formatoMXN(p.cambio ?? 0), c));
   }
   L.push(regla);
@@ -165,5 +166,44 @@ export function renderTicketEscPos(t: Ticket, opts: { abrirCajon?: boolean } = {
   b.push(0x1d, 0x6b, 73, datos.length, ...datos); // GS k 73 n d1..dn
   b.push(0x0a, 0x0a, 0x0a);
   b.push(0x1d, 0x56, 66, 0); // GS V 66 0: avance y corte parcial
+  return Uint8Array.from(b);
+}
+
+// ── comprobante de emisión de una tarjeta de regalo (NO es un ticket de venta: sin folio de venta ni serie) ──
+export interface ComprobanteRegalo {
+  negocio: string;
+  tienda: string;
+  caja: number;
+  cajero: string;
+  fecha: string;
+  hora: string;
+  codigo: string;
+  monto: number;
+  columnas: number;
+}
+
+export function construirComprobanteRegalo(e: { codigo: string; monto: number; tienda: string; caja: number; cajero: string; ocurrio_en: string }, negocios = NEGOCIOS): ComprobanteRegalo {
+  const cfg = negocios[e.tienda]!;
+  const local = new Date(Date.parse(e.ocurrio_en) - 7 * 3600_000).toISOString();
+  const [y, mo, d] = fechaLocal(e.ocurrio_en).split('-');
+  return { negocio: cfg.nombre, tienda: e.tienda, caja: e.caja, cajero: e.cajero, fecha: `${d}/${mo}/${y}`, hora: local.slice(11, 16), codigo: e.codigo, monto: e.monto, columnas: cfg.columnas };
+}
+
+export function renderComprobanteRegaloTexto(t: ComprobanteRegalo): string {
+  const c = t.columnas;
+  const regla = '-'.repeat(c);
+  return [
+    centrar(t.negocio, c), centrar(`Tienda ${t.tienda} - Caja ${t.caja}`, c), centrar('TARJETA DE REGALO', c), regla,
+    `Cajero: ${t.cajero}`, `Fecha: ${t.fecha}  Hora: ${t.hora}`, `Código: ${t.codigo}`,
+    dos('Saldo cargado', formatoMXN(t.monto), c), regla,
+    ...envolver('Comprobante de alta de tarjeta de regalo. No es un ticket de venta.', c).map((x) => centrar(x, c)),
+  ].join('\n') + '\n';
+}
+
+/** Texto plano a ESC/POS (mismo supuesto de página de códigos que el ticket; sin validar en equipo real). */
+export function renderTextoEscPos(texto: string, opts: { abrirCajon?: boolean } = {}): Uint8Array {
+  const b: number[] = [0x1b, 0x40, 0x1b, 0x74, 19];
+  if (opts.abrirCajon) b.push(0x1b, 0x70, 0x00, 25, 250);
+  b.push(...aCP858(texto.replace(/\n$/, '')), 0x0a, 0x0a, 0x0a, 0x1d, 0x56, 66, 0);
   return Uint8Array.from(b);
 }

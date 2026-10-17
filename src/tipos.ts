@@ -1,6 +1,6 @@
 // Tipos compartidos. Importes siempre en centavos enteros (MXN).
 
-export type Metodo = 'efectivo' | 'tarjeta';
+export type Metodo = 'efectivo' | 'tarjeta' | 'tarjeta_regalo';
 
 export interface Op {
   op_id: string;
@@ -22,6 +22,9 @@ export interface Pago {
   autorizacion?: string;
   marca?: string;
   ultimos4?: string;
+  /** Solo tarjeta de regalo: código de la tarjeta y saldo que le queda después de este pago. */
+  tarjeta?: string;
+  saldo_despues?: number;
 }
 
 export interface Linea {

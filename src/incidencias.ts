@@ -1,5 +1,5 @@
 import type { Op } from './tipos.ts';
-import { catalogo, devoluciones, intentos, perdidasDocumentales, stock, ventas } from './proyecciones.ts';
+import { tarjetasRegalo, catalogo, devoluciones, intentos, perdidasDocumentales, stock, ventas } from './proyecciones.ts';
 
 export interface Incidencia {
   tipo: string;
@@ -41,6 +41,12 @@ export function detectar(ops: Op[]): Incidencia[] {
       }
       prev = f;
     }
+  }
+
+  // tarjetas de regalo: altas repetidas del mismo código y saldos negativos (dos cajas aisladas gastaron lo mismo)
+  for (const t of tarjetasRegalo(ops).values()) {
+    if (t.duplicadas.length) out.push({ tipo: 'tarjeta_regalo_duplicada', codigo: t.codigo, altas_extra: t.duplicadas });
+    if (t.saldo < 0) out.push({ tipo: 'tarjeta_regalo_sobregirada', codigo: t.codigo, saldo: t.saldo });
   }
 
   // devoluciones que exceden lo vendido (p. ej. dos cajas aisladas devolvieron lo mismo)

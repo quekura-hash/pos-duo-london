@@ -94,7 +94,7 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     await page.uncheck('#falla-hub');
     await page.selectOption('#sesion-prueba', 'admin');
     await page.waitForSelector('#filtros');
-    assert.deepEqual(await page.$$eval('#nav button', (b) => b.map((x) => x.textContent)), ['Reportes', 'Inventario']);
+    assert.deepEqual(await page.$$eval('#nav button', (b) => b.map((x) => x.textContent)), ['Reportes', 'Inventario', 'Tarjetas de regalo']);
     await page.click('#filtros button[type="submit"]');
     await page.waitForSelector('#tabla-reporte tbody tr');
     assert.equal(await page.locator('#tabla-reporte tbody tr').count(), 3, 'las 3 ventas, tras sincronizar');
@@ -229,6 +229,46 @@ describe('[navegador real] Inventario real de DÚO en la página (solo con POS_I
     assert.match((await page.textContent('#resumen-venta'))!, /Folio 000001/);
     console.log(`  (inventario real en el navegador: leer ${msLeer} ms, cargar ${msCargar} ms, primer escaneo ${msEscaneo} ms)`);
     assert.ok(msEscaneo < 3000);
+    assert.deepEqual(errores, []);
+  });
+
+  it('B-regalo en la página única: alta de tarjeta de regalo en DÚO, cobro en London (P-23 de ensayo) y logos incrustados', async (t) => {
+    execFileSync(process.execPath, [join(RAIZ, 'scripts', 'construir-prueba.mjs')], { stdio: 'pipe' });
+    const browser = await chromium.launch({ executablePath: chromiumPath, args: ['--no-sandbox'] });
+    t.after(() => browser.close());
+    const page = await (await browser.newContext({ viewport: { width: 1366, height: 820 }, colorScheme: 'light' })).newPage();
+    const errores: string[] = [];
+    page.on('pageerror', (e) => errores.push(String(e)));
+    page.on('console', (m) => { if (m.type() === 'error') errores.push(m.text()); });
+    await page.goto(`file://${HTML}`);
+    await page.waitForSelector('[data-logo="DUO"]');
+    assert.equal(await page.evaluate(() => (document.querySelector('[data-logo]') as HTMLImageElement).naturalWidth > 50), true, 'logo de DÚO incrustado en la página');
+    await page.click('#nav button[data-vista="tarjetas"]');
+    await page.fill('#alta-codigo', 'BANCO-1');
+    await page.fill('#alta-monto', '300');
+    await page.click('#btn-alta');
+    await page.waitForSelector('#dlg-ticket[open]');
+    await page.click('#btn-cerrar');
+    await page.selectOption('#sesion-prueba', 'LON/1'); // entrega lo pendiente (red simulada) y cambia de tienda
+    await page.waitForSelector('[data-logo="LON"]');
+    assert.equal(await page.evaluate(() => (document.querySelector('[data-logo]') as HTMLImageElement).naturalWidth > 50), true, 'logo de London incrustado');
+    await page.fill('#scan', '7501234567890');
+    await page.press('#scan', 'Enter');
+    await page.waitForSelector('#cuerpo tr[data-linea]');
+    await page.click('#formas button[data-forma="regalo"]');
+    await page.fill('#codigo-regalo', 'BANCO-1');
+    await page.press('#codigo-regalo', 'Enter');
+    await page.waitForSelector('#regalo-aplicado');
+    assert.equal(await page.textContent('#saldo-regalo'), '$300.00');
+    await page.click('#btn-cobrar');
+    await page.waitForSelector('#dlg-ticket[open]');
+    assert.match((await page.textContent('#resumen-venta'))!, /saldo de la tarjeta \$180\.00/);
+    // Caja 2 de DÚO: la tarjeta bancaria no existe como opción; la de regalo sí
+    await page.click('#btn-nueva');
+    await page.selectOption('#sesion-prueba', 'DUO/2');
+    await page.waitForSelector('#formas');
+    assert.deepEqual(await page.$$eval('#formas button', (b) => b.map((x) => [x.textContent!.trim(), (x as HTMLButtonElement).disabled])), [['Efectivo', false], ['Tarjeta', true], ['Mixto', true], ['Tarjeta de regalo', false]]);
+    assert.match((await page.getAttribute('#formas button[data-forma="tarjeta"]', 'title'))!, /no tiene terminal bancaria/);
     assert.deepEqual(errores, []);
   });
 });
