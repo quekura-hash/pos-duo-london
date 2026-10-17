@@ -52,7 +52,7 @@ async function pintarEncabezado() {
 }
 
 // ── navegación ──
-const NAV = { venta: 'Venta', corte: 'Mi corte', ventas: 'Ventas de mi caja', reportes: 'Reportes' };
+const NAV = { venta: 'Venta', corte: 'Mi corte', ventas: 'Ventas de mi caja', reportes: 'Reportes', inventario: 'Inventario' };
 function pintarNav() {
   $('#nav').innerHTML = S.sesion.nav.map((v) => `<button type="button" data-vista="${v}" ${v === S.vista ? 'aria-current="page"' : ''}>${NAV[v]}</button>`).join('');
   for (const b of $('#nav').querySelectorAll('button')) b.addEventListener('click', () => ir(b.dataset.vista));
@@ -61,7 +61,7 @@ async function ir(v) {
   S.vista = v;
   pintarNav();
   await pintarEncabezado();
-  await ({ venta: vistaVenta, corte: vistaCorte, ventas: vistaVentas, reportes: vistaReportes })[v]();
+  await ({ venta: vistaVenta, corte: vistaCorte, ventas: vistaVentas, reportes: vistaReportes, inventario: vistaInventario })[v]();
 }
 
 // ── venta ──
@@ -176,19 +176,19 @@ async function escanear() {
 }
 
 async function buscarTexto(texto) {
-  const { resultados } = await api(`/api/buscar?q=${encodeURIComponent(texto)}`);
+  const { resultados, total } = await api(`/api/buscar?q=${encodeURIComponent(texto)}`);
   if (!resultados.length) return msg(`No se encontró «${texto}» por código, Item # ni texto.`, 'error');
-  msg(`${resultados.length} resultado(s) para «${texto}». Elija el artículo.`, 'aviso');
-  $('#resultados').innerHTML = `<div class="tabla-cont"><table class="tabla-resultados"><thead><tr><th>Item #</th><th>Código</th><th>Descripción</th><th>Marca</th><th>Estilo</th><th>Lote</th><th class="num">Precio</th><th class="num">Existencia</th><th></th></tr></thead><tbody>${resultados.map((r) => `
-    <tr data-item="${r.item_id}"><td>${esc(r.item_no ?? 'pendiente')}</td><td>${esc(r.codigo)}</td><td>${esc(r.descripcion)}</td><td>${esc(r.marca)}</td><td>${esc(r.estilo)}</td><td>${esc(r.lote)}</td><td class="num">${mxn(r.precio)}</td>
+  msg(total > resultados.length ? `${total} resultados para «${texto}»; se muestran los primeros ${resultados.length}. Escriba más texto para acotar.` : `${total} resultado(s) para «${texto}». Elija el artículo.`, 'aviso');
+  $('#resultados').innerHTML = `<div class="tabla-cont"><table class="tabla-resultados"><thead><tr><th>Item #</th><th>Código</th><th>Descripción</th><th>Marca</th><th>Estilo</th><th>Lote</th><th>Departamento</th><th class="num">Precio</th><th class="num">Existencia</th><th></th></tr></thead><tbody>${resultados.map((r) => `
+    <tr data-item="${r.item_id}"><td>${esc(r.item_no ?? 'pendiente')}</td><td>${r.codigo ? esc(r.codigo) : '<em>(sin código)</em>'}${r.codigo_alterno ? `<br><small>alterno ${esc(r.codigo_alterno)}</small>` : ''}</td><td>${esc(r.descripcion)}</td><td>${esc(r.marca)}</td><td>${esc(r.estilo)}</td><td>${esc(r.lote)}</td><td>${esc(r.departamento)}</td><td class="num">${mxn(r.precio)}</td>
     <td class="num">${r.existencia}${r.existencia_verificada ? '' : ' (sin verificar)'}</td>
-    <td>${r.duplicado ? '<span class="insignia">Código duplicado</span>' : `<button class="btn" type="button" data-agregar="${r.item_id}">Agregar</button>`}</td></tr>`).join('')}</tbody></table></div>`;
+    <td>${r.duplicado ? '<span class="insignia">Código duplicado</span>' : !r.precio_valido ? '<span class="insignia cancelada" title="Precio en el catálogo: corregirlo antes de vender">Precio no vendible</span>' : `<button class="btn" type="button" data-agregar="${r.item_id}">Agregar</button>`}</td></tr>`).join('')}</tbody></table></div>`;
   for (const b of $('#resultados').querySelectorAll('[data-agregar]')) {
     b.addEventListener('click', async () => {
       try {
         const r = await api('/api/venta/agregar', { cart: S.cart, item_id: b.dataset.agregar });
         S.carrito = r.carrito; S.sel = r.linea.linea_id; $('#resultados').innerHTML = '';
-        msg(`Agregado: ${r.linea.descripcion} ${r.linea.marca}`); pintarCarrito();
+        msg(`Agregado: ${r.linea.descripcion} ${r.linea.marca}`.trim()); pintarCarrito();
       } catch (e) { msg(e.message, 'error'); }
       $('#scan').focus();
     });
@@ -313,6 +313,46 @@ async function vistaReportes() {
       <h2>Desglose por caja</h2><table id="tabla-por-caja"><thead><tr><th>Tienda</th><th>Caja</th><th class="num">Tickets</th><th class="num">Total</th></tr></thead><tbody>
       ${r.porCaja.map((c) => `<tr><td>${esc(c.tienda)}</td><td>${c.caja}</td><td class="num">${c.tickets}</td><td class="num">${mxn(c.total)}</td></tr>`).join('')}
       <tr><th colspan="3" scope="row">Total consolidado</th><td class="num" id="total-consolidado"><b>${mxn(r.total)}</b></td></tr></tbody></table></div>`;
+  });
+}
+
+// ── Inventario (Administración) ──
+const ROT_SEV = { bloquea_venta: 'No se puede vender', revisar: 'Revisar', info: 'Informativo' };
+async function exportarInventario() {
+  if (window.__POS_EXPORTAR__) return window.__POS_EXPORTAR__();
+  const a = document.createElement('a'); a.href = '/api/admin/inventario.xlsx'; a.download = 'inventario.xlsx';
+  document.body.appendChild(a); a.click(); a.remove();
+  return 'Descarga iniciada.';
+}
+async function vistaInventario() {
+  const j = await api('/api/admin/inventario');
+  const r = j.resumen;
+  const tiendas = Object.entries(r.por_tienda);
+  $('#vista').innerHTML = `
+    <h1>Inventario</h1>
+    <div class="panel">
+      <div class="filas" style="align-items:center;margin-bottom:12px">
+        <button class="btn btn-primario" id="btn-exportar" type="button" style="width:auto">Exportar inventario a Excel</button>
+        <span id="estado-exportar" role="status" aria-live="polite"></span>
+      </div>
+      <div class="cuadricula">
+        <table id="tabla-inv-resumen"><caption class="sr-only">Resumen del catálogo</caption><tbody>
+          <tr><th scope="row">Artículos</th><td class="num" data-campo="articulos">${r.articulos}</td></tr>
+          <tr><th scope="row">Con código</th><td class="num" data-campo="con_codigo">${r.con_codigo}</td></tr>
+          <tr><th scope="row">Sin código (no se escanean)</th><td class="num" data-campo="sin_codigo">${r.sin_codigo}</td></tr>
+          <tr><th scope="row">Con precio no vendible (0 o negativo)</th><td class="num" data-campo="precio_no_vendible">${r.precio_no_vendible}</td></tr></tbody></table>
+        <table id="tabla-inv-tiendas"><thead><tr><th>Tienda</th><th class="num">Piezas</th><th class="num">Artículos con existencia</th><th class="num">Sin verificar</th></tr></thead><tbody>
+          ${tiendas.map(([t, x]) => `<tr data-tienda="${esc(t)}"><td>${esc(t)}</td><td class="num">${x.piezas}</td><td class="num">${x.articulos_con_existencia}</td><td class="num">${x.no_verificados}</td></tr>`).join('')}</tbody></table>
+      </div>
+      <p class="nota">La existencia es la que conoce el central (lo ya sincronizado). Las cantidades de prueba están marcadas como tales en los movimientos.</p>
+      <h2>Vista previa (primeros 20 artículos)</h2>
+      <div class="tabla-cont"><table id="tabla-inv-previa"><thead><tr>${j.hoja.encabezados.map((h) => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>
+        ${j.hoja.filas.map((f) => `<tr>${f.map((v) => `<td>${esc(v)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>
+    </div>`;
+  $('#btn-exportar').addEventListener('click', async () => {
+    const e = $('#estado-exportar');
+    e.textContent = 'Preparando el archivo…';
+    try { e.textContent = await exportarInventario(); } catch (err) { e.textContent = `No se pudo exportar: ${err.message}`; }
   });
 }
 

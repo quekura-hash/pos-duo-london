@@ -4,6 +4,10 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { chromium } from 'playwright-core';
+import { mkdtempSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { leerXlsxNode } from '../src/xlsx-node.ts';
+import { FILAS_REALISTAS, xlsxDeFilas } from './ayudas/inventario.ts';
 
 const RAIZ = join(import.meta.dirname, '..');
 const HTML = join(RAIZ, 'dist', 'pos-venta-prueba.html');
@@ -90,7 +94,7 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     await page.uncheck('#falla-hub');
     await page.selectOption('#sesion-prueba', 'admin');
     await page.waitForSelector('#filtros');
-    assert.deepEqual(await page.$$eval('#nav button', (b) => b.map((x) => x.textContent)), ['Reportes']);
+    assert.deepEqual(await page.$$eval('#nav button', (b) => b.map((x) => x.textContent)), ['Reportes', 'Inventario']);
     await page.click('#filtros button[type="submit"]');
     await page.waitForSelector('#tabla-reporte tbody tr');
     assert.equal(await page.locator('#tabla-reporte tbody tr').count(), 3, 'las 3 ventas, tras sincronizar');
@@ -104,5 +108,127 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     await page.waitForSelector('[data-chip="folio"]');
     assert.match((await page.textContent('[data-chip="folio"] b'))!, /folio al cobrar/);
     assert.deepEqual(errores, [], 'sin errores en la consola');
+  });
+
+  it('B2 importar un inventario .xlsx en la página: vista previa, hallazgos, carga, venta, exportación y persistencia en el navegador', async (t) => {
+    execFileSync(process.execPath, [join(RAIZ, 'scripts', 'construir-prueba.mjs')], { stdio: 'pipe' });
+    const dir = mkdtempSync(join(tmpdir(), 'pos-xlsx-'));
+    const archivo = join(dir, 'inventario_prueba.xlsx');
+    writeFileSync(archivo, await xlsxDeFilas(FILAS_REALISTAS));
+    const browser = await chromium.launch({ executablePath: chromiumPath, args: ['--no-sandbox'] });
+    t.after(async () => { await browser.close(); rmSync(dir, { recursive: true, force: true }); });
+    const page = await (await browser.newContext({ viewport: { width: 1366, height: 900 }, colorScheme: 'light', acceptDownloads: true })).newPage();
+    const errores: string[] = [];
+    page.on('pageerror', (e) => errores.push(String(e)));
+    page.on('console', (m) => { if (m.type() === 'error') errores.push(m.text()); });
+    await page.goto(`file://${HTML}`);
+    await page.waitForSelector('[data-chip="tienda"]');
+    const escanear = async (c: string) => { await page.fill('#scan', c); await page.press('#scan', 'Enter'); };
+
+    await page.setInputFiles('#archivo-inventario', archivo);
+    await page.waitForSelector('#dlg-importar[open]');
+    assert.match((await page.textContent('#imp-resumen'))!, /14 artículos · con código 12 · sin código 2 /);
+    assert.equal(await page.locator('#imp-anomalias tr[data-tipo="item_no_duplicado"]').count(), 1);
+    assert.match((await page.textContent('#imp-anomalias tr[data-tipo="precio_negativo"]'))!, /cupón/i);
+    assert.deepEqual(await page.$$eval('#imp-previa tbody tr:first-child td', (c) => c.map((x) => x.textContent)), ['1', '0021001403065', 'BLUSA', 'blusa seksy', '', '', '$169.00']);
+    await page.check('input[name="imp-perfil"][value="1"]');
+    assert.deepEqual(await page.$$eval('#imp-previa tbody tr:first-child td', (c) => c.slice(2, 4).map((x) => x.textContent)), ['blusa seksy', 'BLUSA'], 'el perfil alternativo invierte Marca y Descripción');
+    await page.check('input[name="imp-perfil"][value="0"]');
+    await page.screenshot({ path: join(RAIZ, 'docs', 'capturas', '10-importar-inventario.png') });
+    await page.fill('#imp-duo', '10');
+    await page.click('#imp-cargar');
+    await page.waitForFunction(() => /Inventario cargado: inventario_prueba\.xlsx · 14 artículos/.test(document.querySelector('#estado-inv')!.textContent!));
+    assert.equal(await page.isVisible('#quitar-inv'), true);
+
+    // vender un artículo importado
+    await escanear('0021001403065');
+    await page.waitForSelector('#cuerpo tr[data-linea]');
+    const celdas = await page.$$eval('#cuerpo tr[data-linea]:nth-child(1) td[data-col]', (t) => Object.fromEntries(t.map((x) => [x.getAttribute('data-col'), x.textContent!.replace(/[−+]/g, '').replace(/×.*$/, '').trim()])));
+    assert.deepEqual([celdas.item_no, celdas.codigo, celdas.marca, celdas.descripcion, celdas.precio], ['1', '0021001403065', 'BLUSA', 'blusa seksy', '$169.00']);
+    await escanear('0121020030001'); // cupón con precio negativo
+    await page.waitForFunction(() => /precio/i.test(document.querySelector('#mensaje')!.textContent!));
+    assert.equal(await page.locator('#cuerpo tr[data-linea]').count(), 1, 'el cupón no se agrega');
+    await escanear('1010M3'); // código alterno
+    await page.waitForFunction(() => document.querySelectorAll('#cuerpo tr[data-linea]').length === 2);
+    await escanear('rhapsody'); // sin código: se elige de la búsqueda
+    await page.waitForSelector('.tabla-resultados [data-agregar]');
+    assert.match((await page.textContent('.tabla-resultados tbody tr'))!, /\(sin código\)/);
+    await page.click('.tabla-resultados [data-agregar]');
+    await page.waitForFunction(() => document.querySelectorAll('#cuerpo tr[data-linea]').length === 3);
+    await page.click('#btn-exacto');
+    await page.click('#btn-cobrar');
+    await page.waitForSelector('#dlg-ticket[open]');
+    assert.match((await page.textContent('#ticket-texto'))!, /Item #: 1 +Código: 0021001403065/);
+    await page.click('#btn-nueva');
+
+    // Administración: inventario y exportación
+    await page.selectOption('#sesion-prueba', 'admin');
+    await page.click('#nav button[data-vista="inventario"]');
+    await page.waitForSelector('#tabla-inv-resumen');
+    assert.equal(await page.textContent('#tabla-inv-resumen [data-campo="articulos"]'), '14');
+    assert.equal(await page.textContent('#tabla-inv-resumen [data-campo="sin_codigo"]'), '2');
+    assert.equal(await page.textContent('#tabla-inv-resumen [data-campo="precio_no_vendible"]'), '2');
+    await page.screenshot({ path: join(RAIZ, 'docs', 'capturas', '11-inventario-en-la-pagina.png') });
+    const [descarga] = await Promise.all([page.waitForEvent('download'), page.click('#btn-exportar')]);
+    const filas = (await leerXlsxNode(readFileSync((await descarga.path())!)))[0]!.filas;
+    assert.equal(filas.length, 15);
+    const f1 = filas.find((f) => f[0] === 1)!;
+    assert.deepEqual([f1[1], f1[2], f1[3], f1[7]], ['0021001403065', 'BLUSA', 'blusa seksy', 169]);
+    assert.equal(f1[12], 9, 'DÚO: 10 de prueba − 1 vendida (ya sincronizada)');
+
+    // persistencia: al recargar, el inventario sigue cargado (guardado en este navegador)
+    await page.reload();
+    await page.waitForFunction(() => /Inventario cargado: inventario_prueba\.xlsx · 14 artículos/.test(document.querySelector('#estado-inv')!.textContent!), null, { timeout: 15000 });
+    await page.selectOption('#sesion-prueba', 'DUO/2');
+    await page.waitForSelector('#scan');
+    await escanear('0031001403033');
+    await page.waitForSelector('#cuerpo tr[data-linea]');
+    await page.click('#quitar-inv');
+    await page.waitForFunction(() => /Datos de ejemplo/.test(document.querySelector('#estado-inv')!.textContent!));
+    await page.reload();
+    await page.waitForSelector('[data-chip="tienda"]');
+    await page.waitForTimeout(400);
+    assert.match((await page.textContent('#estado-inv'))!, /Datos de ejemplo/, 'quitado el inventario, no vuelve a cargarse');
+    assert.deepEqual(errores, []);
+  });
+});
+
+const REAL = process.env.POS_INVENTARIO_REAL;
+describe('[navegador real] Inventario real de DÚO en la página (solo con POS_INVENTARIO_REAL)', { timeout: 180_000, skip: REAL && existsSync(REAL) && chromiumPath ? false : 'defina POS_INVENTARIO_REAL' }, () => {
+  it('BR1 21,220 artículos reales: se importa, se escanea, se busca y se vende', async (t) => {
+    execFileSync(process.execPath, [join(RAIZ, 'scripts', 'construir-prueba.mjs')], { stdio: 'pipe' });
+    const browser = await chromium.launch({ executablePath: chromiumPath, args: ['--no-sandbox'] });
+    t.after(() => browser.close());
+    const page = await (await browser.newContext({ viewport: { width: 1366, height: 900 }, colorScheme: 'light' })).newPage();
+    const errores: string[] = [];
+    page.on('pageerror', (e) => errores.push(String(e)));
+    page.on('console', (m) => { if (m.type() === 'error') errores.push(m.text()); });
+    await page.goto(`file://${HTML}`);
+    await page.waitForSelector('[data-chip="tienda"]');
+    let t0 = Date.now();
+    await page.setInputFiles('#archivo-inventario', REAL!);
+    await page.waitForSelector('#dlg-importar[open]', { timeout: 60000 });
+    const msLeer = Date.now() - t0;
+    assert.match((await page.textContent('#imp-resumen'))!, /21220 artículos · con código 20565 · sin código 655 · sin descripción 8810 · sin marca 0 · precio no vendible 187/);
+    await page.screenshot({ path: join(RAIZ, 'docs', 'capturas', '12-importar-inventario-real.png') });
+    t0 = Date.now();
+    await page.fill('#imp-duo', '10');
+    await page.click('#imp-cargar');
+    await page.waitForFunction(() => /Inventario cargado: .* 21220 artículos/.test(document.querySelector('#estado-inv')!.textContent!), null, { timeout: 120000 });
+    const msCargar = Date.now() - t0;
+    t0 = Date.now();
+    await page.fill('#scan', '0021001403065'); await page.press('#scan', 'Enter');
+    await page.waitForSelector('#cuerpo tr[data-linea]');
+    const msEscaneo = Date.now() - t0;
+    await page.fill('#scan', 'vestido'); await page.press('#scan', 'Enter');
+    await page.waitForSelector('.tabla-resultados');
+    assert.match((await page.textContent('#mensaje'))!, /resultados para «vestido»; se muestran los primeros 20/);
+    await page.click('#btn-exacto');
+    await page.click('#btn-cobrar');
+    await page.waitForSelector('#dlg-ticket[open]');
+    assert.match((await page.textContent('#resumen-venta'))!, /Folio 000001/);
+    console.log(`  (inventario real en el navegador: leer ${msLeer} ms, cargar ${msCargar} ms, primer escaneo ${msEscaneo} ms)`);
+    assert.ok(msEscaneo < 3000);
+    assert.deepEqual(errores, []);
   });
 });

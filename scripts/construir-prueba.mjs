@@ -18,6 +18,7 @@ const r = await build({
   } }],
 });
 const bundle = r.outputFiles[0].text.replace(/<\/script/gi, '<\\/script');
+const exceljs = readFileSync(join(raiz, 'node_modules/exceljs/dist/exceljs.min.js'), 'utf8').replace(/<\/script/gi, '<\\/script');
 const css = readFileSync(join(raiz, 'src/app/publico/estilos.css'), 'utf8');
 const app = readFileSync(join(raiz, 'src/app/publico/app.js'), 'utf8').replace(/<\/script/gi, '<\\/script');
 
@@ -25,6 +26,8 @@ const estiloBanco = `
 .banco { position: sticky; top: 0; z-index: 5; background: var(--aviso-fondo); color: var(--texto); border-bottom: 1px solid var(--borde); padding: 8px 16px; display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; font-size: 13px; }
 .banco label { display: inline-flex; gap: 6px; align-items: center; } .banco select { padding: 4px 6px; border: 1px solid var(--borde); border-radius: 6px; background: var(--superficie); }
 .banco details { flex-basis: 100%; } .banco summary { cursor: pointer; font-weight: 600; } .banco .tabla-ayuda { overflow-x: auto; } .banco table { margin: 8px 0; background: var(--superficie); } .banco code { font-family: ui-monospace, Menlo, Consolas, monospace; user-select: all; }
+.banco .estado-inv { font-weight: 600; } .banco .fila-inv { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; }
+#dlg-importar { max-width: min(860px, 96vw); width: 96vw; } #dlg-importar h2 { margin: 0 0 8px; } #dlg-importar fieldset { border: 1px solid var(--borde); border-radius: 8px; margin: 8px 0; } #dlg-importar label { display: block; margin: 4px 0; } #dlg-importar input[type=number] { width: 90px; padding: 4px; border: 1px solid var(--borde); border-radius: 6px; background: var(--superficie); text-align: right; } .anomalias td, .anomalias th { white-space: normal; }
 .app { min-height: calc(100vh - 44px); }`;
 const marcado = `
 <div class="banco" role="region" aria-label="Controles de la prueba">
@@ -35,7 +38,13 @@ const marcado = `
   <label><input type="checkbox" id="falla-hub"> Hub de la tienda caído (simulado)</label>
   <label><input type="checkbox" id="falla-imp"> La siguiente impresión falla (una vez, simulada)</label>
   <button class="btn" type="button" id="reiniciar">Reiniciar datos de prueba</button>
-  <details><summary>Artículos de prueba: qué escanear</summary><div id="ayuda"></div></details>
+  <div class="fila-inv">
+    <button class="btn" type="button" id="importar">Importar inventario (.xlsx)</button>
+    <input type="file" id="archivo-inventario" accept=".xlsx" hidden>
+    <button class="btn" type="button" id="quitar-inv" hidden>Quitar inventario cargado</button>
+    <span class="estado-inv" id="estado-inv" role="status" aria-live="polite">Datos de ejemplo (6 artículos). El archivo que importe se lee en este navegador y no se envía a ningún servidor.</span>
+  </div>
+  <details><summary id="resumen-ayuda">Artículos de prueba: qué escanear</summary><div id="ayuda"></div></details>
 </div>
 <div class="app">
   <aside class="nav" aria-label="Navegación principal">
@@ -46,29 +55,9 @@ const marcado = `
   <header class="encabezado" id="encabezado" aria-label="Estado de la caja"></header>
   <main id="vista" tabindex="-1"></main>
 </div>
-<dialog id="dlg-ticket" aria-labelledby="dlg-titulo"></dialog>`;
-const arranque = `
-(function () {
-  var $ = function (s) { return document.querySelector(s); };
-  var ctl = PosBanco.iniciarBanco({ alCambiar: function () { aplicar(); window.POS_UI.iniciar(); } });
-  window.__POS_ATENDER__ = function (m, r, c) { return ctl.atender(m, r, c).then(function (x) { $('#falla-imp').checked = ctl.fallaImpresoraActiva(); return x; }); };
-  function aplicar() {
-    var esAdmin = ctl.sesion === 'admin';
-    $('#falla-hub').disabled = esAdmin; $('#falla-imp').disabled = esAdmin;
-    $('#falla-hub').checked = ctl.hubCaidoActivo(); $('#falla-imp').checked = ctl.fallaImpresoraActiva();
-  }
-  var pesos = function (c) { return '$' + (c / 100).toFixed(2).replace(/\\B(?=(\\d{3})+(?!\\d))/g, ','); };
-  $('#ayuda').innerHTML = '<div class="tabla-ayuda"><table><thead><tr><th>Código (escanear)</th><th>Item #</th><th>Artículo</th><th>Estilo</th><th>Lote</th><th>Precio</th><th>Existencia DÚO / London</th></tr></thead><tbody>' +
-    PosBanco.ARTICULOS_DE_PRUEBA.map(function (a) { return '<tr><td><code>' + a.codigo + '</code></td><td>' + a.item_no + '</td><td>' + a.descripcion + ' ' + a.marca + '</td><td>' + a.estilo + '</td><td>' + a.lote + '</td><td>' + pesos(a.precio) + '</td><td>' + (a.existencias.DUO || 0) + ' / ' + (a.existencias.LON || 0) + '</td></tr>'; }).join('') +
-    '</tbody></table></div><p>También puede escribir texto (<code>mascada</code>, <code>levis</code>, <code>falda</code>) o un Item # (<code>1003</code>). La BOLSA tiene una sola pieza en DÚO (pruebe venderla desde las dos cajas). Los códigos <code>7508888888888</code> están duplicados a propósito: el POS no adivina cuál es. Tras vender en una caja, cambie a la otra caja de la misma tienda para ver el inventario compartido.</p>';
-  $('#sesion-prueba').addEventListener('change', function (e) { ctl.seleccionar(e.target.value); });
-  $('#falla-hub').addEventListener('change', function (e) { ctl.caerHub(ctl.tienda(), e.target.checked); });
-  $('#falla-imp').addEventListener('change', function (e) { ctl.fallaImpresora(ctl.sesion, e.target.checked); });
-  $('#reiniciar').addEventListener('click', function () { ctl.reiniciar(); $('#sesion-prueba').value = ctl.sesion; });
-  window.POS_PRUEBA = ctl;
-  aplicar();
-  window.POS_UI.iniciar();
-})();`;
+<dialog id="dlg-ticket" aria-labelledby="dlg-titulo"></dialog>
+<dialog id="dlg-importar" aria-labelledby="dlg-imp-titulo"></dialog>`;
+const arranque = readFileSync(join(raiz, 'scripts/arranque-prueba.js'), 'utf8').replace(/<\/script/gi, '<\\/script');
 const piezas = `<title>POS Venta de Prueba</title>
 <style>
 ${css}
@@ -78,6 +67,9 @@ ${marcado}
 <script>window.__POS_MANUAL__ = true;</script>
 <script>
 ${app}
+</script>
+<script>
+${exceljs}
 </script>
 <script>
 ${bundle}

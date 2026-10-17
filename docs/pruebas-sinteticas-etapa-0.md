@@ -17,7 +17,7 @@ Ejecutar: `npm install && npm test` (Node ≥ 22.18; usa `node:sqlite`, experime
 | `[sqlite — proceso real]` | Un proceso hijo inicia una transacción y se le envía `SIGKILL`; disparador de la base. | 3 |
 | `[memoria — lógica pura]` | Importación de catálogo, centavos, políticas, ticket (texto y ESC/POS). | 19 |
 
-Total: **246 pruebas, 0 fallos, 0 omitidas** (última ejecución; `npm test` ≈ 30 s). Las pruebas de procesos y de navegador se repitieron 3 veces seguidas sin variación.
+Total: **263 pruebas** (265 con el archivo real, ver abajo), 0 fallos (última ejecución; `npm test` ≈ 35 s). Las pruebas de procesos y de navegador se repitieron 3 veces seguidas sin variación.
 En las pruebas en un solo proceso, la "pérdida de conexión" es un interruptor del transporte simulado.
 
 ## Políticas pendientes: configuración explícita de ensayo
@@ -133,6 +133,39 @@ CD7 una caja aislada sigue viendo el conflicto hasta recibir la resolución. ✔
 - Demostración manual con datos sintéticos: `npm run demo` (4 cajas y Administración en `127.0.0.1`, servidor real con SQLite).
 - **Versión de prueba en una sola página** (`npm run build:prueba` → `dist/pos-venta-prueba.html`): el mismo motor, servicio, enrutador, ticket y pantalla empaquetados con esbuild y con almacenamiento en memoria; selector de sesión (4 cajas y Administración), hub caído simulado, siguiente impresión con falla (una vez) y reinicio de datos. No hay hub real, SQLite ni impresora, y los datos se pierden al recargar. Prueba `19` (B1). Hallazgo al construirla: la falla simulada de impresora debía ser de **una sola vez**, porque con el diálogo del ticket abierto el probador no puede apagarla para reintentar.
 
+### Inventario real de DÚO en Excel (`20`, `19`, `18`)
+Archivo recibido: `inventario_duo_oct.xlsx` (1 hoja, 21,220 artículos, 14 columnas). **El archivo real no se guarda en el repositorio** (`*.xlsx` está en `.gitignore`): las pruebas generan un Excel sintético con la misma estructura y los mismos defectos, y las pruebas con el archivo real corren solo si `POS_INVENTARIO_REAL` apunta a él.
+
+Hallazgos del archivo real (sin modificarlo):
+| Hallazgo | Cantidad |
+|---|---|
+| Artículos | 21,220 (coincide con la lista de la foto) |
+| Con UPC / **sin UPC** | 20,565 / **655** |
+| Con «Alternate Lookup» | 107 (1 coincide con el UPC de otro artículo) |
+| **Item Number repetido** | **3 valores (149, 1317, 1337), 6 filas, con UPC distintos** |
+| UPC repetido | 0 (todos de 13 dígitos salvo 2 de 18 y 1 de 14; todos texto) |
+| **Precio negativo** (cupones, gift cards…) / **precio 0** | **133 / 54** |
+| Precio con centavos | 2 (563.5 y 0.5) |
+| «Custom Price 1» | 0 en 14,433; en el resto es ≈ 90 % del precio (nivel de precio alterno) |
+| «Item Description» vacío | **8,810** |
+| «Etiqt-Costura» = Yes / «Etiqt- precio» vacío | 21,220 / 21,220 |
+| «No. Pedimento» y «UPC 2» | vacíos |
+| Estilo vacío / Lote vacío | 6,568 / 18,558 (21 lotes distintos; algunos parecen día-mes-año) |
+| Departamento «System» | 9,926 (199 departamentos distintos, con sinónimos) |
+| **Cantidades (On-Hand Qty)** | **ninguna columna** |
+
+**Discrepancia con el mapeo confirmado**: la especificación dice Item Name = Marca e Item Description = Descripción, pero en este archivo «Item Name» suele ser la prenda (VESTIDO, BLUSA, PANTALON…), a veces con la marca («BLUSA AMBIANCE»), y «Item Description» está vacío en el 41 %. Por eso hay dos perfiles de lectura y el diálogo de importación muestra la vista previa de cada uno. Quedó el confirmado como predeterminado; **la decisión es del propietario (P-16)**.
+
+Pruebas:
+- `20` **IX1–IX15** (memoria): columnas reconocidas, ceros y lotes como texto, código guardado como número advertido y sin reconstruir, Item # repetido conservado y señalado (y detectado como incidencia), artículos sin código (no se escanean; se encuentran por Item #, alterno o texto; se agregan eligiéndolos), precios 0/negativos importados pero no vendibles, los dos perfiles, ausencia de cantidades sin inventar existencia y con mensaje legible (nombres, no identificadores internos), existencia de prueba marcada, carga idempotente, venta de un artículo importado con sus seis campos, exportación a Excel (texto como texto, precios numéricos, existencia y verificación por tienda, texto tipo fórmula sin ejecutar), ida y vuelta con ambos perfiles, y **21,220 filas** leídas, cargadas y escaneadas con tiempos acotados. ✔
+- `20` **IR1** (archivo real, opcional): los números de la tabla anterior. ✔
+- `18` **UI7**: Administración consulta el inventario y lo exporta con una **descarga real del navegador**; el cajero no tiene la ruta. ✔
+- `19` **B2**: en la página de prueba, importar un `.xlsx` (vista previa, perfiles, hallazgos), cargarlo, vender (código, cupón rechazado, alterno, artículo sin código), exportar y que **persista al recargar** (guardado en el navegador). **BR1** (archivo real, opcional): 21,220 artículos reales en el navegador. ✔
+
+Hallazgos de ingeniería al cargar el inventario real:
+- **Rendimiento**: el motor recalculaba el catálogo y las existencias desde toda la bitácora en cada operación y copiaba toda la memoria en cada transacción. Con 21,220 artículos (42,253 operaciones por nodo) era inviable. Se añadieron proyecciones incrementales y un rollback sin copia. Medido en Node, memoria: 49 escaneos en ~6 ms, cobrar una venta de 50 líneas ~60 ms; SQLite: ~40 ms y ~290 ms; cargar el catálogo en 7 bases SQLite tarda ~14 s (una vez). En el navegador: leer el archivo ~0.9 s, cargarlo ~0.4 s, primer escaneo ~35 ms.
+- **Mensaje de existencia**: decía el identificador interno del artículo; ahora nombra descripción, marca e Item #.
+
 ## Verificación de que las pruebas detectan fallos
 
 Se rompió deliberadamente cada mecanismo y se confirmó que su prueba falla: deduplicación (receptor y almacenamiento),
@@ -141,6 +174,7 @@ límite de devolución, relevo de inventario entre cajas, cerco por ticket y fus
 detectadas (la de una sola capa de deduplicación no: hub y almacenamiento deduplican por separado).
 En esta ronda se repitió con 7 mecanismos nuevos (arbitraje, cierre de reservas, marca de existencias, permiso de Administración, alcance del conteo, rechazo pegajoso, reenvío desde cajas): las 7 fueron detectadas.
 En la ronda de la primera operación se rompieron otros 7 (P-14, cierre de pérdida documental por conteo, IVA en el ticket, API que deja ver otra caja, escaneo ambiguo que elige, fotografía del artículo sin marca, corte que no refleja el efectivo): los 7 fueron detectados. Una octava mutación estaba mal construida (no cambiaba el comportamiento) y se descartó.
+En la ronda del inventario se rompieron 7 más (vender precio no vendible, código vacío como identidad, exportar sin ceros, descartar Item # repetidos, existencia inventada, mensajes con identificadores internos, perfil confirmado invertido): los 7 fueron detectados (el de código vacío solo al quitar sus dos protecciones a la vez).
 
 ## Fallos y hallazgos durante el desarrollo
 
@@ -170,6 +204,7 @@ En la ronda de la primera operación se rompieron otros 7 (P-14, cierre de pérd
 - **Recuperación**: la restauración usa copias de archivo del propio simulador. **No se validó ningún procedimiento real de respaldo/restauración.** Las ventas perdidas con el disco no se recuperan.
 - **Hub**: se probó perder hub y caja a la vez solo en dos casos (R3/R3b); la recuperación del propio hub no está modelada más allá de eso.
 - **Permisos**: se imponen en las funciones de consulta con un `Actor` ya dado; no hay autenticación, PIN, ni propagación de cambios de permisos sin conexión.
+- **Inventario**: solo se implementó la carga inicial del catálogo y la exportación. No hay actualización por código desde un segundo archivo, entradas de mercancía, conteo por Excel ni `.xls`. Las etiquetas (costura/precio), pedimento, precio alterno y departamentos se **conservan** pero no se usan. El archivo real no trae existencias: las de las pruebas son sintéticas.
 - **Alcance no cubierto**: apartados, crédito de empleadas, descuentos programables, ticket de regalo (botón visible y deshabilitado), cambios con renglón negativo (sin serie propia: P-08), conteo por denominaciones, reembolso a tarjeta, exportación `.xlsx` real, panel remoto, venta en espera, edición de precio/descripción en la pantalla (existe en el motor, no en la interfaz), alta de artículo desde la pantalla, cobro con tarjeta desde la pantalla, devoluciones desde la pantalla.
 - **Diseño visual**: el mockup aprobado no se recibió; la interfaz se construyó a partir de la descripción textual y **no se ha comparado con él**.
 - **Hardware**: nada probado con impresora, cajón, escáner ni terminal. La "impresora" es un archivo; el ESC/POS está verificado solo por estructura de bytes. El ancho de 42 columnas es un supuesto. Un escáner se simula escribiendo el código y pulsando Enter.

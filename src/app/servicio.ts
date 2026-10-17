@@ -3,8 +3,9 @@ import { ErrorDominio } from '../errores.ts';
 import type { Impresora } from '../impresion.ts';
 import type { Caja } from '../nodos.ts';
 import { catalogo, ventas } from '../proyecciones.ts';
+import { hojaInventario, type Hoja } from '../inventario.ts';
 import { construirTicket, NEGOCIOS, renderTicketEscPos, renderTicketTexto, type NegocioCfg } from '../ticket.ts';
-import type { Actor, Linea, Op } from '../tipos.ts';
+import type { Actor, Articulo, Linea, Op } from '../tipos.ts';
 import { fechaLocal } from '../util.ts';
 
 export interface Conexion {
@@ -91,12 +92,12 @@ export class ServicioCaja {
    * provisional (alternativa de ensayo, P-13 pendiente) existe en el motor pero esta capa no la expone.
    */
   agregarArticulo(cartId: string, itemId: string) {
-    const art = catalogo(this.caja.ops()).get(itemId);
+    const art = this.caja.idx.articulo(itemId);
     if (!art) throw new ErrorDominio('ARTICULO_INEXISTENTE', itemId);
     if (this.caja.buscarPorCodigo(art.codigo).length > 1) {
       throw new ErrorDominio('CODIGO_AMBIGUO', 'código duplicado: requiere resolución de Administración');
     }
-    return this.escanear(cartId, art.codigo);
+    return { ...this.caja.agregarPorId(cartId, itemId), carrito: this.vista(cartId) };
   }
   async sincronizar() {
     await this.conexion.sincronizar?.();
@@ -111,16 +112,24 @@ export class ServicioCaja {
     return this.vista(cartId);
   }
   buscar(texto: string) {
-    const ops = this.caja.ops();
-    return this.caja.buscar(texto).map((a) => ({
-      item_id: a.item_id, item_no: a.item_no, codigo: a.codigo, descripcion: a.descripcion, marca: a.marca, estilo: a.estilo, lote: a.lote,
-      departamento: a.departamento, precio: a.precio, existencia: this.caja.existenciaVerificada(a.item_id).saldo, existencia_verificada: this.caja.existenciaVerificada(a.item_id).verificada,
-      duplicado: [...catalogo(ops).values()].filter((x) => x.codigo === a.codigo).length > 1,
-    }));
+    return this.buscarConTotal(texto).resultados;
+  }
+  buscarConTotal(texto: string) {
+    const { resultados, total } = this.caja.buscarConTotal(texto);
+    return {
+      total,
+      resultados: resultados.map((a) => ({
+        item_id: a.item_id, item_no: a.item_no, codigo: a.codigo, descripcion: a.descripcion, marca: a.marca, estilo: a.estilo, lote: a.lote,
+        departamento: a.departamento, precio: a.precio, codigo_alterno: a.codigo_alterno ?? null,
+        existencia: this.caja.existenciaVerificada(a.item_id).saldo, existencia_verificada: this.caja.existenciaVerificada(a.item_id).verificada,
+        duplicado: this.caja.buscarPorCodigo(a.codigo).length > 1,
+        precio_valido: a.precio > 0,
+      })),
+    };
   }
 
   private async imprimirVenta(saleId: string, tipo: 'original' | 'reimpresion', n: number) {
-    const v = ventas(this.caja.ops()).get(saleId)!;
+    const v = ventas(this.caja.opsVentas()).get(saleId)!;
     const cfg = this.negocios[v.tienda]!;
     const ticket = construirTicket(v, cfg, n, this.negocios);
     const texto = renderTicketTexto(ticket);
@@ -151,14 +160,14 @@ export class ServicioCaja {
   }
 
   async reimprimir(saleId: string) {
-    const v = ventas(this.caja.ops()).get(saleId);
+    const v = ventas(this.caja.opsVentas()).get(saleId);
     if (!v || v.tienda !== this.caja.tienda || v.caja !== this.caja.caja) throw new ErrorDominio('PROHIBIDO', 'solo se reimprimen ventas de la propia caja');
     const n = this.caja.impresionesDe(saleId).filter((i) => i.tipo === 'reimpresion').length + 1;
     return this.imprimirVenta(saleId, 'reimpresion', n);
   }
 
   ticketTexto(saleId: string): string {
-    const v = ventas(this.caja.ops()).get(saleId);
+    const v = ventas(this.caja.opsVentas()).get(saleId);
     if (!v || v.tienda !== this.caja.tienda || v.caja !== this.caja.caja) throw new ErrorDominio('PROHIBIDO', 'solo se consultan tickets de la propia caja');
     const n = this.caja.impresionesDe(saleId).filter((i) => i.tipo === 'reimpresion').length;
     return renderTicketTexto(construirTicket(v, this.negocios[v.tienda]!, n, this.negocios));
@@ -166,37 +175,63 @@ export class ServicioCaja {
 
   /** Ventas de ESTA caja. El filtro por caja lo impone el permiso del actor, no la ausencia de datos. */
   ventasDelDia(fecha: string) {
-    return ventasPorCaja(this.actor, this.caja.ops(), { desde: fecha, hasta: fecha }).map((r) => ({
+    return ventasPorCaja(this.actor, this.caja.opsVentas(), { desde: fecha, hasta: fecha }).map((r) => ({
       ...r, impresiones: this.caja.impresionesDe(r.sale_id).length,
       ultima_impresion: this.caja.impresionesDe(r.sale_id).at(-1)?.resultado ?? null,
     }));
   }
   ventasPropias(filtro: Filtro = {}) {
-    return ventasPorCaja(this.actor, this.caja.ops(), filtro);
+    return ventasPorCaja(this.actor, this.caja.opsVentas(), filtro);
   }
 
   corte(fecha: string) {
     const vivo = this.caja.corteEnVivo(fecha);
-    const cerrado = this.caja.ops().find((o) => o.op_id === `corte:${this.caja.id}:${fecha}`)?.payload ?? null;
+    const cerrado = this.caja.repo.getOp(`corte:${this.caja.id}:${fecha}`)?.payload ?? null;
     return { vivo, cerrado, desactualizado: cerrado ? JSON.stringify(cerrado) !== JSON.stringify(vivo) : false };
   }
   cerrarCorte(fecha: string) {
     return this.caja.generarCorte(fecha);
   }
   cortesPropios(filtro: Filtro = {}) {
-    return cortesPorCaja(this.actor, this.caja.ops(), filtro);
+    return cortesPorCaja(this.actor, this.caja.opsDe('corte.generado'), filtro);
   }
 }
 
 /** Consola de Administración: puede elegir una, varias o todas las cajas, de cualquier tienda. */
+export interface FuenteInventario {
+  tiendas: string[];
+  articulos(): Articulo[];
+  saldo(tienda: string, itemId: string): number;
+  verificada(tienda: string, itemId: string): boolean;
+}
+
 export class ServicioAdmin {
   readonly actor: Extract<Actor, { rol: 'admin' }>;
   private fuente: () => Op[];
   readonly cajas: { tienda: string; caja: number }[];
-  constructor(o: { actor: Extract<Actor, { rol: 'admin' }>; fuente: () => Op[]; cajas: { tienda: string; caja: number }[] }) {
+  private inv?: FuenteInventario;
+  constructor(o: { actor: Extract<Actor, { rol: 'admin' }>; fuente: () => Op[]; cajas: { tienda: string; caja: number }[]; inventario?: FuenteInventario }) {
     this.actor = o.actor;
     this.fuente = o.fuente;
     this.cajas = o.cajas;
+    this.inv = o.inventario;
+  }
+  /** Inventario para Administración: resumen y la tabla lista para Excel. Solo Administración. */
+  inventario(completo = false): { resumen: Record<string, unknown>; hoja: Hoja } {
+    if (this.actor.rol !== 'admin') throw new ErrorDominio('PROHIBIDO', 'el inventario consolidado es solo de Administración');
+    if (!this.inv) throw new ErrorDominio('SIN_INVENTARIO', 'esta sesión no tiene fuente de inventario');
+    const arts = this.inv.articulos();
+    const hoja = hojaInventario(arts, { tiendas: this.inv.tiendas, saldo: this.inv.saldo, verificada: this.inv.verificada });
+    const porTienda = Object.fromEntries(this.inv.tiendas.map((t) => {
+      let piezas = 0, conExistencia = 0, noVerificados = 0;
+      for (const a of arts) { const q = this.inv!.saldo(t, a.item_id); piezas += q; if (q > 0) conExistencia++; if (!this.inv!.verificada(t, a.item_id)) noVerificados++; }
+      return [t, { piezas, articulos_con_existencia: conExistencia, no_verificados: noVerificados }];
+    }));
+    const resumen = {
+      articulos: arts.length, con_codigo: arts.filter((a) => a.codigo).length, sin_codigo: arts.filter((a) => !a.codigo).length,
+      precio_no_vendible: arts.filter((a) => !(a.precio > 0)).length, por_tienda: porTienda,
+    };
+    return { resumen, hoja: completo ? hoja : { ...hoja, filas: hoja.filas.slice(0, 20) } };
   }
   reporte(f: Filtro = {}) {
     return reporteConsolidado(this.actor, this.fuente(), f);

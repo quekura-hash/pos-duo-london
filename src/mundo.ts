@@ -5,6 +5,7 @@ import type { Politicas } from './politicas.ts';
 import { devueltoPorLinea, ventas } from './proyecciones.ts';
 import { MemoriaRepo, SqliteRepo, type Repo } from './repo.ts';
 import type { Articulo, CajaCfg, Op } from './tipos.ts';
+import { Indice } from './indice.ts';
 import { opsSemilla } from './semilla.ts';
 import { Reloj } from './util.ts';
 
@@ -103,6 +104,7 @@ export class Mundo {
   entregas = 0;
   acksPerdidos = 0;
   private repos = new Map<string, Repo>();
+  private idxCentral?: Indice;
 
   constructor(o: OpcionesMundo) {
     const cajasCfg = o.cajasCfg ?? CAJAS_ESTANDAR;
@@ -331,8 +333,27 @@ export class Mundo {
   sembrar(items: Omit<Articulo, 'item_id' | 'origen'>[], existencias: Record<string, number>[] = []): Articulo[] {
     const { articulos, ops } = opsSemilla(items, existencias, this.reloj.now());
     const repos = [this.central.repo, ...[...this.hubs.values()].map((h) => h.repo), ...[...this.cajas.values()].map((c) => c.repo)];
-    for (const r of repos) for (const op of ops) r.appendOp(op);
+    for (const r of repos) r.tx(() => { for (const op of ops) r.appendOp(op); });
     return articulos;
+  }
+
+  /** Inventario tal como lo conoce el central (lo que Administración consulta y exporta). */
+  inventarioCentral() {
+    if (!this.idxCentral || this.idxCentralRepo !== this.central.repo) { this.idxCentral = new Indice(this.central.repo); this.idxCentralRepo = this.central.repo; }
+    const idx = this.idxCentral;
+    return {
+      tiendas: this.ctx.tiendas,
+      articulos: () => { idx.actualizar(); return [...idx.cat.values()]; },
+      saldo: (t: string, i: string) => idx.saldo(t, i),
+      verificada: (t: string, i: string) => idx.verificada(t, i).verificada,
+    };
+  }
+  private idxCentralRepo?: Repo;
+
+  /** Carga masiva de operaciones de migración (catálogo y existencia inicial) en TODOS los nodos, en una transacción por nodo. */
+  sembrarOps(ops: Op[]) {
+    const repos = [this.central.repo, ...[...this.hubs.values()].map((h) => h.repo), ...[...this.cajas.values()].map((c) => c.repo)];
+    for (const r of repos) r.tx(() => { for (const op of ops) r.appendOp(op); });
   }
 
   // ── transporte: entrega con ack, reintento y pérdida de ack inyectable ──

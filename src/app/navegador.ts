@@ -3,6 +3,9 @@
 import type { Impresora, TrabajoImpresion } from '../impresion.ts';
 import { CAJAS_ESTANDAR, fabricaMemoria, Mundo } from '../mundo.ts';
 import { crearPoliticasEnsayo } from '../politicas.ts';
+import { aOperacionesInventario, leerInventario, PERFILES } from '../inventario.ts';
+import type { Op } from '../tipos.ts';
+import { escribirXlsx, leerXlsx } from '../xlsx.ts';
 import { atender } from './rutas.ts';
 import { ServicioAdmin, ServicioCaja } from './servicio.ts';
 
@@ -26,7 +29,7 @@ export const ARTICULOS_DE_PRUEBA: { codigo: string; item_no: string; marca: stri
   { codigo: '7508888888888', item_no: '1006', marca: 'MARCA B', descripcion: 'FALDA', estilo: 'F-1', lote: '20261016', departamento: 'DAMA', precio: 30000, existencias: { DUO: 2 } },
 ];
 
-export function crearBanco() {
+export function crearBanco(opsCatalogo?: Op[]) {
   const m = new Mundo({
     fabrica: fabricaMemoria(),
     politicas: crearPoliticasEnsayo({
@@ -35,7 +38,8 @@ export function crearBanco() {
       P14_venta_con_inventario_no_verificado: 'permitir_con_aviso', K_folios: 30, K_item_no: 50,
     }),
   });
-  m.sembrar(ARTICULOS_DE_PRUEBA.map(({ existencias: _e, ...a }) => a), ARTICULOS_DE_PRUEBA.map((a) => a.existencias));
+  if (opsCatalogo) m.sembrarOps(opsCatalogo);
+  else m.sembrar(ARTICULOS_DE_PRUEBA.map(({ existencias: _e, ...a }) => a), ARTICULOS_DE_PRUEBA.map((a) => a.existencias));
   const ahora = () => new Date().toISOString();
   m.reloj.fijar(ahora());
   const impresoras = new Map<string, ImpresoraMemoria>();
@@ -57,13 +61,18 @@ export function crearBanco() {
       reloj: { now: ahora },
     }));
   }
-  const admin = new ServicioAdmin({ actor: { rol: 'admin', usuario: 'Administración' }, fuente: () => m.central.repo.ops(), cajas: CAJAS_ESTANDAR.map((c) => ({ tienda: c.tienda, caja: c.caja })) });
+  const admin = new ServicioAdmin({ actor: { rol: 'admin', usuario: 'Administración' }, fuente: () => m.central.repo.ops(), cajas: CAJAS_ESTANDAR.map((c) => ({ tienda: c.tienda, caja: c.caja })), inventario: m.inventarioCentral() });
   return { m, servicios, admin, impresoras, ultimaSync, ahora };
 }
 
 export type Banco = ReturnType<typeof crearBanco>;
 
+export { aOperacionesInventario, escribirXlsx, leerInventario, leerXlsx, PERFILES };
+
 export function iniciarBanco(opciones: { alCambiar: () => void }) {
+  let opsCatalogo: Op[] | undefined;
+  let etiqueta = '';
+  let muestra: { codigo: string; descripcion: string; marca: string; precio: number; item_no: string | null }[] = [];
   let banco = crearBanco();
   let sesion = 'DUO/1';
   const atenderSesion = async (metodo: string, ruta: string, cuerpo: unknown) => {
@@ -78,7 +87,11 @@ export function iniciarBanco(opciones: { alCambiar: () => void }) {
     get sesion() { return sesion; },
     // Al cambiar de sesión se entrega lo pendiente (si la red simulada lo permite), como haría la sincronización en segundo plano.
     seleccionar(id: string) { banco.m.pump(); sesion = id; opciones.alCambiar(); },
-    reiniciar() { banco = crearBanco(); opciones.alCambiar(); },
+    reiniciar() { banco = crearBanco(opsCatalogo); opciones.alCambiar(); },
+    /** Carga un inventario importado (operaciones de catálogo y existencia de prueba) en lugar de los datos de ejemplo. */
+    cargarInventario(ops: Op[], texto: string, ejemplos: typeof muestra) { opsCatalogo = ops; etiqueta = texto; muestra = ejemplos; banco = crearBanco(opsCatalogo); opciones.alCambiar(); },
+    quitarInventario() { opsCatalogo = undefined; etiqueta = ''; muestra = []; banco = crearBanco(); opciones.alCambiar(); },
+    inventarioCargado: () => ({ etiqueta, muestra, conInventario: !!opsCatalogo }),
     caerHub(t: string, v: boolean) { if (v) banco.m.caerHub(t); else banco.m.levantarHub(t); },
     fallaImpresora(id: string, v: boolean) { const i = banco.impresoras.get(id); if (i) i.falla = v ? 'sin papel (falla simulada)' : null; },
     tienda: () => (sesion === 'admin' ? null : sesion.split('/')[0]!),

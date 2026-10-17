@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { extname, join } from 'node:path';
+import { escribirXlsxNode } from '../xlsx-node.ts';
 import { atender } from './rutas.ts';
 import type { ServicioAdmin, ServicioCaja } from './servicio.ts';
 
@@ -41,6 +42,16 @@ export function crearServidorApp(o: { cajero?: ServicioCaja; admin?: ServicioAdm
         }
         res.writeHead(200, { 'content-type': TIPOS[extname(archivo)] ?? 'application/octet-stream', 'cache-control': 'no-store' });
         return void res.end(contenido);
+      }
+      if (req.method === 'GET' && url.pathname === '/api/admin/inventario.xlsx') {
+        const r = await atender(o, 'GET', new URL('/api/admin/inventario?completo=1', 'http://localhost'), {});
+        if (r.status !== 200) return json(res, r.status, r.json);
+        const bytes = await escribirXlsxNode([r.json.hoja]);
+        res.writeHead(200, {
+          'content-type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          'content-disposition': 'attachment; filename="inventario.xlsx"', 'cache-control': 'no-store',
+        });
+        return void res.end(Buffer.from(bytes));
       }
       const b = req.method === 'POST' ? await leer(req) : {};
       const r = await atender(o, req.method ?? 'GET', url, b);

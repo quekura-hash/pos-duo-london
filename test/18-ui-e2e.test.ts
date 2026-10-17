@@ -5,6 +5,8 @@ import { describe, it } from 'node:test';
 import { chromium, type Browser, type Page } from 'playwright-core';
 import { nuevoMundo, politica, ALMACENES } from './ayudas/comun.ts';
 import { appAdmin, appCajero } from './ayudas/app.ts';
+import { leerXlsxNode } from '../src/xlsx-node.ts';
+import { readFileSync } from 'node:fs';
 
 const CAPTURAS = join(import.meta.dirname, '..', 'docs', 'capturas');
 const CANDIDATOS = [process.env.POS_CHROMIUM, '/opt/pw-browsers/chromium-1194/chrome-linux/chrome', '/opt/pw-browsers/chromium/chrome-linux/chrome'];
@@ -196,7 +198,7 @@ describe('[navegador real — Chromium con Playwright, UI sobre SQLite]', { time
     ctx.m.pump();
     const { page, errores } = await pagina(browser, adm.url);
     await page.waitForSelector('#filtros');
-    assert.deepEqual(await page.$$eval('#nav button', (b) => b.map((x) => x.textContent)), ['Reportes']);
+    assert.deepEqual(await page.$$eval('#nav button', (b) => b.map((x) => x.textContent)), ['Reportes', 'Inventario']);
     await page.fill('#desde', '2026-10-01');
     await page.fill('#hasta', '2026-10-01');
     await page.click('#filtros button[type="submit"]');
@@ -256,5 +258,38 @@ describe('[navegador real — Chromium con Playwright, UI sobre SQLite]', { time
       if (ancho === 1024) await page.screenshot({ path: join(CAPTURAS, '07-venta-1024.png') });
       await page.context().close();
     }
+  });
+
+  it('UI7 Administración consulta el inventario y lo exporta a Excel (descarga real del navegador)', async (t) => {
+    const browser = await chromium.launch({ executablePath: chromiumPath, args: ['--no-sandbox'] });
+    const ctx = nuevoMundo(sqlite, politica());
+    const a1 = await appCajero(ctx, 'DUO', 1);
+    const adm = await appAdmin(ctx);
+    t.after(async () => { await browser.close(); await a1.cerrar(); await adm.cerrar(); ctx.limpiar(); });
+    const s = a1.s.svc;
+    const c = s.nuevaVenta(); s.escanear(c, '0002026090782'); s.escanear(c, '0002026090782');
+    await s.cobrarEfectivo(c, 200000);
+    ctx.m.pump();
+    const { page, errores } = await pagina(browser, adm.url);
+    await page.waitForSelector('#nav');
+    await page.click('#nav button[data-vista="inventario"]');
+    await page.waitForSelector('#tabla-inv-resumen');
+    assert.equal(await page.textContent('#tabla-inv-resumen [data-campo="articulos"]'), '4');
+    assert.equal(await page.textContent('#tabla-inv-resumen [data-campo="sin_codigo"]'), '0');
+    assert.deepEqual(await page.$$eval('#tabla-inv-tiendas tbody tr', (r) => r.map((x) => [...x.querySelectorAll('td')].map((c) => c.textContent))), [['DUO', '57', '4', '0'], ['LON', '53', '2', '0']]);
+    assert.equal(await page.locator('#tabla-inv-previa tbody tr').count(), 4);
+    await page.screenshot({ path: join(CAPTURAS, '09-inventario-administracion.png') });
+    const [descarga] = await Promise.all([page.waitForEvent('download'), page.click('#btn-exportar')]);
+    assert.equal(descarga.suggestedFilename(), 'inventario.xlsx');
+    const ruta = await descarga.path();
+    const filas = (await leerXlsxNode(readFileSync(ruta!)))[0]!.filas;
+    assert.deepEqual(filas[0]!.slice(0, 8), ['Item #', 'Código', 'Marca', 'Descripción', 'Estilo', 'Lote', 'Departamento', 'Precio de venta']);
+    assert.equal(filas.length, 5);
+    assert.deepEqual(filas[1]!.slice(0, 2), [1001, '0002026090782'], 'el código conserva sus ceros');
+    assert.deepEqual(filas[1]!.slice(12, 14), [3, 3], 'existencia DÚO 5 − 2 vendidas y London 3');
+    // un cajero no tiene la ruta de inventario
+    const r = await fetch(`${a1.url}/api/admin/inventario`);
+    assert.equal(r.status, 403);
+    assert.deepEqual(errores, []);
   });
 });

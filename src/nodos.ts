@@ -1,5 +1,6 @@
 import { ErrorDominio } from './errores.ts';
 import type { Politicas } from './politicas.ts';
+import { Indice } from './indice.ts';
 import { catalogo, devoluciones, devueltoPorLinea, existenciaVerificada, intentos, perdidasDocumentales, stock, ventas, type Devolucion, type ExistenciaVerificada, type Intento, type PerdidaDocumental } from './proyecciones.ts';
 import type { Repo } from './repo.ts';
 import { validarOpEntrante } from './reglas.ts';
@@ -66,7 +67,9 @@ export class Hub {
   readonly tienda: string;
   readonly repo: Repo;
   readonly ctx: Ctx;
+  private idx: Indice;
   constructor(tienda: string, repo: Repo, ctx: Ctx) {
+    this.idx = new Indice(repo);
     this.id = `hub:${tienda}`;
     this.tienda = tienda;
     this.repo = repo;
@@ -119,13 +122,12 @@ export class Hub {
     if (previa && (previa.estado === 'cerrada' || (previa.estado === 'abierta' && previa.hasta > ahora))) return { ...previa.resultado, idempotente: true };
     const todas = this.reservas().filter((r) => r.ref !== ref);
     const abiertas = todas.filter((r) => r.estado === 'abierta' && r.hasta > ahora);
-    const saldo = stock(this.repo.ops(), this.tienda);
     const pedido = new Map<string, number>();
     for (const l of lineas) pedido.set(l.item_id, (pedido.get(l.item_id) ?? 0) + l.qty);
     const faltantes: string[] = [];
     for (const [item, q] of pedido) {
       const apartado = abiertas.reduce((a, r) => a + r.lineas.filter((l) => l.item_id === item).reduce((b, l) => b + l.qty, 0), 0);
-      if ((saldo.get(item) ?? 0) - apartado < q) faltantes.push(item);
+      if (this.idx.saldo(this.tienda, item) - apartado < q) faltantes.push(item);
     }
     if (faltantes.length && this.ctx.politicas.P02_existencia_insuficiente === 'bloquear') {
       this.repo.kvSet('reservas', todas); // un rechazo no se guarda
@@ -170,7 +172,7 @@ export class Hub {
 
   hwm(caja: number): number {
     let m = 0;
-    for (const o of this.repo.ops()) if (o.tipo === 'sale.confirmed' && o.payload.tienda === this.tienda && o.payload.caja === caja) m = Math.max(m, o.payload.folio);
+    for (const o of this.repo.opsDeTipos(['sale.confirmed'])) if (o.payload.tienda === this.tienda && o.payload.caja === caja) m = Math.max(m, o.payload.folio);
     return m;
   }
   anclas(caja: number): Anclas {
@@ -276,6 +278,7 @@ export class Caja {
   readonly ctx: Ctx;
   readonly enlace: Enlace;
   readonly cfg: CajaCfg;
+  readonly idx: Indice;
 
   constructor(tienda: string, caja: number, repo: Repo, ctx: Ctx, enlace: Enlace, opts: { restaurado?: 'disco_nuevo' | 'respaldo' } = {}) {
     this.tienda = tienda;
@@ -283,6 +286,7 @@ export class Caja {
     this.id = `${tienda}/${caja}`;
     this.nodoId = `caja:${this.id}`;
     this.repo = repo;
+    this.idx = new Indice(repo);
     this.ctx = ctx;
     this.enlace = enlace;
     this.cfg = ctx.cajasCfg.find((c) => c.tienda === tienda && c.caja === caja)!;
@@ -429,8 +433,15 @@ export class Caja {
   ops(): Op[] {
     return this.repo.ops();
   }
+  /** Solo operaciones de estos tipos (rutas calientes: no recorre toda la bitácora). */
+  opsDe(...tipos: string[]): Op[] {
+    return this.repo.opsDeTipos(tipos);
+  }
+  opsVentas(): Op[] {
+    return this.opsDe('sale.confirmed', 'sale.cancelled');
+  }
   stockLocal(itemId: string): number {
-    return stock(this.ops(), this.tienda).get(itemId) ?? 0;
+    return this.idx.saldo(this.tienda, itemId);
   }
   recibir(op: Op, _desde: string): void {
     if (this.repo.tieneOp(op.op_id)) return;
@@ -439,7 +450,7 @@ export class Caja {
 
   // ── catálogo y altas (incluye alta sin internet) ──
   buscarPorCodigo(codigo: string): Articulo[] {
-    return [...catalogo(this.ops()).values()].filter((a) => a.codigo === codigo);
+    return this.idx.buscarCodigo(codigo); // un código vacío no identifica nada
   }
 
   altaArticulo(d: { codigo: string; marca: string; descripcion: string; estilo: string; lote: string; departamento: string; precio: number; existencia_inicial?: number }): Articulo {
@@ -497,14 +508,13 @@ export class Caja {
     return { inventario, documental };
   }
   perdidasDocumentalesAbiertas(): PerdidaDocumental[] {
-    return perdidasDocumentales(this.ops()).filter((p) => p.estado === 'abierta' && p.tienda === this.tienda && (p.caja === this.caja || p.caja === null));
+    return this.idx.perdidasAbiertas(this.tienda, this.caja);
   }
   existenciaVerificada(itemId: string): ExistenciaVerificada {
-    return existenciaVerificada(this.ops(), this.tienda, itemId);
+    return { saldo: this.idx.saldo(this.tienda, itemId), ...this.idx.verificada(this.tienda, itemId) };
   }
   articulosNoVerificados(): string[] {
-    const ops = this.ops();
-    return [...catalogo(ops).values()].filter((a) => !existenciaVerificada(ops, this.tienda, a.item_id).verificada).map((a) => a.item_id);
+    return this.idx.noVerificados(this.tienda);
   }
   /** Conteo físico: ajusta a lo contado mediante movimiento (contar 10 deja 10) y limpia SOLO la marca de ese artículo. */
   contarFisico(itemId: string, contado: number, usuario: string) {
@@ -554,10 +564,21 @@ export class Caja {
     const cod = codigo.replace(/[\r\n]+$/g, ''); // el lector termina con Enter; los ceros iniciales se conservan
     const c = this.cartGet(cartId);
     this.exigirAbierto(c);
-    const r = this.buscarPorCodigo(cod);
+    let r = this.buscarPorCodigo(cod);
+    if (r.length === 0) r = this.idx.buscarAlterno(cod); // "Alternate Lookup": segundo código de búsqueda (no es la identidad)
     if (r.length === 0) return { resultado: 'no_encontrado', codigo: cod };
     if (r.length > 1) return { resultado: 'ambiguo', codigo: cod, candidatos: r.map((a) => ({ item_id: a.item_id, item_no: a.item_no, marca: a.marca, descripcion: a.descripcion, estilo: a.estilo, lote: a.lote })) };
-    const art = r[0]!;
+    return this.sumarArticulo(cartId, r[0]!);
+  }
+  /** Agrega una pieza de un artículo identificado (por escaneo o elegido de una búsqueda; también los que no tienen código). */
+  agregarPorId(cartId: string, itemId: string) {
+    const art = this.idx.articulo(itemId);
+    if (!art) throw new ErrorDominio('ARTICULO_INEXISTENTE', itemId);
+    this.exigirAbierto(this.cartGet(cartId));
+    return this.sumarArticulo(cartId, art);
+  }
+  private sumarArticulo(cartId: string, art: Articulo): { resultado: 'agregado' | 'cantidad_incrementada'; linea: Linea } {
+    const c = this.cartGet(cartId);
     // Mismo artículo, sin precio ni descuento editados: se suma una pieza a la línea existente.
     const existente = c.lineas.find((x) => x.item_id === art.item_id && x.precio_unit === art.precio && x.descuento === 0);
     if (existente) return { resultado: 'cantidad_incrementada', linea: this.cambiarCantidad(cartId, existente.linea_id, existente.qty + 1) };
@@ -583,29 +604,29 @@ export class Caja {
     c.lineas = c.lineas.filter((x) => x.linea_id !== lineaId);
     this.repo.kvSet(`cart:${cartId}`, c);
   }
-  /** Búsqueda por código exacto, Item # exacto o texto en marca, descripción, estilo y lote. */
+  /** Búsqueda por código exacto, Item # exacto, código alterno o texto en marca, descripción, estilo, lote y departamento. */
   buscar(texto: string, limite = 20): Articulo[] {
+    return this.buscarConTotal(texto, limite).resultados;
+  }
+  buscarConTotal(texto: string, limite = 20): { resultados: Articulo[]; total: number } {
     const q = texto.trim();
-    if (!q) return [];
-    const norm = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
-    const nq = norm(q);
-    const todos = [...catalogo(this.ops()).values()];
-    const exactos = todos.filter((a) => a.codigo === q || a.item_no === q);
-    const texto_ = todos.filter((a) => !exactos.includes(a) && norm(`${a.marca} ${a.descripcion} ${a.estilo} ${a.lote}`).includes(nq));
-    return [...exactos, ...texto_].slice(0, limite);
+    return q ? this.idx.buscar(q, limite) : { resultados: [], total: 0 };
   }
   agregarLinea(cartId: string, l: { codigo?: string; item_id?: string; qty: number; precio_unit?: number; descuento?: number }): Linea {
     const c = this.cartGet(cartId);
     this.exigirAbierto(c);
     this.exigirSinCobroPendiente(c);
     let art: Articulo | undefined;
-    if (l.item_id) art = catalogo(this.ops()).get(l.item_id);
+    if (l.item_id) art = this.idx.articulo(l.item_id);
     else {
       const r = this.buscarPorCodigo(l.codigo!);
       if (r.length > 1) throw new ErrorDominio('CODIGO_AMBIGUO', `el código ${l.codigo} corresponde a ${r.length} artículos`, r.map((a) => a.item_id));
       art = r[0];
     }
     if (!art) throw new ErrorDominio('ARTICULO_INEXISTENTE', String(l.codigo ?? l.item_id));
+    if (l.precio_unit === undefined && !(art.precio > 0)) {
+      throw new ErrorDominio('PRECIO_INVALIDO', `${[art.descripcion, art.marca].filter(Boolean).join(' ') || 'El artículo'} (Item # ${art.item_no ?? 'pendiente'}) tiene precio ${art.precio / 100} en el catálogo: corríjalo antes de venderlo`, { item_id: art.item_id, precio: art.precio });
+    }
     const precio = l.precio_unit ?? art.precio; // editar precio "solo en esta venta" no toca el catálogo
     const descuento = l.descuento ?? 0;
     if (!Number.isInteger(l.qty) || l.qty < 1) throw new ErrorDominio('CANTIDAD_INVALIDA', 'la cantidad es un entero positivo');
@@ -627,7 +648,7 @@ export class Caja {
   // ── cobro en efectivo / mixto ──
   private exigirSinCobroPendiente(c: Carrito) {
     if (!c.intent_id) return;
-    const i = intentos(this.ops()).get(c.intent_id);
+    const i = intentos(this.opsDe('card.intent', 'card.intent_resuelto')).get(c.intent_id);
     if (i && (i.estado === 'iniciado' || i.estado === 'desconocido')) {
       throw new ErrorDominio('COBRO_PENDIENTE', `este carrito tiene un cobro con tarjeta sin conciliar (${i.estado})`, i);
     }
@@ -672,7 +693,7 @@ export class Caja {
         if (this.ctx.politicas.P01_hub_no_disponible === 'bloquear_ventas_nuevas') throw new ErrorDominio('VENTA_BLOQUEADA', 'el hub dejó de responder durante la venta');
         this.exigirExistenciaLocal(c);
       } else if (!r.ok) {
-        throw new ErrorDominio('SIN_EXISTENCIA', `el hub no concede existencia de ${(r.faltantes ?? []).join(', ')}`, r);
+        throw new ErrorDominio('SIN_EXISTENCIA', `el hub no concede existencia de ${this.nombresDe(r.faltantes ?? [])}`, r);
       } else {
         reservado = true;
         avisos = [...avisos, ...(r.sobreventa ?? []).map((i) => `sobreventa:${i}`)];
@@ -690,12 +711,20 @@ export class Caja {
     }
   }
 
+  /** Nombres legibles (descripción, marca, Item #) para mensajes; nunca identificadores internos. */
+  private nombresDe(ids: string[]): string {
+    return ids.map((id) => {
+      const a = this.idx.articulo(id);
+      return a ? `${[a.descripcion, a.marca].filter(Boolean).join(' ') || 'artículo'} (Item # ${a.item_no ?? 'pendiente'})` : id;
+    }).join(', ');
+  }
+
   private exigirExistenciaLocal(c: Carrito) {
     if (this.ctx.politicas.P02_existencia_insuficiente !== 'bloquear') return;
-    const st = stock(this.ops(), this.tienda);
     const pedido = new Map<string, number>();
     for (const l of c.lineas) pedido.set(l.item_id, (pedido.get(l.item_id) ?? 0) + l.qty);
-    for (const [item, q] of pedido) if ((st.get(item) ?? 0) < q) throw new ErrorDominio('SIN_EXISTENCIA', `existencia insuficiente de ${item}`);
+    const faltan = [...pedido].filter(([item, q]) => this.idx.saldo(this.tienda, item) < q).map(([item]) => item);
+    if (faltan.length) throw new ErrorDominio('SIN_EXISTENCIA', `existencia insuficiente de ${this.nombresDe(faltan)}`, { faltantes: faltan });
   }
 
   /** Cobro en efectivo MXN con recibido y cambio. El importe aplicado (y lo que cuenta en el corte) es el total, no lo recibido. */
@@ -712,12 +741,12 @@ export class Caja {
 
   /** Bitácora de impresión: una falla de impresora nunca duplica ni revierte la venta. */
   registrarImpresion(d: { sale_id: string; tipo: 'original' | 'reimpresion'; resultado: 'ok' | 'error'; error?: string; usuario: string }): Op {
-    const v = ventas(this.ops()).get(d.sale_id);
+    const v = ventas(this.opsVentas()).get(d.sale_id);
     if (!v || v.tienda !== this.tienda || v.caja !== this.caja) throw new ErrorDominio('PROHIBIDO', 'solo se imprimen ventas de la propia caja');
     return this.emitir('ticket.impresion', { ...d, tienda: this.tienda, caja: this.caja, folio: v.folio });
   }
   impresionesDe(saleId: string) {
-    return this.ops().filter((o) => o.tipo === 'ticket.impresion' && o.payload.sale_id === saleId).map((o) => ({ ...o.payload, ocurrio_en: o.ocurrio_en }));
+    return this.opsDe('ticket.impresion').filter((o) => o.payload.sale_id === saleId).map((o) => ({ ...o.payload, ocurrio_en: o.ocurrio_en }));
   }
 
   /** Una sola transacción: folio + venta + movimientos + cola de salida. Todo o nada. */
@@ -740,14 +769,14 @@ export class Caja {
   }
 
   cancelarVenta(saleId: string, motivo: string) {
-    const v = ventas(this.ops()).get(saleId);
+    const v = ventas(this.opsVentas()).get(saleId);
     if (!v || v.tienda !== this.tienda || v.caja !== this.caja) throw new ErrorDominio('PROHIBIDO', 'solo se cancelan ventas de la propia caja');
     if (v.estado === 'cancelada') return v;
     this.repo.tx(() => {
       this.emitir('sale.cancelled', { sale_id: saleId, motivo }, `cancel:${saleId}`);
       for (const l of v.lineas) this.emitir('inv.movement', { item_id: l.item_id, tienda: this.tienda, delta: l.qty, tipo: 'cancelacion', doc: saleId, caja: this.caja }, `mov:cancel:${saleId}:${l.linea_id}`);
     });
-    return ventas(this.ops()).get(saleId)!;
+    return ventas(this.opsVentas()).get(saleId)!;
   }
 
   // ── tarjeta: intento persistido antes de usar la terminal ──
@@ -755,7 +784,7 @@ export class Caja {
     if (!this.cfg.metodos.includes('tarjeta')) throw new ErrorDominio('PAGO_NO_PERMITIDO', `la caja ${this.id} no admite tarjeta`);
     if (this.repo.tieneOp(`sale:${cartId}`)) throw new ErrorDominio('VENTA_YA_CONFIRMADA', cartId);
     const c = this.cartGet(cartId);
-    const todos = [...intentos(this.ops()).values()].filter((i) => i.tienda === this.tienda && i.caja === this.caja);
+    const todos = [...intentos(this.opsDe('card.intent', 'card.intent_resuelto')).values()].filter((i) => i.tienda === this.tienda && i.caja === this.caja);
     const abierto = todos.find((i) => i.cart_id === cartId && (i.estado === 'iniciado' || i.estado === 'desconocido'));
     // Nunca se genera un segundo cobro para el mismo carrito mientras haya uno sin conciliar.
     if (abierto) return { intento: abierto, reutilizado: true, avisos: [] as string[] };
@@ -769,19 +798,19 @@ export class Caja {
       this.emitir('card.intent', { intent_id, cart_id: cartId, tienda: this.tienda, caja: this.caja, importe: importe ?? total }, `intent:${intent_id}`);
       this.repo.kvSet(`cart:${cartId}`, { ...c, intent_id });
     });
-    return { intento: intentos(this.ops()).get(intent_id)!, reutilizado: false, avisos: otros.length ? ['hay_otros_cobros_pendientes'] : [] };
+    return { intento: intentos(this.opsDe('card.intent', 'card.intent_resuelto')).get(intent_id)!, reutilizado: false, avisos: otros.length ? ['hay_otros_cobros_pendientes'] : [] };
   }
 
   pendientesDeConciliar(): Intento[] {
-    return [...intentos(this.ops()).values()].filter((i) => i.tienda === this.tienda && i.caja === this.caja && (i.estado === 'iniciado' || i.estado === 'desconocido'));
+    return [...intentos(this.opsDe('card.intent', 'card.intent_resuelto')).values()].filter((i) => i.tienda === this.tienda && i.caja === this.caja && (i.estado === 'iniciado' || i.estado === 'desconocido'));
   }
 
   resolverIntento(intentId: string, r: { resultado: 'aprobado' | 'no_cobrado' | 'desconocido'; autorizacion?: string; marca?: string; ultimos4?: string; efectivo_adicional?: number }, cajero = 'cajero'): Venta | null {
-    const i = intentos(this.ops()).get(intentId);
+    const i = intentos(this.opsDe('card.intent', 'card.intent_resuelto')).get(intentId);
     if (!i || i.tienda !== this.tienda || i.caja !== this.caja) throw new ErrorDominio('INTENTO_INEXISTENTE', intentId);
     if (i.estado === 'aprobado') {
       if (r.resultado !== 'aprobado') throw new ErrorDominio('INTENTO_CERRADO', 'el cobro ya fue aprobado');
-      return ventas(this.ops()).get(i.cart_id) ?? null; // idempotente
+      return ventas(this.opsVentas()).get(i.cart_id) ?? null; // idempotente
     }
     if (i.estado === 'no_cobrado') {
       if (r.resultado === 'no_cobrado') return null;
@@ -810,7 +839,7 @@ export class Caja {
     const id = d.devolucion_id ?? uuid();
     const previa = this.repo.getOp(`ret:${id}`);
     if (previa) return { ...previa.payload, ocurrio_en: previa.ocurrio_en };
-    const local = this.ops();
+    const local = this.opsDe('sale.confirmed', 'sale.cancelled', 'return.registered');
     let venta = ventas(local).get(d.sale_id) ?? null;
     let verificacion = 'local';
     if (!venta) {
@@ -859,7 +888,7 @@ export class Caja {
   }
   /** Corte "en vivo": se calcula SOLO con las operaciones de esta caja y refleja todo lo ocurrido hasta ahora. No se guarda. */
   corteEnVivo(fecha: string) {
-    const ops = this.ops();
+    const ops = this.opsDe('sale.confirmed', 'sale.cancelled', 'return.registered', 'cash.movement');
     const propia = (t: string | null, c: number | null) => t === this.tienda && c === this.caja;
     const vs = [...ventas(ops).values()].filter((v) => propia(v.tienda, v.caja) && fechaLocal(v.ocurrio_en) === fecha);
     const confirmadas = vs.filter((v) => v.estado === 'confirmada');

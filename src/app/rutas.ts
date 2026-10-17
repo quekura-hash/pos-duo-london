@@ -32,7 +32,7 @@ export async function atender(o: { cajero?: ServicioCaja; admin?: ServicioAdmin 
       case 'GET /api/sesion':
         return ok(C
           ? { rol: 'cajero', usuario: C.actor.usuario, tienda: C.caja.tienda, caja: C.caja.caja, nav: ['venta', 'corte', 'ventas'] }
-          : { rol: 'admin', usuario: A!.actor.usuario, cajas: A!.cajas, nav: ['reportes'] });
+          : { rol: 'admin', usuario: A!.actor.usuario, cajas: A!.cajas, nav: ['reportes', 'inventario'] });
       // ── cajero ──
       case 'GET /api/estado': return ok({ estado: exigirCajero().estado() });
       case 'POST /api/venta/actual': { const c = exigirCajero(); const cart = c.carritoActual(); return ok({ cart, carrito: c.vista(cart) }); }
@@ -43,7 +43,7 @@ export async function atender(o: { cajero?: ServicioCaja; admin?: ServicioAdmin 
       case 'POST /api/venta/quitar': return ok({ carrito: exigirCajero().quitarLinea(b.cart, b.linea_id) });
       case 'POST /api/venta/cobrar-efectivo': return ok(await exigirCajero().cobrarEfectivo(b.cart, Number(b.recibido)));
       case 'POST /api/venta/reimprimir': return ok(await exigirCajero().reimprimir(b.sale_id));
-      case 'GET /api/buscar': return ok({ resultados: exigirCajero().buscar(q.get('q') ?? '') });
+      case 'GET /api/buscar': return ok({ ...exigirCajero().buscarConTotal(q.get('q') ?? '') });
       case 'GET /api/ventas': {
         const c = exigirCajero();
         // Cualquier intento de pedir otra caja se rechaza con 403; el cajero nunca recibe datos ajenos.
@@ -63,6 +63,7 @@ export async function atender(o: { cajero?: ServicioCaja; admin?: ServicioAdmin 
       // ── administración ──
       case 'GET /api/admin/cajas': return ok({ cajas: exigirAdmin().cajas });
       case 'POST /api/admin/reporte': return ok({ reporte: exigirAdmin().reporte({ cajas: b.cajas, desde: b.desde, hasta: b.hasta }) });
+      case 'GET /api/admin/inventario': return ok(exigirAdmin().inventario(q.get('completo') === '1'));
       case 'POST /api/admin/cortes': return ok({ cortes: exigirAdmin().cortes({ cajas: b.cajas, desde: b.desde, hasta: b.hasta }) });
       default: return { status: 404, json: { ok: false, error: { codigo: 'RUTA_INEXISTENTE', mensaje: url.pathname } } };
     }

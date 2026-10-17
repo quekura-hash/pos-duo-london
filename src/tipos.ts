@@ -69,6 +69,18 @@ export interface Articulo {
   departamento: string;
   precio: number;
   origen: string;
+  // ── campos que traen los archivos de Excel de inventario (se conservan; ninguno es identidad) ──
+  /** "Alternate Lookup": segundo código de búsqueda. NO es la identidad del artículo. */
+  codigo_alterno?: string | null;
+  /** "Custom Price 1": nivel de precio alterno (centavos). No se usa para vender. */
+  precio_alterno?: number | null;
+  /** "Etiqt-Costura" / "Etiqt- precio": valores tal como vienen; null = sin dato. */
+  etiqueta_costura?: boolean | null;
+  etiqueta_precio?: boolean | null;
+  pedimento?: string | null;
+  codigo_2?: string | null;
+  /** Fila (Excel) de donde se importó, para rastrear una anomalía hasta el archivo. */
+  fila_origen?: number | null;
 }
 
 export interface CajaCfg {
