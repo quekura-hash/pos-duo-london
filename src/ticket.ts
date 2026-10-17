@@ -1,3 +1,4 @@
+import type { Devolucion } from './proyecciones.ts';
 import type { Venta } from './tipos.ts';
 import { fechaLocal } from './util.ts';
 
@@ -50,6 +51,8 @@ export interface LineaTicket {
   precio_unit: number;
   descuento: number;
   importe: number;
+  /** Venta o recarga de tarjeta de regalo: no lleva Item #, marca, estilo ni lote. */
+  tarjeta_regalo?: boolean;
 }
 export interface Ticket {
   negocio: string;
@@ -76,7 +79,7 @@ export function construirTicket(v: Venta, cfg: NegocioCfg = NEGOCIOS[v.tienda]!,
     fecha: `${d}/${mo}/${y}`, hora: local.slice(11, 16), folio: v.folio, codigo_ticket: codigoTicket(v.tienda, v.caja, v.folio, negocios),
     lineas: v.lineas.map((l) => ({
       item_no: l.item_no, codigo: l.codigo, descripcion: l.descripcion, marca: l.marca, estilo: l.estilo, lote: l.lote,
-      qty: l.qty, precio_unit: l.precio_unit, descuento: l.descuento, importe: l.importe,
+      qty: l.qty, precio_unit: l.precio_unit, descuento: l.descuento, importe: l.importe, tarjeta_regalo: l.tarjeta_regalo ? true : undefined,
     })),
     total: v.total,
     pagos: v.pagos.map((p) => ({ etiqueta: p.metodo === 'efectivo' ? 'Efectivo MXN' : p.metodo === 'tarjeta_regalo' ? 'Tarjeta de regalo' : 'Tarjeta', monto: p.monto, recibido: p.recibido, cambio: p.cambio, tarjeta: p.tarjeta, saldo_despues: p.saldo_despues })),
@@ -122,8 +125,11 @@ export function renderTicketTexto(t: Ticket): string {
   L.push(regla);
   for (const l of t.lineas) {
     L.push(...envolver(l.descripcion, c));
-    L.push(...empaquetar([`Item #: ${l.item_no ?? 'pendiente'}`, `Código: ${l.codigo}`], c));
-    L.push(...empaquetar([`Marca: ${l.marca}`, `Estilo: ${l.estilo}`, `Lote: ${l.lote}`], c));
+    if (l.tarjeta_regalo) L.push(`Código: ${l.codigo}`, 'Vigencia: 12 meses desde la compra o la última recarga');
+    else {
+      L.push(...empaquetar([`Item #: ${l.item_no ?? 'pendiente'}`, `Código: ${l.codigo}`], c));
+      L.push(...empaquetar([`Marca: ${l.marca}`, `Estilo: ${l.estilo}`, `Lote: ${l.lote}`], c));
+    }
     L.push(dos(`${l.qty} x ${formatoMXN(l.precio_unit)}`, formatoMXN(l.qty * l.precio_unit), c));
     if (l.descuento > 0) L.push(dos('Descuento', `-${formatoMXN(l.descuento)}`, c));
   }
@@ -169,35 +175,26 @@ export function renderTicketEscPos(t: Ticket, opts: { abrirCajon?: boolean } = {
   return Uint8Array.from(b);
 }
 
-// ── comprobante de emisión de una tarjeta de regalo (NO es un ticket de venta: sin folio de venta ni serie) ──
-export interface ComprobanteRegalo {
-  negocio: string;
-  tienda: string;
-  caja: number;
-  cajero: string;
-  fecha: string;
-  hora: string;
-  codigo: string;
-  monto: number;
-  columnas: number;
-}
-
-export function construirComprobanteRegalo(e: { codigo: string; monto: number; tienda: string; caja: number; cajero: string; ocurrio_en: string }, negocios = NEGOCIOS): ComprobanteRegalo {
-  const cfg = negocios[e.tienda]!;
-  const local = new Date(Date.parse(e.ocurrio_en) - 7 * 3600_000).toISOString();
-  const [y, mo, d] = fechaLocal(e.ocurrio_en).split('-');
-  return { negocio: cfg.nombre, tienda: e.tienda, caja: e.caja, cajero: e.cajero, fecha: `${d}/${mo}/${y}`, hora: local.slice(11, 16), codigo: e.codigo, monto: e.monto, columnas: cfg.columnas };
-}
-
-export function renderComprobanteRegaloTexto(t: ComprobanteRegalo): string {
-  const c = t.columnas;
+// ── ticket de devolución: lleva folio de la MISMA serie que las ventas (P-08) ──
+export function renderTicketDevolucionTexto(d: Devolucion, v: Venta, cfg: NegocioCfg = NEGOCIOS[v.tienda]!, negocios = NEGOCIOS): string {
+  const c = cfg.columnas;
   const regla = '-'.repeat(c);
-  return [
-    centrar(t.negocio, c), centrar(`Tienda ${t.tienda} - Caja ${t.caja}`, c), centrar('TARJETA DE REGALO', c), regla,
-    `Cajero: ${t.cajero}`, `Fecha: ${t.fecha}  Hora: ${t.hora}`, `Código: ${t.codigo}`,
-    dos('Saldo cargado', formatoMXN(t.monto), c), regla,
-    ...envolver('Comprobante de alta de tarjeta de regalo. No es un ticket de venta.', c).map((x) => centrar(x, c)),
-  ].join('\n') + '\n';
+  const local = new Date(Date.parse(d.ocurrio_en) - 7 * 3600_000).toISOString();
+  const [y, mo, dd] = fechaLocal(d.ocurrio_en).split('-');
+  const L: string[] = [centrar(cfg.nombre, c), centrar(`Tienda ${d.tienda} - Caja ${d.caja}`, c), centrar('DEVOLUCIÓN', c)];
+  L.push(`Cajero: ${d.cajero}`, `Fecha: ${dd}/${mo}/${y}  Hora: ${local.slice(11, 16)}`, `Folio: ${String(d.folio ?? 0).padStart(6, '0')}`);
+  L.push(`Venta original: ${codigoTicket(v.tienda, v.caja, v.folio, negocios)}`, regla);
+  for (const dl of d.lineas) {
+    const l = v.lineas.find((x) => x.linea_id === dl.linea_id)!;
+    L.push(...envolver(l.descripcion, c));
+    L.push(...empaquetar([`Item #: ${l.item_no ?? 'pendiente'}`, `Código: ${l.codigo}`], c));
+    L.push(...empaquetar([`Marca: ${l.marca}`, `Estilo: ${l.estilo}`, `Lote: ${l.lote}`], c));
+    L.push(dos(`${dl.qty} pza.`, formatoMXN(dl.importe), c));
+  }
+  L.push(regla, dos('TOTAL DEVUELTO', formatoMXN(d.importe), c));
+  for (const r of d.reembolsos) L.push(dos(r.metodo === 'efectivo' ? 'Reembolso en efectivo MXN' : `A tarjeta de regalo ${r.tarjeta}`, formatoMXN(r.monto), c));
+  L.push(regla, centrar(codigoTicket(d.tienda, d.caja, d.folio ?? 0, negocios), c));
+  return L.join('\n') + '\n';
 }
 
 /** Texto plano a ESC/POS (mismo supuesto de página de códigos que el ticket; sin validar en equipo real). */

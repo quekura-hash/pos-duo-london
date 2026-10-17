@@ -1,6 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { Hub, type Ctx } from '../nodos.ts';
 import { crearPoliticasEnsayo } from '../politicas.ts';
+import { localizarVentas } from '../consultas.ts';
 import { devueltoPorLinea, ventas } from '../proyecciones.ts';
 import { SqliteRepo } from '../repo.ts';
 
@@ -39,6 +40,7 @@ function rpc(metodo: string, args: any[]) {
     case 'consultarVenta': return ventas(repo.ops()).get(args[0]) ?? null;
     case 'devuelto': return [...devueltoPorLinea(repo.ops(), args[0])];
     case 'reservar': return hub.reservar(args[0], args[1], args[2], args[3] ?? []);
+    case 'buscarVentas': return localizarVentas(repo.ops(), hub.tienda, args[0]);
     case 'liberar': hub.liberar(args[0]); return true;
     default: throw new Error(`rpc desconocido: ${metodo}`);
   }

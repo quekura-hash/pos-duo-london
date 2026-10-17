@@ -299,15 +299,28 @@ Escanear → agregar → cobrar en efectivo → guardar venta, pago y folio → 
 
 ## 14. Tarjetas de regalo [P]
 
-- **Libro mayor, no un saldo guardado**: operaciones `giftcard.emitida`, `giftcard.uso` y `giftcard.reintegro`. Saldo = emitido − usos + reintegros (proyección pura `tarjetasRegalo` y el mismo cálculo incremental en `Indice`).
-- **Alta** (`Caja.altaTarjetaRegalo`): código (texto, conserva ceros) y monto en centavos; rechaza código vacío, monto no positivo y código ya dado de alta localmente. Es entrada de efectivo de la caja: **no usa folio**, suma al `efectivo_esperado` del corte (`tarjetas_regalo_emitidas`) y no cuenta como venta. Se imprime un comprobante que no es ticket de venta (P-24).
-- **Cobro** (`cobrarConTarjetaRegalo`): se aplica `min(saldo, total)` y el resto se cobra en efectivo (con recibido y cambio). Una misma tarjeta no puede repetirse en un cobro. Cada pago con tarjeta de regalo guarda `tarjeta` y `saldo_despues`, el ticket los imprime y el corte los separa (`cobros_tarjeta_regalo`): el efectivo esperado **no** suma lo pagado con tarjeta (ese dinero entró al darla de alta).
-- **Arbitraje**: igual que las existencias, el hub concede el saldo. `Hub.reservar` recibe también las tarjetas; aparta saldo (saldo del hub − reservas abiertas), siempre rechaza si no alcanza (no depende de P-02, que es solo de existencias) y la reserva se cierra al llegar el `giftcard.uso` de la venta. Un rechazo no se hereda; una tarjeta que el hub no conoce no tiene saldo.
-- **Sin hub** (P-01 con venta autónoma): solo se valida contra lo que esa caja conoce. Dos cajas aisladas pueden gastar el mismo saldo; el conflicto se detecta después (`tarjeta_regalo_sobregirada`) y las altas repetidas del mismo código en tiendas aisladas también (`tarjeta_regalo_duplicada`; la repetida **no suma saldo**).
-- **Replicación**: caja → hub → (hermana de la tienda) y → central → hub de la otra tienda (P-23). Mientras el hub no conozca una tarjeta recién emitida, esta se rechaza al cobrar (el servicio dispara la sincronización al dar de alta para acortar esa ventana).
-- **Cancelación**: `sale.cancelled` emite `giftcard.reintegro` por cada pago con tarjeta de regalo (una sola vez). **Devolución**: sin cambio (reembolso en efectivo) hasta definir P-26.
-- **Base de datos**: la restricción SQLite que protege a la Caja 2 ahora prohíbe solo la tarjeta **bancaria** (`caja_sin_tarjeta_bancaria`); la de regalo no.
-- **Interfaz** (maqueta aprobada): logo de la tienda arriba a la izquierda, navegación con iconos (Venta, Historial, Créditos [deshabilitado], Corte de caja, Tarjetas de regalo; Administración: Reportes, Inventario, Tarjetas de regalo), forma de pago Efectivo / Tarjeta / Mixto / **Tarjeta de regalo**, y los botones de funciones aún inexistentes (Nuevo artículo, Editar, Cambio o devolución, Aplicar descuento, Venta en espera, Ticket de regalo, Tarjeta bancaria, Mixto) **visibles, deshabilitados y rotulados «Próximamente»**. **No hay Apartados** (ni menú ni botón). La columna Lote se conserva aunque la maqueta no la dibuje (regla del documento de especificación).
+- **Libro mayor, no un saldo guardado**: operaciones `giftcard.emitida`, `giftcard.recarga`, `giftcard.uso` y `giftcard.reintegro`. Saldo = emitido + recargas − usos + reintegros (proyección pura `tarjetasRegalo` y el mismo cálculo incremental en `Indice`).
+- **Venta de una tarjeta** (`Caja.altaTarjetaRegalo`, P-24 decidido): es una **venta en efectivo con folio normal** de la serie de la caja. Su renglón (`tarjeta_regalo`) no es mercancía: no tiene Item #, no mueve inventario y no pasa por la existencia. Rechaza código vacío, monto no positivo, código ya dado de alta y efectivo insuficiente; una referencia (`ref`) hace idempotente el doble clic. El ticket dice «Tarjeta de regalo <código>» y la vigencia.
+- **Recarga en efectivo** (`recargarTarjetaRegalo`, P-26c): también es una venta con folio; aumenta el saldo y **reinicia los 12 meses**. No existe reposición por pérdida.
+- **Vigencia** (P-26b): 12 meses desde la venta o la última recarga en efectivo. Una tarjeta vencida no se puede usar (`TARJETA_VENCIDA`, validado también por el hub). Devoluciones y cancelaciones **no** reinician la vigencia.
+- **Corte**: separa `ventas_mercancia`, `tarjetas_regalo_vendidas` (altas y recargas) y el total de tickets (`ventas`); `ventas_netas` = mercancía − devoluciones. El efectivo esperado cuenta una sola vez el efectivo de la venta de la tarjeta; lo pagado con la tarjeta (`cobros_tarjeta_regalo`) no mueve efectivo. El reporte consolidado muestra además el total sin tarjetas (`total_mercancia`) para no contar dos veces ese dinero.
+- **Pagar con la tarjeta** (`cobrarConTarjetaRegalo`): aplica `min(saldo, total)` y el resto va en efectivo. La mercancía conserva su precio completo (no es un descuento del 100 %): el pago se registra como «Tarjeta de regalo» con su saldo restante.
+- **Arbitraje**: igual que las existencias, el hub concede el saldo (`Hub.reservar` con tarjetas): aparta saldo, rechaza si no alcanza o está vencida, y cierra la reserva al llegar el `giftcard.uso`.
+- **Dónde vale** (P-23 decidido): solo en la tienda que la emitió; el central no la reparte a la otra tienda (configurable `P23_tarjeta_regalo_entre_tiendas`, por omisión `solo_tienda_emisora`).
+- **Caja 2** (P-25 decidido): no vende, recarga ni acepta tarjetas de regalo; tampoco tarjeta bancaria. Sin hub se valida solo contra lo que la caja conoce; una tarjeta que el hub aún no conoce se rechaza hasta sincronizar.
+- **Cancelación**: reintegra el saldo (una sola vez). La venta o recarga de una tarjeta **no se cancela ni se devuelve** (pendiente de definir).
+- **Devoluciones** (P-26 decidido, **sin vales**): lo pagado con tarjeta regresa al saldo de la **misma** tarjeta, en proporción a lo que se pagó con ella (la última devolución absorbe el redondeo); el resto, en efectivo.
+- **Base de datos**: la restricción SQLite de la Caja 2 prohíbe solo la tarjeta **bancaria** (`caja_sin_tarjeta_bancaria`).
+
+### Devoluciones y folios (P-03, P-08)
+
+- **Solo en la caja donde se vendió.** La venta se puede **localizar** desde cualquier caja de la tienda (por fecha y hora, artículo escaneado o folio): de la otra caja solo se ve en cuál se hizo, sin importes ni pagos. Excepción acotada a la regla «el cajero solo ve su caja», pedida por el propietario para encontrar la venta cuando el cliente no trae el ticket.
+- **Cada devolución consume folio de la misma serie que las ventas** y tiene su ticket (`DEVOLUCIÓN`, con la venta original y el reembolso). Hub, central, recuperación de folios, detección de huecos y corte cuentan los folios de ventas y devoluciones.
+- Las devoluciones se limitan a la tienda; no se devuelve en otra tienda.
+
+### Interfaz (maqueta aprobada)
+
+Logo de la tienda arriba a la izquierda, navegación con iconos, forma de pago Efectivo / Tarjeta / Mixto / **Tarjeta de regalo**, y los botones de funciones inexistentes visibles, deshabilitados y rotulados «Próximamente». **No hay Apartados.** «Cambio o devolución» abre la búsqueda y la devolución. La Caja 2 no tiene el menú «Tarjetas de regalo».
 
 ## 15. Decisiones del propietario (cuestionario del 17-oct-2026) [C]
 
@@ -317,19 +330,19 @@ Respuestas dadas por el propietario. «Hecho» = ya está en el código y probad
 |---|---|---|
 | P-01 | Con el hub caído se sigue vendiendo con aviso (venta autónoma) | Hecho (configuración de la demo y del banco) |
 | P-02 | Se permite vender aunque la existencia sea 0 o insuficiente y se concilia después. Aclaración: la existencia del archivo actual es errónea; se corregirá con el primer lote recibido en almacén | Hecho (el banco usaba «bloquear»; se cambió) |
-| P-03 | Las devoluciones se aceptan solo en la misma tienda. Sin ticket, la venta debe poder buscarse por fecha y hora **en ambas cajas** y también escaneando el artículo (historial de cuándo y en qué caja se vendió). Al encontrar la caja, el cambio o devolución se hace en la caja correspondiente. Cada ticket debe decir Caja 1 o Caja 2. Aclarado 17-oct: **la devolución se hace solo en la caja donde se vendió** | Parcial: configuración «permitir con incidencia». **Falta** la búsqueda por fecha/hora y por artículo, y la devolución solo dentro de la tienda |
+| P-03 | Las devoluciones se aceptan solo en la misma tienda. Sin ticket, la venta debe poder buscarse por fecha y hora **en ambas cajas** y también escaneando el artículo (historial de cuándo y en qué caja se vendió). Al encontrar la caja, el cambio o devolución se hace en la caja correspondiente. Cada ticket debe decir Caja 1 o Caja 2. Aclarado 17-oct: **la devolución se hace solo en la caja donde se vendió** | Hecho: búsqueda por fecha y hora, artículo y folio; devolución solo en la caja de origen; el ticket dice Caja 1 o Caja 2 |
 | P-04 | Crédito: dar crédito solo con conexión | Falta (crédito no se construye todavía) |
 | P-05 | Abono duplicado: avisar al cajero y que decida | Falta (crédito) |
 | P-06 | Folios: **no** se salta con huecos. El sistema debe informar hasta qué folio está bien registrado, sugerir el siguiente y pedir confirmación para continuar | Parcial: bloqueo y atestación existen; **falta** la pantalla que informa el último folio bueno, sugiere el siguiente y pide confirmación |
 | P-07 | Item # de altas sin internet: lo asigna el central al sincronizar (opción a) | Hecho |
-| P-08 | Devoluciones y cambios llevan folio **de la misma serie que las ventas** de la caja | Falta |
+| P-08 | Devoluciones y cambios llevan folio **de la misma serie que las ventas** de la caja | Hecho para devoluciones (el «cambio» es devolver y vender) |
 | P-09 | El hub vive en la computadora de la Caja 1 | Decidido (sin cambio de código) |
 | P-10 | Catálogo compartido. Inventario compartido con **flujo de almacén**: la mercancía se da de alta primero en Almacén; al salir se registra la distribución por tienda (ej. 24 piezas = 12 DÚO + 12 London); cada tienda confirma al escanear por primera vez («¿confirmas 12 piezas?»). Resultado: Almacén 0, DÚO 12, London 12 | Falta (entradas a almacén, salidas por tienda y confirmación al primer escaneo) |
 | P-11 | Entregará existencias y ventas. Un artículo con cantidad 0 se debe poder seguir vendiendo | Hecho para la venta en 0 (ver P-02); archivos pendientes de recibir |
 | P-12 | Tarjeta con cobro pendiente: permitir con aviso | Hecho |
-| P-13 | No debería haber códigos duplicados (se resuelven por Administración); si aun así ocurre, **el cajero decide** y la venta queda marcada para revisión. Aclarado 17-oct: sustituye a la instrucción del 14-oct | Falta (el motor ya lo soporta; la capa de venta hoy bloquea) |
+| P-13 | No debería haber códigos duplicados (se resuelven por Administración); si aun así ocurre, **el cajero decide** y la venta queda marcada para revisión. Aclarado 17-oct: sustituye a la instrucción del 14-oct | Hecho |
 | P-14 | Vender con inventario no verificado: permitir con aviso | Hecho |
-| P-15 | Recuperación mediante **respaldo diario en cada corte o cierre**, guardado en una carpeta de GitHub con 7 días de retención. Sin reconstrucción con tickets impresos | Falta. Ver advertencias abajo |
+| P-15 | Recuperación mediante **respaldo en cada corte**: copia local por caja y copia externa **cifrada en Google Drive** con retención de 7 días. La pérdida residual (lo no sincronizado ni respaldado) se registra como posible pérdida documental | Falta |
 | P-16 | Entregará un archivo nuevo con los nombres de columna correctos que reemplaza al actual | Pendiente de recibir |
 | P-17 | Los cupones/certificados (precio negativo) se aplican como descuento en la venta; ceros se revisan | Falta |
 | P-18 | Artículos sin código se buscan por texto o Item # | Hecho (comportamiento actual) |
@@ -338,13 +351,12 @@ Respuestas dadas por el propietario. «Hecho» = ya está en el código y probad
 | P-21 | Todo lo cargado ya está etiquetado (costura y precio) | Decidido |
 | P-22 | Unificar nombres repetidos de departamentos (se propondrá la lista) | Falta |
 | P-23 | La tarjeta de regalo vale solo en la tienda que la emitió | Hecho |
-| P-24 | La venta de una tarjeta de regalo **lleva folio normal**, como cualquier venta | Falta (hoy es comprobante sin folio) |
+| P-24 | La venta de una tarjeta de regalo **lleva folio normal**, como cualquier venta; el corte la separa de la mercancía (aclarado 17-oct: no entra dinero al pagar con ella, es forma de pago, no descuento) | Hecho |
 | P-25 | La Caja 2 **no** maneja tarjetas de regalo (ni vender ni pagar) | Hecho |
-| P-26 | ~~Vale~~: los **vales se eliminan** (17-oct). Falta definir cómo se devuelve una venta pagada con tarjeta de regalo (¿saldo a la misma tarjeta?) | Pendiente de decisión |
-| P-26b | Las tarjetas de regalo vencen a los 12 meses | Falta |
-| P-26c | Se permite recarga; no reposición por pérdida | Falta |
+| P-26 | Los **vales se eliminan**; lo pagado con tarjeta de regalo regresa al saldo de la misma tarjeta | Hecho |
+| P-26b | Las tarjetas vencen a los 12 meses desde la venta; la recarga en efectivo reinicia el plazo; devoluciones y cambios no | Hecho |
+| P-26c | Se permite recarga; no reposición por pérdida | Hecho (recarga) |
 
-### Puntos que requieren confirmación antes de implementar
+### Pendiente de construir
 
-2. **P-15**: un respaldo diario deja una ventana (lo vendido entre el último respaldo y la falla sigue perdido y debe seguir marcándose como posible pérdida documental). Subir datos de ventas a GitHub exige un repositorio **privado**, y borrar archivos viejos no los quita del historial de git (la «retención de 7 días» no se cumple en el sentido de privacidad).
-3. **P-24 con tarjetas**: si la venta de la tarjeta lleva folio y cuenta como venta, y luego pagar con la tarjeta también cuenta como venta, las ventas netas contarían el mismo dinero dos veces. Hace falta una línea de «ventas de mercancía» separada.
+P-06 (pantalla de folio), P-10 (flujo de almacén y confirmación al primer escaneo), P-15 (respaldos cifrados a Drive), P-17 (cupones como descuento), P-22 (unificar departamentos), crédito (P-04, P-05) y los archivos de Excel (P-11, P-16, P-20).

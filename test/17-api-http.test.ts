@@ -88,7 +88,7 @@ porAlmacen('API HTTP local de la aplicación (cajero y Administración)', (alm) 
     assert.equal((await api(app.url, '/api/ventas?fecha=2026-10-01')).json.ventas.length, 1);
   });
 
-  it('H5 un código duplicado: el servidor devuelve candidatos y el alta desde búsqueda se rechaza', async (t) => {
+  it('H5 un código duplicado (P-13): el servidor devuelve candidatos y el cajero decide; el renglón queda marcado para revisión', async (t) => {
     const ctx = nuevoMundo(alm, politica());
     const app = await appCajero(ctx, 'DUO', 1);
     t.after(async () => { await app.cerrar(); ctx.limpiar(); });
@@ -107,6 +107,7 @@ porAlmacen('API HTTP local de la aplicación (cajero y Administración)', (alm) 
     const b = (await api(app.url, '/api/buscar?q=falda')).json.resultados;
     assert.ok(b.every((x: any) => x.duplicado));
     const r = await api(app.url, '/api/venta/agregar', { cart, item_id: a.item_id });
-    assert.deepEqual([r.status, r.json.error.codigo], [409, 'CODIGO_AMBIGUO']);
+    assert.equal(r.status, 200);
+    assert.deepEqual(r.json.linea.ambiguo.candidatos.length, 2, 'queda marcado para que Administración lo revise');
   });
 });

@@ -192,24 +192,20 @@ En la ronda del inventario se rompieron 7 más (vender precio no vendible, códi
 12. **Corte guardado vs. corte en vivo.** Antes, pedir el corte de nuevo recalculaba pero no reescribía el guardado, mezclando ambos. Ahora el en vivo no se guarda y el cierre se guarda una vez; una venta posterior lo marca desactualizado.
 13. **Renglón de campos del ticket partido a mitad de un campo** (`Lote:` / `20260913`). Ahora se parte entre campos completos.
 
-## Tarjetas de regalo y pantalla según la maqueta
+## Tarjetas de regalo, devoluciones con folio y pantalla según la maqueta
 
-Pruebas `TR1–TR12` (`test/21`, **memoria y SQLite**), `UI8–UI9` (`test/18`, Chromium sobre SQLite) y `B-regalo` (`test/19`, página única en el navegador):
+Pruebas `TR1–TR15` y `V1–V6` (memoria y SQLite), `UI8–UI10` (Chromium sobre SQLite) y `B-regalo` (página única):
 
-- TR1 alta = ingreso de efectivo sin folio, reflejada en el corte; rechaza duplicado, código vacío, monto 0 y monto con decimales de centavo. ✔
-- TR2 cobro total con la tarjeta: descuenta saldo, no entra al efectivo cobrado, el ticket muestra tarjeta y saldo restante, reintento idempotente. ✔
-- TR3 saldo menor al total: resto en efectivo (recibido/cambio); sin efectivo suficiente, tarjeta inexistente o sin saldo se rechazan sin consumir folio. ✔
-- TR4 no se sobregira, no se repite la tarjeta en un cobro, se exige el código. ✔
-- TR5 cancelar reintegra el saldo una sola vez. ✔
-- TR6 dos cajas con la misma tarjeta y sin sincronizar entre ventas: el hub concede a una sola. ✔  TR7 reservas de saldo del hub (apartar, rechazo no heredado, liberar, idempotencia, tarjeta desconocida). ✔
-- TR8 P-23: probadas las dos configuraciones; la decidida por el propietario es `solo_tienda_emisora` (no se reparte a la otra tienda) y es la que rige por omisión. ✔
-- TR9 (P-25 decidido) la Caja 2 rechaza alta y pago con tarjeta de regalo y tarjeta bancaria; solo efectivo. El trigger de SQLite sigue bloqueando la tarjeta bancaria (`test/08`). ✔
-- TR10 conflictos: alta repetida entre tiendas aisladas (no suma saldo, se señala) y sobregiro por dos cajas sin hub (se señala). ✔  TR11 comprobante sin folio ni IVA. ✔
-- TR12 **limitación**: una tarjeta que el hub aún no conoce se rechaza hasta sincronizar. ✔ (documentado, no un defecto oculto)
-- UI8 logo de cada tienda arriba a la izquierda (cargó), sin la palabra «apartado» en pantalla, todo botón visible con icono, botones futuros deshabilitados con «Próximamente», formas de pago correctas por caja. ✔
-- UI9 en el navegador: alta con comprobante, duplicado, consulta de saldo, cobro total, cobro parcial con efectivo, tarjeta agotada, corte (efectivo esperado = resto en efectivo + alta) y libro de Administración; el cajero recibe 403 en la ruta del libro. ✔
-- B-regalo en el archivo único: logos incrustados, alta en DÚO y cobro en London, Caja 2 con Tarjeta bancaria deshabilitada. ✔
-- Comprobación por mutación: quitar la validación de saldo del hub rompe TR4/TR6/TR7/TR12; quitar el reintegro rompe TR5; quitar las altas del efectivo esperado rompe TR1–TR3. ✔
+- TR1 vender una tarjeta = venta en efectivo con folio normal, sin inventario, cambio, ticket con vigencia, idempotente con `ref`, sin dejar ventas en curso al fallar; el corte la separa de la mercancía. ✔
+- TR2–TR5 pagar con la tarjeta (total y con resto en efectivo), sin sobregiro ni tarjeta repetida, cancelar reintegra una sola vez. ✔
+- TR6–TR7, TR14 arbitraje y reservas de saldo del hub; una tarjeta desconocida o **vencida** no tiene saldo. ✔
+- TR8 P-23: las dos configuraciones; rige `solo_tienda_emisora`. TR9 P-25: la Caja 2 rechaza vender, recargar y pagar con tarjeta de regalo y la tarjeta bancaria. ✔
+- TR10 conflictos entre tiendas (alta repetida, sobregiro). TR11 vigencia de 12 meses: la recarga en efectivo reinicia; devolver no. ✔
+- TR12, TR15 la devolución regresa el dinero a la misma tarjeta en proporción (la última absorbe el redondeo) y usa folio de la serie; sin huecos ni duplicados de folio. TR13 la venta de una tarjeta no se devuelve ni se cancela. ✔
+- V3–V5 (P-03) una devolución solo en la caja de origen; la otra caja indica cuál; sin hub se bloquea; el exceso se rechaza. ✔
+- UI8 maqueta (logo, sin Apartados, iconos, botones futuros «Próximamente»), UI9 venta y uso de tarjetas con corte y reporte consolidado separado, UI10 recarga, vencimiento y devolución (búsqueda por fecha y hora, artículo y folio; la venta de la otra caja se localiza pero no se puede devolver aquí y no muestra importes). ✔
+- UI3/H5 P-13: ante un código duplicado el cajero elige y el renglón queda marcado. ✔
+- Comprobación por mutación: quitar la restricción de caja de origen, el folio de la devolución, la validación de vencimiento del hub, el reinicio de vigencia por recarga o el redondeo de la última devolución rompe al menos una prueba. ✔
 
 ## Limitaciones (no se declara validado)
 
@@ -233,4 +229,6 @@ Pruebas `TR1–TR12` (`test/21`, **memoria y SQLite**), `UI8–UI9` (`test/18`, 
 - **Marcas de existencias**: un conteo físico es manual; no hay flujo guiado ni importación de conteo (propósito 4 del Excel) todavía.
 - **Catálogo compartido entre tiendas** se asumió en las pruebas de alta (P-10 pendiente).
 - **Incidencias**: se detectan a demanda sobre la bitácora; no hay flujo de resolución persistente.
-- **Tarjetas de regalo**: sin vigencia, vencimiento, cargos, recarga ni reposición por pérdida; sin devolución a tarjeta (P-26); el alta no tiene folio propio (P-24); el saldo sin hub se valida solo con lo que la caja conoce (el conflicto se detecta después); no se probó con lector ni con tarjetas físicas reales.
+- **Tarjetas de regalo**: sin reposición por pérdida ni cargos; la venta o recarga de una tarjeta no se cancela ni se devuelve; el saldo de una tarjeta vencida queda sin uso (falta definir qué pasa con él); el saldo sin hub se valida solo con lo que la caja conoce (el conflicto se detecta después); no se probó con lector ni con tarjetas físicas reales.
+- **Localizar ventas de la otra caja** muestra a un cajero en qué caja se hizo una venta (sin importes ni pagos); es una excepción a «el cajero solo ve su caja» pedida por el propietario. Sin hub solo se ven las ventas de la propia caja.
+- **Cambio** (devolver y vender otra cosa) no tiene flujo propio: se devuelve y se hace una venta nueva; no hay crédito a favor.

@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import { it } from 'node:test';
 import { detectar } from '../src/incidencias.ts';
 import { tarjetasRegalo } from '../src/proyecciones.ts';
-import { construirComprobanteRegalo, construirTicket, renderComprobanteRegaloTexto, renderTicketTexto } from '../src/ticket.ts';
+import { construirTicket, renderTicketDevolucionTexto, renderTicketTexto } from '../src/ticket.ts';
+import { devoluciones, ventas } from '../src/proyecciones.ts';
 import { nuevoMundo, politica, porAlmacen } from './ayudas/comun.ts';
 
 const MASCADA = 12000; // item 3 del catálogo sintético ($120.00)
@@ -15,20 +16,35 @@ porAlmacen('Tarjetas de regalo: alta, cobro, cancelación, arbitraje y conflicto
     return { caja, cart };
   };
 
-  it('TR1 el alta es un ingreso de efectivo, no una venta: sin folio, con saldo y reflejada en el corte', (t) => {
-    const { m, limpiar } = nuevoMundo(alm, politica());
+  it('TR1 P-24: vender una tarjeta es una venta en efectivo con folio normal, sin inventario, y el corte la separa de la mercancía', (t) => {
+    const { m, items, limpiar } = nuevoMundo(alm, politica());
     t.after(limpiar);
     const c = m.caja('DUO', 1);
-    const tj = c.altaTarjetaRegalo({ codigo: 'TR-0001', monto: 50000, cajero: 'Ana' });
-    assert.deepEqual([tj.codigo, tj.saldo, tj.emitido], ['TR-0001', 50000, 50000]);
-    assert.equal(c.estadoFolios().ultimo, 0, 'no consume folio de ticket (P-24, sin aprobar)');
-    assert.equal(c.ops().filter((o) => o.tipo === 'sale.confirmed').length, 0);
+    const antes = c.stockLocal(items[2]!.item_id);
+    const r = c.altaTarjetaRegalo({ codigo: 'TR-0001', monto: 50000, recibido: 60000, cajero: 'Ana' });
+    assert.deepEqual([r.tarjeta.codigo, r.tarjeta.saldo, r.tarjeta.emitido], ['TR-0001', 50000, 50000]);
+    assert.deepEqual([r.venta.folio, r.venta.total, r.venta.pagos[0]!.cambio], [1, 50000, 10000], 'folio normal y cambio');
+    assert.equal(r.venta.lineas[0]!.tarjeta_regalo?.tipo, 'alta');
+    assert.equal(c.ops().filter((o) => o.tipo === 'inv.movement' && o.payload.tipo === 'venta').length, 0, 'no mueve inventario');
+    assert.equal(c.stockLocal(items[2]!.item_id), antes);
     const corte = c.corteEnVivo('2026-10-01');
-    assert.deepEqual([corte.tickets, corte.ventas, corte.tarjetas_regalo_emitidas, corte.tarjetas_regalo_emitidas_n, corte.efectivo_esperado], [0, 0, 50000, 1, 50000]);
+    assert.deepEqual([corte.tickets, corte.ventas, corte.ventas_mercancia, corte.tarjetas_regalo_vendidas, corte.ventas_netas, corte.cobros_efectivo, corte.efectivo_esperado, corte.folio_final],
+      [1, 50000, 0, 50000, 0, 50000, 50000, 1]);
+    const txt = renderTicketTexto(construirTicket(r.venta));
+    assert.match(txt, /Tarjeta de regalo TR-0001\n[^\n]*Código: TR-0001/);
+    assert.match(txt, /1 x \$500\.00 +\$500\.00/);
+    assert.match(txt, /Vigencia: 12 meses/);
+    assert.doesNotMatch(txt, /Item #|Marca|iva|tax|impuesto|%/i);
     assert.throws(() => c.altaTarjetaRegalo({ codigo: 'TR-0001', monto: 100 }), { codigo: 'TARJETA_EXISTE' });
     assert.throws(() => c.altaTarjetaRegalo({ codigo: '  ', monto: 100 }), { codigo: 'DATOS_REQUERIDOS' });
     assert.throws(() => c.altaTarjetaRegalo({ codigo: 'X', monto: 0 }), { codigo: 'PAGO_INVALIDO' });
     assert.throws(() => c.altaTarjetaRegalo({ codigo: 'X', monto: 10.5 }), { codigo: 'PAGO_INVALIDO' });
+    assert.throws(() => c.altaTarjetaRegalo({ codigo: 'X', monto: 5000, recibido: 100 }), { codigo: 'EFECTIVO_INSUFICIENTE' });
+    assert.equal(c.estadoFolios().ultimo, 1, 'lo rechazado no consumió folio');
+    assert.deepEqual(c.carritosAbiertos(), [], 'ningún intento fallido queda como venta en curso');
+    // doble clic: la misma referencia devuelve la misma venta
+    const x = c.altaTarjetaRegalo({ codigo: 'DOS', monto: 1000, ref: 'ref-1' });
+    assert.equal(c.altaTarjetaRegalo({ codigo: 'DOS', monto: 1000, ref: 'ref-1' }).venta.folio, x.venta.folio);
   });
 
   it('TR2 pagar con la tarjeta: descuenta el saldo, no entra al efectivo y el ticket lo muestra', (t) => {
@@ -42,7 +58,8 @@ porAlmacen('Tarjetas de regalo: alta, cobro, cancelación, arbitraje y conflicto
     assert.deepEqual(v.pagos, [{ metodo: 'tarjeta_regalo', monto: MASCADA, tarjeta: 'TR-0001', saldo_despues: 38000 }]);
     assert.equal(c.saldoTarjeta('TR-0001'), 38000);
     const corte = c.corteEnVivo('2026-10-01');
-    assert.deepEqual([corte.cobros_tarjeta_regalo, corte.cobros_efectivo, corte.efectivo_esperado], [MASCADA, 0, 50000], 'el dinero de la tarjeta se recibió al darla de alta, no al usarla');
+    assert.deepEqual([corte.cobros_tarjeta_regalo, corte.cobros_efectivo, corte.efectivo_esperado], [MASCADA, 50000, 50000], 'el efectivo entró al vender la tarjeta, no al usarla');
+    assert.deepEqual([corte.ventas, corte.ventas_mercancia, corte.tarjetas_regalo_vendidas, corte.ventas_netas], [50000 + MASCADA, MASCADA, 50000, MASCADA], 'la mercancía pagada con la tarjeta cuenta una sola vez');
     const txt = renderTicketTexto(construirTicket(v));
     assert.match(txt, /Tarjeta de regalo +\$120\.00/);
     assert.match(txt, /Tarjeta: TR-0001 +Saldo \$380\.00/);
@@ -68,7 +85,7 @@ porAlmacen('Tarjetas de regalo: alta, cobro, cancelación, arbitraje y conflicto
     const { cart: otro } = carrito(m, items, 'DUO', 1);
     assert.throws(() => c.cobrarConTarjetaRegalo(otro, 'TR-5', 12000), { codigo: 'SALDO_INSUFICIENTE' });
     const corte = c.corteEnVivo('2026-10-01');
-    assert.deepEqual([corte.cobros_efectivo, corte.cobros_tarjeta_regalo, corte.efectivo_esperado], [7000, 5000, 7000 + 5000], 'efectivo esperado = efectivo cobrado + altas');
+    assert.deepEqual([corte.cobros_efectivo, corte.cobros_tarjeta_regalo, corte.efectivo_esperado], [5000 + 7000, 5000, 5000 + 7000], 'efectivo = el de vender la tarjeta + el resto de la compra');
   });
 
   it('TR4 no se puede sobregirar ni listar dos veces la misma tarjeta en un cobro', (t) => {
@@ -80,7 +97,7 @@ porAlmacen('Tarjetas de regalo: alta, cobro, cancelación, arbitraje y conflicto
     assert.throws(() => c.cobrar(cart, [{ metodo: 'tarjeta_regalo', monto: MASCADA, tarjeta: 'A' }]), { codigo: 'SALDO_INSUFICIENTE' });
     assert.throws(() => c.cobrar(cart, [{ metodo: 'tarjeta_regalo', monto: 6000, tarjeta: 'A' }, { metodo: 'tarjeta_regalo', monto: 6000, tarjeta: 'A' }]), { codigo: 'PAGO_INVALIDO' });
     assert.throws(() => c.cobrar(cart, [{ metodo: 'tarjeta_regalo', monto: MASCADA }]), { codigo: 'TARJETA_REGALO_REQUERIDA' });
-    assert.equal(c.estadoFolios().ultimo, 0, 'nada de lo rechazado consumió folio');
+    assert.equal(c.estadoFolios().ultimo, 1, 'nada de lo rechazado consumió folio (solo la venta de la tarjeta)');
     assert.equal(c.saldoTarjeta('A'), 5000);
   });
 
@@ -108,7 +125,7 @@ porAlmacen('Tarjetas de regalo: alta, cobro, cancelación, arbitraje y conflicto
     const b = carrito(m, items, 'DUO', 1);
     assert.equal(a.caja.cobrarConTarjetaRegalo(a.cart, 'UNICA', undefined).pagos[0]!.saldo_despues, 0);
     assert.throws(() => b.caja.cobrarConTarjetaRegalo(b.cart, 'UNICA', undefined), { codigo: 'SALDO_INSUFICIENTE' });
-    assert.equal(b.caja.estadoFolios().ultimo, 1, 'la venta rechazada no consumió folio');
+    assert.equal(b.caja.estadoFolios().ultimo, 2, 'la venta rechazada no consumió folio');
     m.pump();
     assert.equal(m.hub('DUO').reservasAbiertas().length, 0, 'la reserva de la tarjeta se cerró con su uso');
     assert.deepEqual(detectar(m.central.repo.ops()).filter((i) => i.tipo.startsWith('tarjeta_regalo')), []);
@@ -189,24 +206,104 @@ porAlmacen('Tarjetas de regalo: alta, cobro, cancelación, arbitraje y conflicto
     assert.deepEqual([sob?.codigo, sob?.saldo], ['DOBLE', -MASCADA]);
   });
 
-  it('TR11 comprobante de alta: sin folio de venta, sin IVA, con código y saldo', () => {
-    const c = construirComprobanteRegalo({ codigo: 'TR-0001', monto: 50000, tienda: 'DUO', caja: 1, cajero: 'Ana', ocurrio_en: '2026-10-01T15:00:00Z' });
-    const txt = renderComprobanteRegaloTexto(c);
-    assert.match(txt, /TARJETA DE REGALO/);
-    assert.match(txt, /Código: TR-0001/);
-    assert.match(txt, /Saldo cargado +\$500\.00/);
-    assert.match(txt, /No es un ticket de venta/);
-    assert.doesNotMatch(txt, /folio|iva|tax|impuesto|%/i);
-  });
-
-  it('TR12 limitación documentada: una tarjeta que el hub aún no conoce se rechaza (no se arriesga gastar saldo sin árbitro)', (t) => {
+  it('TR11 P-26b/P-26c: vencen a los 12 meses de la venta; la recarga en efectivo los reinicia; devolver o cancelar no', (t) => {
     const { m, items, limpiar } = nuevoMundo(alm, politica());
     t.after(limpiar);
     const c = m.caja('DUO', 1);
-    c.altaTarjetaRegalo({ codigo: 'NUEVA', monto: 50000 });
-    const { cart } = carrito(m, items, 'DUO', 1);
-    assert.throws(() => c.cobrarConTarjetaRegalo(cart, 'NUEVA', undefined), { codigo: 'SALDO_INSUFICIENTE' });
+    m.reloj.fijar('2026-10-01T15:00:00Z');
+    c.altaTarjetaRegalo({ codigo: 'VENCE', monto: 100000 });
     m.pump();
-    assert.equal(c.cobrarConTarjetaRegalo(cart, 'NUEVA', undefined).estado, 'confirmada');
+    assert.equal(c.tarjetaRegalo('VENCE')!.vigente_hasta.slice(0, 10), '2027-10-01');
+    // un día antes de vencer sirve; recargar reinicia los 12 meses desde la recarga
+    m.reloj.fijar('2027-09-30T15:00:00Z');
+    const { cart } = carrito(m, items, 'DUO', 1);
+    const v = c.cobrarConTarjetaRegalo(cart, 'VENCE', undefined);
+    assert.equal(c.tarjetaRegalo('VENCE')!.saldo, 100000 - MASCADA);
+    m.reloj.fijar('2027-10-15T15:00:00Z');
+    m.pump();
+    const otro = carrito(m, items, 'DUO', 1);
+    assert.throws(() => c.cobrarConTarjetaRegalo(otro.cart, 'VENCE', undefined), { codigo: 'TARJETA_VENCIDA' });
+    // devolver NO reinicia la vigencia (el saldo vuelve, pero sigue vencida)
+    c.devolver({ sale_id: v.sale_id, renglones: [{ linea_id: v.lineas[0]!.linea_id, qty: 1 }], motivo: 'x' });
+    assert.equal(c.tarjetaRegalo('VENCE')!.vigente_hasta.slice(0, 10), '2027-10-01');
+    assert.equal(c.saldoTarjeta('VENCE'), 100000);
+    assert.throws(() => c.cobrarConTarjetaRegalo(otro.cart, 'VENCE', undefined), { codigo: 'TARJETA_VENCIDA' });
+    // recargar en efectivo sí: 12 meses desde hoy
+    const rec = c.recargarTarjetaRegalo({ codigo: 'VENCE', monto: 20000 });
+    assert.deepEqual([rec.venta.lineas[0]!.tarjeta_regalo?.tipo, rec.venta.folio > 0], ['recarga', true]);
+    assert.equal(c.tarjetaRegalo('VENCE')!.vigente_hasta.slice(0, 10), '2028-10-15');
+    assert.equal(c.saldoTarjeta('VENCE'), 120000);
+    m.pump();
+    assert.equal(c.cobrarConTarjetaRegalo(otro.cart, 'VENCE', undefined).estado, 'confirmada');
+    assert.throws(() => c.recargarTarjetaRegalo({ codigo: 'NOEXISTE', monto: 100 }), { codigo: 'TARJETA_INEXISTENTE' });
+    assert.throws(() => m.caja('DUO', 2).recargarTarjetaRegalo({ codigo: 'VENCE', monto: 100 }), { codigo: 'PAGO_NO_PERMITIDO' });
+    const corte = c.corteEnVivo('2027-10-15');
+    assert.deepEqual([corte.tarjetas_regalo_vendidas, corte.tarjetas_regalo_vendidas_n], [20000, 1]);
+  });
+
+  it('TR12 P-26: devolver mercancía pagada con tarjeta regresa el dinero a la MISMA tarjeta (proporcional si fue mixto) y usa folio de la serie', (t) => {
+    const { m, items, limpiar } = nuevoMundo(alm, politica());
+    t.after(limpiar);
+    const c = m.caja('DUO', 1);
+    c.altaTarjetaRegalo({ codigo: 'DEV', monto: 5000 });
+    m.pump();
+    // 2 mascadas = 24000: 5000 con la tarjeta y 19000 en efectivo
+    const { cart } = carrito(m, items, 'DUO', 1, 2);
+    const v = c.cobrarConTarjetaRegalo(cart, 'DEV', 19000);
+    assert.equal(c.saldoTarjeta('DEV'), 0);
+    const lin = v.lineas[0]!.linea_id;
+    const d1 = c.devolver({ sale_id: v.sale_id, renglones: [{ linea_id: lin, qty: 1 }], motivo: 'talla' });
+    // 12000 devueltos: 12000*5000/24000 = 2500 a la tarjeta y 9500 en efectivo
+    assert.deepEqual(d1.reembolsos, [{ metodo: 'tarjeta_regalo', monto: 2500, tarjeta: 'DEV' }, { metodo: 'efectivo', monto: 9500 }]);
+    assert.equal(d1.folio, v.folio + 1, 'mismo consecutivo que las ventas');
+    assert.equal(c.saldoTarjeta('DEV'), 2500);
+    const d2 = c.devolver({ sale_id: v.sale_id, renglones: [{ linea_id: lin, qty: 1 }], motivo: 'talla' });
+    assert.deepEqual(d2.reembolsos, [{ metodo: 'tarjeta_regalo', monto: 2500, tarjeta: 'DEV' }, { metodo: 'efectivo', monto: 9500 }]);
+    assert.equal(c.saldoTarjeta('DEV'), 5000, 'la tarjeta recupera exactamente lo que pagó');
+    const corte = c.corteEnVivo('2026-10-01');
+    assert.deepEqual([corte.devoluciones, corte.devoluciones_en_efectivo, corte.devoluciones_a_tarjeta_regalo, corte.folios_de_devolucion], [24000, 19000, 5000, 2]);
+    assert.equal(corte.efectivo_esperado, 5000 + 19000 - 19000, 'alta + cobro − lo devuelto en efectivo');
+    const txt = renderTicketDevolucionTexto(d1, ventas(c.ops()).get(v.sale_id)!);
+    assert.match(txt, /DEVOLUCIÓN/);
+    assert.match(txt, new RegExp(`Folio: ${String(d1.folio).padStart(6, '0')}`));
+    assert.match(txt, /Reembolso en efectivo MXN +\$95\.00/);
+    assert.match(txt, /A tarjeta de regalo DEV +\$25\.00/);
+    assert.equal(devoluciones(c.ops()).length, 2);
+    assert.deepEqual(detectar(c.ops()).filter((i) => i.tipo.startsWith('folio_')), [], 'ventas y devoluciones no dejan huecos ni duplicados en la serie');
+  });
+
+  it('TR13 la venta de una tarjeta no se devuelve ni se cancela (pendiente de definir) y no consume existencias', (t) => {
+    const { m, limpiar } = nuevoMundo(alm, politica());
+    t.after(limpiar);
+    const c = m.caja('DUO', 1);
+    const { venta } = c.altaTarjetaRegalo({ codigo: 'FIJA', monto: 3000 });
+    assert.throws(() => c.devolver({ sale_id: venta.sale_id, renglones: [{ linea_id: venta.lineas[0]!.linea_id, qty: 1 }], motivo: 'x' }), { codigo: 'DEVOLUCION_BLOQUEADA' });
+    assert.throws(() => c.cancelarVenta(venta.sale_id, 'x'), { codigo: 'CANCELACION_BLOQUEADA' });
+    assert.equal(c.saldoTarjeta('FIJA'), 3000);
+  });
+
+  it('TR14 el hub aparta saldo con el nuevo cálculo y no concede una tarjeta vencida', (t) => {
+    const { m, limpiar } = nuevoMundo(alm, politica());
+    t.after(limpiar);
+    m.reloj.fijar('2026-10-01T15:00:00Z');
+    m.caja('DUO', 1).altaTarjetaRegalo({ codigo: 'H', monto: 10000 });
+    m.pump();
+    m.reloj.fijar('2027-10-02T15:00:00Z');
+    const r = m.hub('DUO').reservar('R', 1, [], [{ codigo: 'H', monto: 100 }]);
+    assert.deepEqual([r.ok, r.motivo, r.tarjetas_vencidas], [false, 'tarjeta_vencida', ['H']]);
+  });
+
+  it('TR15 el redondeo del reintegro a la tarjeta lo absorbe la última devolución: la tarjeta recupera exactamente lo que pagó', (t) => {
+    const { m, items, limpiar } = nuevoMundo(alm, politica());
+    t.after(limpiar);
+    const c = m.caja('DUO', 1);
+    c.altaTarjetaRegalo({ codigo: 'RED', monto: 5000 });
+    m.pump();
+    const { cart } = carrito(m, items, 'DUO', 1, 3); // 36000: 5000 con la tarjeta, 31000 en efectivo
+    const v = c.cobrarConTarjetaRegalo(cart, 'RED', 31000);
+    const lin = v.lineas[0]!.linea_id;
+    const aTarjeta = [1, 2, 3].map(() => c.devolver({ sale_id: v.sale_id, renglones: [{ linea_id: lin, qty: 1 }], motivo: 'x' }).reembolsos.find((r) => r.metodo === 'tarjeta_regalo')!.monto);
+    assert.deepEqual(aTarjeta, [1666, 1666, 1668]);
+    assert.equal(c.saldoTarjeta('RED'), 5000);
   });
 });

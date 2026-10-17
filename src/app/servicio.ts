@@ -4,7 +4,7 @@ import type { Impresora } from '../impresion.ts';
 import type { Caja } from '../nodos.ts';
 import { catalogo, tarjetasRegalo, ventas } from '../proyecciones.ts';
 import { hojaInventario, type Hoja } from '../inventario.ts';
-import { construirComprobanteRegalo, construirTicket, NEGOCIOS, renderComprobanteRegaloTexto, renderTextoEscPos, renderTicketEscPos, renderTicketTexto, type NegocioCfg } from '../ticket.ts';
+import { codigoTicket, construirTicket, NEGOCIOS, renderTextoEscPos, renderTicketDevolucionTexto, renderTicketEscPos, renderTicketTexto, type NegocioCfg } from '../ticket.ts';
 import type { Actor, Articulo, Linea, Op, Venta } from '../tipos.ts';
 import { fechaLocal } from '../util.ts';
 
@@ -92,15 +92,12 @@ export class ServicioCaja {
     return { ...this.caja.escanear(cartId, codigo), carrito: this.vista(cartId) };
   }
   /**
-   * Agregar desde un resultado de búsqueda. Un artículo con código duplicado NO se ofrece al cajero: la elección
-   * provisional (alternativa de ensayo, P-13 pendiente) existe en el motor pero esta capa no la expone.
+   * Agregar desde un resultado de búsqueda. P-13 (decidido): un código duplicado no debería existir; si ocurre, el cajero
+   * decide qué artículo es y el renglón queda marcado (`ambiguo`) para que Administración lo revise.
    */
   agregarArticulo(cartId: string, itemId: string) {
     const art = this.caja.idx.articulo(itemId);
     if (!art) throw new ErrorDominio('ARTICULO_INEXISTENTE', itemId);
-    if (this.caja.buscarPorCodigo(art.codigo).length > 1) {
-      throw new ErrorDominio('CODIGO_AMBIGUO', 'código duplicado: requiere resolución de Administración');
-    }
     return { ...this.caja.agregarPorId(cartId, itemId), carrito: this.vista(cartId) };
   }
   async sincronizar() {
@@ -176,27 +173,72 @@ export class ServicioCaja {
     return this.vistaTarjeta(t);
   }
   private vistaTarjeta(t: ReturnType<Caja['tarjetaRegalo']> & {}) {
-    return { codigo: t.codigo, emitido: t.emitido, usado: t.usado, reintegrado: t.reintegrado, saldo: t.saldo, tienda: t.tienda, caja: t.caja, ocurrio_en: t.ocurrio_en };
+    return {
+      codigo: t.codigo, emitido: t.emitido, recargado: t.recargado, usado: t.usado, reintegrado: t.reintegrado, saldo: t.saldo,
+      tienda: t.tienda, caja: t.caja, ocurrio_en: t.ocurrio_en, vigente_hasta: t.vigente_hasta,
+      vencida: Date.parse(t.vigente_hasta) <= Date.parse(this.reloj.now()),
+    };
   }
-  /** Alta de una tarjeta: ingreso de efectivo de esta caja + comprobante impreso (no es un ticket de venta). */
-  async altaTarjetaRegalo(codigo: string, monto: number) {
-    const t = this.caja.altaTarjetaRegalo({ codigo, monto, cajero: this.actor.usuario });
+  /** Alta de una tarjeta: es una venta con folio normal, pagada en efectivo (P-24). */
+  async altaTarjetaRegalo(codigo: string, monto: number, recibido?: number, ref?: string) {
+    return this.ventaTarjeta('alta', codigo, monto, recibido, ref);
+  }
+  /** Recarga en efectivo: también con folio, y reinicia los 12 meses de vigencia. */
+  async recargarTarjetaRegalo(codigo: string, monto: number, recibido?: number, ref?: string) {
+    return this.ventaTarjeta('recarga', codigo, monto, recibido, ref);
+  }
+  private async ventaTarjeta(tipo: 'alta' | 'recarga', codigo: string, monto: number, recibido?: number, ref?: string) {
+    const base = { codigo, monto, recibido, cajero: this.actor.usuario, ref };
+    const { venta, tarjeta } = tipo === 'alta' ? this.caja.altaTarjetaRegalo(base) : this.caja.recargarTarjetaRegalo(base);
     // El hub concede el saldo: se intenta que conozca la tarjeta de inmediato (si no hay hub, queda en cola y se usa tras sincronizar).
-    try { await this.conexion.sincronizar?.(); } catch { /* sin red: la tarjeta queda dada de alta localmente */ }
-    const comp = construirComprobanteRegalo({ codigo: t.codigo, monto: t.emitido, tienda: t.tienda, caja: t.caja, cajero: t.cajero, ocurrio_en: t.ocurrio_en }, this.negocios);
-    const texto = renderComprobanteRegaloTexto(comp);
-    let impresion: { ok: boolean; error?: string };
-    try {
-      await this.impresora.imprimir({ ref: `regalo:${t.codigo}`, texto, bytes: renderTextoEscPos(texto, { abrirCajon: true }) });
-      impresion = { ok: true };
-    } catch (e) {
-      impresion = { ok: false, error: e instanceof Error ? e.message : String(e) };
-    }
-    return { tarjeta: this.vistaTarjeta(t), comprobante_texto: texto, impresion };
+    try { await this.conexion.sincronizar?.(); } catch { /* sin red: queda guardada localmente */ }
+    const cobro = await this.finalizarCobro(venta);
+    return { ...cobro, tarjeta: this.vistaTarjeta(tarjeta) };
   }
   /** Tarjetas dadas de alta POR ESTA caja (el cajero no ve el resto del libro). */
   tarjetasPropias() {
     return this.caja.tarjetasRegaloTodas().filter((t) => t.tienda === this.caja.tienda && t.caja === this.caja.caja).map((t) => this.vistaTarjeta(t));
+  }
+
+  // ── devoluciones (solo en la caja donde se vendió) ──
+  /**
+   * Localiza ventas de la tienda por fecha y hora, artículo escaneado o folio. `fecha` es local (YYYY-MM-DD) y las horas HH:MM;
+   * America/Hermosillo es UTC-7 sin horario de verano.
+   */
+  buscarVentas(q: { fecha?: string; desde?: string; hasta?: string; item_id?: string; codigo?: string; folio?: number }) {
+    let item_id = q.item_id;
+    if (!item_id && q.codigo) {
+      const art = this.caja.buscarPorCodigo(q.codigo.trim());
+      if (!art.length) throw new ErrorDominio('ARTICULO_INEXISTENTE', `no hay artículo con el código ${q.codigo.trim()}`);
+      if (art.length > 1) throw new ErrorDominio('CODIGO_AMBIGUO', 'código duplicado: busque por fecha y hora');
+      item_id = art[0]!.item_id;
+    }
+    const aUtc = (hhmm: string) => new Date(Date.parse(`${q.fecha}T${hhmm}:00Z`) + 7 * 3600_000).toISOString();
+    const desde = q.fecha ? aUtc(q.desde || '00:00') : undefined;
+    const hasta = q.fecha ? aUtc(q.hasta || '23:59').replace(':00.000Z', ':59.999Z') : undefined;
+    const r = this.caja.buscarVentas({ desde, hasta, item_id, folio: q.folio });
+    const art = item_id ? this.caja.idx.articulo(item_id) : undefined;
+    return {
+      hub: r.hub, articulo: art ? { descripcion: art.descripcion, marca: art.marca, item_no: art.item_no } : null,
+      resultados: r.resultados.map((v) => ({
+        sale_id: v.sale_id, caja: v.caja, folio: v.folio, propia: v.propia, codigo_ticket: codigoTicket(v.tienda, v.caja, v.folio, this.negocios),
+        ocurrio_en: v.ocurrio_en, total: v.total ?? null,
+        lineas: (v.lineas_detalle ?? v.lineas).map((l: any) => ({ linea_id: l.linea_id, item_id: l.item_id, descripcion: l.descripcion, qty: l.qty, devuelto: l.devuelto ?? null, importe: l.importe ?? null, marca: l.marca ?? null, item_no: l.item_no ?? null, codigo: l.codigo ?? null, tarjeta_regalo: !!l.tarjeta_regalo })),
+      })),
+    };
+  }
+  async devolver(saleId: string, renglones: { linea_id: string; qty: number }[], motivo: string) {
+    const d = this.caja.devolver({ sale_id: saleId, renglones, motivo, cajero: this.actor.usuario });
+    const v = ventas(this.caja.opsVentas()).get(saleId)!;
+    const texto = renderTicketDevolucionTexto(d, v, this.negocios[v.tienda]!, this.negocios);
+    let impresion: { ok: boolean; error?: string };
+    try {
+      await this.impresora.imprimir({ ref: `dev:${d.devolucion_id}`, texto, bytes: renderTextoEscPos(texto, { abrirCajon: d.reembolsos.some((r) => r.metodo === 'efectivo') }) });
+      impresion = { ok: true };
+    } catch (e) {
+      impresion = { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+    return { devolucion: d, ticket_texto: texto, impresion };
   }
 
   async reimprimir(saleId: string) {
@@ -277,8 +319,9 @@ export class ServicioAdmin {
   tarjetasRegalo() {
     const m = tarjetasRegalo(this.fuente());
     return [...m.values()].sort((a, b) => b.ocurrio_en.localeCompare(a.ocurrio_en)).map((t) => ({
-      codigo: t.codigo, emitido: t.emitido, usado: t.usado, reintegrado: t.reintegrado, saldo: t.saldo,
-      tienda: t.tienda, caja: t.caja, cajero: t.cajero, ocurrio_en: t.ocurrio_en, duplicadas: t.duplicadas.length,
+      codigo: t.codigo, emitido: t.emitido, recargado: t.recargado, usado: t.usado, reintegrado: t.reintegrado, saldo: t.saldo,
+      tienda: t.tienda, caja: t.caja, cajero: t.cajero, ocurrio_en: t.ocurrio_en, vigente_hasta: t.vigente_hasta,
+      vencida: Date.parse(t.vigente_hasta) <= Date.now(), duplicadas: t.duplicadas.length,
     }));
   }
   reporte(f: Filtro = {}) {

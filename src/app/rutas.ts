@@ -44,8 +44,14 @@ export async function atender(o: { cajero?: ServicioCaja; admin?: ServicioAdmin 
       case 'POST /api/venta/cobrar-efectivo': return ok(await exigirCajero().cobrarEfectivo(b.cart, Number(b.recibido)));
       case 'POST /api/venta/cobrar-regalo': return ok(await exigirCajero().cobrarTarjetaRegalo(b.cart, String(b.codigo ?? ''), b.recibido === undefined || b.recibido === null ? undefined : Number(b.recibido)));
       case 'GET /api/tarjeta': return ok({ tarjeta: exigirCajero().consultarTarjeta(q.get('codigo') ?? '') });
-      case 'POST /api/tarjeta/alta': return ok(await exigirCajero().altaTarjetaRegalo(String(b.codigo ?? ''), Number(b.monto)));
+      case 'POST /api/tarjeta/alta': return ok(await exigirCajero().altaTarjetaRegalo(String(b.codigo ?? ''), Number(b.monto), b.recibido === undefined ? undefined : Number(b.recibido), b.ref));
       case 'GET /api/tarjetas': return ok({ tarjetas: exigirCajero().tarjetasPropias() });
+      case 'GET /api/ventas/buscar': {
+        const c = exigirCajero();
+        return ok(c.buscarVentas({ fecha: q.get('fecha') || undefined, desde: q.get('desde') || undefined, hasta: q.get('hasta') || undefined, codigo: q.get('codigo') || undefined, folio: q.get('folio') ? Number(q.get('folio')) : undefined }));
+      }
+      case 'POST /api/venta/devolver': return ok(await exigirCajero().devolver(b.sale_id, b.renglones ?? [], String(b.motivo ?? 'devolución')));
+      case 'POST /api/tarjeta/recargar': return ok(await exigirCajero().recargarTarjetaRegalo(String(b.codigo ?? ''), Number(b.monto), b.recibido === undefined ? undefined : Number(b.recibido), b.ref));
       case 'POST /api/venta/reimprimir': return ok(await exigirCajero().reimprimir(b.sale_id));
       case 'GET /api/buscar': return ok({ ...exigirCajero().buscarConTotal(q.get('q') ?? '') });
       case 'GET /api/ventas': {

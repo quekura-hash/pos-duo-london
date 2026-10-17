@@ -44,6 +44,8 @@ export interface Linea {
   importe: number;
   /** Vendida mientras su código estaba duplicado: la elección fue provisional y queda para revisión administrativa. */
   ambiguo?: { codigo: string; candidatos: string[] };
+  /** Renglón de venta o recarga de una tarjeta de regalo: no es mercancía (sin inventario ni existencia). */
+  tarjeta_regalo?: { codigo: string; tipo: 'alta' | 'recarga' };
 }
 
 export interface Venta {

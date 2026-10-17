@@ -1,4 +1,5 @@
 import type { Anclas, Enlace, ResultadoReserva } from '../nodos.ts';
+import type { BusquedaVentas, VentaLocalizada } from '../consultas.ts';
 import type { Venta } from '../tipos.ts';
 import type { SyncHttp } from './http-sync.ts';
 
@@ -44,6 +45,9 @@ export class EnlaceHttp implements Enlace {
   }
   reservar(ref: string, caja: number, lineas: { item_id: string; qty: number }[], tarjetas: { codigo: string; monto: number }[] = []): ResultadoReserva | null {
     return this.rpc<ResultadoReserva>('reservar', [ref, caja, lineas, tarjetas]).valor;
+  }
+  buscarVentas(q: BusquedaVentas): VentaLocalizada[] | null {
+    return this.rpc<VentaLocalizada[]>('buscarVentas', [q]).valor;
   }
   liberar(ref: string): void {
     this.rpc('liberar', [ref]);

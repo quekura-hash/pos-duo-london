@@ -80,15 +80,20 @@ export interface Devolucion {
   caja: number; // caja que entrega el dinero
   lineas: { linea_id: string; item_id: string; qty: number; importe: number }[];
   importe: number;
-  metodo: 'efectivo';
+  /** Folio de la MISMA serie que las ventas de la caja (P-08). Las devoluciones anteriores a esta regla no lo tienen. */
+  folio?: number;
+  /** Cómo se regresó el dinero: a la tarjeta de regalo con que se pagó y, el resto, en efectivo. */
+  reembolsos: { metodo: 'efectivo' | 'tarjeta_regalo'; monto: number; tarjeta?: string }[];
   ocurrio_en: string;
   motivo: string;
+  cajero: string;
+  folio_origen: number;
 }
 
 export function devoluciones(ops: Op[]): Devolucion[] {
   return ops
     .filter((o) => o.tipo === 'return.registered')
-    .map((o) => ({ ...o.payload, ocurrio_en: o.ocurrio_en }));
+    .map((o) => ({ ...o.payload, reembolsos: o.payload.reembolsos ?? [{ metodo: 'efectivo', monto: o.payload.importe }], ocurrio_en: o.ocurrio_en }));
 }
 
 export function devueltoPorLinea(ops: Op[], saleId: string): Map<string, { qty: number; importe: number }> {
@@ -173,14 +178,17 @@ export function perdidasDocumentales(ops: Op[]): PerdidaDocumental[] {
 export interface TarjetaRegalo {
   codigo: string;
   emitido: number;
+  recargado: number;
   usado: number;
   reintegrado: number;
-  /** Saldo = emitido − usos + reintegros. */
+  /** Saldo = emitido + recargas − usos + reintegros. */
   saldo: number;
   tienda: string;
   caja: number;
   cajero: string;
   ocurrio_en: string;
+  /** Vence 12 meses después de la venta o de la última recarga en efectivo (P-26b). Devoluciones y cancelaciones NO la reinician. */
+  vigente_hasta: string;
   /** Altas posteriores con el mismo código (conflicto de negocio: no suman saldo, se señalan). */
   duplicadas: { op_id: string; tienda: string; caja: number; monto: number }[];
 }
@@ -192,16 +200,26 @@ export function tarjetasRegalo(ops: Op[]): Map<string, TarjetaRegalo> {
   return m;
 }
 
+/** P-26b (decidido): las tarjetas de regalo vencen a los 12 meses. */
+export const MESES_VIGENCIA_TARJETA = 12;
+export function sumarMeses(iso: string, n: number): string {
+  const d = new Date(iso);
+  d.setUTCMonth(d.getUTCMonth() + n);
+  return d.toISOString();
+}
+
 export function aplicarTarjeta(m: Map<string, TarjetaRegalo>, o: { tipo: string; op_id: string; payload: any; ocurrio_en: string }) {
   const p = o.payload;
   if (o.tipo === 'giftcard.emitida') {
     const t = m.get(p.codigo);
     if (t) t.duplicadas.push({ op_id: o.op_id, tienda: p.tienda, caja: p.caja, monto: p.monto });
-    else m.set(p.codigo, { codigo: p.codigo, emitido: p.monto, usado: 0, reintegrado: 0, saldo: p.monto, tienda: p.tienda, caja: p.caja, cajero: p.cajero, ocurrio_en: o.ocurrio_en, duplicadas: [] });
-  } else if (o.tipo === 'giftcard.uso' || o.tipo === 'giftcard.reintegro') {
+    else m.set(p.codigo, { codigo: p.codigo, emitido: p.monto, recargado: 0, usado: 0, reintegrado: 0, saldo: p.monto, tienda: p.tienda, caja: p.caja, cajero: p.cajero, ocurrio_en: o.ocurrio_en, vigente_hasta: sumarMeses(o.ocurrio_en, MESES_VIGENCIA_TARJETA), duplicadas: [] });
+  } else if (o.tipo === 'giftcard.uso' || o.tipo === 'giftcard.reintegro' || o.tipo === 'giftcard.recarga') {
     const t = m.get(p.codigo);
     if (!t) return;
-    if (o.tipo === 'giftcard.uso') t.usado += p.monto; else t.reintegrado += p.monto;
-    t.saldo = t.emitido - t.usado + t.reintegrado;
+    if (o.tipo === 'giftcard.uso') t.usado += p.monto;
+    else if (o.tipo === 'giftcard.reintegro') t.reintegrado += p.monto;
+    else { t.recargado += p.monto; t.vigente_hasta = sumarMeses(o.ocurrio_en, MESES_VIGENCIA_TARJETA); }
+    t.saldo = t.emitido + t.recargado - t.usado + t.reintegrado;
   }
 }

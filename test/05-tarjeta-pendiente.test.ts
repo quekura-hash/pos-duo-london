@@ -48,7 +48,7 @@ porAlmacen('Cobro con tarjeta pendiente de conciliar', (alm) => {
     // P-12 en ensayo "bloquear_solo_tarjeta": solo un NUEVO cobro con tarjeta se frena
     const otro = carritoCon(ctx, 1, 2);
     assert.throws(() => c.iniciarCobroTarjeta(otro.cart), { codigo: 'TARJETA_BLOQUEADA' });
-    assert.equal(c.cobrar(otro.cart, [{ metodo: 'efectivo', monto: otro.total }]).folio, 3, 'ese mismo cliente puede pagar en efectivo');
+    assert.equal(c.cobrar(otro.cart, [{ metodo: 'efectivo', monto: otro.total }]).folio, 4, 'ese mismo cliente puede pagar en efectivo (el folio 3 lo usó la devolución: P-08)');
   });
 
   it('T2b P-12=permitir_con_aviso: otro cobro con tarjeta es posible y avisa del pendiente', (t) => {

@@ -127,7 +127,8 @@ porAlmacen('Permisos de reportes y cortes', (alm) => {
     assert.equal(k1.devoluciones, 12000);
     assert.equal(k1.ventas_netas, 24000);
     assert.equal(k1.efectivo_esperado, 200000 + 36000 - 12000 - 15000, 'fondo + cobros − reembolsos − retiros');
-    assert.deepEqual([k1.folio_inicial, k1.folio_final], [1, 2]);
+    assert.deepEqual([k1.folio_inicial, k1.folio_final], [1, 3], 'la devolución consume el folio 3 de la misma serie (P-08)');
+    assert.equal(k1.folios_de_devolucion, 1);
     assert.equal(k2.tickets, 1);
     assert.equal(k2.efectivo_esperado, 100000 + 12000);
     assert.deepEqual([k2.folio_inicial, k2.folio_final], [1, 1]);

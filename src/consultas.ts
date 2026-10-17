@@ -21,6 +21,8 @@ export interface FilaVenta {
   fecha_local: string;
   cajero: string;
   total: number;
+  /** Total sin las tarjetas de regalo vendidas o recargadas (que no son ventas de mercancía). */
+  total_mercancia: number;
   estado: 'confirmada' | 'cancelada';
 }
 
@@ -51,7 +53,7 @@ export function ventasPorCaja(actor: Actor, ops: Op[], f: Filtro = {}): FilaVent
     if (!enPeriodo(v.ocurrio_en, f)) continue;
     filas.push({
       tienda: v.tienda, caja: v.caja, folio: v.folio, sale_id: v.sale_id,
-      fecha_local: fechaLocal(v.ocurrio_en), cajero: v.cajero, total: v.total, estado: v.estado,
+      fecha_local: fechaLocal(v.ocurrio_en), cajero: v.cajero, total: v.total, total_mercancia: v.lineas.filter((l) => !l.tarjeta_regalo).reduce((a, l) => a + l.importe, 0), estado: v.estado,
     });
   }
   // Orden estable por serie y folio: se ordena, pero nunca se asigna un número nuevo.
@@ -60,25 +62,28 @@ export function ventasPorCaja(actor: Actor, ops: Op[], f: Filtro = {}): FilaVent
 
 export interface Consolidado {
   filas: FilaVenta[];
-  porCaja: { tienda: string; caja: number; tickets: number; total: number }[];
+  porCaja: { tienda: string; caja: number; tickets: number; total: number; total_mercancia: number }[];
   total: number;
+  /** Consolidado SIN tarjetas de regalo: así lo cobrado con una tarjeta no se cuenta dos veces. */
+  total_mercancia: number;
 }
 
 /** Solo Administración: consolidado de todas las cajas o de las seleccionadas (incluso de tiendas distintas). */
 export function reporteConsolidado(actor: Actor, ops: Op[], f: Filtro = {}): Consolidado {
   if (actor.rol !== 'admin') throw new ErrorDominio('PROHIBIDO', 'los reportes consolidados son solo de Administración');
   const filas = ventasPorCaja(actor, ops, f);
-  const porCaja = new Map<string, { tienda: string; caja: number; tickets: number; total: number }>();
+  const porCaja = new Map<string, { tienda: string; caja: number; tickets: number; total: number; total_mercancia: number }>();
   for (const r of filas) {
     if (r.estado === 'cancelada') continue;
     const k = `${r.tienda}/${r.caja}`;
-    const a = porCaja.get(k) ?? { tienda: r.tienda, caja: r.caja, tickets: 0, total: 0 };
+    const a = porCaja.get(k) ?? { tienda: r.tienda, caja: r.caja, tickets: 0, total: 0, total_mercancia: 0 };
     a.tickets++;
     a.total += r.total;
+    a.total_mercancia += r.total_mercancia;
     porCaja.set(k, a);
   }
   const lista = [...porCaja.values()];
-  return { filas, porCaja: lista, total: lista.reduce((a, c) => a + c.total, 0) };
+  return { filas, porCaja: lista, total: lista.reduce((a, c) => a + c.total, 0), total_mercancia: lista.reduce((a, c) => a + c.total_mercancia, 0) };
 }
 
 export interface FilaCorte {
@@ -108,4 +113,37 @@ export function aFilasExportables(filas: FilaVenta[]) {
     Tienda: r.tienda, Caja: r.caja, Folio: r.folio, Fecha: r.fecha_local,
     Cajero: r.cajero, 'Total MXN': aMXN(r.total), Estado: r.estado,
   }));
+}
+
+export interface BusquedaVentas {
+  /** Instantes UTC ISO, inclusive. */
+  desde?: string;
+  hasta?: string;
+  item_id?: string;
+  folio?: number;
+}
+/** Lo que se muestra de una venta de OTRA caja para localizarla: nunca importes, pagos ni cajero. */
+export interface VentaLocalizada {
+  sale_id: string;
+  tienda: string;
+  caja: number;
+  folio: number;
+  ocurrio_en: string;
+  lineas: { linea_id: string; item_id: string; descripcion: string; qty: number }[];
+}
+/** Ventas confirmadas de UNA tienda (todas sus cajas) que cumplen la búsqueda. Solo para localizar en qué caja se vendió. */
+export function localizarVentas(ops: Op[], tienda: string, q: BusquedaVentas): VentaLocalizada[] {
+  const out: VentaLocalizada[] = [];
+  for (const v of ventas(ops).values()) {
+    if (v.tienda !== tienda || v.estado !== 'confirmada') continue;
+    if (q.desde && v.ocurrio_en < q.desde) continue;
+    if (q.hasta && v.ocurrio_en > q.hasta) continue;
+    if (q.folio != null && v.folio !== q.folio) continue;
+    if (q.item_id && !v.lineas.some((l) => l.item_id === q.item_id)) continue;
+    out.push({
+      sale_id: v.sale_id, tienda: v.tienda, caja: v.caja, folio: v.folio, ocurrio_en: v.ocurrio_en,
+      lineas: v.lineas.map((l) => ({ linea_id: l.linea_id, item_id: l.item_id, descripcion: l.descripcion, qty: l.qty })),
+    });
+  }
+  return out.sort((a, b) => b.ocurrio_en.localeCompare(a.ocurrio_en)).slice(0, 100);
 }

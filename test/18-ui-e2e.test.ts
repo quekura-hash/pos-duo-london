@@ -103,8 +103,7 @@ describe('[navegador real — Chromium con Playwright, UI sobre SQLite]', { time
     await page.screenshot({ path: join(CAPTURAS, '02-ticket.png') });
     assert.equal(app.s.impresora.trabajos, 1);
     await page.click('#btn-nueva');
-    await page.waitForSelector('#scan');
-    assert.equal(await page.textContent('#total'), '$0.00');
+    await page.waitForFunction(() => document.querySelector('#total')?.textContent === '$0.00');
 
     // corte de ESTA caja
     await page.click('#nav button[data-vista="corte"]');
@@ -163,7 +162,7 @@ describe('[navegador real — Chromium con Playwright, UI sobre SQLite]', { time
     assert.deepEqual(errores, []);
   });
 
-  it('UI3 un código duplicado no se agrega: la pantalla lo explica y pide a Administración resolverlo', async (t) => {
+  it('UI3 un código duplicado (P-13): la pantalla lo explica, el cajero elige y el renglón queda marcado para revisión', async (t) => {
     const browser = await chromium.launch({ executablePath: chromiumPath, args: ['--no-sandbox'] });
     const ctx = nuevoMundo(sqlite, politica());
     t.after(async () => { await browser.close(); await app.cerrar(); ctx.limpiar(); });
@@ -177,12 +176,15 @@ describe('[navegador real — Chromium con Playwright, UI sobre SQLite]', { time
     await page.waitForSelector('#scan');
     await escanear(page, '7507777777777');
     await page.waitForSelector('[data-resultado="ambiguo"]');
-    assert.match((await page.textContent('#mensaje'))!, /duplicado.*Administración/);
-    assert.equal(await page.locator('#cuerpo tr[data-linea]').count(), 0);
+    assert.match((await page.textContent('#mensaje'))!, /duplicado.*Administración lo revise/);
+    assert.equal(await page.locator('#cuerpo tr[data-linea]').count(), 0, 'nada se agrega solo');
     assert.equal(await page.locator('[data-resultado="ambiguo"] li').count(), 2);
+    await page.click('[data-resultado="ambiguo"] li:nth-child(1) [data-agregar]');
+    await page.waitForSelector('#cuerpo tr[data-linea]');
+    assert.match((await page.textContent('#mensaje'))!, /queda marcado para revisión/);
     await escanear(page, 'falda');
     await page.waitForSelector('.tabla-resultados');
-    assert.equal(await page.locator('.tabla-resultados [data-agregar]').count(), 0, 'no se ofrece elegir entre artículos con código duplicado');
+    assert.equal(await page.locator('.tabla-resultados [data-agregar]').count(), 2, 'se puede elegir entre los artículos con código duplicado');
   });
 
   it('UI4 Administración: solo Reportes; elige una, varias o todas las cajas y ve los folios originales', async (t) => {
@@ -312,7 +314,7 @@ describe('[navegador real — Chromium con Playwright, UI sobre SQLite]', { time
       assert.equal(await page.locator('#nav button svg').count(), tienda === 'DUO' ? 5 : 4, 'cada opción de navegación tiene su icono (la Caja 2 no tiene Tarjetas de regalo)');
       const sinIcono = await page.$$eval('button:not(.btn-icono):not([type=submit])', (bs) => bs.filter((b) => !b.querySelector('svg') && !/^[−+]$/.test(b.textContent!.trim())).map((b) => b.textContent!.trim()));
       assert.deepEqual(sinIcono, [], 'todo botón visible lleva icono');
-      for (const id of ['btn-nuevo-articulo', 'btn-editar-venta', 'btn-devolucion', 'btn-descuento', 'btn-espera', 'btn-regalo']) {
+      for (const id of ['btn-nuevo-articulo', 'btn-editar-venta', 'btn-descuento', 'btn-espera', 'btn-regalo']) {
         const b = page.locator(`#${id}`);
         if (await b.count()) { assert.equal(await b.isDisabled(), true, id); assert.equal(await b.getAttribute('title'), 'Próximamente'); }
       }
@@ -344,8 +346,8 @@ describe('[navegador real — Chromium con Playwright, UI sobre SQLite]', { time
     await page.fill('#alta-monto', '200');
     await page.click('#btn-alta');
     await page.waitForSelector('#dlg-ticket[open]');
-    assert.match((await page.textContent('#resumen-alta'))!, /TR-0001.*\$200\.00/);
-    assert.match((await page.textContent('#ticket-texto'))!, /TARJETA DE REGALO[\s\S]*Código: TR-0001[\s\S]*Saldo cargado +\$200\.00/);
+    assert.match((await page.textContent('#resumen-alta'))!, /TR-0001.*saldo \$200\.00.*folio 000001.*cambio \$0\.00/);
+    assert.match((await page.textContent('#ticket-texto'))!, /Folio: 000001[\s\S]*Tarjeta de regalo TR-0001[\s\S]*Código: TR-0001[\s\S]*TOTAL +\$200\.00[\s\S]*Efectivo MXN +\$200\.00/);
     await page.screenshot({ path: join(CAPTURAS, '11-alta-tarjeta-regalo.png') });
     await page.click('#btn-cerrar');
     await page.waitForSelector('#tabla-tarjetas tr[data-tarjeta="TR-0001"]');
@@ -379,11 +381,12 @@ describe('[navegador real — Chromium con Playwright, UI sobre SQLite]', { time
     await page.screenshot({ path: join(CAPTURAS, '12-cobro-tarjeta-regalo.png') });
     await page.click('#btn-cobrar');
     await page.waitForSelector('#dlg-ticket[open]');
-    assert.match((await page.textContent('#resumen-venta'))!, /Folio 000001.*cambio \$0\.00.*saldo de la tarjeta \$80\.00/);
+    assert.match((await page.textContent('#resumen-venta'))!, /Folio 000002.*cambio \$0\.00.*saldo de la tarjeta \$80\.00/);
     const tk = (await page.textContent('#ticket-texto'))!;
     assert.match(tk, /Tarjeta de regalo +\$120\.00/);
     assert.match(tk, /Tarjeta: TR-0001 +Saldo \$80\.00/);
     await page.click('#btn-nueva');
+    await page.waitForFunction(() => document.querySelector('#total')?.textContent === '$0.00');
 
     // cobro parcial: 2 mascadas $240 con saldo $80 -> $160 en efectivo
     await page.waitForSelector('#scan');
@@ -403,8 +406,9 @@ describe('[navegador real — Chromium con Playwright, UI sobre SQLite]', { time
     assert.equal(await page.textContent('#cambio'), '$40.00');
     await page.click('#btn-cobrar');
     await page.waitForSelector('#dlg-ticket[open]');
-    assert.match((await page.textContent('#resumen-venta'))!, /Folio 000002.*cambio \$40\.00.*saldo de la tarjeta \$0\.00/);
+    assert.match((await page.textContent('#resumen-venta'))!, /Folio 000003.*cambio \$40\.00.*saldo de la tarjeta \$0\.00/);
     await page.click('#btn-nueva');
+    await page.waitForFunction(() => document.querySelector('#total')?.textContent === '$0.00');
     // tarjeta agotada
     await page.waitForSelector('#scan');
     await escanear(page, '7501234567890');
@@ -419,8 +423,8 @@ describe('[navegador real — Chromium con Playwright, UI sobre SQLite]', { time
     await page.click('#nav button[data-vista="corte"]');
     await page.waitForSelector('#tabla-corte');
     const corte = async (k: string) => (await page.textContent(`#tabla-corte tr[data-campo="${k}"] td`))!.trim();
-    assert.deepEqual([await corte('tickets'), await corte('cobros_efectivo'), await corte('cobros_tarjeta_regalo'), await corte('tarjetas_regalo_emitidas'), await corte('efectivo_esperado')],
-      ['2', '$160.00', '$200.00', '$200.00', '$360.00']);
+    assert.deepEqual([await corte('tickets'), await corte('cobros_efectivo'), await corte('cobros_tarjeta_regalo'), await corte('tarjetas_regalo_vendidas'), await corte('ventas_mercancia'), await corte('ventas_netas'), await corte('efectivo_esperado')],
+      ['3', '$360.00', '$200.00', '$200.00', '$360.00', '$360.00', '$360.00']);
     await page.screenshot({ path: join(CAPTURAS, '13-corte-con-tarjeta-regalo.png') });
 
     // Administración ve el libro de tarjetas
@@ -429,9 +433,81 @@ describe('[navegador real — Chromium con Playwright, UI sobre SQLite]', { time
     await a.waitForSelector('#nav');
     await a.click('#nav button[data-vista="tarjetas"]');
     await a.waitForSelector('#tabla-tarjetas tr[data-tarjeta="TR-0001"]');
-    assert.match((await a.textContent('#tabla-tarjetas tr[data-tarjeta="TR-0001"]'))!, /TR-0001.*DUO · Caja 1.*\$200\.00.*\$200\.00.*\$0\.00/);
+    assert.match((await a.textContent('#tabla-tarjetas tr[data-tarjeta="TR-0001"]'))!, /TR-0001.*DUO · Caja 1.*\$200\.00.*\$200\.00.*\$0\.00.*2027/);
     // el cajero no tiene la ruta del libro completo
     assert.equal((await fetch(`${app.url}/api/admin/tarjetas`)).status, 403);
+    // el reporte consolidado separa la venta de la tarjeta de la mercancía
+    await a.click('#nav button[data-vista="reportes"]');
+    await a.fill('#desde', '2026-10-01'); await a.fill('#hasta', '2026-10-01');
+    await a.click('#filtros button[type="submit"]');
+    await a.waitForSelector('#total-mercancia');
+    assert.deepEqual([await a.textContent('#total-consolidado'), await a.textContent('#total-mercancia')], ['$560.00', '$360.00']);
     assert.deepEqual(errores.filter((e) => !/409|403/.test(e)), []);
+  });
+
+  it('UI10 recarga y vencimiento visibles; cambio o devolución: busca por fecha/hora y por artículo en ambas cajas, devuelve solo en la caja de origen', async (t) => {
+    const browser = await chromium.launch({ executablePath: chromiumPath, args: ['--no-sandbox'] });
+    const ctx = nuevoMundo(sqlite, politica());
+    const app = await appCajero(ctx, 'DUO', 1, 'Andrea');
+    const app2 = await appCajero(ctx, 'DUO', 2, 'Beto');
+    t.after(async () => { await browser.close(); await app.cerrar(); await app2.cerrar(); ctx.limpiar(); });
+    // una venta en cada caja
+    const s1 = app.s.svc, s2 = app2.s.svc;
+    const c1 = s1.nuevaVenta(); s1.escanear(c1, '0002026090782'); const v1 = (await s1.cobrarEfectivo(c1, 89900)).venta;
+    const c2 = s2.nuevaVenta(); s2.escanear(c2, '7501234567890'); const v2 = (await s2.cobrarEfectivo(c2, 12000)).venta;
+    ctx.m.pump();
+    const { page, errores } = await pagina(browser, app.url);
+    await page.waitForSelector('#scan');
+    // recarga de una tarjeta
+    await page.click('#nav button[data-vista="tarjetas"]');
+    await page.fill('#alta-codigo', 'R-1'); await page.fill('#alta-monto', '100'); await page.click('#btn-alta');
+    await page.waitForSelector('#dlg-ticket[open]'); await page.click('#btn-cerrar');
+    await page.waitForSelector('#tabla-tarjetas tr[data-tarjeta="R-1"]');
+    await page.fill('#rec-codigo', 'R-1'); await page.fill('#rec-monto', '50'); await page.fill('#rec-recibido', '100');
+    await page.click('#btn-recarga');
+    await page.waitForSelector('#dlg-ticket[open]');
+    assert.match((await page.textContent('#resumen-alta'))!, /R-1.*saldo \$150\.00.*cambio \$50\.00/);
+    assert.match((await page.textContent('#ticket-texto'))!, /Recarga de tarjeta de regalo R-1/);
+    await page.click('#btn-cerrar');
+    await page.waitForFunction(() => document.querySelector('#tabla-tarjetas tr[data-tarjeta="R-1"] [data-col="saldo"]')?.textContent === '$150.00');
+    await page.fill('#saldo-codigo', 'R-1'); await page.click('#btn-saldo');
+    await page.waitForSelector('#saldo-consultado');
+    assert.match((await page.textContent('#resultado-saldo'))!, /\$150\.00.*Vigente hasta 01 oct 2027/);
+    // devolución: la venta de la otra caja se localiza pero no se devuelve aquí
+    await page.click('#nav button[data-vista="venta"]');
+    await page.click('#btn-devolucion');
+    await page.waitForSelector('#form-buscar-venta');
+    await page.fill('#bv-fecha', '2026-10-01');
+    await page.click('#form-buscar-venta button[type="submit"]');
+    await page.waitForSelector('[data-venta-propia]');
+    assert.equal(await page.locator('[data-venta-propia]').count(), 3, 'jeans, venta de tarjeta y recarga de esta caja');
+    assert.equal(await page.locator('[data-venta-ajena]').count(), 1);
+    assert.match((await page.textContent('[data-venta-ajena]'))!, /D2-000001[\s\S]*Caja 2[\s\S]*MASCADA[\s\S]*Esta venta se hizo en la Caja 2/);
+    assert.equal(await page.locator('[data-venta-ajena] input').count(), 0, 'no hay cómo devolver una venta de otra caja');
+    assert.doesNotMatch((await page.textContent('[data-venta-ajena]'))!, /\$120\.00/, 'no se muestran importes de la otra caja');
+    // por artículo escaneado
+    await page.fill('#bv-codigo', '7501234567890');
+    await page.click('#form-buscar-venta button[type="submit"]');
+    await page.waitForFunction(() => document.querySelectorAll('[data-venta-ajena]').length === 1 && document.querySelectorAll('[data-venta-propia]').length === 0);
+    assert.match((await page.textContent('#bv-msg'))!, /Historial de ventas de MASCADA/);
+    // devolver una pieza de la venta propia (jeans)
+    await page.fill('#bv-codigo', '');
+    await page.fill('#bv-folio', '1');
+    await page.click('#form-buscar-venta button[type="submit"]');
+    await page.waitForSelector('[data-venta-propia] input[data-linea]');
+    await page.click('[data-venta-propia] button[type="submit"]'); // sin piezas
+    await page.waitForFunction(() => /Indique cuántas piezas/.test(document.querySelector('[data-venta-propia] [data-msg]')!.textContent!));
+    await page.fill('[data-venta-propia] input[data-linea]', '1');
+    await page.screenshot({ path: join(CAPTURAS, '14-cambio-o-devolucion.png') });
+    await page.fill('[data-venta-propia] [data-motivo]', 'talla');
+    await page.click('[data-venta-propia] button[type="submit"]');
+    await page.waitForSelector('#dlg-ticket[open]');
+    assert.match((await page.textContent('#resumen-devolucion'))!, /Folio 000004.*devuelto \$899\.00.*efectivo \$899\.00/);
+    assert.match((await page.textContent('#ticket-texto'))!, /DEVOLUCIÓN[\s\S]*Venta original: D1-000001[\s\S]*TOTAL DEVUELTO +\$899\.00/);
+    await page.click('#btn-cerrar');
+    await page.waitForFunction(() => (document.querySelector('[data-venta-propia] input[data-linea]') as HTMLInputElement | null)?.disabled === true);
+    assert.equal(ctx.m.caja('DUO', 1).estadoFolios().ultimo, 4, 'la devolución y la venta de tarjeta/recarga consumieron la misma serie');
+    void v1; void v2;
+    assert.deepEqual(errores.filter((e) => !/409/.test(e)), []);
   });
 });

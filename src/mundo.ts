@@ -1,5 +1,6 @@
 import { copyFileSync, existsSync, mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
+import { localizarVentas } from './consultas.ts';
 import { Caja, Central, Hub, type Anclas, type Ctx, type Enlace } from './nodos.ts';
 import type { Politicas } from './politicas.ts';
 import { devueltoPorLinea, ventas } from './proyecciones.ts';
@@ -169,6 +170,11 @@ export class Mundo {
         }
         if (w.centralArriba(t, n)) return ventas(w.central.repo.ops()).get(saleId) ?? null;
         return null;
+      },
+      buscarVentas: (q) => {
+        if (!w.hubArriba(t, n)) return null;
+        const a = localizarVentas(w.hub(t).repo.ops(), t, q);
+        return a;
       },
       devueltoAutoritativo(saleId) {
         if (!w.hubArriba(t, n)) return null;

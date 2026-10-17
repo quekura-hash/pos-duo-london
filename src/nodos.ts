@@ -1,6 +1,8 @@
+import type { BusquedaVentas, VentaLocalizada } from './consultas.ts';
 import { ErrorDominio } from './errores.ts';
 import type { Politicas } from './politicas.ts';
 import { Indice } from './indice.ts';
+import { localizarVentas } from './consultas.ts';
 import { catalogo, devoluciones, devueltoPorLinea, existenciaVerificada, intentos, perdidasDocumentales, stock, ventas, type Devolucion, type ExistenciaVerificada, type Intento, type PerdidaDocumental, type TarjetaRegalo } from './proyecciones.ts';
 import type { Repo } from './repo.ts';
 import { validarOpEntrante } from './reglas.ts';
@@ -36,6 +38,8 @@ export interface Enlace {
   /** Arbitraje del hub sobre existencias. null = el hub no respondió. Idempotente por `ref`. */
   reservar(ref: string, caja: number, lineas: { item_id: string; qty: number }[], tarjetas?: TarjetaApartada[]): ResultadoReserva | null;
   liberar(ref: string): void;
+  /** Ventas de la tienda (todas sus cajas) para localizar en qué caja se hizo una; null = sin hub. */
+  buscarVentas(q: BusquedaVentas): VentaLocalizada[] | null;
 }
 
 /** Saldo de una tarjeta de regalo que una venta en curso aparta (el dinero no se puede conceder dos veces). */
@@ -52,6 +56,8 @@ export interface ResultadoReserva {
   faltantes?: string[];
   /** Tarjetas de regalo sin saldo suficiente o inexistentes. */
   tarjetas_sin_saldo?: string[];
+  /** Tarjetas de regalo vencidas (12 meses desde la venta o la última recarga). */
+  tarjetas_vencidas?: string[];
   idempotente?: boolean;
 }
 
@@ -65,9 +71,9 @@ interface Reserva {
   resultado: ResultadoReserva;
 }
 
-const BROADCAST_TIENDA = new Set(['inv.movement', 'inv.conteo', 'inv.verificacion_pendiente', 'doc.perdida_posible', 'item.created', 'item.item_no_assigned', 'giftcard.emitida', 'giftcard.uso', 'giftcard.reintegro']);
+const BROADCAST_TIENDA = new Set(['inv.movement', 'inv.conteo', 'inv.verificacion_pendiente', 'doc.perdida_posible', 'item.created', 'item.item_no_assigned', 'giftcard.emitida', 'giftcard.recarga', 'giftcard.uso', 'giftcard.reintegro']);
 // Lo que el central baja a hubs y cajas (catálogo y resoluciones administrativas).
-const CATALOGO = new Set(['item.created', 'item.item_no_assigned', 'item.codigo_corregido', 'doc.perdida_resuelta', 'giftcard.emitida', 'giftcard.uso', 'giftcard.reintegro']);
+const CATALOGO = new Set(['item.created', 'item.item_no_assigned', 'item.codigo_corregido', 'doc.perdida_resuelta', 'giftcard.emitida', 'giftcard.recarga', 'giftcard.uso', 'giftcard.reintegro']);
 
 // ───────────────────────────── Hub ─────────────────────────────
 
@@ -142,11 +148,18 @@ export class Hub {
     }
     // Dinero: una tarjeta de regalo nunca se sobregira (no depende de P-02, que es solo de existencias).
     const sinSaldo: string[] = [];
+    const vencidas: string[] = [];
     const porTarjeta = new Map<string, number>();
     for (const t of tarjetas) porTarjeta.set(t.codigo, (porTarjeta.get(t.codigo) ?? 0) + t.monto);
     for (const [codigo, monto] of porTarjeta) {
       const apartado = abiertas.reduce((a, r) => a + (r.tarjetas ?? []).filter((t) => t.codigo === codigo).reduce((b, t) => b + t.monto, 0), 0);
-      if ((this.idx.tarjeta(codigo)?.saldo ?? 0) - apartado < monto) sinSaldo.push(codigo);
+      const tj = this.idx.tarjeta(codigo);
+      if (tj && Date.parse(tj.vigente_hasta) <= ahora) vencidas.push(codigo);
+      else if ((tj?.saldo ?? 0) - apartado < monto) sinSaldo.push(codigo);
+    }
+    if (vencidas.length) {
+      this.repo.kvSet('reservas', todas);
+      return { ok: false, motivo: 'tarjeta_vencida', tarjetas_vencidas: vencidas };
     }
     if (sinSaldo.length) {
       this.repo.kvSet('reservas', todas);
@@ -204,7 +217,7 @@ export class Hub {
 
   hwm(caja: number): number {
     let m = 0;
-    for (const o of this.repo.opsDeTipos(['sale.confirmed'])) if (o.payload.tienda === this.tienda && o.payload.caja === caja) m = Math.max(m, o.payload.folio);
+    for (const o of this.repo.opsDeTipos(['sale.confirmed', 'return.registered'])) if (o.payload.tienda === this.tienda && o.payload.caja === caja && o.payload.folio != null) m = Math.max(m, o.payload.folio);
     return m;
   }
   anclas(caja: number): Anclas {
@@ -283,7 +296,7 @@ export class Central {
     let hwm = 0;
     for (const o of this.repo.ops()) {
       if (o.tipo === 'folio.lease_granted' && o.payload.tienda === tienda && o.payload.caja === caja) ceiling = Math.max(ceiling ?? 0, o.payload.techo);
-      if (o.tipo === 'sale.confirmed' && o.payload.tienda === tienda && o.payload.caja === caja) hwm = Math.max(hwm, o.payload.folio);
+      if ((o.tipo === 'sale.confirmed' || o.tipo === 'return.registered') && o.payload.tienda === tienda && o.payload.caja === caja && o.payload.folio != null) hwm = Math.max(hwm, o.payload.folio);
     }
     return { ceiling, hwm, fuente: 'central' };
   }
@@ -299,7 +312,7 @@ export class Central {
 interface Carrito {
   id: string;
   lineas: Linea[];
-  estado: 'abierto' | 'confirmado';
+  estado: 'abierto' | 'confirmado' | 'descartado';
   intent_id?: string;
 }
 
@@ -721,17 +734,42 @@ export class Caja {
   }
 
   /**
-   * Alta de una tarjeta de regalo. Es un ingreso de efectivo (el cliente la paga), NO una venta: no consume folio de
-   * ticket (P-24, sin aprobar) y entra al efectivo esperado del corte de esta caja.
+   * Alta (venta) de una tarjeta de regalo: P-24 decidido, lleva FOLIO NORMAL de la serie de la caja y se paga en efectivo.
+   * El renglón no es mercancía (sin inventario). El corte la separa de las ventas de mercancía.
    */
-  altaTarjetaRegalo(d: { codigo: string; monto: number; cajero?: string; cliente?: string }): TarjetaRegalo {
+  altaTarjetaRegalo(d: { codigo: string; monto: number; recibido?: number; cajero?: string; ref?: string }): { tarjeta: TarjetaRegalo; venta: Venta } {
+    return this.ventaDeTarjeta('alta', d);
+  }
+  /** Recarga en efectivo de una tarjeta existente: también lleva folio y reinicia los 12 meses de vigencia. */
+  recargarTarjetaRegalo(d: { codigo: string; monto: number; recibido?: number; cajero?: string; ref?: string }): { tarjeta: TarjetaRegalo; venta: Venta } {
+    return this.ventaDeTarjeta('recarga', d);
+  }
+  private ventaDeTarjeta(tipo: 'alta' | 'recarga', d: { codigo: string; monto: number; recibido?: number; cajero?: string; ref?: string }): { tarjeta: TarjetaRegalo; venta: Venta } {
     if (!this.cfg.metodos.includes('tarjeta_regalo')) throw new ErrorDominio('PAGO_NO_PERMITIDO', `la caja ${this.id} no maneja tarjetas de regalo`);
     const codigo = String(d.codigo ?? '').trim();
+    const id = d.ref ?? uuid();
+    const previa = this.repo.getOp(`sale:${id}`);
+    if (previa) return { venta: ventas([previa]).get(id)!, tarjeta: this.idx.tarjeta(codigo)! }; // doble clic: misma venta, mismo folio
     if (!codigo) throw new ErrorDominio('DATOS_REQUERIDOS', 'falta el código de la tarjeta');
-    if (!Number.isInteger(d.monto) || d.monto <= 0) throw new ErrorDominio('PAGO_INVALIDO', 'el monto de la tarjeta es un entero positivo en centavos');
-    if (this.idx.tarjeta(codigo)) throw new ErrorDominio('TARJETA_EXISTE', `la tarjeta ${codigo} ya está dada de alta`);
-    this.emitir('giftcard.emitida', { codigo, monto: d.monto, tienda: this.tienda, caja: this.caja, cajero: d.cajero ?? 'cajero', cliente: d.cliente ?? null, medio: 'efectivo' });
-    return this.idx.tarjeta(codigo)!;
+    if (!Number.isInteger(d.monto) || d.monto <= 0) throw new ErrorDominio('PAGO_INVALIDO', 'el monto es un entero positivo en centavos');
+    const existente = this.idx.tarjeta(codigo);
+    if (tipo === 'alta' && existente) throw new ErrorDominio('TARJETA_EXISTE', `la tarjeta ${codigo} ya está dada de alta`);
+    if (tipo === 'recarga' && !existente) throw new ErrorDominio('TARJETA_INEXISTENTE', `la tarjeta ${codigo} no está dada de alta (o aún no llega a esta caja)`);
+    const recibido = d.recibido ?? d.monto;
+    if (!Number.isInteger(recibido) || recibido < d.monto) throw new ErrorDominio('EFECTIVO_INSUFICIENTE', 'el efectivo recibido no cubre el monto', { recibido, monto: d.monto });
+    const linea: Linea = {
+      linea_id: uuid(), item_id: `tarjeta_regalo:${codigo}`, item_no: null, codigo,
+      descripcion: `${tipo === 'alta' ? 'Tarjeta de regalo' : 'Recarga de tarjeta de regalo'} ${codigo}`, marca: '', estilo: '', lote: '', departamento: 'TARJETAS DE REGALO',
+      qty: 1, precio_unit: d.monto, descuento: 0, importe: d.monto, tarjeta_regalo: { codigo, tipo },
+    };
+    this.repo.kvSet(`cart:${id}`, { id, lineas: [linea], estado: 'abierto' } satisfies Carrito);
+    try {
+      const venta = this.cobrar(id, [{ metodo: 'efectivo', monto: d.monto, recibido, cambio: recibido - d.monto }], d.cajero ?? 'cajero');
+      return { venta, tarjeta: this.idx.tarjeta(codigo)! };
+    } catch (e) {
+      this.repo.kvSet(`cart:${id}`, { id, lineas: [linea], estado: 'descartado' } satisfies Carrito); // no queda como "venta en curso"
+      throw e;
+    }
   }
 
   /**
@@ -746,6 +784,7 @@ export class Caja {
     if (!t) throw new ErrorDominio('TARJETA_INEXISTENTE', `la tarjeta ${cod} no está dada de alta`);
     const c = this.cartGet(cartId);
     const total = c.lineas.reduce((a, l) => a + l.importe, 0);
+    if (Date.parse(t.vigente_hasta) <= Date.parse(this.ctx.reloj.now())) throw new ErrorDominio('TARJETA_VENCIDA', `la tarjeta ${cod} venció el ${t.vigente_hasta.slice(0, 10)}`);
     if (t.saldo <= 0) throw new ErrorDominio('SALDO_INSUFICIENTE', `la tarjeta ${cod} no tiene saldo`, { saldo: 0 });
     const aplicado = Math.min(t.saldo, total);
     const pagos: Pago[] = [{ metodo: 'tarjeta_regalo', monto: aplicado, tarjeta: cod, saldo_despues: t.saldo - aplicado }];
@@ -774,7 +813,8 @@ export class Caja {
       throw new ErrorDominio('TARJETA_REQUIERE_INTENTO', 'el cobro con tarjeta debe pasar por un intento registrado antes de usar la terminal');
     }
     // Existencia marcada no verificada: ALTERNATIVA DE ENSAYO (P-14), no una política aprobada.
-    const noVerificados = [...new Set(c.lineas.map((l) => l.item_id))].filter((id) => !this.existenciaVerificada(id).verificada);
+    const mercancia = c.lineas.filter((l) => !l.tarjeta_regalo);
+    const noVerificados = [...new Set(mercancia.map((l) => l.item_id))].filter((id) => !this.existenciaVerificada(id).verificada);
     if (noVerificados.length && this.ctx.politicas.P14_venta_con_inventario_no_verificado === 'bloquear_articulo_no_verificado') {
       throw new ErrorDominio('INVENTARIO_NO_VERIFICADO', `existencia no verificada de ${noVerificados.join(', ')} (P-14 en ensayo)`, noVerificados);
     }
@@ -782,12 +822,14 @@ export class Caja {
     let reservado = false;
     const tarjetas = this.tarjetasDe(pagos);
     let avisos: string[] = noVerificados.map((i) => `inventario_no_verificado:${i}`);
-    if (hubOk) {
-      const r = this.enlace.reservar(c.id, this.caja, c.lineas.map((l) => ({ item_id: l.item_id, qty: l.qty })), tarjetas);
+    if (hubOk && (mercancia.length > 0 || tarjetas.length > 0)) {
+      const r = this.enlace.reservar(c.id, this.caja, mercancia.map((l) => ({ item_id: l.item_id, qty: l.qty })), tarjetas);
       if (r === null) {
         if (this.ctx.politicas.P01_hub_no_disponible === 'bloquear_ventas_nuevas') throw new ErrorDominio('VENTA_BLOQUEADA', 'el hub dejó de responder durante la venta');
         this.exigirExistenciaLocal(c);
         this.exigirSaldoLocal(tarjetas);
+      } else if (!r.ok && r.motivo === 'tarjeta_vencida') {
+        throw new ErrorDominio('TARJETA_VENCIDA', `la tarjeta de regalo ${r.tarjetas_vencidas!.join(', ')} está vencida (12 meses desde la venta o la última recarga)`, r);
       } else if (!r.ok && r.motivo === 'tarjeta_sin_saldo') {
         throw new ErrorDominio('SALDO_INSUFICIENTE', `la tarjeta de regalo ${r.tarjetas_sin_saldo!.join(', ')} no existe o no tiene saldo suficiente`, r);
       } else if (!r.ok) {
@@ -796,6 +838,8 @@ export class Caja {
         reservado = true;
         avisos = [...avisos, ...(r.sobreventa ?? []).map((i) => `sobreventa:${i}`)];
       }
+    } else if (hubOk) {
+      // venta solo de tarjeta de regalo (sin mercancía ni pago con tarjeta): nada que arbitrar
     } else {
       this.exigirExistenciaLocal(c);
       this.exigirSaldoLocal(tarjetas);
@@ -823,6 +867,7 @@ export class Caja {
     for (const t of tarjetas) {
       const s = this.idx.tarjeta(t.codigo);
       if (!s) throw new ErrorDominio('TARJETA_INEXISTENTE', `la tarjeta ${t.codigo} no está dada de alta en esta caja`);
+      if (Date.parse(s.vigente_hasta) <= Date.parse(this.ctx.reloj.now())) throw new ErrorDominio('TARJETA_VENCIDA', `la tarjeta ${t.codigo} venció el ${s.vigente_hasta.slice(0, 10)}`);
       if (s.saldo < t.monto) throw new ErrorDominio('SALDO_INSUFICIENTE', `la tarjeta ${t.codigo} tiene saldo ${s.saldo / 100}`, { saldo: s.saldo });
     }
   }
@@ -830,7 +875,7 @@ export class Caja {
   private exigirExistenciaLocal(c: Carrito) {
     if (this.ctx.politicas.P02_existencia_insuficiente !== 'bloquear') return;
     const pedido = new Map<string, number>();
-    for (const l of c.lineas) pedido.set(l.item_id, (pedido.get(l.item_id) ?? 0) + l.qty);
+    for (const l of c.lineas) if (!l.tarjeta_regalo) pedido.set(l.item_id, (pedido.get(l.item_id) ?? 0) + l.qty);
     const faltan = [...pedido].filter(([item, q]) => this.idx.saldo(this.tienda, item) < q).map(([item]) => item);
     if (faltan.length) throw new ErrorDominio('SIN_EXISTENCIA', `existencia insuficiente de ${this.nombresDe(faltan)}`, { faltantes: faltan });
   }
@@ -871,6 +916,12 @@ export class Caja {
         if (p.metodo === 'tarjeta_regalo') this.emitir('giftcard.uso', { codigo: p.tarjeta, monto: p.monto, sale_id: c.id, tienda: this.tienda, caja: this.caja }, `gcuso:${c.id}:${p.tarjeta}`);
       }
       for (const l of c.lineas) {
+        if (l.tarjeta_regalo) {
+          // La venta o recarga de una tarjeta no mueve inventario: crea o aumenta el saldo (y reinicia los 12 meses en efectivo).
+          this.emitir(l.tarjeta_regalo.tipo === 'alta' ? 'giftcard.emitida' : 'giftcard.recarga',
+            { codigo: l.tarjeta_regalo.codigo, monto: l.importe, tienda: this.tienda, caja: this.caja, cajero, sale_id: c.id, folio, medio: 'efectivo' }, `gc:${c.id}:${l.linea_id}`);
+          continue;
+        }
         this.emitir('inv.movement', { item_id: l.item_id, tienda: this.tienda, delta: -l.qty, tipo: 'venta', doc: c.id, caja: this.caja }, `mov:${c.id}:${l.linea_id}`);
       }
       this.ctx.fallo?.('tras_movimientos');
@@ -883,6 +934,7 @@ export class Caja {
     const v = ventas(this.opsVentas()).get(saleId);
     if (!v || v.tienda !== this.tienda || v.caja !== this.caja) throw new ErrorDominio('PROHIBIDO', 'solo se cancelan ventas de la propia caja');
     if (v.estado === 'cancelada') return v;
+    if (v.lineas.some((l) => l.tarjeta_regalo)) throw new ErrorDominio('CANCELACION_BLOQUEADA', 'la venta o recarga de una tarjeta de regalo no se cancela (pendiente de definir)');
     this.repo.tx(() => {
       this.emitir('sale.cancelled', { sale_id: saleId, motivo }, `cancel:${saleId}`);
       for (const p of v.pagos) {
@@ -948,6 +1000,28 @@ export class Caja {
     return null;
   }
 
+  // ── localizar ventas (devoluciones: solo se devuelve en la caja donde se vendió) ──
+  /**
+   * Busca ventas de la TIENDA por fecha/hora, artículo o folio. Las de esta caja salen completas (se pueden devolver aquí);
+   * las de la otra caja solo salen para saber en cuál se vendió (sin importes ni pagos): ahí se hace la devolución.
+   */
+  buscarVentas(q: BusquedaVentas): { resultados: (VentaLocalizada & { propia: boolean; total?: number; lineas_detalle?: (Linea & { devuelto: number })[] })[]; hub: boolean } {
+    const local = this.opsDe('sale.confirmed', 'sale.cancelled', 'return.registered');
+    const devuelto = new Map<string, number>();
+    for (const dv of devoluciones(local)) for (const l of dv.lineas) devuelto.set(`${dv.sale_id}|${l.linea_id}`, (devuelto.get(`${dv.sale_id}|${l.linea_id}`) ?? 0) + l.qty);
+    const propias = localizarVentas(local, this.tienda, q).filter((v) => v.caja === this.caja);
+    const mapa = new Map<string, VentaLocalizada & { propia: boolean; total?: number; lineas_detalle?: (Linea & { devuelto: number })[] }>();
+    const completas = ventas(local);
+    for (const v of propias) {
+      const full = completas.get(v.sale_id)!;
+      mapa.set(v.sale_id, { ...v, propia: true, total: full.total, lineas_detalle: full.lineas.map((l) => ({ ...l, devuelto: devuelto.get(`${v.sale_id}|${l.linea_id}`) ?? 0 })) });
+    }
+    const remotas = this.enlace.buscarVentas(q);
+    for (const v of remotas ?? []) if (!mapa.has(v.sale_id)) mapa.set(v.sale_id, { ...v, propia: v.caja === this.caja && v.tienda === this.tienda });
+    const resultados = [...mapa.values()].sort((a, b) => b.ocurrio_en.localeCompare(a.ocurrio_en));
+    return { resultados, hub: remotas !== null };
+  }
+
   // ── devoluciones ──
   devolver(d: { sale_id: string; renglones: { linea_id: string; qty: number }[]; motivo: string; devolucion_id?: string; ventaSnapshot?: Venta; cajero?: string }): Devolucion {
     const id = d.devolucion_id ?? uuid();
@@ -968,6 +1042,13 @@ export class Caja {
       verificacion = 'ticket_sin_verificar';
     }
     if (venta.estado === 'cancelada') throw new ErrorDominio('DEVOLUCION_BLOQUEADA', 'venta cancelada');
+    // P-03 (decidido): una devolución se hace SOLO en la caja donde se vendió; el ticket dice Caja 1 o Caja 2 para saber cuál.
+    if (venta.tienda !== this.tienda || venta.caja !== this.caja) {
+      throw new ErrorDominio('DEVOLUCION_OTRA_CAJA', `esa venta se hizo en ${venta.tienda === this.tienda ? '' : `${venta.tienda}, `}la Caja ${venta.caja}: la devolución se hace en esa caja`, { tienda: venta.tienda, caja: venta.caja });
+    }
+    if (venta.lineas.some((l) => d.renglones.some((r) => r.linea_id === l.linea_id) && l.tarjeta_regalo)) {
+      throw new ErrorDominio('DEVOLUCION_BLOQUEADA', 'la venta o recarga de una tarjeta de regalo no se devuelve (pendiente de definir)');
+    }
     const propio = devueltoPorLinea(local, d.sale_id);
     const auto = this.enlace.devueltoAutoritativo(d.sale_id);
     const lineas: Devolucion['lineas'] = [];
@@ -983,17 +1064,37 @@ export class Caja {
       lineas.push({ linea_id: r.linea_id, item_id: l.item_id, qty: r.qty, importe });
     }
     const importe = lineas.reduce((a, l) => a + l.importe, 0);
-    const payload = {
-      devolucion_id: id, sale_id: d.sale_id, tienda: this.tienda, caja: this.caja,
-      tienda_origen: venta.tienda, caja_origen: venta.caja, folio_origen: venta.folio,
-      lineas, importe, metodo: 'efectivo' as const, motivo: d.motivo, cajero: d.cajero ?? 'cajero', verificacion,
-    };
+    // P-26 (decidido): lo pagado con tarjeta de regalo regresa al saldo de la MISMA tarjeta; el resto, en efectivo.
+    // Cada devolución regresa a la tarjeta la parte proporcional a lo que se pagó con ella; la última absorbe el redondeo.
+    const previas = devoluciones(local).filter((x) => x.sale_id === d.sale_id);
+    const devueltoAntes = previas.reduce((a, x) => a + x.importe, 0);
+    const reembolsos: Devolucion['reembolsos'] = [];
+    for (const p of venta.pagos.filter((x) => x.metodo === 'tarjeta_regalo')) {
+      const yaReintegrado = previas.flatMap((x) => x.reembolsos).filter((r) => r.metodo === 'tarjeta_regalo' && r.tarjeta === p.tarjeta).reduce((a, r) => a + r.monto, 0);
+      const resta = p.monto - yaReintegrado;
+      const ultima = devueltoAntes + importe >= venta.total;
+      const monto = Math.max(0, Math.min(resta, ultima ? resta : Math.floor((importe * p.monto) / venta.total)));
+      if (monto > 0) reembolsos.push({ metodo: 'tarjeta_regalo', monto, tarjeta: p.tarjeta });
+    }
+    const aEfectivo = importe - reembolsos.reduce((a, r) => a + r.monto, 0);
+    if (aEfectivo > 0) reembolsos.push({ metodo: 'efectivo', monto: aEfectivo });
+    this.renovarSiHaceFalta();
     const op = this.repo.tx(() => {
+      // P-08 (decidido): la devolución consume folio de la MISMA serie que las ventas de esta caja.
+      const folio = this.siguienteFolio();
+      const payload = {
+        devolucion_id: id, sale_id: d.sale_id, tienda: this.tienda, caja: this.caja, folio,
+        tienda_origen: venta.tienda, caja_origen: venta.caja, folio_origen: venta.folio,
+        lineas, importe, reembolsos, motivo: d.motivo, cajero: d.cajero ?? 'cajero', verificacion,
+      };
       const o = this.emitir('return.registered', payload, `ret:${id}`);
+      for (const r of reembolsos) {
+        if (r.metodo === 'tarjeta_regalo') this.emitir('giftcard.reintegro', { codigo: r.tarjeta, monto: r.monto, sale_id: d.sale_id, devolucion_id: id, tienda: this.tienda, caja: this.caja, motivo: 'devolucion' }, `gcre:ret:${id}:${r.tarjeta}`);
+      }
       for (const l of lineas) this.emitir('inv.movement', { item_id: l.item_id, tienda: this.tienda, delta: l.qty, tipo: 'devolucion', doc: id, caja: this.caja }, `mov:${id}:${l.linea_id}`);
       return o;
     });
-    return { ...payload, ocurrio_en: op.ocurrio_en };
+    return { ...op.payload, ocurrio_en: op.ocurrio_en };
   }
 
   // ── efectivo y corte (solo con datos de ESTA caja) ──
@@ -1002,7 +1103,7 @@ export class Caja {
   }
   /** Corte "en vivo": se calcula SOLO con las operaciones de esta caja y refleja todo lo ocurrido hasta ahora. No se guarda. */
   corteEnVivo(fecha: string) {
-    const ops = this.opsDe('sale.confirmed', 'sale.cancelled', 'return.registered', 'cash.movement', 'giftcard.emitida');
+    const ops = this.opsDe('sale.confirmed', 'sale.cancelled', 'return.registered', 'cash.movement');
     const propia = (t: string | null, c: number | null) => t === this.tienda && c === this.caja;
     const vs = [...ventas(ops).values()].filter((v) => propia(v.tienda, v.caja) && fechaLocal(v.ocurrio_en) === fecha);
     const confirmadas = vs.filter((v) => v.estado === 'confirmada');
@@ -1010,23 +1111,32 @@ export class Caja {
     const mov = ops.filter((o) => o.tipo === 'cash.movement' && propia(o.payload.tienda, o.payload.caja) && o.payload.fecha === fecha).map((o) => o.payload);
     const suma = (xs: number[]) => xs.reduce((a, b) => a + b, 0);
     const lineas = confirmadas.flatMap((v) => v.lineas);
+    const mercancia = lineas.filter((l) => !l.tarjeta_regalo);
+    const deTarjeta = lineas.filter((l) => l.tarjeta_regalo);
     const efectivoCobrado = suma(confirmadas.flatMap((v) => v.pagos.filter((p) => p.metodo === 'efectivo').map((p) => p.monto)));
     const tarjeta = suma(confirmadas.flatMap((v) => v.pagos.filter((p) => p.metodo === 'tarjeta').map((p) => p.monto)));
     const regalo = suma(confirmadas.flatMap((v) => v.pagos.filter((p) => p.metodo === 'tarjeta_regalo').map((p) => p.monto)));
-    const altas = ops.filter((o) => o.tipo === 'giftcard.emitida' && propia(o.payload.tienda, o.payload.caja) && fechaLocal(o.ocurrio_en) === fecha).map((o) => o.payload.monto as number);
     const fondo = suma(mov.filter((m) => m.tipo === 'fondo_inicial').map((m) => m.monto));
     const entradas = suma(mov.filter((m) => m.tipo === 'entrada').map((m) => m.monto));
     const retiros = suma(mov.filter((m) => m.tipo === 'retiro').map((m) => m.monto));
     const reembolsos = suma(devs.map((d) => d.importe));
-    const folios = vs.map((v) => v.folio);
+    const reembolsosEfectivo = suma(devs.flatMap((d) => d.reembolsos.filter((r) => r.metodo === 'efectivo').map((r) => r.monto)));
+    const reembolsosRegalo = suma(devs.flatMap((d) => d.reembolsos.filter((r) => r.metodo === 'tarjeta_regalo').map((r) => r.monto)));
+    // Las devoluciones también consumen folio de la serie (P-08).
+    const folios = [...vs.map((v) => v.folio), ...devs.map((d) => d.folio).filter((f): f is number => f != null)];
+    const ventasMercancia = suma(mercancia.map((l) => l.importe));
     return {
       tienda: this.tienda, caja: this.caja, fecha, tickets: confirmadas.length,
       tickets_cancelados: vs.length - confirmadas.length,
-      ventas_brutas: suma(lineas.map((l) => l.qty * l.precio_unit)), descuentos: suma(lineas.map((l) => l.descuento)),
-      ventas: suma(confirmadas.map((v) => v.total)), devoluciones: reembolsos,
-      ventas_netas: suma(confirmadas.map((v) => v.total)) - reembolsos,
-      cobros_efectivo: efectivoCobrado, cobros_tarjeta: tarjeta, cobros_tarjeta_regalo: regalo, tarjetas_regalo_emitidas: suma(altas), tarjetas_regalo_emitidas_n: altas.length, fondo_inicial: fondo, entradas, retiros,
-      efectivo_esperado: fondo + efectivoCobrado + suma(altas) + entradas - reembolsos - retiros,
+      ventas_brutas: suma(mercancia.map((l) => l.qty * l.precio_unit)), descuentos: suma(mercancia.map((l) => l.descuento)),
+      // "ventas" = todo lo que pasó por la caja con folio; "ventas_mercancia" excluye las tarjetas de regalo (son un pasivo, no ingreso por mercancía).
+      ventas: suma(confirmadas.map((v) => v.total)), ventas_mercancia: ventasMercancia,
+      tarjetas_regalo_vendidas: suma(deTarjeta.map((l) => l.importe)), tarjetas_regalo_vendidas_n: deTarjeta.length,
+      devoluciones: reembolsos, devoluciones_en_efectivo: reembolsosEfectivo, devoluciones_a_tarjeta_regalo: reembolsosRegalo,
+      folios_de_devolucion: devs.length,
+      ventas_netas: ventasMercancia - reembolsos,
+      cobros_efectivo: efectivoCobrado, cobros_tarjeta: tarjeta, cobros_tarjeta_regalo: regalo, fondo_inicial: fondo, entradas, retiros,
+      efectivo_esperado: fondo + efectivoCobrado + entradas - reembolsosEfectivo - retiros,
       folio_inicial: folios.length ? Math.min(...folios) : null, folio_final: folios.length ? Math.max(...folios) : null,
       perdida_documental_abierta: this.perdidasDocumentalesAbiertas().map((x) => x.perdida_id),
     };

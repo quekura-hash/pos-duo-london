@@ -124,7 +124,7 @@ async function ir(v) {
   S.vista = v;
   pintarNav();
   await pintarEncabezado();
-  await ({ venta: vistaVenta, corte: vistaCorte, ventas: vistaVentas, reportes: vistaReportes, inventario: vistaInventario, tarjetas: vistaTarjetas })[v]();
+  await ({ venta: vistaVenta, corte: vistaCorte, ventas: vistaVentas, reportes: vistaReportes, inventario: vistaInventario, tarjetas: vistaTarjetas, devolucion: vistaDevolucion })[v]();
 }
 
 // ── venta ──
@@ -164,7 +164,7 @@ async function vistaVenta() {
         </section>
         <div class="acciones-inf" id="acciones-inf">
           <button class="btn" id="btn-buscar-ticket" type="button" title="Abre el historial de ventas de esta caja">${ico('search')}<span>Buscar ticket</span></button>
-          ${pronto('btn-devolucion', 'undo', 'Cambio o devolución')}${pronto('btn-descuento', 'percent', 'Aplicar descuento')}${pronto('btn-espera', 'pause', 'Venta en espera')}
+          <button class="btn" id="btn-devolucion" type="button" title="Buscar la venta y devolver (solo en la caja donde se vendió)">${ico('undo')}<span>Cambio o devolución</span></button>${pronto('btn-descuento', 'percent', 'Aplicar descuento')}${pronto('btn-espera', 'pause', 'Venta en espera')}
         </div>
       </div>
       <aside class="panel resumen" aria-label="Resumen y cobro">
@@ -192,6 +192,7 @@ async function vistaVenta() {
   $('#btn-cobrar').addEventListener('click', cobrar);
   $('#btn-quitar').addEventListener('click', () => S.sel && accionLinea(S.sel, 'quitar'));
   $('#btn-buscar-ticket').addEventListener('click', () => ir('ventas'));
+  $('#btn-devolucion').addEventListener('click', () => ir('devolucion'));
   for (const b of $('#formas').querySelectorAll('button[data-forma]:not(:disabled)')) b.addEventListener('click', () => elegirForma(b.dataset.forma));
   pintarPago();
   pintarCarrito();
@@ -238,7 +239,7 @@ async function consultarRegalo() {
     const { tarjeta } = await api(`/api/tarjeta?codigo=${encodeURIComponent(codigo)}`);
     S.tarjeta = tarjeta;
     info.hidden = false;
-    info.innerHTML = `Saldo disponible: <b id="saldo-regalo">${mxn(tarjeta.saldo)}</b>`;
+    info.innerHTML = `Saldo disponible: <b id="saldo-regalo">${mxn(tarjeta.saldo)}</b><br>${tarjeta.vencida ? `<span style="color:var(--error)" id="regalo-vencida">Vencida el ${esc(fechaCorta(tarjeta.vigente_hasta).split(' · ')[0])}</span>` : `Vigente hasta ${esc(fechaCorta(tarjeta.vigente_hasta).split(' · ')[0])}`}`;
   } catch (e) {
     S.tarjeta = null;
     info.hidden = false;
@@ -306,10 +307,10 @@ function recalcular() {
     const info = $('#info-regalo');
     if (t && hay) {
       info.hidden = false;
-      info.innerHTML = `Saldo disponible: <b id="saldo-regalo">${mxn(t.saldo)}</b><br>Se aplican <b id="regalo-aplicado">${mxn(aplicado)}</b> · saldo restante <b id="regalo-restante">${mxn(saldoDespues)}</b>${resto > 0 ? `<br>Resto en efectivo: <b id="regalo-resto">${mxn(resto)}</b>` : ''}`;
+      info.innerHTML = `Saldo disponible: <b id="saldo-regalo">${mxn(t.saldo)}</b>${t.vencida ? ' · <span style="color:var(--error)" id="regalo-vencida">VENCIDA</span>' : ''}<br>Se aplican <b id="regalo-aplicado">${mxn(aplicado)}</b> · saldo restante <b id="regalo-restante">${mxn(saldoDespues)}</b>${resto > 0 ? `<br>Resto en efectivo: <b id="regalo-resto">${mxn(resto)}</b>` : ''}`;
     }
     $('#resto-regalo').hidden = !(t && hay && resto > 0);
-    ok = !!t && hay && t.saldo > 0 && (resto === 0 || (rec !== null && rec >= resto));
+    ok = !!t && hay && !t.vencida && t.saldo > 0 && (resto === 0 || (rec !== null && rec >= resto));
     if ($('#cambio')) $('#cambio').textContent = resto > 0 && rec !== null && rec >= resto ? mxn(rec - resto) : mxn(0);
   } else {
     ok = hay && rec !== null && rec >= total;
@@ -334,8 +335,9 @@ async function escanear() {
       msg(`${r.resultado === 'agregado' ? 'Agregado' : 'Cantidad actualizada'}: ${r.linea.descripcion} ${r.linea.marca} · ${r.linea.qty} pza.`);
       pintarCarrito();
     } else if (r.resultado === 'ambiguo') {
-      msg(`El código ${r.codigo} está duplicado en el catálogo. No se agregó nada: avise a Administración para resolverlo.`, 'error');
-      $('#resultados').innerHTML = `<ul data-resultado="ambiguo">${r.candidatos.map((c) => `<li>${esc(c.marca)} · ${esc(c.descripcion)} · Estilo ${esc(c.estilo)} · Lote ${esc(c.lote)} · Item # ${esc(c.item_no ?? 'pendiente')}</li>`).join('')}</ul>`;
+      msg(`El código ${r.codigo} está duplicado en el catálogo. Elija cuál es el artículo: la venta quedará marcada para que Administración lo revise.`, 'aviso');
+      $('#resultados').innerHTML = `<ul data-resultado="ambiguo" style="list-style:none;padding:0;display:flex;flex-direction:column;gap:8px">${r.candidatos.map((c) => `<li style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><span style="flex:1;min-width:200px">${esc(c.marca)} · ${esc(c.descripcion)} · Estilo ${esc(c.estilo)} · Lote ${esc(c.lote)} · Item # ${esc(c.item_no ?? 'pendiente')}</span><button class="btn" type="button" data-agregar="${c.item_id}">${ico('plus')}<span>Agregar este</span></button></li>`).join('')}</ul>`;
+      engancharAgregar();
     } else {
       await buscarTexto(texto);
     }
@@ -350,13 +352,16 @@ async function buscarTexto(texto) {
   $('#resultados').innerHTML = `<div class="tabla-cont"><table class="tabla-resultados"><thead><tr><th>Item #</th><th>Código</th><th>Descripción</th><th>Marca</th><th>Estilo</th><th>Lote</th><th>Departamento</th><th class="num">Precio</th><th class="num">Existencia</th><th></th></tr></thead><tbody>${resultados.map((r) => `
     <tr data-item="${r.item_id}"><td>${esc(r.item_no ?? 'pendiente')}</td><td>${r.codigo ? esc(r.codigo) : '<em>(sin código)</em>'}${r.codigo_alterno ? `<br><small>alterno ${esc(r.codigo_alterno)}</small>` : ''}</td><td>${esc(r.descripcion)}</td><td>${esc(r.marca)}</td><td>${esc(r.estilo)}</td><td>${esc(r.lote)}</td><td>${esc(r.departamento)}</td><td class="num">${mxn(r.precio)}</td>
     <td class="num">${r.existencia}${r.existencia_verificada ? '' : ' (sin verificar)'}</td>
-    <td>${r.duplicado ? '<span class="insignia">Código duplicado</span>' : !r.precio_valido ? '<span class="insignia cancelada" title="Precio en el catálogo: corregirlo antes de vender">Precio no vendible</span>' : `<button class="btn" type="button" data-agregar="${r.item_id}">${ico('plus')}<span>Agregar</span></button>`}</td></tr>`).join('')}</tbody></table></div>`;
+    <td>${!r.precio_valido ? '<span class="insignia cancelada" title="Precio en el catálogo: corregirlo antes de vender">Precio no vendible</span>' : `${r.duplicado ? '<span class="insignia" title="Código duplicado: la venta queda marcada para revisión">Código duplicado</span> ' : ''}<button class="btn" type="button" data-agregar="${r.item_id}">${ico('plus')}<span>Agregar</span></button>`}</td></tr>`).join('')}</tbody></table></div>`;
+  engancharAgregar();
+}
+function engancharAgregar() {
   for (const b of $('#resultados').querySelectorAll('[data-agregar]')) {
     b.addEventListener('click', async () => {
       try {
         const r = await api('/api/venta/agregar', { cart: S.cart, item_id: b.dataset.agregar });
         S.carrito = r.carrito; S.sel = r.linea.linea_id; $('#resultados').innerHTML = '';
-        msg(`Agregado: ${r.linea.descripcion} ${r.linea.marca}`.trim()); pintarCarrito();
+        msg(`Agregado: ${r.linea.descripcion} ${r.linea.marca}`.trim() + (r.linea.ambiguo ? ' (código duplicado: queda marcado para revisión)' : '')); pintarCarrito();
       } catch (e) { msg(e.message, 'error'); }
       $('#scan').focus();
     });
@@ -423,10 +428,11 @@ function mostrarTicket(r) {
 
 // ── corte ──
 const FILAS_CORTE = [
-  ['tickets', 'Tickets', (v) => v], ['ventas_brutas', 'Importe antes de descuentos', mxn], ['descuentos', 'Descuentos', mxn], ['ventas', 'Ventas', mxn],
-  ['devoluciones', 'Devoluciones', mxn], ['ventas_netas', 'Ventas netas', mxn], ['cobros_efectivo', 'Cobros en efectivo (MXN)', mxn], ['cobros_tarjeta', 'Cobros con tarjeta bancaria', mxn], ['cobros_tarjeta_regalo', 'Cobros con tarjeta de regalo', mxn], ['tarjetas_regalo_emitidas', 'Altas de tarjetas de regalo (efectivo recibido)', mxn],
+  ['tickets', 'Tickets', (v) => v], ['ventas_brutas', 'Mercancía antes de descuentos', mxn], ['descuentos', 'Descuentos', mxn], ['ventas_mercancia', 'Ventas de mercancía', mxn],
+  ['tarjetas_regalo_vendidas', 'Tarjetas de regalo vendidas o recargadas (no son ventas de mercancía)', mxn], ['ventas', 'Total de tickets de venta', mxn],
+  ['devoluciones', 'Devoluciones', mxn], ['devoluciones_en_efectivo', 'Devoluciones en efectivo', mxn], ['devoluciones_a_tarjeta_regalo', 'Devoluciones a tarjeta de regalo', mxn], ['ventas_netas', 'Ventas netas de mercancía', mxn], ['cobros_efectivo', 'Cobros en efectivo (MXN)', mxn], ['cobros_tarjeta', 'Cobros con tarjeta bancaria', mxn], ['cobros_tarjeta_regalo', 'Cobros con tarjeta de regalo', mxn],
   ['fondo_inicial', 'Fondo inicial', mxn], ['entradas', 'Entradas', mxn], ['retiros', 'Retiros', mxn], ['efectivo_esperado', 'Efectivo esperado en caja', mxn],
-  ['folio_inicial', 'Folio inicial', (v) => (v ?? '—')], ['folio_final', 'Folio final', (v) => (v ?? '—')], ['tickets_cancelados', 'Tickets cancelados', (v) => v],
+  ['folio_inicial', 'Folio inicial (ventas y devoluciones)', (v) => (v ?? '—')], ['folio_final', 'Folio final', (v) => (v ?? '—')], ['tickets_cancelados', 'Tickets cancelados', (v) => v],
 ];
 async function vistaCorte() {
   const j = await api('/api/corte');
@@ -486,7 +492,8 @@ async function vistaReportes() {
       ${r.filas.map((f) => `<tr><td>${esc(f.tienda)}</td><td>${f.caja}</td><td>${String(f.folio).padStart(6, '0')}</td><td>${esc(f.fecha_local)}</td><td>${esc(f.cajero)}</td><td class="num">${mxn(f.total)}</td><td>${esc(f.estado)}</td></tr>`).join('') || '<tr><td colspan="7" class="vacio">Sin ventas en el periodo.</td></tr>'}</tbody></table></div>
       <h2>Desglose por caja</h2><table id="tabla-por-caja"><thead><tr><th>Tienda</th><th>Caja</th><th class="num">Tickets</th><th class="num">Total</th></tr></thead><tbody>
       ${r.porCaja.map((c) => `<tr><td>${esc(c.tienda)}</td><td>${c.caja}</td><td class="num">${c.tickets}</td><td class="num">${mxn(c.total)}</td></tr>`).join('')}
-      <tr><th colspan="3" scope="row">Total consolidado</th><td class="num" id="total-consolidado"><b>${mxn(r.total)}</b></td></tr></tbody></table></div>`;
+      <tr><th colspan="3" scope="row">Total consolidado</th><td class="num" id="total-consolidado"><b>${mxn(r.total)}</b></td></tr></tbody></table>
+      <p class="nota">Sin tarjetas de regalo vendidas ni recargadas: <b id="total-mercancia">${mxn(r.total_mercancia)}</b>. Lo cobrado con una tarjeta de regalo ya cuenta como venta de mercancía; la venta de la tarjeta no.</p></div>`;
   });
 }
 
@@ -531,28 +538,53 @@ async function vistaInventario() {
 }
 
 // ── Tarjetas de regalo ──
-const filaTarjeta = (t, admin) => `<tr data-tarjeta="${esc(t.codigo)}"><td data-col="codigo">${esc(t.codigo)}</td>${admin ? `<td>${esc(t.tienda)} · Caja ${t.caja}</td>` : ''}<td class="num">${mxn(t.emitido)}</td><td class="num">${mxn(t.usado)}</td><td class="num" data-col="saldo"><b>${mxn(t.saldo)}</b></td><td>${esc(fechaHora(t.ocurrio_en))}</td>${admin ? `<td>${t.duplicadas ? `<span class="insignia cancelada">${t.duplicadas} alta(s) repetida(s)</span>` : ''}</td>` : ''}</tr>`;
+const venceTxt = (iso) => fechaCorta(iso).split(' · ')[0];
+const filaTarjeta = (t, admin) => `<tr data-tarjeta="${esc(t.codigo)}"><td data-col="codigo">${esc(t.codigo)}</td>${admin ? `<td>${esc(t.tienda)} · Caja ${t.caja}</td>` : ''}<td class="num">${mxn(t.emitido + (t.recargado ?? 0))}</td><td class="num">${mxn(t.usado)}</td><td class="num" data-col="saldo"><b>${mxn(t.saldo)}</b></td><td>${esc(venceTxt(t.vigente_hasta))}${t.vencida ? ' <span class="insignia cancelada">vencida</span>' : ''}</td>${admin ? `<td>${t.duplicadas ? `<span class="insignia cancelada">${t.duplicadas} alta(s) repetida(s)</span>` : ''}</td>` : ''}</tr>`;
+function dialogoTicketTarjeta(titulo, r) {
+  const dlg = $('#dlg-ticket');
+  const imp = r.impresion;
+  dlg.innerHTML = `<h2 id="dlg-titulo" style="margin:0 0 4px">${esc(titulo)}</h2>
+    <p style="margin:0" id="resumen-alta">Código <b>${esc(r.tarjeta.codigo)}</b> · saldo <b>${mxn(r.tarjeta.saldo)}</b> · folio <b>${String(r.venta.folio).padStart(6, '0')}</b> · ticket <b>${esc(r.codigo_ticket)}</b> · cambio <b>${mxn(r.cambio)}</b></p>
+    <p class="nota" style="margin:2px 0">Vigente hasta ${esc(venceTxt(r.tarjeta.vigente_hasta))}</p>
+    <div class="mensaje ${imp.ok ? 'ok' : 'error'}" id="estado-impresion" role="status">${imp.ok ? 'Ticket enviado a la impresora.' : `La impresora falló: ${esc(imp.error)}. La venta SÍ quedó guardada.`}</div>
+    <pre class="ticket" id="ticket-texto" tabindex="0">${esc(r.ticket_texto)}</pre>
+    <div class="filas"><button class="btn btn-primario" id="btn-cerrar" type="button">${ico('check')}<span>Listo</span></button></div>`;
+  dlg.showModal();
+  $('#btn-cerrar').addEventListener('click', async () => { dlg.close(); await vistaTarjetas(); });
+}
 async function vistaTarjetas() {
   if (S.sesion.rol === 'admin') {
     const { tarjetas } = await api('/api/admin/tarjetas');
     $('#vista').innerHTML = `<div class="titulo-vista">${ico('gift')}<h1>Tarjetas de regalo</h1></div>
-      <div class="panel"><p class="nota" style="margin-top:0">Libro de todas las tiendas. El saldo es: emitido − usos + reintegros por cancelación. Si dos cajas aisladas dan de alta el mismo código, la segunda no suma saldo y se señala aquí.</p>
-      <div class="tabla-cont"><table id="tabla-tarjetas"><thead><tr><th>Código</th><th>Emitida en</th><th class="num">Emitido</th><th class="num">Usado</th><th class="num">Saldo</th><th>Alta</th><th>Avisos</th></tr></thead><tbody>
+      <div class="panel"><p class="nota" style="margin-top:0">Libro de todas las tiendas. Saldo = vendido + recargas − usos + devoluciones a la tarjeta. Vencen a los 12 meses de la venta o de la última recarga en efectivo. Si dos cajas aisladas dan de alta el mismo código, la segunda no suma saldo y se señala aquí.</p>
+      <div class="tabla-cont"><table id="tabla-tarjetas"><thead><tr><th>Código</th><th>Emitida en</th><th class="num">Cargado</th><th class="num">Usado</th><th class="num">Saldo</th><th>Vigente hasta</th><th>Avisos</th></tr></thead><tbody>
       ${tarjetas.map((t) => filaTarjeta(t, true)).join('') || '<tr><td colspan="7" class="vacio">Aún no hay tarjetas de regalo.</td></tr>'}</tbody></table></div></div>`;
     return;
   }
   const { tarjetas } = await api('/api/tarjetas');
   $('#vista').innerHTML = `<div class="titulo-vista">${ico('gift')}<h1>Tarjetas de regalo</h1></div>
     <div class="cuadricula">
-      <section class="panel" aria-label="Dar de alta una tarjeta">
-        <h2 style="margin-top:0">${ico('plus')} Dar de alta una tarjeta</h2>
+      <section class="panel" aria-label="Vender una tarjeta">
+        <h2 style="margin-top:0">${ico('plus')} Vender una tarjeta nueva</h2>
         <form id="form-alta" autocomplete="off">
           <div class="campo"><label for="alta-codigo">Código de la tarjeta</label><input id="alta-codigo" class="texto" spellcheck="false" placeholder="Escanee o escriba el código"></div>
-          <div class="campo"><label for="alta-monto">Monto que paga el cliente (MXN)</label><input id="alta-monto" inputmode="decimal" placeholder="0.00"></div>
-          <button class="btn btn-primario" id="btn-alta" type="submit">${ico('gift')}<span>Dar de alta y cobrar en efectivo</span></button>
+          <div class="campo"><label for="alta-monto">Monto de la tarjeta (MXN)</label><input id="alta-monto" inputmode="decimal" placeholder="0.00"></div>
+          <div class="campo"><label for="alta-recibido">Efectivo recibido (MXN, opcional)</label><input id="alta-recibido" inputmode="decimal" placeholder="Si lo deja vacío, paga exacto"></div>
+          <button class="btn btn-primario" id="btn-alta" type="submit">${ico('gift')}<span>Cobrar y dar de alta</span></button>
         </form>
         <div id="msg-alta" class="mensaje" role="status" aria-live="polite"></div>
-        <p class="nota">Es un ingreso de efectivo de esta caja, no una venta: no consume folio de ticket y se suma al efectivo esperado del corte. Se imprime un comprobante.</p>
+        <p class="nota">Es una venta en efectivo con folio normal, pero el corte la separa de las ventas de mercancía. Vence a los 12 meses.</p>
+      </section>
+      <section class="panel" aria-label="Recargar una tarjeta">
+        <h2 style="margin-top:0">${ico('refresh')} Recargar una tarjeta</h2>
+        <form id="form-recarga" autocomplete="off">
+          <div class="campo"><label for="rec-codigo">Código de la tarjeta</label><input id="rec-codigo" class="texto" spellcheck="false" placeholder="Escanee o escriba el código"></div>
+          <div class="campo"><label for="rec-monto">Monto a recargar (MXN)</label><input id="rec-monto" inputmode="decimal" placeholder="0.00"></div>
+          <div class="campo"><label for="rec-recibido">Efectivo recibido (MXN, opcional)</label><input id="rec-recibido" inputmode="decimal" placeholder="Si lo deja vacío, paga exacto"></div>
+          <button class="btn btn-primario" id="btn-recarga" type="submit">${ico('refresh')}<span>Cobrar y recargar</span></button>
+        </form>
+        <div id="msg-recarga" class="mensaje" role="status" aria-live="polite"></div>
+        <p class="nota">La recarga en efectivo reinicia los 12 meses. Lo devuelto por cambios o devoluciones no los reinicia.</p>
       </section>
       <section class="panel" aria-label="Consultar saldo">
         <h2 style="margin-top:0">${ico('search')} Consultar saldo</h2>
@@ -563,35 +595,109 @@ async function vistaTarjetas() {
         <div id="resultado-saldo" class="mensaje" role="status" aria-live="polite"></div>
       </section>
     </div>
-    <section class="panel" style="margin-top:12px"><h2 style="margin-top:0">Tarjetas dadas de alta en esta caja</h2>
-      <div class="tabla-cont"><table id="tabla-tarjetas"><thead><tr><th>Código</th><th class="num">Emitido</th><th class="num">Usado</th><th class="num">Saldo</th><th>Alta</th></tr></thead><tbody>
-      ${tarjetas.map((t) => filaTarjeta(t, false)).join('') || '<tr><td colspan="5" class="vacio">Esta caja aún no ha dado de alta tarjetas.</td></tr>'}</tbody></table></div></section>`;
-  $('#form-alta').addEventListener('submit', async (ev) => {
+    <section class="panel" style="margin-top:12px"><h2 style="margin-top:0">Tarjetas vendidas en esta caja</h2>
+      <div class="tabla-cont"><table id="tabla-tarjetas"><thead><tr><th>Código</th><th class="num">Cargado</th><th class="num">Usado</th><th class="num">Saldo</th><th>Vigente hasta</th></tr></thead><tbody>
+      ${tarjetas.map((t) => filaTarjeta(t, false)).join('') || '<tr><td colspan="5" class="vacio">Esta caja aún no ha vendido tarjetas.</td></tr>'}</tbody></table></div></section>`;
+  const enviar = (form, ruta, campos, msgId, titulo) => $(form).addEventListener('submit', async (ev) => {
     ev.preventDefault();
-    const m = $('#msg-alta');
-    const monto = parseMXN($('#alta-monto').value);
+    const m = $(msgId);
+    const monto = parseMXN($(campos.monto).value);
+    const recTxt = $(campos.recibido).value.trim();
+    const recibido = recTxt ? parseMXN(recTxt) : undefined;
     if (monto === null || monto <= 0) { m.className = 'mensaje error'; m.textContent = 'Escriba un monto válido en pesos (por ejemplo 500 o 500.00).'; return; }
+    if (recTxt && recibido === null) { m.className = 'mensaje error'; m.textContent = 'El efectivo recibido no es un importe válido.'; return; }
     try {
-      const r = await api('/api/tarjeta/alta', { codigo: $('#alta-codigo').value, monto });
-      const dlg = $('#dlg-ticket');
-      dlg.innerHTML = `<h2 id="dlg-titulo" style="margin:0 0 4px">Tarjeta de regalo dada de alta</h2>
-        <p style="margin:0" id="resumen-alta">Código <b>${esc(r.tarjeta.codigo)}</b> · saldo <b>${mxn(r.tarjeta.saldo)}</b></p>
-        <div class="mensaje ${r.impresion.ok ? 'ok' : 'error'}" id="estado-impresion" role="status">${r.impresion.ok ? 'Comprobante enviado a la impresora.' : `La impresora falló: ${esc(r.impresion.error)}. La tarjeta SÍ quedó dada de alta.`}</div>
-        <pre class="ticket" id="ticket-texto" tabindex="0">${esc(r.comprobante_texto)}</pre>
-        <div class="filas"><button class="btn btn-primario" id="btn-cerrar" type="button">${ico('check')}<span>Listo</span></button></div>`;
-      dlg.showModal();
-      $('#btn-cerrar').addEventListener('click', async () => { dlg.close(); await vistaTarjetas(); });
+      const r = await api(ruta, { codigo: $(campos.codigo).value, monto, ...(recibido !== undefined ? { recibido } : {}), ref: crypto.randomUUID() });
+      dialogoTicketTarjeta(titulo, r);
     } catch (e) { m.className = 'mensaje error'; m.textContent = e.message; }
   });
+  enviar('#form-alta', '/api/tarjeta/alta', { codigo: '#alta-codigo', monto: '#alta-monto', recibido: '#alta-recibido' }, '#msg-alta', 'Tarjeta de regalo vendida');
+  enviar('#form-recarga', '/api/tarjeta/recargar', { codigo: '#rec-codigo', monto: '#rec-monto', recibido: '#rec-recibido' }, '#msg-recarga', 'Tarjeta de regalo recargada');
   $('#form-saldo').addEventListener('submit', async (ev) => {
     ev.preventDefault();
     const m = $('#resultado-saldo');
     try {
       const { tarjeta: t } = await api(`/api/tarjeta?codigo=${encodeURIComponent($('#saldo-codigo').value)}`);
-      m.className = 'mensaje ok';
-      m.innerHTML = `Tarjeta <b>${esc(t.codigo)}</b>: saldo <b id="saldo-consultado">${mxn(t.saldo)}</b> (emitido ${mxn(t.emitido)}, usado ${mxn(t.usado)}${t.reintegrado ? `, reintegrado ${mxn(t.reintegrado)}` : ''}).`;
+      m.className = `mensaje ${t.vencida ? 'error' : 'ok'}`;
+      m.innerHTML = `Tarjeta <b>${esc(t.codigo)}</b>: saldo <b id="saldo-consultado">${mxn(t.saldo)}</b> (cargado ${mxn(t.emitido + t.recargado)}, usado ${mxn(t.usado)}${t.reintegrado ? `, devuelto a la tarjeta ${mxn(t.reintegrado)}` : ''}). ${t.vencida ? `<b id="tarjeta-vencida">VENCIDA el ${esc(venceTxt(t.vigente_hasta))}</b>` : `Vigente hasta ${esc(venceTxt(t.vigente_hasta))}.`}`;
     } catch (e) { m.className = 'mensaje error'; m.textContent = e.message; }
   });
+}
+
+// ── Cambio o devolución: se busca la venta de la tienda, pero solo se devuelve en la caja donde se hizo ──
+async function vistaDevolucion() {
+  const hoy = S.estado.fecha_local;
+  $('#vista').innerHTML = `<div class="titulo-vista">${ico('undo')}<h1>Cambio o devolución</h1></div>
+    <section class="panel" aria-label="Buscar la venta">
+      <p class="nota" style="margin-top:0">Busque por fecha y hora, escaneando el artículo, o por folio. La devolución se hace <b>solo en la caja donde se vendió</b>; si la venta es de la otra caja se le indica cuál. Cada devolución lleva folio de la misma serie que las ventas.</p>
+      <form id="form-buscar-venta" class="filtros" autocomplete="off">
+        <label>Fecha <input type="date" id="bv-fecha" value="${hoy}"></label>
+        <label>Desde <input type="time" id="bv-desde" value="00:00"></label>
+        <label>Hasta <input type="time" id="bv-hasta" value="23:59"></label>
+        <label>Artículo (escanee) <input id="bv-codigo" class="texto" style="padding:6px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie)" spellcheck="false"></label>
+        <label>Folio <input id="bv-folio" inputmode="numeric" style="width:90px;padding:6px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie)"></label>
+        <button class="btn btn-primario" type="submit" style="width:auto">${ico('search')}<span>Buscar venta</span></button>
+        <button class="btn" type="button" id="bv-volver">${ico('cart')}<span>Volver a la venta</span></button>
+      </form>
+      <div id="bv-msg" class="mensaje" role="status" aria-live="polite"></div>
+    </section>
+    <div id="bv-resultados"></div>`;
+  $('#bv-volver').addEventListener('click', () => ir('venta'));
+  $('#form-buscar-venta').addEventListener('submit', async (ev) => { ev.preventDefault(); await buscarVentasDev(); });
+  $('#bv-codigo').focus();
+}
+async function buscarVentasDev() {
+  const m = $('#bv-msg');
+  const p = new URLSearchParams();
+  const codigo = $('#bv-codigo').value.trim(), folio = $('#bv-folio').value.trim();
+  // Con artículo escaneado no hace falta la fecha: se muestra su historial de ventas en la tienda.
+  if (!codigo) { p.set('fecha', $('#bv-fecha').value); p.set('desde', $('#bv-desde').value); p.set('hasta', $('#bv-hasta').value); }
+  if (codigo) p.set('codigo', codigo);
+  if (folio) p.set('folio', folio);
+  try {
+    const r = await api(`/api/ventas/buscar?${p}`);
+    m.className = r.hub ? 'mensaje' : 'mensaje aviso';
+    m.textContent = r.hub ? (r.articulo ? `Historial de ventas de ${r.articulo.descripcion} ${r.articulo.marca}.` : '') : 'Sin conexión con el hub: solo se muestran las ventas de esta caja.';
+    $('#bv-resultados').innerHTML = r.resultados.length ? r.resultados.map((v) => ventaDevHtml(v)).join('') : '<div class="panel vacio" id="bv-vacio">No se encontró ninguna venta con esos datos.</div>';
+    for (const f of $('#bv-resultados').querySelectorAll('form[data-sale]')) f.addEventListener('submit', (ev) => { ev.preventDefault(); devolverVenta(f); });
+  } catch (e) { m.className = 'mensaje error'; m.textContent = e.message; }
+}
+function ventaDevHtml(v) {
+  const cab = `<div class="cab" style="display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center"><b>${esc(v.codigo_ticket)}</b><span>${esc(fechaHora(v.ocurrio_en))}</span><span class="insignia">Caja ${v.caja}</span>${v.propia && v.total !== null ? `<span>Total ${mxn(v.total)}</span>` : ''}</div>`;
+  if (!v.propia) {
+    return `<section class="panel" data-venta-ajena="${esc(v.sale_id)}" style="margin-top:12px">${cab}
+      <ul style="margin:8px 0">${v.lineas.map((l) => `<li>${esc(l.descripcion)} · ${l.qty} pza.</li>`).join('')}</ul>
+      <div class="mensaje aviso">Esta venta se hizo en la <b>Caja ${v.caja}</b>. La devolución se hace en esa caja.</div></section>`;
+  }
+  return `<section class="panel" data-venta-propia="${esc(v.sale_id)}" style="margin-top:12px">${cab}
+    <form data-sale="${esc(v.sale_id)}" autocomplete="off">
+      <div class="tabla-cont"><table><thead><tr><th>Artículo</th><th class="num">Vendidas</th><th class="num">Ya devueltas</th><th class="num">Importe</th><th class="num">Devolver</th></tr></thead><tbody>
+      ${v.lineas.map((l) => {
+        const max = l.tarjeta_regalo ? 0 : l.qty - (l.devuelto ?? 0);
+        return `<tr><td>${esc(l.descripcion)}${l.marca ? ` · ${esc(l.marca)}` : ''}${l.item_no ? ` · Item # ${esc(l.item_no)}` : ''}</td><td class="num">${l.qty}</td><td class="num">${l.devuelto ?? 0}</td><td class="num">${mxn(l.importe ?? 0)}</td>
+        <td class="num">${l.tarjeta_regalo ? '<small>no se devuelve</small>' : `<input type="number" min="0" max="${max}" value="0" ${max === 0 ? 'disabled' : ''} data-linea="${esc(l.linea_id)}" style="width:64px;text-align:right;padding:4px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie)" aria-label="Piezas a devolver de ${esc(l.descripcion)}">`}</td></tr>`;
+      }).join('')}</tbody></table></div>
+      <div class="filas" style="margin-top:10px;align-items:center"><input class="texto" data-motivo placeholder="Motivo (talla, defecto, cambio de opinión…)" style="flex:3;min-width:200px;padding:8px;border:1px solid var(--borde);border-radius:8px;background:var(--superficie)" aria-label="Motivo">
+        <button class="btn btn-primario" type="submit" style="width:auto;flex:1">${ico('undo')}<span>Devolver</span></button></div>
+      <div class="mensaje" data-msg role="status"></div>
+    </form></section>`;
+}
+async function devolverVenta(form) {
+  const m = form.querySelector('[data-msg]');
+  const renglones = [...form.querySelectorAll('input[data-linea]')].map((i) => ({ linea_id: i.dataset.linea, qty: Number(i.value) })).filter((x) => x.qty > 0);
+  if (!renglones.length) { m.className = 'mensaje error'; m.textContent = 'Indique cuántas piezas se devuelven.'; return; }
+  try {
+    const r = await api('/api/venta/devolver', { sale_id: form.dataset.sale, renglones, motivo: form.querySelector('[data-motivo]').value.trim() || 'devolución' });
+    const d = r.devolucion;
+    const dlg = $('#dlg-ticket');
+    dlg.innerHTML = `<h2 id="dlg-titulo" style="margin:0 0 4px">Devolución registrada</h2>
+      <p style="margin:0" id="resumen-devolucion">Folio <b>${String(d.folio).padStart(6, '0')}</b> · devuelto <b>${mxn(d.importe)}</b>${d.reembolsos.map((x) => ` · ${x.metodo === 'efectivo' ? 'efectivo' : `a la tarjeta ${esc(x.tarjeta)}`} <b>${mxn(x.monto)}</b>`).join('')}</p>
+      <div class="mensaje ${r.impresion.ok ? 'ok' : 'error'}" id="estado-impresion" role="status">${r.impresion.ok ? 'Ticket enviado a la impresora.' : `La impresora falló: ${esc(r.impresion.error)}. La devolución SÍ quedó guardada.`}</div>
+      <pre class="ticket" id="ticket-texto" tabindex="0">${esc(r.ticket_texto)}</pre>
+      <div class="filas"><button class="btn btn-primario" id="btn-cerrar" type="button">${ico('check')}<span>Listo</span></button></div>`;
+    dlg.showModal();
+    $('#btn-cerrar').addEventListener('click', async () => { dlg.close(); await buscarVentasDev(); await pintarEncabezado(); });
+  } catch (e) { m.className = 'mensaje error'; m.textContent = e.message; }
 }
 
 // ── arranque ──
