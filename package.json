@@ -10,10 +10,12 @@
   "scripts": {
     "test": "node --no-warnings --test --test-reporter=spec \"test/*.test.ts\"",
     "typecheck": "tsc --noEmit",
-    "demo": "node --no-warnings src/app/demo.ts"
+    "demo": "node --no-warnings src/app/demo.ts",
+    "build:prueba": "node scripts/construir-prueba.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "esbuild": "^0.25.0",
     "playwright-core": "^1.56.1",
     "typescript": "^5.6.0"
   }

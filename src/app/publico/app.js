@@ -13,8 +13,10 @@ const parseMXN = (txt) => {
 };
 
 async function api(ruta, cuerpo) {
-  const r = await fetch(ruta, cuerpo === undefined ? {} : { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(cuerpo) });
-  const j = await r.json();
+  // En la versión que corre dentro del navegador (sin servidor) la API se atiende en la misma página.
+  const j = window.__POS_ATENDER__
+    ? (await window.__POS_ATENDER__(cuerpo === undefined ? 'GET' : 'POST', ruta, cuerpo)).json
+    : await (await fetch(ruta, cuerpo === undefined ? {} : { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(cuerpo) })).json();
   if (!j.ok) { const e = new Error(j.error?.mensaje ?? 'Error'); e.codigo = j.error?.codigo; throw e; }
   return j;
 }
@@ -315,8 +317,11 @@ async function vistaReportes() {
 }
 
 // ── arranque ──
-(async function () {
+async function iniciar() {
+  Object.assign(S, { sesion: null, vista: null, cart: null, carrito: null, sel: null, estado: null, ultimoFolio: null });
   S.sesion = await api('/api/sesion');
   await ir(S.sesion.nav[0]);
-  setInterval(() => { if (S.vista === 'venta' && !$('#dlg-ticket').open) pintarEncabezado().catch(() => {}); }, 5000);
-})();
+}
+window.POS_UI = { iniciar };
+setInterval(() => { if (S.vista === 'venta' && !$('#dlg-ticket').open) pintarEncabezado().catch(() => {}); }, 5000);
+if (!window.__POS_MANUAL__) iniciar();

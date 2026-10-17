@@ -13,11 +13,11 @@ Ejecutar: `npm install && npm test` (Node ≥ 22.18; usa `node:sqlite`, experime
 | `[memoria]` | Motor completo sobre almacenamiento en memoria, todo en un proceso. Sin disco; "reinicio" no aplica. | 100 |
 | `[sqlite]` | El **mismo** motor sobre archivos SQLite (WAL, `synchronous=FULL`), en un proceso, con cierre y reapertura (reinicio), pérdida de archivo y copia de respaldo. | 106 |
 | `[procesos reales]` | **Un hub real y dos procesos de caja separados** (procesos del sistema operativo), cada uno con su archivo SQLite, hablando por HTTP en `127.0.0.1`; `kill -9` reales. | 11 |
-| `[navegador real]` | Chromium (Playwright) manejando la interfaz real contra el servidor local; el motor corre en el mismo proceso de la prueba, sobre SQLite. | 6 |
+| `[navegador real]` | Chromium (Playwright) manejando la interfaz real. 6 contra el servidor local (motor en el proceso de la prueba, sobre SQLite) y 1 contra la **versión de una sola página** (motor en memoria dentro del navegador). | 7 |
 | `[sqlite — proceso real]` | Un proceso hijo inicia una transacción y se le envía `SIGKILL`; disparador de la base. | 3 |
 | `[memoria — lógica pura]` | Importación de catálogo, centavos, políticas, ticket (texto y ESC/POS). | 19 |
 
-Total: **245 pruebas, 0 fallos, 0 omitidas** (última ejecución; `npm test` ≈ 24 s). Las pruebas de procesos y de navegador se repitieron 3 veces seguidas sin variación.
+Total: **246 pruebas, 0 fallos, 0 omitidas** (última ejecución; `npm test` ≈ 30 s). Las pruebas de procesos y de navegador se repitieron 3 veces seguidas sin variación.
 En las pruebas en un solo proceso, la "pérdida de conexión" es un interruptor del transporte simulado.
 
 ## Políticas pendientes: configuración explícita de ensayo
@@ -130,7 +130,8 @@ CD7 una caja aislada sigue viendo el conflicto hasta recibir la resolución. ✔
 - `17` **API HTTP** (H1–H5): flujo completo, 403 al pedir otra caja o rutas de Administración (y viceversa), impresora que falla con HTTP 200 y venta guardada, duplicados. ✔
 - `18` **Navegador real** (UI1–UI6, Chromium): flujo completo desde la pantalla con capturas; encabezado con tienda/caja/usuario/fecha/folio/hub/internet/pendientes/última sincronización; navegación por permisos; columnas en el orden pedido; botón de regalo visible, deshabilitado y debajo de Cobrar; cobro deshabilitado hasta cubrir el total; falla de impresora y reintento; duplicado sin opción de elegir; Administración con una, varias o todas las cajas y folios originales; las diez columnas sin desplazamiento horizontal en 1366, 1280 y 1024 px; sin errores de consola. ✔
 - Capturas en `docs/capturas/` (generadas por las pruebas): `01-venta-en-curso`, `02-ticket`, `03-corte`, `04-falla-de-impresora`, `05-administracion-todas`, `06-pantalla-angosta`, `07-venta-1024`.
-- Demostración manual con datos sintéticos: `npm run demo` (4 cajas y Administración en `127.0.0.1`).
+- Demostración manual con datos sintéticos: `npm run demo` (4 cajas y Administración en `127.0.0.1`, servidor real con SQLite).
+- **Versión de prueba en una sola página** (`npm run build:prueba` → `dist/pos-venta-prueba.html`): el mismo motor, servicio, enrutador, ticket y pantalla empaquetados con esbuild y con almacenamiento en memoria; selector de sesión (4 cajas y Administración), hub caído simulado, siguiente impresión con falla (una vez) y reinicio de datos. No hay hub real, SQLite ni impresora, y los datos se pierden al recargar. Prueba `19` (B1). Hallazgo al construirla: la falla simulada de impresora debía ser de **una sola vez**, porque con el diálogo del ticket abierto el probador no puede apagarla para reintentar.
 
 ## Verificación de que las pruebas detectan fallos
 

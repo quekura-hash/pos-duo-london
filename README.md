@@ -12,6 +12,6 @@ Estado: **Etapa 0 — diseño y simulador con datos sintéticos.** No es un POS 
 - `src/transporte/` — hub y caja como procesos reales con HTTP local (solo para pruebas de integración).
 - `test/` — pruebas (`npm test`, Node ≥ 22.18; `npm run typecheck`; las de navegador usan Chromium: variable `POS_CHROMIUM` si no está en la ruta habitual).
 
-Primera operación completa (escanear → cobrar en efectivo → ticket → corte): `npm run demo` levanta 4 cajas y Administración con datos sintéticos en `127.0.0.1:3001-3004` y `:3010`. Capturas en `docs/capturas/`. El mockup visual aprobado **no** se ha recibido: la interfaz sigue la descripción textual y debe compararse con él.
+Primera operación completa (escanear → cobrar en efectivo → ticket → corte): `npm run demo` levanta 4 cajas y Administración con datos sintéticos en `127.0.0.1:3001-3004` y `:3010`. Para probar sin instalar un servidor: `npm run build:prueba` genera `dist/pos-venta-prueba.html`, una sola página con el motor en memoria. Capturas en `docs/capturas/`. El mockup visual aprobado **no** se ha recibido: la interfaz sigue la descripción textual y debe compararse con él.
 
 Las políticas comerciales pendientes se configuran de forma explícita y están marcadas `ENSAYO_NO_APROBADO`.

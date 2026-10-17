@@ -4,19 +4,24 @@
   --aviso: #8a5a00; --aviso-fondo: #fff4d6; --sombra: 0 1px 2px rgba(0,0,0,.08);
 }
 @media (prefers-color-scheme: dark) {
-  :root:not([data-tema="claro"]) {
+  :root:not([data-theme="light"]) {
     --fondo: #12151a; --superficie: #1b2027; --superficie-2: #232a33; --borde: #343c47; --texto: #e8ebf0; --texto-2: #9aa5b4;
     --acento: #6ea0f0; --acento-texto: #0b1220; --ok: #5fcf8e; --ok-fondo: #14301f; --error: #ff8a80; --error-fondo: #3a1b18;
-    --aviso: #f0c35c; --aviso-fondo: #3a2f12; --sombra: none;
+    --aviso: #f0c35c; --aviso-fondo: #3a2f12; --sombra: none; color-scheme: dark;
   }
 }
+:root[data-theme="dark"] {
+    --fondo: #12151a; --superficie: #1b2027; --superficie-2: #232a33; --borde: #343c47; --texto: #e8ebf0; --texto-2: #9aa5b4;
+    --acento: #6ea0f0; --acento-texto: #0b1220; --ok: #5fcf8e; --ok-fondo: #14301f; --error: #ff8a80; --error-fondo: #3a1b18;
+    --aviso: #f0c35c; --aviso-fondo: #3a2f12; --sombra: none; color-scheme: dark;
+  }
 * { box-sizing: border-box; }
 html, body { height: 100%; }
 body { margin: 0; background: var(--fondo); color: var(--texto); font: 15px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
 button, input, select { font: inherit; color: inherit; }
 :focus-visible { outline: 3px solid var(--acento); outline-offset: 2px; }
 .app { display: grid; grid-template-columns: 176px minmax(0, 1fr); grid-template-rows: auto 1fr; min-height: 100vh; }
-.nav { grid-row: 1 / 3; background: var(--superficie); border-right: 1px solid var(--borde); padding: 16px 12px; display: flex; flex-direction: column; gap: 16px; }
+.nav { grid-row: 1 / 3; background: var(--superficie); border-right: 1px solid var(--borde); padding: 16px; display: flex; flex-direction: column; gap: 16px; }
 .marca { font-weight: 700; font-size: 20px; letter-spacing: .04em; } .marca span { display: block; font-size: 12px; font-weight: 500; color: var(--texto-2); letter-spacing: 0; }
 #nav { display: flex; flex-direction: column; gap: 4px; }
 #nav button { text-align: left; background: none; border: 1px solid transparent; border-radius: 8px; padding: 10px 12px; cursor: pointer; }
