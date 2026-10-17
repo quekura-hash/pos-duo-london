@@ -89,6 +89,9 @@ export interface OpcionesMundo {
   catalogoCompartido?: boolean;
 }
 
+/** Configuración global y catálogo: lo que baja del central a todas las tiendas y cajas. */
+const esGlobal = (t: string) => t.startsWith('item.') || t.startsWith('config.') || t.startsWith('permiso.');
+
 /** Red simulada en proceso (no sockets reales): enlaces con interruptor, entrega con ack y reintento. */
 export class Mundo {
   readonly reloj = new Reloj();
@@ -171,6 +174,7 @@ export class Mundo {
         if (w.centralArriba(t, n)) return ventas(w.central.repo.ops()).get(saleId) ?? null;
         return null;
       },
+      fijarTipoCambio: (tasa, usuario, base) => (w.centralArriba(t, n) ? w.central.fijarTipoCambio(tasa, usuario, base) : null),
       buscarVentas: (q) => {
         if (!w.hubArriba(t, n)) return null;
         const a = localizarVentas(w.hub(t).repo.ops(), t, q);
@@ -228,8 +232,8 @@ export class Mundo {
     const rec = { catalogo: 0, movimientos: 0, operaciones_propias: 0 };
     for (const f of fuentes) {
       for (const op of f.ops) {
-        const esCatalogo = op.tipo.startsWith('item.');
-        const esInv = (op.tipo.startsWith('inv.') || op.tipo.startsWith('doc.')) && op.payload?.tienda === t;
+        const esCatalogo = esGlobal(op.tipo);
+        const esInv = (op.tipo.startsWith('inv.') || op.tipo.startsWith('doc.') || op.tipo.startsWith('giftcard.')) && op.payload?.tienda === t;
         const esPropia = op.tienda === t && op.caja === n && !op.tipo.startsWith('folio.lease') && !op.tipo.startsWith('inv.') && !op.tipo.startsWith('doc.');
         if (!(esCatalogo || esInv || esPropia)) continue;
         if (caja.repo.appendOp(op)) {
@@ -263,8 +267,8 @@ export class Mundo {
     const rec = { catalogo: 0, movimientos: 0, operaciones_propias: 0 };
     const techos = new Map<number, number>();
     for (const op of this.central.repo.ops()) {
-      const esCatalogo = op.tipo.startsWith('item.');
-      const esInv = (op.tipo.startsWith('inv.') || op.tipo.startsWith('doc.')) && op.payload?.tienda === t;
+      const esCatalogo = esGlobal(op.tipo);
+      const esInv = (op.tipo.startsWith('inv.') || op.tipo.startsWith('doc.') || op.tipo.startsWith('giftcard.')) && op.payload?.tienda === t;
       const esTienda = op.tienda === t && !op.tipo.startsWith('inv.') && !op.tipo.startsWith('doc.');
       if (op.tipo === 'folio.lease_granted' && op.tienda === t) techos.set(op.caja!, Math.max(techos.get(op.caja!) ?? 0, op.payload.techo));
       if (!(esCatalogo || esInv || esTienda)) continue;
@@ -277,7 +281,7 @@ export class Mundo {
     for (const [caja, techo] of techos) hub.repo.kvSet(`techo:${caja}`, techo);
     // La cola de relevo del hub se perdió: se reenvía a las cajas todo el catálogo e inventario (las cajas deduplican).
     for (const op of hub.repo.ops()) {
-      if (op.tipo.startsWith('item.') || ((op.tipo.startsWith('inv.') || op.tipo.startsWith('doc.')) && op.payload?.tienda === t)) {
+      if (esGlobal(op.tipo) || ((op.tipo.startsWith('inv.') || op.tipo.startsWith('doc.') || op.tipo.startsWith('giftcard.')) && op.payload?.tienda === t)) {
         for (const c of this.ctx.cajasCfg.filter((x) => x.tienda === t)) hub.repo.encolar(op.op_id, `caja:${t}/${c.caja}`);
       }
     }
@@ -289,7 +293,7 @@ export class Mundo {
       if (caja.estadoFolios().estado !== 'activa') cajaPerdida = true;
       for (const op of caja.repo.ops()) {
         const propia = op.caja === c.caja && op.tienda === t && !op.tipo.startsWith('folio.lease');
-        const compartida = op.tipo.startsWith('item.') || ((op.tipo.startsWith('inv.') || op.tipo.startsWith('doc.')) && op.payload?.tienda === t); // lo que la caja aprendió de su par
+        const compartida = esGlobal(op.tipo) || ((op.tipo.startsWith('inv.') || op.tipo.startsWith('doc.') || op.tipo.startsWith('giftcard.')) && op.payload?.tienda === t); // lo que la caja aprendió de su par
         if ((propia || compartida) && !hub.repo.tieneOp(op.op_id)) {
           caja.repo.reencolar(op.op_id, `hub:${t}`);
           reenviadas++;
@@ -310,6 +314,13 @@ export class Mundo {
       documentos: marca ? { estado: 'perdida_posible_abierta', alcance: 'ventas_pagos_y_folios_de_las_cajas_y_del_hub', perdida_id: marca.documental.op_id } : null,
       copiadas: rec.catalogo + rec.movimientos + rec.operaciones_propias,
     };
+  }
+
+  /** Fija la tasa inicial (versión 1) desde el central y la entrega a hubs y cajas. */
+  fijarTipoCambioInicial(tasa: number, usuario = 'sistema') {
+    const r = this.central.fijarTipoCambio(tasa, usuario, 0);
+    if (!r.ok) throw new Error(`tipo de cambio inicial: ${r.motivo}`);
+    this.pump();
   }
 
   respaldarCaja(t: string, n: number): string {

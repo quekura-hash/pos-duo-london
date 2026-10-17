@@ -1,9 +1,10 @@
 import type { BusquedaVentas, VentaLocalizada } from './consultas.ts';
 import { ErrorDominio } from './errores.ts';
+import { totalDenominacionesUsd, usdAMxn } from './dinero.ts';
 import type { Politicas } from './politicas.ts';
 import { Indice } from './indice.ts';
 import { localizarVentas } from './consultas.ts';
-import { catalogo, devoluciones, devueltoPorLinea, existenciaVerificada, intentos, perdidasDocumentales, stock, ventas, type Devolucion, type ExistenciaVerificada, type Intento, type PerdidaDocumental, type TarjetaRegalo } from './proyecciones.ts';
+import { tipoCambioVigente, catalogo, devoluciones, devueltoPorLinea, existenciaVerificada, intentos, perdidasDocumentales, stock, ventas, type Devolucion, type ExistenciaVerificada, type Intento, type PerdidaDocumental, type TarjetaRegalo, type TipoCambio } from './proyecciones.ts';
 import type { Repo } from './repo.ts';
 import { validarOpEntrante } from './reglas.ts';
 import type { Articulo, CajaCfg, Linea, Op, Pago, Venta } from './tipos.ts';
@@ -40,6 +41,15 @@ export interface Enlace {
   liberar(ref: string): void;
   /** Ventas de la tienda (todas sus cajas) para localizar en qué caja se hizo una; null = sin hub. */
   buscarVentas(q: BusquedaVentas): VentaLocalizada[] | null;
+  /** Fija el tipo de cambio global en el servicio central. null = sin conexión con el central. */
+  fijarTipoCambio(tasa: number, usuario: string, versionBase: number): ResultadoTipoCambio | null;
+}
+
+export interface ResultadoTipoCambio {
+  ok: boolean;
+  motivo?: 'tasa_invalida' | 'config_desactualizada';
+  op?: Op;
+  vigente?: TipoCambio | null;
 }
 
 /** Saldo de una tarjeta de regalo que una venta en curso aparta (el dinero no se puede conceder dos veces). */
@@ -73,7 +83,7 @@ interface Reserva {
 
 const BROADCAST_TIENDA = new Set(['inv.movement', 'inv.conteo', 'inv.verificacion_pendiente', 'doc.perdida_posible', 'item.created', 'item.item_no_assigned', 'giftcard.emitida', 'giftcard.recarga', 'giftcard.uso', 'giftcard.reintegro']);
 // Lo que el central baja a hubs y cajas (catálogo y resoluciones administrativas).
-const CATALOGO = new Set(['item.created', 'item.item_no_assigned', 'item.codigo_corregido', 'doc.perdida_resuelta', 'giftcard.emitida', 'giftcard.recarga', 'giftcard.uso', 'giftcard.reintegro']);
+const CATALOGO = new Set(['item.created', 'item.item_no_assigned', 'item.codigo_corregido', 'doc.perdida_resuelta', 'giftcard.emitida', 'giftcard.recarga', 'giftcard.uso', 'giftcard.reintegro', 'config.tipo_cambio', 'permiso.asignado']);
 
 // ───────────────────────────── Hub ─────────────────────────────
 
@@ -282,13 +292,30 @@ export class Central {
   }
 
   /** Consola de Administración: operaciones del central que se propagan a todos los hubs y cajas. */
-  emitirAdmin(tipo: string, payload: unknown): Op {
-    const op = crearOp(tipo, null, null, this.id, this.ctx.reloj.now(), payload);
+  emitirAdmin(tipo: string, payload: unknown, opId?: string): Op {
+    const op = crearOp(tipo, null, null, this.id, this.ctx.reloj.now(), payload, opId);
     this.repo.tx(() => {
       this.repo.appendOp(op);
       for (const t of this.ctx.tiendas) this.repo.encolar(op.op_id, `hub:${t}`);
     });
     return op;
+  }
+
+  /**
+   * Tipo de cambio comercial (MXN por 1 USD ×10000) fijado por el negocio. Solo el central le asigna VERSIÓN (consecutiva):
+   * quien edita parte de la versión que vio (`versionBase`); si el central ya tiene otra, rechaza para que una edición vieja no pise una nueva.
+   */
+  fijarTipoCambio(tasa: number, usuario: string, versionBase: number): ResultadoTipoCambio {
+    const vigente = tipoCambioVigente(this.repo.ops());
+    if (!Number.isInteger(tasa) || tasa <= 0) return { ok: false, motivo: 'tasa_invalida', vigente };
+    if (versionBase !== (vigente?.version ?? 0)) return { ok: false, motivo: 'config_desactualizada', vigente };
+    const version = (vigente?.version ?? 0) + 1;
+    const op = this.emitirAdmin('config.tipo_cambio', { version, tasa, usuario, anterior: vigente ? { version: vigente.version, tasa: vigente.tasa } : null }, `config.tipo_cambio:v${version}`);
+    return { ok: true, op, vigente: { version, tasa, usuario, ocurrio_en: op.ocurrio_en, anterior: vigente ? { version: vigente.version, tasa: vigente.tasa } : null } };
+  }
+  /** Permiso por usuario (p. ej. `editar_tipo_cambio`), configurable desde Administración y propagado a todas las cajas. */
+  asignarPermiso(usuario: string, permiso: string, valor: boolean, por: string): Op {
+    return this.emitirAdmin('permiso.asignado', { usuario, permiso, valor, por });
   }
 
   anclas(tienda: string, caja: number): Anclas {
@@ -314,6 +341,8 @@ interface Carrito {
   lineas: Linea[];
   estado: 'abierto' | 'confirmado' | 'descartado';
   intent_id?: string;
+  /** Tipo de cambio con que se inició el cobro en dólares: el cobro lo conserva aunque cambie el global. */
+  tasa?: { version: number; tasa: number; bloqueada_en: string };
 }
 
 export type EstadoFolios = { estado: 'activa' | 'recuperacion'; motivo: string | null; ultimo: number; techo: number | null };
@@ -704,7 +733,7 @@ export class Caja {
   }
   private validarPagos(pagos: Pago[], total: number) {
     for (const p of pagos) {
-      if (!this.cfg.metodos.includes(p.metodo)) {
+      if (!this.cfg.metodos.includes(p.metodo === 'efectivo_usd' ? 'efectivo' : p.metodo)) {
         throw new ErrorDominio('PAGO_NO_PERMITIDO', `la caja ${this.id} no admite ${p.metodo}`);
       }
       if (!Number.isInteger(p.monto) || p.monto <= 0) throw new ErrorDominio('PAGO_INVALIDO', 'monto inválido');
@@ -776,7 +805,7 @@ export class Caja {
    * Cobro con tarjeta de regalo: aplica el saldo (todo o parte) y el resto se cobra en efectivo.
    * `recibido` es el efectivo entregado para el resto; si el saldo cubre el total no hace falta.
    */
-  cobrarConTarjetaRegalo(cartId: string, codigo: string, recibido: number | undefined, cajero = 'cajero'): Venta {
+  cobrarConTarjetaRegalo(cartId: string, codigo: string, recibido: number | undefined, cajero = 'cajero', usd = 0): Venta {
     const previa = this.repo.getOp(`sale:${cartId}`);
     if (previa) return ventas([previa]).get(cartId)!;
     const cod = codigo.trim();
@@ -790,8 +819,9 @@ export class Caja {
     const pagos: Pago[] = [{ metodo: 'tarjeta_regalo', monto: aplicado, tarjeta: cod, saldo_despues: t.saldo - aplicado }];
     const resto = total - aplicado;
     if (resto > 0) {
-      if (!Number.isInteger(recibido) || recibido! < resto) throw new ErrorDominio('EFECTIVO_INSUFICIENTE', 'el saldo no cubre el total: falta cobrar el resto en efectivo', { saldo: t.saldo, total, resto, recibido: recibido ?? null });
-      pagos.push({ metodo: 'efectivo', monto: resto, recibido, cambio: recibido! - resto });
+      if (usd === 0 && (!Number.isInteger(recibido) || recibido! < resto)) throw new ErrorDominio('EFECTIVO_INSUFICIENTE', 'el saldo no cubre el total: falta cobrar el resto en efectivo', { saldo: t.saldo, total, resto, recibido: recibido ?? null });
+      // Solo la parte recibida en dólares se convierte; la tarjeta de regalo sigue en pesos.
+      pagos.push(this.pagoEfectivo(cartId, resto, { usd, pesos: recibido ?? 0 }));
     }
     return this.cobrar(cartId, pagos, cajero);
   }
@@ -890,6 +920,76 @@ export class Caja {
       throw new ErrorDominio('EFECTIVO_INSUFICIENTE', `el efectivo recibido no cubre el total`, { recibido, total });
     }
     return this.cobrar(cartId, [{ metodo: 'efectivo', monto: total, recibido, cambio: recibido - total }], cajero);
+  }
+
+  // ── dólares en efectivo (el catálogo, los precios y los reportes siguen en MXN; los dólares solo se reciben) ──
+  tipoCambio(): TipoCambio | null {
+    return this.idx.tipoCambio();
+  }
+  historialTipoCambio(): TipoCambio[] {
+    return this.idx.historialTipoCambio();
+  }
+  puedeEditarTipoCambio(usuario: string): boolean {
+    return this.idx.tienePermiso(usuario, 'editar_tipo_cambio');
+  }
+  /**
+   * Edita la tasa GLOBAL: exige el permiso del usuario y conexión con el central (que le asigna la versión). Sin esa conexión
+   * la caja sigue cobrando con su última tasa guardada. La tasa vigente no cambia los cobros ya iniciados ni las ventas anteriores.
+   */
+  fijarTipoCambio(tasa: number, usuario: string, esAdmin = false): TipoCambio {
+    if (!esAdmin && !this.puedeEditarTipoCambio(usuario)) throw new ErrorDominio('PERMISO_DENEGADO', `${usuario} no tiene permiso para editar el tipo de cambio`);
+    if (!Number.isInteger(tasa) || tasa <= 0) throw new ErrorDominio('TASA_INVALIDA', 'el tipo de cambio debe ser un número positivo');
+    const base = this.tipoCambio()?.version ?? 0;
+    const r = this.enlace.fijarTipoCambio(tasa, usuario, base);
+    if (r === null) throw new ErrorDominio('SIN_CENTRAL', 'editar el tipo de cambio global requiere conexión con el servicio central; esta tienda sigue cobrando con su última tasa guardada');
+    if (!r.ok) {
+      if (r.motivo === 'tasa_invalida') throw new ErrorDominio('TASA_INVALIDA', 'el tipo de cambio debe ser un número positivo');
+      throw new ErrorDominio('CONFIG_DESACTUALIZADA', 'alguien más cambió el tipo de cambio mientras se editaba: revise el valor vigente', r.vigente);
+    }
+    this.recibir(r.op!, 'central'); // se aplica de inmediato aquí; al resto llega por el flujo normal sin reiniciar
+    return r.vigente!;
+  }
+  /**
+   * Fija la tasa de ESTE cobro (la vigente) al empezar a recibir dólares; no cambia aunque el global cambie después.
+   * `renovar` descarta la tasa bloqueada y toma la vigente (acción explícita del cajero).
+   */
+  bloquearTasa(cartId: string, renovar = false): { bloqueada: { version: number; tasa: number }; vigente: TipoCambio; hay_nueva: boolean } {
+    const c = this.cartGet(cartId);
+    this.exigirAbierto(c);
+    const vigente = this.tipoCambio();
+    if (!vigente) throw new ErrorDominio('SIN_TIPO_DE_CAMBIO', 'no hay tipo de cambio fijado: no se pueden recibir dólares');
+    if (!c.tasa || renovar) {
+      c.tasa = { version: vigente.version, tasa: vigente.tasa, bloqueada_en: this.ctx.reloj.now() };
+      this.repo.kvSet(`cart:${cartId}`, c);
+    }
+    return { bloqueada: { version: c.tasa.version, tasa: c.tasa.tasa }, vigente, hay_nueva: vigente.version > c.tasa.version };
+  }
+  /**
+   * Arma el pago en efectivo de un importe en MXN con pesos y/o dólares recibidos. Sin dólares es el efectivo de siempre.
+   * Con dólares: equivalente con la tasa BLOQUEADA del cobro (redondeo al centavo, mitad hacia arriba); el cambio se entrega
+   * en PESOS. El importe aplicado es el MXN que liquida este efectivo; el detalle físico queda en el propio pago.
+   */
+  private pagoEfectivo(cartId: string, aplicar: number, e: { usd?: number; pesos?: number }): Pago {
+    const usd = e.usd ?? 0;
+    const pesos = e.pesos ?? 0;
+    if (!Number.isInteger(usd) || usd < 0 || !Number.isInteger(pesos) || pesos < 0) throw new ErrorDominio('PAGO_INVALIDO', 'importes recibidos inválidos');
+    if (usd === 0) {
+      if (pesos < aplicar) throw new ErrorDominio('EFECTIVO_INSUFICIENTE', 'el efectivo recibido no cubre el total', { recibido: pesos, total: aplicar, faltan: aplicar - pesos });
+      return { metodo: 'efectivo', monto: aplicar, recibido: pesos, cambio: pesos - aplicar };
+    }
+    const { bloqueada } = this.bloquearTasa(cartId);
+    const equivalente = usdAMxn(usd, bloqueada.tasa);
+    const recibidoEq = equivalente + pesos;
+    if (recibidoEq < aplicar) throw new ErrorDominio('EFECTIVO_INSUFICIENTE', 'lo recibido no cubre el total', { equivalente, recibido_equivalente: recibidoEq, total: aplicar, faltan: aplicar - recibidoEq });
+    return { metodo: 'efectivo_usd', monto: aplicar, usd, tasa: bloqueada.tasa, tasa_version: bloqueada.version, equivalente, pesos_recibidos: pesos, cambio_mxn: recibidoEq - aplicar };
+  }
+  /** Cobro en efectivo con pesos, dólares o ambos. Reintentar el mismo carrito devuelve la misma venta. */
+  cobrarEfectivoMixto(cartId: string, e: { usd?: number; pesos?: number }, cajero = 'cajero'): Venta {
+    const previa = this.repo.getOp(`sale:${cartId}`);
+    if (previa) return ventas([previa]).get(cartId)!;
+    const c = this.cartGet(cartId);
+    const total = c.lineas.reduce((a, l) => a + l.importe, 0);
+    return this.cobrar(cartId, [this.pagoEfectivo(cartId, total, e)], cajero);
   }
 
   /** Bitácora de impresión: una falla de impresora nunca duplica ni revierte la venta. */
@@ -1098,12 +1198,21 @@ export class Caja {
   }
 
   // ── efectivo y corte (solo con datos de ESTA caja) ──
-  movimientoEfectivo(tipo: 'fondo_inicial' | 'retiro' | 'entrada', monto: number) {
-    this.emitir('cash.movement', { tienda: this.tienda, caja: this.caja, tipo, monto, fecha: fechaLocal(this.ctx.reloj.now()) });
+  movimientoEfectivo(tipo: 'fondo_inicial' | 'retiro' | 'entrada', monto: number, moneda: 'MXN' | 'USD' = 'MXN') {
+    if (moneda !== 'MXN' && moneda !== 'USD') throw new ErrorDominio('PAGO_INVALIDO', `moneda no soportada: ${moneda}`);
+    if (!Number.isInteger(monto) || monto <= 0) throw new ErrorDominio('PAGO_INVALIDO', 'el monto es un entero positivo en centavos');
+    this.emitir('cash.movement', { tienda: this.tienda, caja: this.caja, tipo, monto, moneda, fecha: fechaLocal(this.ctx.reloj.now()) });
+  }
+  /** Conteo físico de dólares por denominación (billetes). El corte lo compara con los dólares esperados. */
+  registrarConteoUsd(d: { denominaciones: Record<string, number>; usuario: string }) {
+    let total: number;
+    try { total = totalDenominacionesUsd(d.denominaciones); } catch (e) { throw new ErrorDominio('CONTEO_INVALIDO', (e as Error).message); }
+    this.emitir('cash.conteo', { tienda: this.tienda, caja: this.caja, moneda: 'USD', denominaciones: d.denominaciones, total, usuario: d.usuario, fecha: fechaLocal(this.ctx.reloj.now()) });
+    return { total };
   }
   /** Corte "en vivo": se calcula SOLO con las operaciones de esta caja y refleja todo lo ocurrido hasta ahora. No se guarda. */
   corteEnVivo(fecha: string) {
-    const ops = this.opsDe('sale.confirmed', 'sale.cancelled', 'return.registered', 'cash.movement');
+    const ops = this.opsDe('sale.confirmed', 'sale.cancelled', 'return.registered', 'cash.movement', 'cash.conteo');
     const propia = (t: string | null, c: number | null) => t === this.tienda && c === this.caja;
     const vs = [...ventas(ops).values()].filter((v) => propia(v.tienda, v.caja) && fechaLocal(v.ocurrio_en) === fecha);
     const confirmadas = vs.filter((v) => v.estado === 'confirmada');
@@ -1116,9 +1225,23 @@ export class Caja {
     const efectivoCobrado = suma(confirmadas.flatMap((v) => v.pagos.filter((p) => p.metodo === 'efectivo').map((p) => p.monto)));
     const tarjeta = suma(confirmadas.flatMap((v) => v.pagos.filter((p) => p.metodo === 'tarjeta').map((p) => p.monto)));
     const regalo = suma(confirmadas.flatMap((v) => v.pagos.filter((p) => p.metodo === 'tarjeta_regalo').map((p) => p.monto)));
-    const fondo = suma(mov.filter((m) => m.tipo === 'fondo_inicial').map((m) => m.monto));
-    const entradas = suma(mov.filter((m) => m.tipo === 'entrada').map((m) => m.monto));
-    const retiros = suma(mov.filter((m) => m.tipo === 'retiro').map((m) => m.monto));
+    // Cada moneda se concilia POR SEPARADO: los dólares recibidos suben los dólares físicos; el cambio en pesos baja los pesos físicos.
+    const pagosUsd = confirmadas.flatMap((v) => v.pagos.filter((p) => p.metodo === 'efectivo_usd'));
+    const usdRecibidos = suma(pagosUsd.map((p) => p.usd!));
+    const usdEquivalenteHistorico = suma(pagosUsd.map((p) => p.equivalente!)); // cada operación con SU tasa, nunca con la última del día
+    const pesosConUsd = suma(pagosUsd.map((p) => p.pesos_recibidos!));
+    const cambioConUsd = suma(pagosUsd.map((p) => p.cambio_mxn!));
+    const cobrosUsd = suma(pagosUsd.map((p) => p.monto));
+    const enMoneda = (tipo: string, moneda: string) => suma(mov.filter((m) => m.tipo === tipo && (m.moneda ?? 'MXN') === moneda).map((m) => m.monto));
+    const fondo = enMoneda('fondo_inicial', 'MXN');
+    const entradas = enMoneda('entrada', 'MXN');
+    const retiros = enMoneda('retiro', 'MXN');
+    const fondoUsd = enMoneda('fondo_inicial', 'USD');
+    const entradasUsd = enMoneda('entrada', 'USD');
+    const retirosUsd = enMoneda('retiro', 'USD');
+    const usdEsperado = fondoUsd + usdRecibidos + entradasUsd - retirosUsd;
+    const conteos = ops.filter((o) => o.tipo === 'cash.conteo' && propia(o.payload.tienda, o.payload.caja) && o.payload.fecha === fecha && o.payload.moneda === 'USD');
+    const ultimoConteo = conteos.at(-1);
     const reembolsos = suma(devs.map((d) => d.importe));
     const reembolsosEfectivo = suma(devs.flatMap((d) => d.reembolsos.filter((r) => r.metodo === 'efectivo').map((r) => r.monto)));
     const reembolsosRegalo = suma(devs.flatMap((d) => d.reembolsos.filter((r) => r.metodo === 'tarjeta_regalo').map((r) => r.monto)));
@@ -1136,7 +1259,14 @@ export class Caja {
       folios_de_devolucion: devs.length,
       ventas_netas: ventasMercancia - reembolsos,
       cobros_efectivo: efectivoCobrado, cobros_tarjeta: tarjeta, cobros_tarjeta_regalo: regalo, fondo_inicial: fondo, entradas, retiros,
-      efectivo_esperado: fondo + efectivoCobrado + entradas - reembolsosEfectivo - retiros,
+      // Pesos FÍSICOS en el cajón: cobros en pesos + pesos recibidos con dólares − cambio entregado (el cambio no es descuento ni reembolso).
+      efectivo_esperado: fondo + efectivoCobrado + pesosConUsd - cambioConUsd + entradas - reembolsosEfectivo - retiros,
+      // Dólares recibidos en efectivo: tickets, importe MXN que liquidan, y detalle físico.
+      tickets_con_usd: pagosUsd.length, cobros_efectivo_usd: cobrosUsd, usd_recibidos: usdRecibidos, usd_equivalente_mxn_historico: usdEquivalenteHistorico,
+      pesos_recibidos_con_usd: pesosConUsd, cambio_mxn_con_usd: cambioConUsd,
+      fondo_inicial_usd: fondoUsd, entradas_usd: entradasUsd, retiros_usd: retirosUsd, efectivo_usd_esperado: usdEsperado,
+      conteo_usd: ultimoConteo ? { contado: ultimoConteo.payload.total as number, denominaciones: ultimoConteo.payload.denominaciones as Record<string, number>, usuario: ultimoConteo.payload.usuario as string, ocurrio_en: ultimoConteo.ocurrio_en } : null,
+      diferencia_usd: ultimoConteo ? (ultimoConteo.payload.total as number) - usdEsperado : null,
       folio_inicial: folios.length ? Math.min(...folios) : null, folio_final: folios.length ? Math.max(...folios) : null,
       perdida_documental_abierta: this.perdidasDocumentalesAbiertas().map((x) => x.perdida_id),
     };

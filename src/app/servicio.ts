@@ -1,9 +1,10 @@
-import { cortesPorCaja, reporteConsolidado, ventasPorCaja, type Filtro } from '../consultas.ts';
+import { cortesPorCaja, dolaresPorCaja, reporteConsolidado, ventasPorCaja, type Filtro } from '../consultas.ts';
+import { formatoTasa } from '../dinero.ts';
 import { ErrorDominio } from '../errores.ts';
 import type { Impresora } from '../impresion.ts';
 import type { Caja } from '../nodos.ts';
-import { catalogo, tarjetasRegalo, ventas } from '../proyecciones.ts';
-import { hojaInventario, type Hoja } from '../inventario.ts';
+import { catalogo, permisos as proyPermisos, tarjetasRegalo, tiposDeCambio, tipoCambioVigente, ventas, type TipoCambio } from '../proyecciones.ts';
+import { hojaDolares, hojaInventario, type Hoja } from '../inventario.ts';
 import { codigoTicket, construirTicket, NEGOCIOS, renderTextoEscPos, renderTicketDevolucionTexto, renderTicketEscPos, renderTicketTexto, type NegocioCfg } from '../ticket.ts';
 import type { Actor, Articulo, Linea, Op, Venta } from '../tipos.ts';
 import { fechaLocal } from '../util.ts';
@@ -28,6 +29,8 @@ export interface VistaCarrito {
   total: number;
   /** Existencia de ESTA tienda por artículo de la venta (para el panel de detalle). */
   existencias: Record<string, { saldo: number; verificada: boolean }>;
+  /** Tasa bloqueada de este cobro (si ya se empezó a recibir dólares) y si hay una más reciente. */
+  tasa: { version: number; tasa: number; texto: string; hay_nueva: boolean } | null;
 }
 
 /**
@@ -59,6 +62,7 @@ export class ServicioCaja {
       negocio: this.negocios[this.caja.tienda]!.nombre,
       metodos: this.caja.cfg.metodos,
       ahora, fecha_local: fechaLocal(ahora),
+      tipo_cambio: this.vistaTipoCambio(),
       ultimo_folio: this.caja.estadoFolios().ultimo,
       folios: this.caja.estadoFolios().estado,
       conexion: { hub: this.conexion.hubAlcanzable(), internet: this.conexion.internet(), pendientes: this.conexion.pendientes(), ultima_sync: this.conexion.ultimaSync() },
@@ -67,6 +71,43 @@ export class ServicioCaja {
         articulos_no_verificados: this.caja.articulosNoVerificados().length,
       },
     };
+  }
+
+  /**
+   * Tipo de cambio comercial para la barra lateral. `verificado` es true solo si la tienda alcanza hub e internet (o sea, puede enterarse
+   * de una actualización); false = sigue con su última tasa guardada sin poder verificarla; null = esta instalación no mide el enlace.
+   */
+  private vistaTipoCambio() {
+    const t = this.caja.tipoCambio();
+    const hub = this.conexion.hubAlcanzable();
+    const internet = this.conexion.internet();
+    return {
+      configurado: !!t, version: t?.version ?? null, tasa: t?.tasa ?? null, texto: t ? formatoTasa(t.tasa) : null,
+      actualizado_en: t?.ocurrio_en ?? null, cambiado_por: t?.usuario ?? null,
+      verificado: !hub ? false : internet === null ? null : internet,
+      puede_editar: this.caja.puedeEditarTipoCambio(this.actor.usuario),
+    };
+  }
+  tipoCambio() {
+    return this.vistaTipoCambio();
+  }
+  /** Edita la tasa global (permiso por usuario y conexión con el central). Devuelve la nueva vista para actualizar la pantalla. */
+  async fijarTipoCambio(tasa: number) {
+    this.caja.fijarTipoCambio(tasa, this.actor.usuario);
+    try { await this.conexion.sincronizar?.(); } catch { /* el cambio ya quedó en el central; llegará a las demás cajas al sincronizar */ }
+    return this.vistaTipoCambio();
+  }
+  /** Fija (o renueva) la tasa de este cobro al empezar a recibir dólares. */
+  bloquearTasa(cartId: string, renovar = false) {
+    const r = this.caja.bloquearTasa(cartId, renovar);
+    return { bloqueada: { version: r.bloqueada.version, tasa: r.bloqueada.tasa, texto: formatoTasa(r.bloqueada.tasa) }, vigente: { version: r.vigente.version, tasa: r.vigente.tasa, texto: formatoTasa(r.vigente.tasa) }, hay_nueva: r.hay_nueva };
+  }
+  movimientoEfectivo(tipo: 'fondo_inicial' | 'retiro' | 'entrada', monto: number, moneda: 'MXN' | 'USD') {
+    this.caja.movimientoEfectivo(tipo, monto, moneda);
+    return this.caja.corteEnVivo(fechaLocal(this.reloj.now()));
+  }
+  registrarConteoUsd(denominaciones: Record<string, number>) {
+    return this.caja.registrarConteoUsd({ denominaciones, usuario: this.actor.usuario });
   }
 
   /** Reutiliza la venta en curso (sobrevive a reinicios) o abre una nueva. */
@@ -84,6 +125,7 @@ export class ServicioCaja {
       ventas_brutas: c.lineas.reduce((a, l) => a + l.qty * l.precio_unit, 0),
       descuentos: c.lineas.reduce((a, l) => a + l.descuento, 0),
       total: c.lineas.reduce((a, l) => a + l.importe, 0),
+      tasa: c.tasa ? { version: c.tasa.version, tasa: c.tasa.tasa, texto: formatoTasa(c.tasa.tasa), hay_nueva: (this.caja.tipoCambio()?.version ?? 0) > c.tasa.version } : null,
       existencias: Object.fromEntries(c.lineas.map((l) => { const e = this.caja.existenciaVerificada(l.item_id); return [l.item_id, { saldo: e.saldo, verificada: e.verificada }]; })),
     };
   }
@@ -151,19 +193,21 @@ export class ServicioCaja {
    * Cobra en efectivo: guarda venta, pago, folio y movimientos de inventario en una sola transacción y SOLO DESPUÉS imprime.
    * Una falla de impresión no revierte ni duplica nada: la venta queda guardada y el ticket se reimprime con el mismo folio.
    */
-  async cobrarEfectivo(cartId: string, recibido: number) {
+  async cobrarEfectivo(cartId: string, recibido: number, usd = 0) {
+    // Sin dólares es el cobro en pesos de siempre; con dólares, pesos y dólares (el cambio se entrega en pesos).
+    if (usd > 0) return this.finalizarCobro(this.caja.cobrarEfectivoMixto(cartId, { usd, pesos: recibido }, this.actor.usuario));
     return this.finalizarCobro(this.caja.cobrarEfectivo(cartId, recibido, this.actor.usuario));
   }
   /** Tarjeta de regalo (todo el saldo necesario) y, si no alcanza, el resto en efectivo. */
-  async cobrarTarjetaRegalo(cartId: string, codigo: string, recibido?: number) {
-    return this.finalizarCobro(this.caja.cobrarConTarjetaRegalo(cartId, codigo, recibido, this.actor.usuario));
+  async cobrarTarjetaRegalo(cartId: string, codigo: string, recibido?: number, usd = 0) {
+    return this.finalizarCobro(this.caja.cobrarConTarjetaRegalo(cartId, codigo, recibido, this.actor.usuario, usd));
   }
   private async finalizarCobro(venta: Venta) {
     const yaImpreso = this.caja.impresionesDe(venta.sale_id).some((i) => i.resultado === 'ok');
     const imp = yaImpreso
       ? { ticket_texto: renderTicketTexto(construirTicket(venta, this.negocios[venta.tienda]!, 0, this.negocios)), codigo_ticket: construirTicket(venta, undefined, 0, this.negocios).codigo_ticket, impresion: { ok: true } }
       : await this.imprimirVenta(venta.sale_id, 'original', 0);
-    return { venta, avisos: venta.avisos ?? [], ...imp, cambio: venta.pagos.find((p) => p.metodo === 'efectivo')?.cambio ?? 0 };
+    return { venta, avisos: venta.avisos ?? [], ...imp, cambio: venta.pagos.find((p) => p.metodo === 'efectivo')?.cambio ?? venta.pagos.find((p) => p.metodo === 'efectivo_usd')?.cambio_mxn ?? 0 };
   }
 
   // ── tarjetas de regalo ──
@@ -292,7 +336,9 @@ export class ServicioAdmin {
   private fuente: () => Op[];
   readonly cajas: { tienda: string; caja: number }[];
   private inv?: FuenteInventario;
-  constructor(o: { actor: Extract<Actor, { rol: 'admin' }>; fuente: () => Op[]; cajas: { tienda: string; caja: number }[]; inventario?: FuenteInventario }) {
+  private central?: { fijarTipoCambio(tasa: number, usuario: string, versionBase: number): import('../nodos.ts').ResultadoTipoCambio; asignarPermiso(usuario: string, permiso: string, valor: boolean, por: string): Op };
+  constructor(o: { actor: Extract<Actor, { rol: 'admin' }>; fuente: () => Op[]; cajas: { tienda: string; caja: number }[]; inventario?: FuenteInventario; central?: ServicioAdmin['central'] }) {
+    this.central = o.central;
     this.actor = o.actor;
     this.fuente = o.fuente;
     this.cajas = o.cajas;
@@ -315,6 +361,40 @@ export class ServicioAdmin {
     };
     return { resumen, hoja: completo ? hoja : { ...hoja, filas: hoja.filas.slice(0, 20) } };
   }
+  // ── tipo de cambio y permisos (Administración trabaja en el central) ──
+  tipoCambio() {
+    const ops = this.fuente();
+    const fila = (t: TipoCambio) => ({ version: t.version, tasa: t.tasa, texto: formatoTasa(t.tasa), usuario: t.usuario, ocurrio_en: t.ocurrio_en, anterior: t.anterior ? { version: t.anterior.version, tasa: t.anterior.tasa, texto: formatoTasa(t.anterior.tasa) } : null });
+    const vigente = tipoCambioVigente(ops);
+    const asignados = proyPermisos(ops);
+    return {
+      vigente: vigente ? fila(vigente) : null,
+      historial: tiposDeCambio(ops).map(fila).reverse(),
+      permisos: [...asignados].map(([usuario, p]) => ({ usuario, editar_tipo_cambio: p.has('editar_tipo_cambio') })),
+    };
+  }
+  fijarTipoCambio(tasa: number) {
+    if (!this.central) throw new ErrorDominio('SIN_CENTRAL', 'esta sesión no tiene acceso al servicio central');
+    const base = tipoCambioVigente(this.fuente())?.version ?? 0;
+    const r = this.central.fijarTipoCambio(tasa, this.actor.usuario, base);
+    if (!r.ok) throw new ErrorDominio(r.motivo === 'tasa_invalida' ? 'TASA_INVALIDA' : 'CONFIG_DESACTUALIZADA', r.motivo === 'tasa_invalida' ? 'el tipo de cambio debe ser un número positivo' : 'el tipo de cambio cambió mientras se editaba');
+    return this.tipoCambio();
+  }
+  asignarPermisoTipoCambio(usuario: string, valor: boolean) {
+    if (!this.central) throw new ErrorDominio('SIN_CENTRAL', 'esta sesión no tiene acceso al servicio central');
+    const u = String(usuario ?? '').trim();
+    if (!u) throw new ErrorDominio('DATOS_REQUERIDOS', 'falta el usuario');
+    this.central.asignarPermiso(u, 'editar_tipo_cambio', valor, this.actor.usuario);
+    return this.tipoCambio();
+  }
+  /** Dólares físicos recibidos y su equivalente con la tasa de cada operación (no la del día). */
+  dolares(f: Filtro = {}) {
+    return dolaresPorCaja(this.actor, this.fuente(), f);
+  }
+  hojaDolares(f: Filtro = {}): Hoja {
+    return hojaDolares(this.dolares(f));
+  }
+
   /** Libro mayor de tarjetas de regalo de todas las tiendas (solo Administración). */
   tarjetasRegalo() {
     const m = tarjetasRegalo(this.fuente());

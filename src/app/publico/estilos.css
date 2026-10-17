@@ -125,3 +125,15 @@ pre.ticket { background: #fff; color: #111; border: 1px dashed #888; padding: 12
 .insignia { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: var(--superficie-2); border: 1px solid var(--borde); }
 .insignia.cancelada { background: var(--error-fondo); color: var(--error); }
 .titulo-vista { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; } .titulo-vista .ico { width: 28px; height: 28px; color: var(--acento); }
+
+/* ── tipo de cambio en la barra izquierda y cobro en dólares ── */
+.tc { margin: 0 12px; padding: 10px; border-radius: 8px; background: var(--marino-2); color: var(--marino-texto); display: flex; flex-direction: column; gap: 3px; font-size: 14px; }
+.tc-linea { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.tc small { color: var(--marino-texto-2); font-size: 11px; line-height: 1.3; }
+.tc-estado::before { content: "● "; color: #9fb3c8; } .tc-estado.ok::before { color: #4ade80; } .tc-estado.mal::before { color: #fca5a5; } .tc-estado.mal { color: #fecaca; }
+.tc-lapiz { background: none; border: 1px solid rgba(255,255,255,.25); color: inherit; border-radius: 6px; padding: 3px; cursor: pointer; display: inline-flex; }
+.tc-lapiz:hover { background: rgba(255,255,255,.12); }
+@media (max-width: 1280px) { .tc { margin: 0 4px; padding: 6px 2px; align-items: center; font-size: 11px; } .tc .det { display: none; } .tc-linea { flex-direction: column; } .tc b { font-size: 12px; } }
+.calc-usd { margin: 6px 0; display: grid; grid-template-columns: 1fr auto; gap: 4px 8px; font-size: 14px; } .calc-usd dt { color: var(--texto-2); } .calc-usd dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+.cambio.falta { color: var(--error); } .cambio.falta b { font-weight: 800; }
+#dlg-tc { width: min(380px, 94vw); }

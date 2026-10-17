@@ -1,5 +1,6 @@
+import { formatoTasa } from './dinero.ts';
 import type { Articulo, Op } from './tipos.ts';
-import { aCentavos } from './util.ts';
+import { aCentavos, aMXN } from './util.ts';
 
 // Importación y exportación de INVENTARIO en tablas (Excel). Este módulo es puro: trabaja con filas ya leídas.
 // Leer y escribir el archivo .xlsx vive en xlsx.ts.
@@ -269,4 +270,13 @@ export function hojaInventario(
     ...o.tiendas.map((t) => o.saldo(t, a.item_id)), ...o.tiendas.map((t) => (o.verificada(t, a.item_id) ? 'Sí' : 'No')),
   ]);
   return { nombre: 'Inventario', encabezados: enc, filas, textoCols: [1, 2, 3, 4, 5, 6, 9, 10, 11], formatoCols: { 7: '#,##0.00', 8: '#,##0.00' } };
+}
+
+/** Detalle de cobros con dólares listo para Excel: importes como texto decimal exacto (sin coma flotante). */
+export function hojaDolares(r: import('./consultas.ts').ReporteDolares): Hoja {
+  const usd = (c: number) => aMXN(c);
+  const encabezados = ['Tienda', 'Caja', 'Folio', 'Fecha', 'Hora', 'Cajero', 'USD recibidos', 'Tipo de cambio (MXN por USD)', 'Versión de la tasa', 'Equivalente MXN (tasa de la operación)', 'Pesos recibidos', 'Cambio entregado MXN', 'Total de la venta MXN', 'Estado'];
+  const filas: Hoja['filas'] = r.filas.map((f) => [f.tienda, f.caja, f.folio, f.fecha_local, f.hora, f.cajero, usd(f.usd), formatoTasa(f.tasa), f.tasa_version, aMXN(f.equivalente), aMXN(f.pesos_recibidos), aMXN(f.cambio_mxn), aMXN(f.total_venta), f.estado]);
+  filas.push([], ['TOTAL (sin cancelados)', '', '', '', '', '', usd(r.usd), '', '', aMXN(r.equivalente_historico), '', '', '', '']);
+  return { nombre: 'Dólares recibidos', encabezados, filas, textoCols: [3, 4, 6, 7, 9, 10, 11, 12] };
 }

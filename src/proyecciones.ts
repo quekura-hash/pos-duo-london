@@ -223,3 +223,33 @@ export function aplicarTarjeta(m: Map<string, TarjetaRegalo>, o: { tipo: string;
     t.saldo = t.emitido + t.recargado - t.usado + t.reintegrado;
   }
 }
+
+/** Configuración global versionada: el tipo de cambio comercial (MXN por 1 USD) que fija el negocio. */
+export interface TipoCambio {
+  version: number;
+  /** MXN por 1 USD ×10000 (ver dinero.ts). */
+  tasa: number;
+  usuario: string;
+  ocurrio_en: string;
+  anterior: { version: number; tasa: number } | null;
+}
+export function tiposDeCambio(ops: Op[]): TipoCambio[] {
+  const m = new Map<number, TipoCambio>();
+  for (const o of ops) if (o.tipo === 'config.tipo_cambio') m.set(o.payload.version, { ...o.payload, ocurrio_en: o.ocurrio_en });
+  return [...m.values()].sort((a, b) => a.version - b.version);
+}
+/** La vigente es la de MAYOR versión, sin importar en qué orden llegaron: una actualización vieja nunca pisa una nueva. */
+export const tipoCambioVigente = (ops: Op[]): TipoCambio | null => tiposDeCambio(ops).at(-1) ?? null;
+
+/** Permisos por usuario asignados desde Administración (`permiso.asignado`); el último gana. */
+export function permisos(ops: Op[]): Map<string, Set<string>> {
+  const m = new Map<string, Set<string>>();
+  for (const o of ops) aplicarPermiso(m, o);
+  return m;
+}
+export function aplicarPermiso(m: Map<string, Set<string>>, o: { tipo: string; payload: any }) {
+  if (o.tipo !== 'permiso.asignado') return;
+  const s = m.get(o.payload.usuario) ?? new Set<string>();
+  if (o.payload.valor) s.add(o.payload.permiso); else s.delete(o.payload.permiso);
+  m.set(o.payload.usuario, s);
+}

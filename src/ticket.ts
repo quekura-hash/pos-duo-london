@@ -1,5 +1,6 @@
 import type { Devolucion } from './proyecciones.ts';
 import type { Venta } from './tipos.ts';
+import { formatoTasa } from './dinero.ts';
 import { fechaLocal } from './util.ts';
 
 /** MXN desde centavos enteros, sin coma flotante: 123450 -> "$1,234.50". */
@@ -8,6 +9,11 @@ export function formatoMXN(centavos: number): string {
   const a = Math.abs(centavos);
   const ent = String(Math.floor(a / 100)).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
   return `${neg ? '-' : ''}$${ent}.${String(a % 100).padStart(2, '0')}`;
+}
+
+/** USD desde centavos de dólar: 5000 -> "US$50.00". */
+export function formatoUSD(centavos: number): string {
+  return `US${formatoMXN(centavos)}`;
 }
 
 export interface NegocioCfg {
@@ -65,7 +71,7 @@ export interface Ticket {
   codigo_ticket: string;
   lineas: LineaTicket[];
   total: number;
-  pagos: { etiqueta: string; monto: number; recibido?: number; cambio?: number; tarjeta?: string; saldo_despues?: number }[];
+  pagos: { etiqueta: string; monto: number; recibido?: number; cambio?: number; tarjeta?: string; saldo_despues?: number; dolares?: { usd: number; tasa: number; version: number; equivalente: number; pesos: number; cambio: number } }[];
   leyendas: string[];
   columnas: number;
   reimpresion: number;
@@ -82,7 +88,7 @@ export function construirTicket(v: Venta, cfg: NegocioCfg = NEGOCIOS[v.tienda]!,
       qty: l.qty, precio_unit: l.precio_unit, descuento: l.descuento, importe: l.importe, tarjeta_regalo: l.tarjeta_regalo ? true : undefined,
     })),
     total: v.total,
-    pagos: v.pagos.map((p) => ({ etiqueta: p.metodo === 'efectivo' ? 'Efectivo MXN' : p.metodo === 'tarjeta_regalo' ? 'Tarjeta de regalo' : 'Tarjeta', monto: p.monto, recibido: p.recibido, cambio: p.cambio, tarjeta: p.tarjeta, saldo_despues: p.saldo_despues })),
+    pagos: v.pagos.map((p) => ({ etiqueta: p.metodo === 'efectivo' ? 'Efectivo MXN' : p.metodo === 'efectivo_usd' ? 'Efectivo (dólares)' : p.metodo === 'tarjeta_regalo' ? 'Tarjeta de regalo' : 'Tarjeta', monto: p.monto, recibido: p.recibido, cambio: p.cambio, tarjeta: p.tarjeta, saldo_despues: p.saldo_despues, dolares: p.metodo === 'efectivo_usd' ? { usd: p.usd!, tasa: p.tasa!, version: p.tasa_version!, equivalente: p.equivalente!, pesos: p.pesos_recibidos!, cambio: p.cambio_mxn! } : undefined })),
     leyendas: cfg.leyendas, columnas: cfg.columnas, reimpresion,
   };
 }
@@ -137,6 +143,13 @@ export function renderTicketTexto(t: Ticket): string {
   for (const p of t.pagos) {
     L.push(dos(p.etiqueta, formatoMXN(p.monto), c));
     if (p.tarjeta) L.push(dos(`  Tarjeta: ${p.tarjeta}`, p.saldo_despues !== undefined ? `Saldo ${formatoMXN(p.saldo_despues)}` : '', c));
+    if (p.dolares) {
+      // El total sigue en MXN; aquí solo se documenta lo que se recibió y con qué tasa (la de ESE cobro, aunque hoy sea otra).
+      const d = p.dolares;
+      L.push(dos('  USD recibidos', formatoUSD(d.usd), c), dos(`  Tasa ${formatoTasa(d.tasa)} MXN/USD (v${d.version})`, '', c), dos('  Equivalente MXN', formatoMXN(d.equivalente), c));
+      if (d.pesos > 0) L.push(dos('  Pesos recibidos', formatoMXN(d.pesos), c));
+      L.push(dos('  Cambio MXN', formatoMXN(d.cambio), c));
+    }
     if (p.recibido !== undefined) L.push(dos('Recibido', formatoMXN(p.recibido), c), dos('Cambio', formatoMXN(p.cambio ?? 0), c));
   }
   L.push(regla);

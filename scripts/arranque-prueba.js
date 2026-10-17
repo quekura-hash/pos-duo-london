@@ -98,20 +98,22 @@
   $('#quitar-inv').addEventListener('click', function () { borrar('inventario').then(function () { ctl.quitarInventario(); $('#sesion-prueba').value = ctl.sesion; }); });
 
   // ── exportar inventario (Administración) ──
-  window.__POS_EXPORTAR__ = function () {
-    return ctl.atender('GET', '/api/admin/inventario?completo=1', undefined).then(function (r) {
+  window.__POS_EXPORTAR__ = function (ruta, archivo) {
+    var url = ruta ? ruta.replace(/\.xlsx(\?|$)/, function (m, q) { return q === '?' ? '?completo=1&' : '?completo=1'; }) : '/api/admin/inventario?completo=1';
+    archivo = archivo || 'inventario.xlsx';
+    return ctl.atender('GET', url, undefined).then(function (r) {
       if (!r.json.ok) throw new Error(r.json.error.mensaje);
       return PosBanco.escribirXlsx(window.ExcelJS, [r.json.hoja]);
     }).then(function (bytes) {
       var viewer = window.claude && window.claude.use ? window.claude.use('downloads') : Promise.resolve(null);
       return Promise.resolve(viewer).then(function (d) {
         if (d) {
-          return d.save({ filename: 'inventario.xlsx', data: bytes }).then(function () { return 'Archivo entregado: inventario.xlsx'; }, function (e) { if (e && e.code === 'declined') return 'Descarga cancelada.'; throw new Error((e && e.message) || 'no se pudo guardar'); });
+          return d.save({ filename: archivo, data: bytes }).then(function () { return 'Archivo entregado: ' + archivo; }, function (e) { if (e && e.code === 'declined') return 'Descarga cancelada.'; throw new Error((e && e.message) || 'no se pudo guardar'); });
         }
         var a = document.createElement('a');
         a.href = URL.createObjectURL(new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
-        a.download = 'inventario.xlsx'; document.body.appendChild(a); a.click(); a.remove();
-        return 'Descarga iniciada: inventario.xlsx';
+        a.download = archivo; document.body.appendChild(a); a.click(); a.remove();
+        return 'Descarga iniciada: ' + archivo;
       });
     });
   };

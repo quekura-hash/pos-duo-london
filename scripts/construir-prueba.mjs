@@ -52,12 +52,14 @@ const marcado = `
   <header class="encabezado" id="encabezado" aria-label="Estado de la caja"></header>
   <aside class="nav" aria-label="Navegación principal">
     <nav id="nav"></nav>
+    <div id="tc-barra" class="tc" aria-label="Tipo de cambio del dólar"></div>
     <p class="prueba" role="note"><strong>MODO DE PRUEBA</strong><br>Datos sintéticos · usuarios de prueba sin autenticación</p>
   </aside>
   <main id="vista" tabindex="-1"></main>
   <footer class="pie" id="pie" aria-label="Estado de la sesión"></footer>
 </div>
 <dialog id="dlg-ticket" aria-labelledby="dlg-titulo"></dialog>
+<dialog id="dlg-tc" aria-labelledby="tc-titulo"></dialog>
 <dialog id="dlg-importar" aria-labelledby="dlg-imp-titulo"></dialog>`;
 const arranque = readFileSync(join(raiz, 'scripts/arranque-prueba.js'), 'utf8').replace(/<\/script/gi, '<\\/script');
 const piezas = `<title>POS Venta de Prueba</title>

@@ -94,7 +94,7 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     await page.uncheck('#falla-hub');
     await page.selectOption('#sesion-prueba', 'admin');
     await page.waitForSelector('#filtros');
-    assert.deepEqual(await page.$$eval('#nav button', (b) => b.map((x) => x.textContent)), ['Reportes', 'Inventario', 'Tarjetas de regalo']);
+    assert.deepEqual(await page.$$eval('#nav button', (b) => b.map((x) => x.textContent)), ['Reportes', 'Dólares recibidos', 'Inventario', 'Tarjetas de regalo', 'Tipo de cambio']);
     await page.click('#filtros button[type="submit"]');
     await page.waitForSelector('#tabla-reporte tbody tr');
     assert.equal(await page.locator('#tabla-reporte tbody tr').count(), 3, 'las 3 ventas, tras sincronizar');
@@ -276,6 +276,45 @@ describe('[navegador real] Inventario real de DÚO en la página (solo con POS_I
     await page.waitForSelector('#formas');
     assert.deepEqual(await page.$$eval('#formas button', (b) => b.map((x) => [x.textContent!.trim(), (x as HTMLButtonElement).disabled])), [['Efectivo', false], ['Tarjeta', true], ['Mixto', true], ['Tarjeta de regalo', true]]);
     assert.equal(await page.locator('#nav button[data-vista="tarjetas"]').count(), 0);
+    assert.deepEqual(errores, []);
+  });
+
+  it('B-dolares en la página única: cobro con dólares, el lápiz propaga la tasa a otra tienda y Administración ve los dólares recibidos', async (t) => {
+    execFileSync(process.execPath, [join(RAIZ, 'scripts', 'construir-prueba.mjs')], { stdio: 'pipe' });
+    const browser = await chromium.launch({ executablePath: chromiumPath, args: ['--no-sandbox'] });
+    t.after(() => browser.close());
+    const page = await (await browser.newContext({ viewport: { width: 1440, height: 900 }, colorScheme: 'light' })).newPage();
+    const errores: string[] = [];
+    page.on('pageerror', (e) => errores.push(String(e)));
+    page.on('console', (m) => { if (m.type() === 'error') errores.push(m.text()); });
+    await page.goto(`file://${HTML}`);
+    await page.waitForSelector('[data-tc="tasa"]');
+    assert.match((await page.textContent('[data-tc="tasa"]'))!, /Dólar: \$18\.00 MXN/);
+    await page.fill('#scan', '0002026090782'); await page.press('#scan', 'Enter');
+    await page.waitForSelector('#cuerpo tr[data-linea]');
+    await page.click('#btn-usd');
+    await page.fill('#usd', '50');
+    await page.fill('#recibido', '0');
+    assert.deepEqual([await page.textContent('#usd-equivalente'), await page.textContent('#lbl-cambio'), await page.textContent('#cambio')], ['$900.00', 'Cambio', '$1.00']);
+    await page.click('#btn-cobrar');
+    await page.waitForSelector('#dlg-ticket[open]');
+    assert.match((await page.textContent('#ticket-texto'))!, /USD recibidos +US\$50\.00[\s\S]*Tasa 18\.00 MXN\/USD \(v1\)[\s\S]*Cambio MXN +\$1\.00/);
+    await page.click('#btn-nueva');
+    // el usuario de prueba de DÚO Caja 1 tiene permiso: cambia la tasa
+    await page.click('#btn-editar-tc');
+    await page.fill('#tc-valor', '19');
+    await page.click('#tc-guardar');
+    await page.waitForFunction(() => /\$19\.00 MXN/.test(document.querySelector('[data-tc="tasa"]')!.textContent!));
+    await page.selectOption('#sesion-prueba', 'LON/2');
+    await page.waitForFunction(() => /\$19\.00 MXN/.test(document.querySelector('[data-tc="tasa"]')?.textContent ?? ''));
+    assert.equal(await page.locator('#btn-editar-tc').count(), 0, 'London Caja 2 no tiene permiso');
+    await page.selectOption('#sesion-prueba', 'admin');
+    await page.waitForSelector('#nav');
+    await page.click('#nav button[data-vista="dolares"]');
+    await page.fill('#usd-desde', new Date(Date.now() - 7 * 3600e3).toISOString().slice(0, 10));
+    await page.click('#filtros-usd button[type="submit"]');
+    await page.waitForSelector('#tabla-dolares tbody tr[data-folio]');
+    assert.equal(await page.textContent('#total-usd'), 'US$50.00');
     assert.deepEqual(errores, []);
   });
 });

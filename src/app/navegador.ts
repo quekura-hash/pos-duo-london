@@ -38,6 +38,9 @@ export function crearBanco(opsCatalogo?: Op[]) {
       P14_venta_con_inventario_no_verificado: 'permitir_con_aviso', K_folios: 30, K_item_no: 50,
     }),
   });
+  m.fijarTipoCambioInicial(180000, 'Administración'); // tipo de cambio comercial inicial de ensayo (se edita desde la pantalla)
+  m.central.asignarPermiso('Cajero DUO-1', 'editar_tipo_cambio', true, 'Administración'); // un usuario con permiso para probar el lápiz
+  m.pump();
   if (opsCatalogo) m.sembrarOps(opsCatalogo);
   else m.sembrar(ARTICULOS_DE_PRUEBA.map(({ existencias: _e, ...a }) => a), ARTICULOS_DE_PRUEBA.map((a) => a.existencias));
   const ahora = () => new Date().toISOString();
@@ -61,7 +64,7 @@ export function crearBanco(opsCatalogo?: Op[]) {
       reloj: { now: ahora },
     }));
   }
-  const admin = new ServicioAdmin({ actor: { rol: 'admin', usuario: 'Administración' }, fuente: () => m.central.repo.ops(), cajas: CAJAS_ESTANDAR.map((c) => ({ tienda: c.tienda, caja: c.caja })), inventario: m.inventarioCentral() });
+  const admin = new ServicioAdmin({ central: m.central, actor: { rol: 'admin', usuario: 'Administración' }, fuente: () => m.central.repo.ops(), cajas: CAJAS_ESTANDAR.map((c) => ({ tienda: c.tienda, caja: c.caja })), inventario: m.inventarioCentral() });
   return { m, servicios, admin, impresoras, ultimaSync, ahora };
 }
 

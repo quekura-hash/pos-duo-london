@@ -1,4 +1,4 @@
-import { aplicarTarjeta, type PerdidaDocumental, type TarjetaRegalo } from './proyecciones.ts';
+import { aplicarPermiso, aplicarTarjeta, type PerdidaDocumental, type TarjetaRegalo, type TipoCambio } from './proyecciones.ts';
 import type { Repo } from './repo.ts';
 import type { Articulo } from './tipos.ts';
 
@@ -24,6 +24,8 @@ export class Indice {
   private cubiertas = new Map<string, Set<string>>(); // `${tienda}|${item}` -> ids cubiertos por un conteo
   private perdidas = new Map<string, PerdidaDocumental>();
   private tarjetas = new Map<string, TarjetaRegalo>();
+  private tipos = new Map<number, TipoCambio>();
+  private permisos = new Map<string, Set<string>>();
 
   constructor(repo: Repo) {
     this.repo = repo;
@@ -32,7 +34,7 @@ export class Indice {
   private reiniciar() {
     this.seq = 0;
     this.cat = new Map(); this.porCodigo = new Map(); this.porAlterno = new Map(); this.porItemNo = new Map(); this.texto = new Map();
-    this.stock = new Map(); this.marcas = new Map(); this.cubiertas = new Map(); this.perdidas = new Map(); this.tarjetas = new Map();
+    this.stock = new Map(); this.marcas = new Map(); this.cubiertas = new Map(); this.perdidas = new Map(); this.tarjetas = new Map(); this.tipos = new Map(); this.permisos = new Map();
   }
 
   actualizar() {
@@ -65,6 +67,8 @@ export class Indice {
   private aplicar(o: { tipo: string; op_id: string; payload: any; ocurrio_en: string }) {
     const p = o.payload;
     if (o.tipo.startsWith('giftcard.')) aplicarTarjeta(this.tarjetas, o);
+    if (o.tipo === 'permiso.asignado') aplicarPermiso(this.permisos, o);
+    if (o.tipo === 'config.tipo_cambio') this.tipos.set(p.version, { ...p, ocurrio_en: o.ocurrio_en });
     switch (o.tipo) {
       case 'item.created': {
         const a: Articulo = { ...p };
@@ -169,6 +173,25 @@ export class Indice {
   todas(): PerdidaDocumental[] {
     this.actualizar();
     return [...this.perdidas.values()];
+  }
+  /** Tipo de cambio vigente (mayor versión) o null si aún no se ha fijado. */
+  tipoCambio(): TipoCambio | null {
+    this.actualizar();
+    let v: TipoCambio | null = null;
+    for (const t of this.tipos.values()) if (!v || t.version > v.version) v = t;
+    return v;
+  }
+  historialTipoCambio(): TipoCambio[] {
+    this.actualizar();
+    return [...this.tipos.values()].sort((a, b) => a.version - b.version);
+  }
+  tienePermiso(usuario: string, permiso: string): boolean {
+    this.actualizar();
+    return this.permisos.get(usuario)?.has(permiso) ?? false;
+  }
+  permisosAsignados(): { usuario: string; permisos: string[] }[] {
+    this.actualizar();
+    return [...this.permisos].map(([usuario, s]) => ({ usuario, permisos: [...s] })).filter((x) => x.permisos.length);
   }
   tarjeta(codigo: string): TarjetaRegalo | undefined {
     this.actualizar();

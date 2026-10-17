@@ -147,3 +147,56 @@ export function localizarVentas(ops: Op[], tienda: string, q: BusquedaVentas): V
   }
   return out.sort((a, b) => b.ocurrio_en.localeCompare(a.ocurrio_en)).slice(0, 100);
 }
+
+/** Un cobro con dólares: lo físico recibido y su equivalente con la tasa de ESA operación (nunca la última del día). */
+export interface FilaDolares {
+  tienda: string;
+  caja: number;
+  folio: number;
+  sale_id: string;
+  fecha_local: string;
+  hora: string;
+  cajero: string;
+  usd: number;
+  tasa: number;
+  tasa_version: number;
+  equivalente: number;
+  pesos_recibidos: number;
+  cambio_mxn: number;
+  total_venta: number;
+  estado: 'confirmada' | 'cancelada';
+}
+export interface ReporteDolares {
+  filas: FilaDolares[];
+  porCaja: { tienda: string; caja: number; cobros: number; usd: number; equivalente_historico: number }[];
+  usd: number;
+  equivalente_historico: number;
+}
+export function dolaresPorCaja(actor: Actor, ops: Op[], f: Filtro = {}): ReporteDolares {
+  const permitidas = cajasPermitidas(actor, f);
+  const filas: FilaDolares[] = [];
+  for (const v of ventas(ops).values()) {
+    if (permitidas !== 'todas' && !permitidas.some((c) => mismaCaja(c, v))) continue;
+    if (!enPeriodo(v.ocurrio_en, f)) continue;
+    for (const p of v.pagos) {
+      if (p.metodo !== 'efectivo_usd') continue;
+      const local = new Date(Date.parse(v.ocurrio_en) - 7 * 3600_000).toISOString();
+      filas.push({
+        tienda: v.tienda, caja: v.caja, folio: v.folio, sale_id: v.sale_id, fecha_local: fechaLocal(v.ocurrio_en), hora: local.slice(11, 16), cajero: v.cajero,
+        usd: p.usd!, tasa: p.tasa!, tasa_version: p.tasa_version!, equivalente: p.equivalente!, pesos_recibidos: p.pesos_recibidos!, cambio_mxn: p.cambio_mxn!,
+        total_venta: v.total, estado: v.estado,
+      });
+    }
+  }
+  filas.sort((a, b) => a.tienda.localeCompare(b.tienda) || a.caja - b.caja || a.folio - b.folio);
+  const por = new Map<string, ReporteDolares['porCaja'][number]>();
+  for (const r of filas) {
+    if (r.estado === 'cancelada') continue; // una venta cancelada no suma dólares al corte
+    const k = `${r.tienda}/${r.caja}`;
+    const a = por.get(k) ?? { tienda: r.tienda, caja: r.caja, cobros: 0, usd: 0, equivalente_historico: 0 };
+    a.cobros++; a.usd += r.usd; a.equivalente_historico += r.equivalente;
+    por.set(k, a);
+  }
+  const porCaja = [...por.values()];
+  return { filas, porCaja, usd: porCaja.reduce((a, c) => a + c.usd, 0), equivalente_historico: porCaja.reduce((a, c) => a + c.equivalente_historico, 0) };
+}

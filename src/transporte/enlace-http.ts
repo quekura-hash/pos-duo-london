@@ -46,6 +46,9 @@ export class EnlaceHttp implements Enlace {
   reservar(ref: string, caja: number, lineas: { item_id: string; qty: number }[], tarjetas: { codigo: string; monto: number }[] = []): ResultadoReserva | null {
     return this.rpc<ResultadoReserva>('reservar', [ref, caja, lineas, tarjetas]).valor;
   }
+  fijarTipoCambio(): null {
+    return null; // sin central en estas pruebas
+  }
   buscarVentas(q: BusquedaVentas): VentaLocalizada[] | null {
     return this.rpc<VentaLocalizada[]>('buscarVentas', [q]).valor;
   }

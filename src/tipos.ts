@@ -1,6 +1,7 @@
 // Tipos compartidos. Importes siempre en centavos enteros (MXN).
 
-export type Metodo = 'efectivo' | 'tarjeta' | 'tarjeta_regalo';
+/** `efectivo_usd` = efectivo recibido en dólares (y, si hay, pesos): liquida un solo importe en MXN y guarda el detalle físico. */
+export type Metodo = 'efectivo' | 'efectivo_usd' | 'tarjeta' | 'tarjeta_regalo';
 
 export interface Op {
   op_id: string;
@@ -25,6 +26,18 @@ export interface Pago {
   /** Solo tarjeta de regalo: código de la tarjeta y saldo que le queda después de este pago. */
   tarjeta?: string;
   saldo_despues?: number;
+  // ── Solo `efectivo_usd` (todo en enteros: dólares y pesos en centavos, tasa en diezmilésimas) ──
+  /** Dólares físicos recibidos, en centavos de dólar. */
+  usd?: number;
+  /** Tipo de cambio aplicado (MXN por 1 USD ×10000) y la versión de la configuración de donde salió. */
+  tasa?: number;
+  tasa_version?: number;
+  /** Equivalente en MXN de los dólares recibidos a esa tasa (redondeo al centavo, mitad hacia arriba). */
+  equivalente?: number;
+  /** Pesos físicos recibidos junto con los dólares (puede ser 0). */
+  pesos_recibidos?: number;
+  /** Cambio entregado en PESOS por todo el efectivo de este cobro. */
+  cambio_mxn?: number;
 }
 
 export interface Linea {

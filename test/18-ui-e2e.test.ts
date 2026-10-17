@@ -200,7 +200,7 @@ describe('[navegador real — Chromium con Playwright, UI sobre SQLite]', { time
     ctx.m.pump();
     const { page, errores } = await pagina(browser, adm.url);
     await page.waitForSelector('#filtros');
-    assert.deepEqual(await page.$$eval('#nav button', (b) => b.map((x) => x.textContent)), ['Reportes', 'Inventario', 'Tarjetas de regalo']);
+    assert.deepEqual(await page.$$eval('#nav button', (b) => b.map((x) => x.textContent)), ['Reportes', 'Dólares recibidos', 'Inventario', 'Tarjetas de regalo', 'Tipo de cambio']);
     await page.fill('#desde', '2026-10-01');
     await page.fill('#hasta', '2026-10-01');
     await page.click('#filtros button[type="submit"]');
@@ -509,5 +509,202 @@ describe('[navegador real — Chromium con Playwright, UI sobre SQLite]', { time
     assert.equal(ctx.m.caja('DUO', 1).estadoFolios().ultimo, 4, 'la devolución y la venta de tarjeta/recarga consumieron la misma serie');
     void v1; void v2;
     assert.deepEqual(errores.filter((e) => !/409/.test(e)), []);
+  });
+
+  it('UI11 dólares en efectivo: cobro habitual intacto, USD + MXN con faltante/cambio, tasa del cobro, lápiz con permiso, corte por moneda y reimpresión', async (t) => {
+    const browser = await chromium.launch({ executablePath: chromiumPath, args: ['--no-sandbox'] });
+    const ctx = nuevoMundo(sqlite, politica());
+    ctx.m.fijarTipoCambioInicial(180000, 'Gerencia');
+    ctx.m.central.asignarPermiso('Ana', 'editar_tipo_cambio', true, 'admin');
+    ctx.m.pump();
+    const app = await appCajero(ctx, 'DUO', 1, 'Ana');
+    const app2 = await appCajero(ctx, 'DUO', 2, 'Beto');
+    t.after(async () => { await browser.close(); await app.cerrar(); await app2.cerrar(); ctx.limpiar(); });
+    const { page, errores } = await pagina(browser, app.url, 1440, 900);
+    await page.waitForSelector('[data-tc="tasa"]');
+    // barra izquierda: tasa, fecha/hora, versión y estado de verificación; lápiz solo con permiso
+    assert.match((await page.textContent('[data-tc="tasa"]'))!, /Dólar: \$18\.00 MXN/);
+    assert.match((await page.textContent('[data-tc="fecha"]'))!, /Actualizado 01 oct 2026 · 08:00 · v1 · Gerencia/);
+    assert.match((await page.textContent('[data-tc="estado"]'))!, /Sincronizado/);
+    assert.equal(await page.locator('#btn-editar-tc').count(), 1);
+    const p2 = (await pagina(browser, app2.url, 1440, 900)).page;
+    await p2.waitForSelector('[data-tc="tasa"]');
+    assert.equal(await p2.locator('#btn-editar-tc').count(), 0, 'Beto no tiene permiso: no ve el lápiz');
+
+    // cobro habitual en pesos: sin pasos extra (el bloque de dólares ni se abre)
+    await escanear(page, '7501234567890');
+    await page.waitForSelector('#cuerpo tr[data-linea]');
+    assert.equal(await page.locator('#bloque-usd').isHidden(), true);
+    await page.fill('#recibido', '150');
+    assert.equal(await page.textContent('#cambio'), '$30.00');
+    assert.equal(await page.textContent('#lbl-cambio'), 'Cambio');
+    await page.click('#btn-cobrar');
+    await page.waitForSelector('#dlg-ticket[open]');
+    assert.doesNotMatch((await page.textContent('#ticket-texto'))!, /USD|Tasa/);
+    await page.click('#btn-nueva');
+    await page.waitForFunction(() => document.querySelector('#total')?.textContent === '$0.00');
+
+    // $1,349 (jeans + bolsa): US$50 + $400 → equivalente $900, recibido $1,300, faltan $49
+    await escanear(page, '0002026090782');
+    await page.waitForSelector('#cuerpo tr[data-linea]');
+    await escanear(page, '0000000000017');
+    await page.waitForSelector('#cuerpo tr[data-linea]:nth-child(2)');
+    assert.equal(await page.textContent('#total'), '$1,349.00');
+    await page.click('#btn-usd');
+    await page.waitForSelector('#bloque-usd:not([hidden])');
+    assert.match((await page.textContent('#info-tasa'))!, /\$18\.00 MXN por USD.*\(v1\)/);
+    await page.fill('#usd', '50');
+    await page.fill('#recibido', '400');
+    assert.deepEqual([await page.textContent('#usd-equivalente'), await page.textContent('#total-recibido'), await page.textContent('#lbl-cambio'), await page.textContent('#cambio')], ['$900.00', '$1,300.00', 'Faltan', '$49.00']);
+    assert.equal(await page.locator('#btn-cobrar').isDisabled(), true);
+    await page.screenshot({ path: join(CAPTURAS, '15-cobro-con-dolares-faltan.png') });
+
+    // la tasa global cambia mientras se cobra: este cobro conserva la suya y lo avisa; el botón toma la nueva
+    ctx.m.central.fijarTipoCambio(190000, 'Gerencia', 1);
+    ctx.m.pump();
+    await page.waitForSelector('#aviso-tasa-nueva', { timeout: 9000 });
+    assert.match((await page.textContent('#aviso-tasa-nueva'))!, /cambió a \$19\.00 \(v2\).*conserva/);
+    assert.equal(await page.textContent('#usd-equivalente'), '$900.00', 'no se recalcula con la nueva tasa');
+    await page.fill('#recibido', '500'); // $900 + $500 = $1,400 → cambio $51
+    assert.deepEqual([await page.textContent('#lbl-cambio'), await page.textContent('#cambio')], ['Cambio', '$51.00']);
+    await page.screenshot({ path: join(CAPTURAS, '16-cobro-con-dolares-cambio.png') });
+    await page.click('#btn-cobrar');
+    await page.waitForSelector('#dlg-ticket[open]');
+    assert.match((await page.textContent('#resumen-venta'))!, /cambio \$51\.00.*dólares recibidos US\$50\.00/);
+    const tk = (await page.textContent('#ticket-texto'))!;
+    assert.match(tk, /TOTAL +\$1,349\.00/);
+    assert.match(tk, /USD recibidos +US\$50\.00/);
+    assert.match(tk, /Tasa 18\.00 MXN\/USD \(v1\)/);
+    assert.match(tk, /Equivalente MXN +\$900\.00/);
+    assert.match(tk, /Pesos recibidos +\$500\.00/);
+    assert.match(tk, /Cambio MXN +\$51\.00/);
+    assert.doesNotMatch(tk, /\b(iva|tax|impuesto)\b|%/i);
+    await page.click('#btn-nueva');
+    await page.waitForFunction(() => document.querySelector('#total')?.textContent === '$0.00');
+
+    // solo dólares, cobro nuevo con la tasa vigente (19.00): US$100 = $1,900 para $120 → cambio $1,780
+    await escanear(page, '7501234567890');
+    await page.waitForSelector('#cuerpo tr[data-linea]');
+    await page.click('#btn-usd');
+    await page.waitForSelector('#bloque-usd:not([hidden])');
+    assert.match((await page.textContent('#info-tasa'))!, /\$19\.00 MXN por USD.*\(v2\)/);
+    await page.fill('#usd', '100');
+    assert.equal(await page.textContent('#cambio'), '$1,780.00');
+    await page.click('#btn-cobrar');
+    await page.waitForSelector('#dlg-ticket[open]');
+    await page.click('#btn-nueva');
+
+    // lápiz: valida, guarda para todas y se ve en la otra caja sin reiniciar
+    await page.click('#btn-editar-tc');
+    await page.waitForSelector('#form-tc');
+    await page.fill('#tc-valor', '0');
+    await page.click('#tc-guardar');
+    await page.waitForFunction(() => /número positivo/.test(document.querySelector('#tc-msg')!.textContent!));
+    await page.fill('#tc-valor', '20.50');
+    await page.screenshot({ path: join(CAPTURAS, '17-editar-tipo-de-cambio.png') });
+    await page.click('#tc-guardar');
+    await page.waitForFunction(() => /\$20\.50 MXN/.test(document.querySelector('[data-tc="tasa"]')!.textContent!));
+    assert.match((await page.textContent('[data-tc="fecha"]'))!, /v3 · Ana/);
+    ctx.m.pump();
+    await p2.waitForFunction(() => /\$20\.50 MXN/.test(document.querySelector('[data-tc="tasa"]')?.textContent ?? ''), null, { timeout: 9000 });
+    // sin conexión con el central: se sigue cobrando con la tasa guardada y se avisa que no se puede verificar
+    ctx.m.cortarInternet('DUO');
+    await page.waitForFunction(() => /no se puede verificar/.test(document.querySelector('[data-tc="estado"]')?.textContent ?? ''), null, { timeout: 9000 });
+    await page.click('#btn-editar-tc');
+    await page.fill('#tc-valor', '21');
+    await page.click('#tc-guardar');
+    await page.waitForFunction(() => /conexión con el servicio central/.test(document.querySelector('#tc-msg')!.textContent!));
+    await page.click('#tc-cancelar');
+    ctx.m.restablecerInternet('DUO');
+
+    // corte: pesos y dólares por separado (US$150 recibidos; cambio de $51 y $1,780 en pesos)
+    await page.click('#nav button[data-vista="corte"]');
+    await page.waitForSelector('#tabla-corte');
+    const corte = async (k: string) => (await page.textContent(`#tabla-corte tr[data-campo="${k}"] td`))!.trim();
+    assert.equal(await corte('usd_recibidos'), 'US$150.00');
+    assert.equal(await corte('usd_equivalente_mxn_historico'), '$2,800.00', '900 a 18.00 + 1,900 a 19.00: cada operación con su tasa');
+    assert.equal(await corte('cambio_mxn_con_usd'), '$1,831.00');
+    assert.equal(await corte('efectivo_esperado'), '-$1,211.00', 'pesos físicos: +120 +449 −1,780 (sin fondo en pesos el cajón queda corto: el cambio sale de pesos, no de dólares)');
+    // movimientos y conteo por denominaciones
+    await page.selectOption('#mov-tipo', 'fondo_inicial');
+    await page.selectOption('#mov-moneda', 'USD');
+    await page.fill('#mov-monto', '100');
+    await page.click('#btn-movimiento');
+    await page.waitForFunction(() => document.querySelector('#tabla-corte tr[data-campo="fondo_inicial_usd"] td')?.textContent === 'US$100.00');
+    assert.equal(await corte('efectivo_usd_esperado'), 'US$250.00');
+    await page.fill('[data-denom="100"]', '2');
+    await page.fill('[data-denom="50"]', '1');
+    assert.equal(await page.textContent('#conteo-total'), 'US$250.00');
+    await page.click('#btn-conteo-usd');
+    await page.waitForFunction(() => document.querySelector('#tabla-corte tr[data-campo="conteo_usd"] td')?.textContent === 'US$250.00');
+    assert.equal(await corte('diferencia_usd'), 'US$0.00');
+    await page.screenshot({ path: join(CAPTURAS, '18-corte-pesos-y-dolares.png') });
+
+    // reimpresión conserva la tasa original aunque hoy sea otra
+    await page.click('#nav button[data-vista="ventas"]');
+    await page.waitForSelector('#tabla-ventas tr[data-folio="2"]');
+    await page.click('#tabla-ventas tr[data-folio="2"] [data-ver]');
+    await page.waitForSelector('#dlg-ticket[open] #ticket-texto');
+    assert.match((await page.textContent('#ticket-texto'))!, /Tasa 18\.00 MXN\/USD \(v1\)/);
+    await page.click('#btn-reimprimir');
+    await page.waitForFunction(() => /REIMPRESIÓN 1/.test(document.querySelector('#ticket-texto')!.textContent!));
+    assert.match((await page.textContent('#ticket-texto'))!, /Tasa 18\.00 MXN\/USD \(v1\)/);
+    assert.deepEqual(errores.filter((e) => !/409/.test(e)), []);
+  });
+
+  it('UI12 Administración: tipo de cambio con historial y permisos por usuario; dólares recibidos con tasa de cada operación y exportación a Excel', async (t) => {
+    const browser = await chromium.launch({ executablePath: chromiumPath, args: ['--no-sandbox'] });
+    const ctx = nuevoMundo(sqlite, politica());
+    ctx.m.fijarTipoCambioInicial(180000, 'Gerencia');
+    const a1 = await appCajero(ctx, 'DUO', 1, 'Ana');
+    const a2 = await appCajero(ctx, 'LON', 2, 'Luis');
+    const adm = await appAdmin(ctx);
+    t.after(async () => { await browser.close(); await a1.cerrar(); await a2.cerrar(); await adm.cerrar(); ctx.limpiar(); });
+    const v1 = a1.s.svc.nuevaVenta(); a1.s.svc.escanear(v1, '0002026090782'); await a1.s.svc.cobrarEfectivo(v1, 20000, 5000); // US$50 + $200 por $899 → cambio $201
+    ctx.m.central.fijarTipoCambio(190000, 'Gerencia', 1); ctx.m.pump();
+    const v2 = a2.s.svc.nuevaVenta(); a2.s.svc.escanear(v2, '7501234567890'); await a2.s.svc.cobrarEfectivo(v2, 0, 1000); // US$10 a 19.00 por $120 → cambio $70
+    ctx.m.pump(); ctx.m.pump();
+    const { page, errores } = await pagina(browser, adm.url, 1440, 900);
+    await page.waitForSelector('#nav');
+    assert.match((await page.textContent('[data-tc="tasa"]'))!, /Dólar: \$19\.00 MXN/);
+    // permisos por usuario
+    await page.click('#nav button[data-vista="tipo_cambio"]');
+    await page.waitForSelector('#tabla-tc tbody tr');
+    assert.deepEqual(await page.$$eval('#tabla-tc tbody tr', (r) => r.map((x) => [...x.querySelectorAll('td')].slice(0, 4).map((c) => c.textContent))), [['v2', '$19.00', '$18.00 (v1)', 'Gerencia'], ['v1', '$18.00', '—', 'Gerencia']]);
+    await page.fill('#perm-usuario', 'Ana');
+    await page.click('#btn-permiso');
+    await page.waitForSelector('#tabla-permisos tr[data-usuario="Ana"]');
+    assert.match((await page.textContent('#tabla-permisos tr[data-usuario="Ana"]'))!, /Ana.*Sí/);
+    ctx.m.pump();
+    assert.equal(ctx.m.caja('LON', 2).puedeEditarTipoCambio('Ana'), true, 'el permiso llega a todas las cajas');
+    // Administración edita la tasa (v3) y queda el registro de quién y el valor anterior
+    await page.click('#btn-editar-tc-vista');
+    await page.fill('#tc-valor', '19.25');
+    await page.click('#tc-guardar');
+    await page.waitForFunction(() => /\$19\.25 MXN/.test(document.querySelector('[data-tc="tasa"]')!.textContent!));
+    await page.waitForSelector('#tabla-tc tr[data-version="3"]');
+    assert.match((await page.textContent('#tabla-tc tr[data-version="3"]'))!, /v3\$19\.25\$19\.00 \(v2\)Administración|v3.*19\.25.*19\.00 \(v2\).*galo/);
+    // dólares recibidos: cada operación con su tasa
+    await page.click('#nav button[data-vista="dolares"]');
+    await page.fill('#usd-desde', '2026-10-01');
+    await page.fill('#usd-hasta', '2026-10-01');
+    await page.click('#filtros-usd button[type="submit"]');
+    await page.waitForSelector('#tabla-dolares tbody tr[data-folio]');
+    assert.deepEqual(await page.$$eval('#tabla-dolares tbody tr', (r) => r.map((x) => [...x.querySelectorAll('td')].map((c) => c.textContent))),
+      [['DUO', '1', '000001', '2026-10-01 08:00', 'Ana', 'US$50.00', '18.00 (v1)', '$900.00', '$200.00', '$201.00', 'confirmada'], ['LON', '2', '000001', '2026-10-01 08:00', 'Luis', 'US$10.00', '19.00 (v2)', '$190.00', '$0.00', '$70.00', 'confirmada']]);
+    assert.deepEqual([await page.textContent('#total-usd'), await page.textContent('#total-equivalente')], ['US$60.00', '$1,090.00']);
+    await page.screenshot({ path: join(CAPTURAS, '19-dolares-recibidos-administracion.png') });
+    const [descarga] = await Promise.all([page.waitForEvent('download'), page.click('#btn-exportar-dolares')]);
+    assert.equal(descarga.suggestedFilename(), 'dolares-recibidos.xlsx');
+    const filas = (await leerXlsxNode(readFileSync((await descarga.path())!)))[0]!.filas;
+    assert.deepEqual(filas[0]!.slice(6, 12), ['USD recibidos', 'Tipo de cambio (MXN por USD)', 'Versión de la tasa', 'Equivalente MXN (tasa de la operación)', 'Pesos recibidos', 'Cambio entregado MXN']);
+    assert.deepEqual(filas[1]!.slice(0, 12), ['DUO', 1, 1, '2026-10-01', '08:00', 'Ana', '50.00', '18.00', 1, '900.00', '200.00', '201.00']);
+    assert.deepEqual(filas[2]!.slice(6, 10), ['10.00', '19.00', 2, '190.00']);
+    // un cajero no tiene las rutas de administración de tasa ni de dólares
+    assert.equal((await fetch(`${a1.url}/api/admin/dolares`)).status, 403);
+    assert.equal((await fetch(`${a1.url}/api/admin/tipo-cambio`)).status, 403);
+    const sinPermiso = await fetch(`${a2.url}/api/tipo-cambio`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ tasa: 200000 }) });
+    assert.deepEqual([sinPermiso.status, (await sinPermiso.json()).error.codigo], [409, 'PERMISO_DENEGADO']);
+    assert.deepEqual(errores.filter((e) => !/403|409/.test(e)), []);
   });
 });

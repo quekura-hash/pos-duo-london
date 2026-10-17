@@ -207,6 +207,23 @@ Pruebas `TR1–TR15` y `V1–V6` (memoria y SQLite), `UI8–UI10` (Chromium sobr
 - UI3/H5 P-13: ante un código duplicado el cajero elige y el renglón queda marcado. ✔
 - Comprobación por mutación: quitar la restricción de caja de origen, el folio de la devolución, la validación de vencimiento del hub, el reinicio de vigencia por recarga o el redondeo de la última devolución rompe al menos una prueba. ✔
 
+## Dólares en efectivo
+
+Pruebas `D0–D13` (`test/22`, memoria y SQLite), `UI11–UI12` (Chromium sobre SQLite) y `B-dolares` (página única):
+
+- D0 aritmética exacta (mitad hacia arriba, 4 decimales, denominaciones). ✔
+- D1 cobro habitual en pesos sin pasos extra (no se bloquea tasa ni aparecen dólares). ✔
+- D2 el ejemplo del encargo: $1,250, tasa 18.00, US$50 + $500 → equivalente $900, cambio $150. ✔
+- D3 solo dólares con cambio en pesos; USD + MXN con faltante (sin consumir folio), pago exacto y cambio; ambas cajas reciben dólares. ✔
+- D4 cambio de tasa durante un cobro: el cobro conserva su tasa, avisa que hay una nueva, «renovar» es explícito y lo anterior no se recalcula. ✔
+- D5 propagación a las cajas conectadas sin reiniciar; una tienda sin internet sigue con su tasa, no puede editar la global y al reconectar recibe la vigente; permiso por usuario; registro de quién, cuándo y valores. ✔
+- D6 versiones: edición con datos viejos rechazada y una actualización vieja que llega tarde no pisa la nueva. ✔
+- D7 reintentos sin duplicar (mismo folio, una sola vez en el corte). ✔
+- D8 corte de ambas monedas con fondo, retiro, entradas, cambio y conteo por denominaciones; equivalente histórico con la tasa de cada operación. ✔
+- D9 ticket y reimpresión con la tasa original; sin IVA. D10 tarjeta de regalo + dólares convierte solo la parte en USD. D11 el hub revalida equivalente y cambio. D12 reporte y hoja de Excel. D13 servicio y barra del dólar. ✔
+- UI11 en el navegador: barra con tasa, fecha, versión y estado; lápiz solo con permiso; «Faltan $49» y «Cambio $51» en pantalla; cambio de tasa durante el cobro (aviso y tasa conservada); edición con validación; sin conexión no se puede editar ni verificar; corte con pesos y dólares, movimientos por moneda, conteo por denominaciones; reimpresión. UI12 Administración: historial de tasas, permisos, dólares recibidos y exportación real a Excel. B-dolares en el archivo único. ✔
+- Comprobación por mutación: quitar el bloqueo de tasa por cobro, el cambio del corte de pesos, el redondeo, el control de versión, la revalidación del hub, el permiso o el orden por versión rompe al menos una prueba. ✔
+
 ## Limitaciones (no se declara validado)
 
 - **Concurrencia parcial.** Las pruebas `[procesos reales]` sí ejecutan dos cajas en paralelo contra un hub real. Aun así: el árbitro es correcto porque el hub procesa cada solicitud de forma síncrona en un solo hilo; no se probó un hub con varios hilos ni dos procesos escribiendo el mismo archivo SQLite. Las pruebas en un solo proceso siguen usando entrelazados escritos a mano.
@@ -232,3 +249,4 @@ Pruebas `TR1–TR15` y `V1–V6` (memoria y SQLite), `UI8–UI10` (Chromium sobr
 - **Tarjetas de regalo**: sin reposición por pérdida ni cargos; la venta o recarga de una tarjeta no se cancela ni se devuelve; el saldo de una tarjeta vencida queda sin uso (falta definir qué pasa con él); el saldo sin hub se valida solo con lo que la caja conoce (el conflicto se detecta después); no se probó con lector ni con tarjetas físicas reales.
 - **Localizar ventas de la otra caja** muestra a un cajero en qué caja se hizo una venta (sin importes ni pagos); es una excepción a «el cajero solo ve su caja» pedida por el propietario. Sin hub solo se ven las ventas de la propia caja.
 - **Cambio** (devolver y vender otra cosa) no tiene flujo propio: se devuelve y se hace una venta nueva; no hay crédito a favor.
+- **Dólares**: solo en pruebas con datos sintéticos; **nada probado con billetes reales, detector de billetes falsos, cajón ni impresora**. El conteo es de billetes (sin monedas). La devolución de una venta pagada en dólares se reembolsa en pesos (P-27). El corte consolidado de Administración (`cortes`) todavía no trae las columnas de dólares: el detalle está en el reporte «Dólares recibidos» y en el corte de cada caja.

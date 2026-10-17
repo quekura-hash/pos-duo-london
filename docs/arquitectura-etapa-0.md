@@ -360,3 +360,25 @@ Respuestas dadas por el propietario. «Hecho» = ya está en el código y probad
 ### Pendiente de construir
 
 P-06 (pantalla de folio), P-10 (flujo de almacén y confirmación al primer escaneo), P-15 (respaldos cifrados a Drive), P-17 (cupones como descuento), P-22 (unificar departamentos), crédito (P-04, P-05) y los archivos de Excel (P-11, P-16, P-20).
+
+## 16. Dólares estadounidenses en efectivo [P]
+
+- **Moneda base**: precios, ventas, tarjetas, reportes comerciales y el catálogo siguen en MXN. Los dólares solo se **reciben** como efectivo; el cambio se entrega **en pesos** (no hay cambio en dólares ni otras divisas en esta versión).
+- **Dinero exacto** (`src/dinero.ts`): pesos y dólares en **centavos enteros**, tipo de cambio en **diezmilésimas** de peso por dólar (hasta 4 decimales). Regla de redondeo única: el equivalente se redondea al centavo, **mitad hacia arriba** (`floor((usd × tasa + 5000) / 10000)`). Pantalla, ticket, almacenamiento y corte usan los mismos enteros; el hub y el central **recalculan** y rechazan un cobro cuyo equivalente o cambio no cuadre (`efectivo_usd_*`).
+- **Tipo de cambio**: configuración global **versionada** (`config.tipo_cambio`, versión consecutiva asignada solo por el central). Es el tipo de cambio comercial que fija el negocio; no se usan cotizaciones externas. Quien edita parte de la versión que vio: si el central ya tiene otra, rechaza (`CONFIG_DESACTUALIZADA`); además la vigente es siempre la de mayor versión, así que una actualización vieja que llegue tarde nunca pisa una nueva. Solo acepta tasas positivas. Cada cambio guarda quién, cuándo, valor anterior y nuevo.
+- **Permiso por usuario** (`editar_tipo_cambio`): lo asigna Administración (`permiso.asignado`) y se propaga a todas las cajas. Administración siempre puede editar. El lápiz de la barra izquierda solo aparece a quien tiene permiso.
+- **Propagación**: del central a los hubs y de ahí a las cajas, sin reiniciar. Editar la tasa global requiere conexión con el central (`SIN_CENTRAL`); una tienda desconectada sigue cobrando con su última tasa, la barra dice que no puede verificar actualizaciones y, al reconectar, recibe la vigente. La barra izquierda muestra «Dólar: $18.00 MXN», fecha y hora, versión, quién y el estado de sincronización.
+- **Tasa por cobro**: al pulsar «Agregar dólares USD» el cobro **bloquea** la tasa vigente; si la global cambia mientras se cobra, el cobro conserva la suya, lo avisa y ofrece «Usar la tasa vigente» (acción explícita). Los cobros nuevos usan la vigente y nunca se recalculan ventas anteriores.
+- **Cobro**: efectivo en pesos, solo dólares, o dólares y pesos. El cajero solo captura lo recibido; la pantalla calcula equivalente, total recibido equivalente y «Faltan $…» o «Cambio: $…». Se guarda **un** pago `efectivo_usd` que liquida el importe en MXN y conserva el detalle físico: dólares recibidos, tasa y versión, equivalente, pesos recibidos y cambio en MXN. Con tarjeta de regalo se convierte solo la parte recibida en USD. Ambas cajas reciben dólares; las reglas de tarjeta bancaria y de regalo no cambian. Reintentar el mismo carrito devuelve la misma venta.
+- **Ticket**: total en MXN; con dólares imprime USD recibidos, tasa y versión aplicadas, equivalente MXN, pesos recibidos (si hubo) y cambio MXN. La reimpresión conserva la tasa original. Sin renglones de IVA.
+- **Corte**: pesos y dólares se concilian **por separado**. Pesos físicos = fondo + cobros en pesos + pesos recibidos con dólares − cambio entregado + entradas − reembolsos en efectivo − retiros. Dólares físicos = fondo USD + dólares recibidos + entradas USD − retiros USD. El cambio no es descuento ni reembolso. Fondos, entradas y retiros llevan su moneda; hay **conteo de dólares por denominación** (US$100, 50, 20, 10, 5, 2 y 1) con diferencia contra lo esperado.
+- **Reportes**: «Dólares recibidos» (Administración) lista cada cobro con su tasa y versión y el equivalente **de esa operación** (no el de la última tasa del día), totales por caja (los cancelados no suman) y se exporta a Excel.
+
+### Pendientes y límites de esta primera versión
+
+| ID | Pendiente |
+|---|---|
+| P-27 | Devolución de una venta pagada (en todo o en parte) con dólares: hoy se reembolsa **en pesos** por el importe en MXN, sin devolver dólares. Falta decidir si se devuelven dólares y a qué tasa |
+| P-28 | Billetes de dólar aceptados (dañados, antiguos, falsos), monedas y topes de cambio. Hoy se acepta cualquier importe y no hay tope |
+| P-29 | Reglas para editar la tasa (rango razonable, doble aprobación, aviso a Administración). Hoy solo se exige permiso y un valor positivo |
+| P-30 | Qué pasa con una venta cancelada que se pagó con dólares: se excluye del corte; el reintegro físico al cliente (pesos o dólares) no se modela |

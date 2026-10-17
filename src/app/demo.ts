@@ -22,6 +22,9 @@ const m = new Mundo({
     P14_venta_con_inventario_no_verificado: 'permitir_con_aviso', K_folios: 30, K_item_no: 50,
   }),
 });
+m.fijarTipoCambioInicial(180000, 'Administración');
+m.central.asignarPermiso('Cajero DUO1', 'editar_tipo_cambio', true, 'Administración');
+m.pump();
 const archivo = arg('inventario');
 if (archivo) {
   const perfil = PERFILES.find((p) => p.id === (arg('perfil') ?? 'confirmado'));
@@ -59,6 +62,6 @@ for (const c of CAJAS_ESTANDAR) {
   console.log(`Caja ${c.tienda}/${c.caja}: http://127.0.0.1:${puerto}`);
   puerto++;
 }
-crearServidorApp({ admin: new ServicioAdmin({ actor: { rol: 'admin', usuario: 'Administración' }, fuente: () => m.central.repo.ops(), cajas: CAJAS_ESTANDAR.map((c) => ({ tienda: c.tienda, caja: c.caja })), inventario: m.inventarioCentral() }) }).listen(3010, '127.0.0.1');
+crearServidorApp({ admin: new ServicioAdmin({ central: m.central, actor: { rol: 'admin', usuario: 'Administración' }, fuente: () => m.central.repo.ops(), cajas: CAJAS_ESTANDAR.map((c) => ({ tienda: c.tienda, caja: c.caja })), inventario: m.inventarioCentral() }) }).listen(3010, '127.0.0.1');
 console.log('Administración: http://127.0.0.1:3010');
 console.log(`Tickets simulados (ESC/POS .bin y .txt) en ${join(dir, 'tickets')}`);

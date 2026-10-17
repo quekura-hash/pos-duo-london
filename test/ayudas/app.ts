@@ -26,7 +26,7 @@ export async function appCajero(ctx: Ctx, tienda: string, n: number, usuario = '
   return { ...a, s };
 }
 export async function appAdmin(ctx: Ctx): Promise<AppEnMarcha> {
-  const admin = new ServicioAdmin({ actor: { rol: 'admin', usuario: 'galo' }, fuente: () => ctx.m.central.repo.ops(), cajas: ctx.m.ctx.cajasCfg.map((c) => ({ tienda: c.tienda, caja: c.caja })), inventario: ctx.m.inventarioCentral() });
+  const admin = new ServicioAdmin({ central: ctx.m.central, actor: { rol: 'admin', usuario: 'galo' }, fuente: () => ctx.m.central.repo.ops(), cajas: ctx.m.ctx.cajasCfg.map((c) => ({ tienda: c.tienda, caja: c.caja })), inventario: ctx.m.inventarioCentral() });
   return escuchar(crearServidorApp({ admin }));
 }
 export async function api(base: string, ruta: string, cuerpo?: unknown): Promise<{ status: number; json: any }> {
