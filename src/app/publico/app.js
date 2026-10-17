@@ -181,7 +181,7 @@ async function vistaVenta() {
           <button class="btn forma" type="button" data-forma="efectivo" aria-pressed="true">${ico('cash', 'ico-lg')}<span>Efectivo</span></button>
           <button class="btn forma" type="button" data-forma="tarjeta" disabled title="${metodos.includes('tarjeta') ? 'Próximamente' : 'Esta caja no tiene terminal bancaria'}" aria-label="Tarjeta (${metodos.includes('tarjeta') ? 'próximamente' : 'no disponible en esta caja'})">${ico('card', 'ico-lg')}<span>Tarjeta</span></button>
           <button class="btn forma" type="button" data-forma="mixto" disabled title="Próximamente" aria-label="Mixto (próximamente)">${ico('mixto', 'ico-lg')}<span>Mixto</span></button>
-          <button class="btn forma" type="button" data-forma="regalo" aria-pressed="false" ${metodos.includes('tarjeta_regalo') ? '' : 'disabled'}>${ico('gift', 'ico-lg')}<span>Tarjeta de regalo</span></button>
+          <button class="btn forma" type="button" data-forma="regalo" aria-pressed="false" ${metodos.includes('tarjeta_regalo') ? '' : `disabled title="Esta caja no maneja tarjetas de regalo"`}>${ico('gift', 'ico-lg')}<span>Tarjeta de regalo</span></button>
         </div>
         <div id="pago"></div>
         <button class="btn btn-primario" id="btn-cobrar" type="button" disabled><span id="txt-cobrar">COBRAR $0.00</span>${ico('chevron')}</button>

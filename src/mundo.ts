@@ -57,9 +57,9 @@ export function fabricaSqlite(dir: string): FabricaRepo {
 
 export const CAJAS_ESTANDAR: CajaCfg[] = [
   { tienda: 'DUO', caja: 1, metodos: ['efectivo', 'tarjeta', 'tarjeta_regalo'] },
-  { tienda: 'DUO', caja: 2, metodos: ['efectivo', 'tarjeta_regalo'] },
+  { tienda: 'DUO', caja: 2, metodos: ['efectivo'] },
   { tienda: 'LON', caja: 1, metodos: ['efectivo', 'tarjeta', 'tarjeta_regalo'] },
-  { tienda: 'LON', caja: 2, metodos: ['efectivo', 'tarjeta_regalo'] },
+  { tienda: 'LON', caja: 2, metodos: ['efectivo'] },
 ];
 
 export interface InformeRehidratacion {

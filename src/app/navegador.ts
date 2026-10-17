@@ -33,7 +33,7 @@ export function crearBanco(opsCatalogo?: Op[]) {
   const m = new Mundo({
     fabrica: fabricaMemoria(),
     politicas: crearPoliticasEnsayo({
-      P01_hub_no_disponible: 'vender_autonomo_con_aviso', P02_existencia_insuficiente: 'bloquear', P03_devolucion_venta_no_local: 'bloquear',
+      P01_hub_no_disponible: 'vender_autonomo_con_aviso', P02_existencia_insuficiente: 'permitir_y_conciliar', P03_devolucion_venta_no_local: 'permitir_con_incidencia',
       P06_huecos_de_folio: 'no_aceptados', P07_item_no: 'a_central', P12_tarjeta_con_pendiente: 'permitir_con_aviso',
       P14_venta_con_inventario_no_verificado: 'permitir_con_aviso', K_folios: 30, K_item_no: 50,
     }),

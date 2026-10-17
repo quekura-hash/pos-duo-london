@@ -10,7 +10,7 @@ import type { Op } from '../src/tipos.ts';
 const HIJO = join(import.meta.dirname, 'ayudas', 'hijo-crash.ts');
 const CAJAS: import('../src/tipos.ts').CajaCfg[] = [
   { tienda: 'DUO', caja: 1, metodos: ['efectivo', 'tarjeta', 'tarjeta_regalo'] },
-  { tienda: 'DUO', caja: 2, metodos: ['efectivo', 'tarjeta_regalo'] },
+  { tienda: 'DUO', caja: 2, metodos: ['efectivo'] },
 ];
 
 function matarEnTransaccion(ruta: string, modo: string): Promise<void> {

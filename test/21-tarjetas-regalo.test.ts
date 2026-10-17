@@ -99,19 +99,16 @@ porAlmacen('Tarjetas de regalo: alta, cobro, cancelación, arbitraje y conflicto
     assert.equal(c.ops().filter((o) => o.tipo === 'giftcard.reintegro').length, 1);
   });
 
-  it('TR6 arbitraje del hub: dos cajas no pueden gastar el mismo saldo aunque no se hayan sincronizado', (t) => {
-    const { m, items, limpiar } = nuevoMundo(alm, politica({ P02_existencia_insuficiente: 'permitir_y_conciliar' }));
+  it('TR6 dos ventas en curso con la misma tarjeta no gastan el mismo saldo (el hub aparta y cierra la reserva)', (t) => {
+    const { m, items, limpiar } = nuevoMundo(alm, politica());
     t.after(limpiar);
     m.caja('DUO', 1).altaTarjetaRegalo({ codigo: 'UNICA', monto: MASCADA });
     m.pump();
-    assert.equal(m.caja('DUO', 2).saldoTarjeta('UNICA'), MASCADA, 'la Caja 2 conoce la tarjeta tras sincronizar');
     const a = carrito(m, items, 'DUO', 1);
-    const b = carrito(m, items, 'DUO', 2);
+    const b = carrito(m, items, 'DUO', 1);
     assert.equal(a.caja.cobrarConTarjetaRegalo(a.cart, 'UNICA', undefined).pagos[0]!.saldo_despues, 0);
-    // SIN pump: la Caja 2 todavía cree que hay saldo, pero el hub ya lo tiene apartado/consumido
-    assert.equal(b.caja.saldoTarjeta('UNICA'), MASCADA);
     assert.throws(() => b.caja.cobrarConTarjetaRegalo(b.cart, 'UNICA', undefined), { codigo: 'SALDO_INSUFICIENTE' });
-    assert.equal(b.caja.estadoFolios().ultimo, 0);
+    assert.equal(b.caja.estadoFolios().ultimo, 1, 'la venta rechazada no consumió folio');
     m.pump();
     assert.equal(m.hub('DUO').reservasAbiertas().length, 0, 'la reserva de la tarjeta se cerró con su uso');
     assert.deepEqual(detectar(m.central.repo.ops()).filter((i) => i.tipo.startsWith('tarjeta_regalo')), []);
@@ -150,19 +147,22 @@ porAlmacen('Tarjetas de regalo: alta, cobro, cancelación, arbitraje y conflicto
     }
   });
 
-  it('TR9 Caja 2 (sin terminal bancaria) acepta tarjeta de regalo pero no tarjeta bancaria', (t) => {
+  it('TR9 P-25 (decidido): la Caja 2 no maneja tarjetas de regalo (ni alta ni pago) y tampoco tarjeta bancaria', (t) => {
     const { m, items, limpiar } = nuevoMundo(alm, politica());
     t.after(limpiar);
-    const c2 = m.caja('DUO', 2);
-    c2.altaTarjetaRegalo({ codigo: 'C2', monto: 20000 });
+    m.caja('DUO', 1).altaTarjetaRegalo({ codigo: 'C2', monto: 20000 });
     m.pump();
+    const c2 = m.caja('DUO', 2);
+    assert.throws(() => c2.altaTarjetaRegalo({ codigo: 'C2-NUEVA', monto: 100 }), { codigo: 'PAGO_NO_PERMITIDO' });
     const { cart } = carrito(m, items, 'DUO', 2);
+    assert.throws(() => c2.cobrarConTarjetaRegalo(cart, 'C2', undefined), { codigo: 'PAGO_NO_PERMITIDO' });
     assert.throws(() => c2.cobrar(cart, [{ metodo: 'tarjeta', monto: MASCADA, autorizacion: 'X' }]), { codigo: 'PAGO_NO_PERMITIDO' });
-    assert.equal(c2.cobrarConTarjetaRegalo(cart, 'C2', undefined).estado, 'confirmada');
+    assert.equal(c2.estadoFolios().ultimo, 0);
+    assert.equal(c2.cobrarEfectivo(cart, MASCADA).estado, 'confirmada', 'en efectivo sí');
   });
 
   it('TR10 conflictos: el mismo código dado de alta en dos tiendas aisladas se señala; dos cajas sin hub que gastan lo mismo sobregiran y se señala', (t) => {
-    const { m, items, limpiar } = nuevoMundo(alm, politica({ P01_hub_no_disponible: 'vender_autonomo_con_aviso' }));
+    const { m, items, limpiar } = nuevoMundo(alm, politica({ P01_hub_no_disponible: 'vender_autonomo_con_aviso', P23_tarjeta_regalo_entre_tiendas: 'compartida' }));
     t.after(limpiar);
     m.cortarInternet('DUO'); m.cortarInternet('LON');
     m.caja('DUO', 1).altaTarjetaRegalo({ codigo: 'DUP', monto: 10000 });
@@ -175,15 +175,15 @@ porAlmacen('Tarjetas de regalo: alta, cobro, cancelación, arbitraje y conflicto
     const t0 = tarjetasRegalo(m.central.repo.ops()).get('DUP')!;
     assert.equal(t0.duplicadas.length, 1);
     assert.equal(t0.saldo, t0.emitido, 'la alta repetida NO suma saldo: no se inventa dinero');
-    // sin hub, cada caja ve el saldo que conoce y puede gastarlo: el conflicto aparece después como sobregiro
+    // con la tarjeta compartida entre tiendas e internet caído, cada tienda ve el saldo que conoce y lo puede gastar: el conflicto aparece después como sobregiro
     m.caja('DUO', 1).altaTarjetaRegalo({ codigo: 'DOBLE', monto: MASCADA });
-    m.pump(); m.pump();
-    m.lan.set('DUO/1', false); m.lan.set('DUO/2', false);
+    for (let i = 0; i < 4; i++) m.pump();
+    m.cortarInternet('DUO'); m.cortarInternet('LON');
     const a = carrito(m, items, 'DUO', 1);
-    const b = carrito(m, items, 'DUO', 2);
+    const b = carrito(m, items, 'LON', 1);
     a.caja.cobrarConTarjetaRegalo(a.cart, 'DOBLE', undefined);
     b.caja.cobrarConTarjetaRegalo(b.cart, 'DOBLE', undefined);
-    m.lan.set('DUO/1', true); m.lan.set('DUO/2', true);
+    m.restablecerInternet('DUO'); m.restablecerInternet('LON');
     for (let i = 0; i < 4; i++) m.pump();
     const sob = detectar(m.central.repo.ops()).find((i) => i.tipo === 'tarjeta_regalo_sobregirada');
     assert.deepEqual([sob?.codigo, sob?.saldo], ['DOBLE', -MASCADA]);

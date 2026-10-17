@@ -309,7 +309,7 @@ describe('[navegador real — Chromium con Playwright, UI sobre SQLite]', { time
       assert.equal(await page.evaluate(() => (document.querySelector('.encabezado .logo') as HTMLImageElement).naturalWidth > 50), true, 'el logo cargó');
       const texto = (await page.textContent('body'))!;
       assert.doesNotMatch(texto, /apartado/i, 'no hay botones ni referencias a apartados');
-      assert.equal(await page.locator('#nav button svg').count(), 5, 'cada opción de navegación tiene su icono');
+      assert.equal(await page.locator('#nav button svg').count(), tienda === 'DUO' ? 5 : 4, 'cada opción de navegación tiene su icono (la Caja 2 no tiene Tarjetas de regalo)');
       const sinIcono = await page.$$eval('button:not(.btn-icono):not([type=submit])', (bs) => bs.filter((b) => !b.querySelector('svg') && !/^[−+]$/.test(b.textContent!.trim())).map((b) => b.textContent!.trim()));
       assert.deepEqual(sinIcono, [], 'todo botón visible lleva icono');
       for (const id of ['btn-nuevo-articulo', 'btn-editar-venta', 'btn-devolucion', 'btn-descuento', 'btn-espera', 'btn-regalo']) {
@@ -318,7 +318,7 @@ describe('[navegador real — Chromium con Playwright, UI sobre SQLite]', { time
       }
       assert.equal(await page.locator('#nav button[data-proximamente="creditos"]').isDisabled(), true);
       const formas = await page.$$eval('#formas button', (b) => b.map((x) => [x.textContent!.trim(), (x as HTMLButtonElement).disabled]));
-      assert.deepEqual(formas, [['Efectivo', false], ['Tarjeta', true], ['Mixto', true], ['Tarjeta de regalo', false]]);
+      assert.deepEqual(formas, [['Efectivo', false], ['Tarjeta', true], ['Mixto', true], ['Tarjeta de regalo', tienda !== 'DUO']]);
       assert.deepEqual(errores, []);
     }
     const { page } = await pagina(browser, duo.url);

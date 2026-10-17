@@ -35,7 +35,7 @@ const marcado = `
 <div class="banco" role="region" aria-label="Controles de la prueba">
   <strong>PRUEBA con datos sintéticos · en memoria (se borra al recargar) · políticas de ensayo, no aprobadas</strong>
   <label>Sesión <select id="sesion-prueba">
-    <option value="DUO/1">Cajero · DÚO Caja 1 (efectivo, tarjeta bancaria, tarjeta de regalo)</option><option value="DUO/2">Cajero · DÚO Caja 2 (efectivo y tarjeta de regalo; sin terminal bancaria)</option>
+    <option value="DUO/1">Cajero · DÚO Caja 1 (efectivo, tarjeta bancaria y de regalo)</option><option value="DUO/2">Cajero · DÚO Caja 2 (solo efectivo)</option>
     <option value="LON/1">Cajero · London Caja 1</option><option value="LON/2">Cajero · London Caja 2</option><option value="admin">Administración</option></select></label>
   <label><input type="checkbox" id="falla-hub"> Hub de la tienda caído (simulado)</label>
   <label><input type="checkbox" id="falla-imp"> La siguiente impresión falla (una vez, simulada)</label>

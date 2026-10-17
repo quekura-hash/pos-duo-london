@@ -31,7 +31,7 @@ export async function atender(o: { cajero?: ServicioCaja; admin?: ServicioAdmin 
     switch (`${metodo} ${url.pathname}`) {
       case 'GET /api/sesion':
         return ok(C
-          ? { rol: 'cajero', usuario: C.actor.usuario, tienda: C.caja.tienda, caja: C.caja.caja, nav: ['venta', 'ventas', 'corte', 'tarjetas'] }
+          ? { rol: 'cajero', usuario: C.actor.usuario, tienda: C.caja.tienda, caja: C.caja.caja, nav: ['venta', 'ventas', 'corte', ...(C.caja.cfg.metodos.includes('tarjeta_regalo') ? ['tarjetas'] : [])] }
           : { rol: 'admin', usuario: A!.actor.usuario, cajas: A!.cajas, nav: ['reportes', 'inventario', 'tarjetas'] });
       // ── cajero ──
       case 'GET /api/estado': return ok({ estado: exigirCajero().estado() });

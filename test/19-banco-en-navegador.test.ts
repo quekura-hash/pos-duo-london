@@ -232,7 +232,7 @@ describe('[navegador real] Inventario real de DÚO en la página (solo con POS_I
     assert.deepEqual(errores, []);
   });
 
-  it('B-regalo en la página única: alta de tarjeta de regalo en DÚO, cobro en London (P-23 de ensayo) y logos incrustados', async (t) => {
+  it('B-regalo en la página única: alta de tarjeta de regalo en DÚO, no vale en London (P-23), cobro en DÚO, Caja 2 sin tarjetas (P-25) y logos incrustados', async (t) => {
     execFileSync(process.execPath, [join(RAIZ, 'scripts', 'construir-prueba.mjs')], { stdio: 'pipe' });
     const browser = await chromium.launch({ executablePath: chromiumPath, args: ['--no-sandbox'] });
     t.after(() => browser.close());
@@ -252,6 +252,13 @@ describe('[navegador real] Inventario real de DÚO en la página (solo con POS_I
     await page.selectOption('#sesion-prueba', 'LON/1'); // entrega lo pendiente (red simulada) y cambia de tienda
     await page.waitForSelector('[data-logo="LON"]');
     assert.equal(await page.evaluate(() => (document.querySelector('[data-logo]') as HTMLImageElement).naturalWidth > 50), true, 'logo de London incrustado');
+    // P-23 (decidido): la tarjeta vale solo en la tienda que la emitió
+    await page.click('#nav button[data-vista="tarjetas"]');
+    await page.fill('#saldo-codigo', 'BANCO-1');
+    await page.click('#btn-saldo');
+    await page.waitForFunction(() => /no está dada de alta/.test(document.querySelector('#resultado-saldo')!.textContent!));
+    await page.selectOption('#sesion-prueba', 'DUO/1');
+    await page.waitForSelector('#scan');
     await page.fill('#scan', '7501234567890');
     await page.press('#scan', 'Enter');
     await page.waitForSelector('#cuerpo tr[data-linea]');
@@ -263,12 +270,12 @@ describe('[navegador real] Inventario real de DÚO en la página (solo con POS_I
     await page.click('#btn-cobrar');
     await page.waitForSelector('#dlg-ticket[open]');
     assert.match((await page.textContent('#resumen-venta'))!, /saldo de la tarjeta \$180\.00/);
-    // Caja 2 de DÚO: la tarjeta bancaria no existe como opción; la de regalo sí
+    // P-25 (decidido): la Caja 2 no maneja tarjetas de regalo ni tiene el menú
     await page.click('#btn-nueva');
     await page.selectOption('#sesion-prueba', 'DUO/2');
     await page.waitForSelector('#formas');
-    assert.deepEqual(await page.$$eval('#formas button', (b) => b.map((x) => [x.textContent!.trim(), (x as HTMLButtonElement).disabled])), [['Efectivo', false], ['Tarjeta', true], ['Mixto', true], ['Tarjeta de regalo', false]]);
-    assert.match((await page.getAttribute('#formas button[data-forma="tarjeta"]', 'title'))!, /no tiene terminal bancaria/);
+    assert.deepEqual(await page.$$eval('#formas button', (b) => b.map((x) => [x.textContent!.trim(), (x as HTMLButtonElement).disabled])), [['Efectivo', false], ['Tarjeta', true], ['Mixto', true], ['Tarjeta de regalo', true]]);
+    assert.equal(await page.locator('#nav button[data-vista="tarjetas"]').count(), 0);
     assert.deepEqual(errores, []);
   });
 });

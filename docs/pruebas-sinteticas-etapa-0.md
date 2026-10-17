@@ -202,8 +202,8 @@ Pruebas `TR1–TR12` (`test/21`, **memoria y SQLite**), `UI8–UI9` (`test/18`, 
 - TR4 no se sobregira, no se repite la tarjeta en un cobro, se exige el código. ✔
 - TR5 cancelar reintegra el saldo una sola vez. ✔
 - TR6 dos cajas con la misma tarjeta y sin sincronizar entre ventas: el hub concede a una sola. ✔  TR7 reservas de saldo del hub (apartar, rechazo no heredado, liberar, idempotencia, tarjeta desconocida). ✔
-- TR8 P-23: la tarjeta de DÚO se usa en London y el saldo regresa a DÚO; con `solo_tienda_emisora` no se reparte. ✔
-- TR9 Caja 2 acepta tarjeta de regalo y rechaza tarjeta bancaria; el trigger de SQLite permite la primera y bloquea la segunda (`test/08`). ✔
+- TR8 P-23: probadas las dos configuraciones; la decidida por el propietario es `solo_tienda_emisora` (no se reparte a la otra tienda) y es la que rige por omisión. ✔
+- TR9 (P-25 decidido) la Caja 2 rechaza alta y pago con tarjeta de regalo y tarjeta bancaria; solo efectivo. El trigger de SQLite sigue bloqueando la tarjeta bancaria (`test/08`). ✔
 - TR10 conflictos: alta repetida entre tiendas aisladas (no suma saldo, se señala) y sobregiro por dos cajas sin hub (se señala). ✔  TR11 comprobante sin folio ni IVA. ✔
 - TR12 **limitación**: una tarjeta que el hub aún no conoce se rechaza hasta sincronizar. ✔ (documentado, no un defecto oculto)
 - UI8 logo de cada tienda arriba a la izquierda (cargó), sin la palabra «apartado» en pantalla, todo botón visible con icono, botones futuros deshabilitados con «Próximamente», formas de pago correctas por caja. ✔

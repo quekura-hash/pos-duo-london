@@ -252,7 +252,7 @@ export class Central {
       }
       this.repo.appendOp(op);
       // P-23 (ensayo): una tarjeta de regalo vale en las dos tiendas, así que el central reparte su libro mayor a los demás hubs.
-      if (op.tipo.startsWith('giftcard.') && (this.ctx.politicas.P23_tarjeta_regalo_entre_tiendas ?? 'compartida') === 'compartida') {
+      if (op.tipo.startsWith('giftcard.') && (this.ctx.politicas.P23_tarjeta_regalo_entre_tiendas ?? 'solo_tienda_emisora') === 'compartida') {
         for (const t of this.ctx.tiendas) if (`hub:${t}` !== desde) this.repo.encolar(op.op_id, `hub:${t}`);
       }
       if (op.tipo === 'item.created') {
@@ -725,6 +725,7 @@ export class Caja {
    * ticket (P-24, sin aprobar) y entra al efectivo esperado del corte de esta caja.
    */
   altaTarjetaRegalo(d: { codigo: string; monto: number; cajero?: string; cliente?: string }): TarjetaRegalo {
+    if (!this.cfg.metodos.includes('tarjeta_regalo')) throw new ErrorDominio('PAGO_NO_PERMITIDO', `la caja ${this.id} no maneja tarjetas de regalo`);
     const codigo = String(d.codigo ?? '').trim();
     if (!codigo) throw new ErrorDominio('DATOS_REQUERIDOS', 'falta el código de la tarjeta');
     if (!Number.isInteger(d.monto) || d.monto <= 0) throw new ErrorDominio('PAGO_INVALIDO', 'el monto de la tarjeta es un entero positivo en centavos');

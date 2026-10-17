@@ -21,7 +21,7 @@ export interface Politicas {
   /** P-14: vender artículos cuya existencia está marcada no verificada (ALTERNATIVA DE ENSAYO, no aprobada). */
   P14_venta_con_inventario_no_verificado: 'permitir_con_aviso' | 'bloquear_articulo_no_verificado';
   /**
-   * P-23 (opcional; sin aprobar): ¿una tarjeta de regalo vale en las dos tiendas? Si se omite se ensaya 'compartida'.
+   * P-23 (opcional; decidido por el propietario): ¿una tarjeta de regalo vale en las dos tiendas? Decisión del propietario (17-oct-2026): 'solo_tienda_emisora', que es lo que rige si se omite.
    * Con 'solo_tienda_emisora' el central no la reparte a los demás hubs.
    */
   P23_tarjeta_regalo_entre_tiendas?: 'compartida' | 'solo_tienda_emisora';
