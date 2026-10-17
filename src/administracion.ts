@@ -1,6 +1,6 @@
 import { ErrorDominio } from './errores.ts';
 import type { Central } from './nodos.ts';
-import { catalogo, stock, ventas } from './proyecciones.ts';
+import { catalogo, perdidasDocumentales, stock, ventas } from './proyecciones.ts';
 import type { Actor, Op } from './tipos.ts';
 
 /**
@@ -8,9 +8,10 @@ import type { Actor, Op } from './tipos.ts';
  *
  * Mientras un código esté duplicado, el POS no adivina: escanearlo da CODIGO_AMBIGUO. La elección manual de un
  * candidato por el cajero es un recurso provisional: la línea queda marcada y aparece aquí para revisión.
- * La solución definitiva solo la aplica Administración, con una de dos decisiones explícitas y auditadas:
- *   - reasignar_codigo: uno de los artículos recibe otro código (p. ej. se re-etiqueta físicamente);
- *   - fusionar: Administración declara que son el MISMO artículo; el absorbido queda como alias (no se borra).
+ * La solución definitiva solo la aplica Administración, con una decisión explícita y auditada:
+ *   - reasignar_codigo: uno de los artículos recibe otro código (p. ej. se re-etiquetó físicamente).
+ * La FUSIÓN de artículos NO está aprobada y NO se implementa: dos registros con el mismo código se corrigen
+ * cambiando uno de ellos, nunca declarándolos el mismo artículo.
  * Los tickets históricos conservan el item_id con el que se vendieron.
  */
 
@@ -37,7 +38,7 @@ export interface CodigoDuplicado {
 
 export function codigosDuplicados(actor: Actor, ops: Op[]): CodigoDuplicado[] {
   exigirAdmin(actor);
-  const cat = [...catalogo(ops).values()].filter((a) => !a.alias_de);
+  const cat = [...catalogo(ops).values()];
   const porCodigo = new Map<string, typeof cat>();
   for (const a of cat) (porCodigo.get(a.codigo) ?? porCodigo.set(a.codigo, []).get(a.codigo)!).push(a);
   const tiendas = [...new Set(ops.filter((o) => o.tipo === 'inv.movement').map((o) => o.payload.tienda as string))];
@@ -70,36 +71,41 @@ export function reasignarCodigo(actor: Actor, central: Central, d: { item_id: st
   const ops = central.repo.ops();
   const cat = catalogo(ops);
   const a = cat.get(d.item_id);
-  if (!a || a.alias_de) throw new ErrorDominio('ARTICULO_INEXISTENTE', d.item_id);
-  const grupo = [...cat.values()].filter((x) => !x.alias_de && x.codigo === a.codigo);
+  if (!a) throw new ErrorDominio('ARTICULO_INEXISTENTE', d.item_id);
+  const grupo = [...cat.values()].filter((x) => x.codigo === a.codigo);
   if (grupo.length < 2) throw new ErrorDominio('NO_ES_DUPLICADO', `el código ${a.codigo} no está duplicado`);
   if (typeof d.codigo_nuevo !== 'string' || d.codigo_nuevo.length === 0) throw new ErrorDominio('CODIGO_INVALIDO', 'el código es texto no vacío');
-  if ([...cat.values()].some((x) => !x.alias_de && x.codigo === d.codigo_nuevo)) throw new ErrorDominio('CODIGO_EXISTE', `${d.codigo_nuevo} ya pertenece a otro artículo`);
+  if ([...cat.values()].some((x) => x.codigo === d.codigo_nuevo)) throw new ErrorDominio('CODIGO_EXISTE', `${d.codigo_nuevo} ya pertenece a otro artículo`);
   return central.emitirAdmin('item.codigo_corregido', {
     item_id: d.item_id, codigo_anterior: a.codigo, codigo_nuevo: d.codigo_nuevo, motivo: d.motivo, usuario: actor.usuario,
   });
 }
 
-export function fusionarArticulos(actor: Actor, central: Central, d: { conservar_id: string; absorber_id: string; motivo: string }): Op {
-  exigirAdmin(actor);
-  exigirMotivo(d.motivo);
-  const ops = central.repo.ops();
-  const cat = catalogo(ops);
-  const c = cat.get(d.conservar_id);
-  const x = cat.get(d.absorber_id);
-  if (!c || !x || c.alias_de || x.alias_de) throw new ErrorDominio('ARTICULO_INEXISTENTE', 'ambos artículos deben existir y estar vigentes');
-  if (d.conservar_id === d.absorber_id) throw new ErrorDominio('FUSION_INVALIDA', 'no se fusiona un artículo consigo mismo');
-  if (c.codigo !== x.codigo) throw new ErrorDominio('NO_ES_DUPLICADO', 'solo se fusionan artículos que comparten código');
-  const tiendas = [...new Set(ops.filter((o) => o.tipo === 'inv.movement').map((o) => o.payload.tienda as string))];
-  return central.emitirAdmin('item.fusion', {
-    conservado_id: d.conservar_id, absorbido_id: d.absorber_id, codigo: c.codigo,
-    item_no_absorbido: x.item_no, // el Item # del absorbido no se pierde: queda en el registro de la fusión
-    existencias_absorbido_al_fusionar: Object.fromEntries(tiendas.map((t) => [t, stock(ops, t).get(d.absorber_id) ?? 0])),
-    motivo: d.motivo, usuario: actor.usuario,
-  });
-}
-
 export function historialResoluciones(actor: Actor, ops: Op[]) {
   exigirAdmin(actor);
-  return ops.filter((o) => o.tipo === 'item.codigo_corregido' || o.tipo === 'item.fusion').map((o) => ({ tipo: o.tipo, ocurrio_en: o.ocurrio_en, ...o.payload }));
+  return ops.filter((o) => o.tipo === 'item.codigo_corregido').map((o) => ({ tipo: o.tipo, ocurrio_en: o.ocurrio_en, ...o.payload }));
+}
+
+/** Pérdidas documentales (ventas, pagos, folios) abiertas o declaradas. Independientes del inventario. */
+export function consultarPerdidasDocumentales(actor: Actor, ops: Op[]) {
+  exigirAdmin(actor);
+  return perdidasDocumentales(ops);
+}
+
+/**
+ * Decisión administrativa sobre una pérdida documental. NO es un conteo ni restablece ventas, pagos ni folios: solo deja
+ * constancia, con evidencia, de que se acepta que esa documentación no se pudo recuperar. La reconstrucción de ventas a
+ * partir de tickets/comprobantes es un procedimiento aparte (no aprobado ni implementado).
+ */
+export function declararPerdidaIrrecuperable(actor: Actor, central: Central, d: { perdida_id: string; evidencia: { tipo: string; referencia: string }; nota: string }): Op {
+  exigirAdmin(actor);
+  const p = perdidasDocumentales(central.repo.ops()).find((x) => x.perdida_id === d.perdida_id);
+  if (!p) throw new ErrorDominio('PERDIDA_INEXISTENTE', d.perdida_id);
+  if (p.estado !== 'abierta') throw new ErrorDominio('PERDIDA_YA_RESUELTA', d.perdida_id);
+  if (!d.evidencia?.referencia?.trim() || !d.evidencia?.tipo?.trim()) throw new ErrorDominio('EVIDENCIA_REQUERIDA', 'se requiere tipo y referencia de la evidencia');
+  exigirMotivo(d.nota);
+  return central.emitirAdmin('doc.perdida_resuelta', {
+    perdida_id: d.perdida_id, tienda: p.tienda, caja: p.caja, modo: 'declarada_irrecuperable', evidencia: d.evidencia, nota: d.nota,
+    usuario: actor.usuario, aviso: 'no restablece ventas, pagos ni folios; no modifica existencias',
+  });
 }

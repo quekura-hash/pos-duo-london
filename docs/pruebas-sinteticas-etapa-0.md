@@ -10,14 +10,15 @@ Ejecutar: `npm install && npm test` (Node ≥ 22.18; usa `node:sqlite`, experime
 
 | Etiqueta | Qué es | Pruebas |
 |---|---|---|
-| `[memoria]` | Motor completo sobre almacenamiento en memoria, todo en un proceso. Sin disco; "reinicio" no aplica. | 83 |
-| `[sqlite]` | El **mismo** motor sobre archivos SQLite (WAL, `synchronous=FULL`), en un proceso, con cierre y reapertura (reinicio), pérdida de archivo y copia de respaldo. | 88 |
-| `[procesos reales]` | **Un hub real y dos procesos de caja separados** (procesos del sistema operativo), cada uno con su archivo SQLite, hablando por HTTP en `127.0.0.1`; `kill -9` reales. Ver sección propia. | 11 |
+| `[memoria]` | Motor completo sobre almacenamiento en memoria, todo en un proceso. Sin disco; "reinicio" no aplica. | 100 |
+| `[sqlite]` | El **mismo** motor sobre archivos SQLite (WAL, `synchronous=FULL`), en un proceso, con cierre y reapertura (reinicio), pérdida de archivo y copia de respaldo. | 106 |
+| `[procesos reales]` | **Un hub real y dos procesos de caja separados** (procesos del sistema operativo), cada uno con su archivo SQLite, hablando por HTTP en `127.0.0.1`; `kill -9` reales. | 11 |
+| `[navegador real]` | Chromium (Playwright) manejando la interfaz real contra el servidor local; el motor corre en el mismo proceso de la prueba, sobre SQLite. | 6 |
 | `[sqlite — proceso real]` | Un proceso hijo inicia una transacción y se le envía `SIGKILL`; disparador de la base. | 3 |
-| `[memoria — lógica pura]` | Importación de catálogo, centavos, objeto de políticas. | 10 |
+| `[memoria — lógica pura]` | Importación de catálogo, centavos, políticas, ticket (texto y ESC/POS). | 19 |
 
-Total: **195 pruebas, 0 fallos** (última ejecución; `npm test` ≈ 21 s). Las pruebas de procesos se repitieron 4 veces seguidas sin
-variación. En las pruebas en un solo proceso, la "pérdida de conexión" es un interruptor del transporte simulado.
+Total: **245 pruebas, 0 fallos, 0 omitidas** (última ejecución; `npm test` ≈ 24 s). Las pruebas de procesos y de navegador se repitieron 3 veces seguidas sin variación.
+En las pruebas en un solo proceso, la "pérdida de conexión" es un interruptor del transporte simulado.
 
 ## Políticas pendientes: configuración explícita de ensayo
 
@@ -115,9 +116,21 @@ Un proceso hub (servidor HTTP, SQLite) + dos procesos caja (motor completo, SQLi
 
 ### Resolución administrativa de códigos duplicados (`13`)
 Ver `arquitectura-etapa-0.md` §9. CD1 Administración ve artículos en conflicto, existencias por tienda y ventas con elección provisional; CD2 el cajero no
-puede listar ni resolver; CD3 reasignar código (se propaga a todas las cajas, conserva ceros, no toca tickets históricos); CD4 validaciones; CD5 fusionar
-(alias, existencias sumadas, Item # absorbido registrado, historia intacta); CD6 validaciones; CD7 una caja aislada sigue viendo el conflicto hasta recibir la resolución;
-CD8 una venta aislada del absorbido se cuenta bajo el vigente. ✔
+puede listar ni resolver; CD3 reasignar código (se propaga a todas las cajas, conserva ceros, no toca tickets históricos); CD4 validaciones; CD5 **la fusión no existe**: no hay función y una operación `item.fusion` inyectada no surte efecto (el conflicto sigue abierto);
+CD7 una caja aislada sigue viendo el conflicto hasta recibir la resolución. ✔
+
+### Ajustes pedidos antes de la primera operación
+- **Fusión retirada** del alcance: se eliminaron `fusionarArticulos`, los alias y su tratamiento en existencias; CD5 ahora comprueba que no existe. ✔
+- **Inventario y documentos separados** (`11`, RP8–RP12): el informe de reconstrucción abre dos registros distintos. Un conteo físico de **todos** los artículos deja el inventario verificado pero **no** cierra la pérdida documental (RP9); declararla irrecuperable (solo Administración, con evidencia y nota, nunca "recuperada") **no** limpia el inventario ni devuelve la venta (RP10); el corte de la caja afectada la muestra (RP12). ✔
+- **P-14** (`11`, RP5/RP13): vender con existencia no verificada es una alternativa de ensayo con dos valores explícitos, sin valor por omisión; ninguna está aprobada. ✔
+
+### Primera operación completa (`15`–`18`)
+- `15` **Ticket** (K1–K8): MXN exactos; Item #, Código, Descripción, Marca, Estilo y Lote separados y rotulados; sin IVA/Tax/impuestos/%/subtotal; folio y código `D2-000012`; leyenda configurable; reimpresión rotulada; ESC/POS (inicialización, PC858, Code128, corte, pulso de cajón opcional); un renglón largo se parte entre campos, no a mitad de uno. ✔
+- `16` **Servicio de venta** (V1–V9, `[memoria]`/`[sqlite]`): escaneo con ceros iniciales, incremento de cantidad, quitar, efectivo insuficiente sin consumir folio, venta+pago+folio+movimientos guardados, inventario descontado y visible en la otra caja y el central (London intacto), ticket impreso (archivos simulados, pulso de cajón solo en el original), corte en vivo y cierre, falla de impresora (venta una sola vez, reimpresión con el mismo folio, sin abrir cajón), cuatro series independientes con inventario compartido solo dentro de cada tienda, cajero solo su caja y Administración una/varias/todas, código ambiguo sin adivinar, búsqueda por código/Item #/texto, venta sin hub, encabezado, reinicio. ✔
+- `17` **API HTTP** (H1–H5): flujo completo, 403 al pedir otra caja o rutas de Administración (y viceversa), impresora que falla con HTTP 200 y venta guardada, duplicados. ✔
+- `18` **Navegador real** (UI1–UI6, Chromium): flujo completo desde la pantalla con capturas; encabezado con tienda/caja/usuario/fecha/folio/hub/internet/pendientes/última sincronización; navegación por permisos; columnas en el orden pedido; botón de regalo visible, deshabilitado y debajo de Cobrar; cobro deshabilitado hasta cubrir el total; falla de impresora y reintento; duplicado sin opción de elegir; Administración con una, varias o todas las cajas y folios originales; las diez columnas sin desplazamiento horizontal en 1366, 1280 y 1024 px; sin errores de consola. ✔
+- Capturas en `docs/capturas/` (generadas por las pruebas): `01-venta-en-curso`, `02-ticket`, `03-corte`, `04-falla-de-impresora`, `05-administracion-todas`, `06-pantalla-angosta`, `07-venta-1024`.
+- Demostración manual con datos sintéticos: `npm run demo` (4 cajas y Administración en `127.0.0.1`).
 
 ## Verificación de que las pruebas detectan fallos
 
@@ -126,6 +139,7 @@ atomicidad de la venta, permiso del cajero, regla de Caja 2, bloqueo por disco n
 límite de devolución, relevo de inventario entre cajas, cerco por ticket y fusión por código. Las 10 mutaciones fueron
 detectadas (la de una sola capa de deduplicación no: hub y almacenamiento deduplican por separado).
 En esta ronda se repitió con 7 mecanismos nuevos (arbitraje, cierre de reservas, marca de existencias, permiso de Administración, alcance del conteo, rechazo pegajoso, reenvío desde cajas): las 7 fueron detectadas.
+En la ronda de la primera operación se rompieron otros 7 (P-14, cierre de pérdida documental por conteo, IVA en el ticket, API que deja ver otra caja, escaneo ambiguo que elige, fotografía del artículo sin marca, corte que no refleja el efectivo): los 7 fueron detectados. Una octava mutación estaba mal construida (no cambiaba el comportamiento) y se descartó.
 
 ## Fallos y hallazgos durante el desarrollo
 
@@ -138,6 +152,10 @@ En esta ronda se repitió con 7 mecanismos nuevos (arbitraje, cierre de reservas
 7. **Reconstruir un hub no basta con copiar del central.** Se pierden la cola de relevo hacia las cajas y las confirmaciones: se añadió el reenvío completo desde las cajas, que conservan sus operaciones y los movimientos de su par.
 8. **Divergencia tras pérdida doble (RP7):** el *movimiento* de una venta puede sobrevivir en la caja par y la *venta* (folio, pagos) no. Existencias y registro de ventas quedan inconsistentes hasta un conteo físico.
 9. **La marca de existencias es de toda la tienda** porque lo perdido no se puede atribuir a artículos. Acotarla exigiría numerar las operaciones de cada caja (secuencia propia) para detectar huecos; propuesto, no implementado.
+10. **Error en el servidor de la aplicación (hallado por el navegador).** Una petición de archivo inexistente (p. ej. el ícono de la pestaña) escribía encabezados y luego fallaba, lo que tumbaba la respuesta. Corregido: se lee el archivo antes de responder.
+11. **Tabla de venta cortada (hallada al mirar la captura).** Con 11 columnas, Item # y Código quedaban fuera de la vista y la columna de acciones se cortaba. Se compactó, se apila el resumen bajo el ancho de 1320 px y se añadió una prueba de que las diez columnas caben a 1366/1280/1024 px.
+12. **Corte guardado vs. corte en vivo.** Antes, pedir el corte de nuevo recalculaba pero no reescribía el guardado, mezclando ambos. Ahora el en vivo no se guarda y el cierre se guarda una vez; una venta posterior lo marca desactualizado.
+13. **Renglón de campos del ticket partido a mitad de un campo** (`Lote:` / `20260913`). Ahora se parte entre campos completos.
 
 ## Limitaciones (no se declara validado)
 
@@ -151,8 +169,12 @@ En esta ronda se repitió con 7 mecanismos nuevos (arbitraje, cierre de reservas
 - **Recuperación**: la restauración usa copias de archivo del propio simulador. **No se validó ningún procedimiento real de respaldo/restauración.** Las ventas perdidas con el disco no se recuperan.
 - **Hub**: se probó perder hub y caja a la vez solo en dos casos (R3/R3b); la recuperación del propio hub no está modelada más allá de eso.
 - **Permisos**: se imponen en las funciones de consulta con un `Actor` ya dado; no hay autenticación, PIN, ni propagación de cambios de permisos sin conexión.
-- **Alcance no cubierto**: apartados, crédito de empleadas, descuentos programables, ticket de regalo/impresión, cambios con renglón negativo (sin serie propia: P-08), conteo por denominaciones, reembolso a tarjeta, exportación `.xlsx` real, panel remoto, UI.
-- **Hardware**: nada probado con impresora, cajón, escáner ni terminal.
+- **Alcance no cubierto**: apartados, crédito de empleadas, descuentos programables, ticket de regalo (botón visible y deshabilitado), cambios con renglón negativo (sin serie propia: P-08), conteo por denominaciones, reembolso a tarjeta, exportación `.xlsx` real, panel remoto, venta en espera, edición de precio/descripción en la pantalla (existe en el motor, no en la interfaz), alta de artículo desde la pantalla, cobro con tarjeta desde la pantalla, devoluciones desde la pantalla.
+- **Diseño visual**: el mockup aprobado no se recibió; la interfaz se construyó a partir de la descripción textual y **no se ha comparado con él**.
+- **Hardware**: nada probado con impresora, cajón, escáner ni terminal. La "impresora" es un archivo; el ESC/POS está verificado solo por estructura de bytes. El ancho de 42 columnas es un supuesto. Un escáner se simula escribiendo el código y pulsando Enter.
+- **Navegador y sistema**: solo Chromium en Linux; no Windows, no la ventana Electron, no pantallas táctiles ni teclado numérico físico.
+- **Interfaz**: la prueba de navegador usa el motor en el mismo proceso (no el hub real por HTTP); usuarios sintéticos sin autenticación; el indicador de internet muestra "Sin dato" fuera de la simulación; la interfaz **no tiene botón de sincronización** (existe la ruta `/api/sincronizar`); en las pruebas la dispara la prueba y en `npm run demo` ocurre cada 2 s.
+- **La regla de "pérdida documental" no reconstruye nada**: solo registra y permite declararla irrecuperable.
 - **Marcas de existencias**: un conteo físico es manual; no hay flujo guiado ni importación de conteo (propósito 4 del Excel) todavía.
 - **Catálogo compartido entre tiendas** se asumió en las pruebas de alta (P-10 pendiente).
 - **Incidencias**: se detectan a demanda sobre la bitácora; no hay flujo de resolución persistente.

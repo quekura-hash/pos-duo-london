@@ -17,34 +17,16 @@ export function catalogo(ops: Op[]): Map<string, Articulo> {
       const a = m.get(o.payload.item_id);
       if (a) a.codigo = o.payload.codigo_nuevo;
     }
-    if (o.tipo === 'item.fusion') {
-      const a = m.get(o.payload.absorbido_id);
-      if (a) a.alias_de = o.payload.conservado_id;
-    }
   }
   return m;
-}
-
-/** Sigue la cadena de fusiones hasta el artículo vigente. */
-export function resolverAlias(cat: Map<string, Articulo>, id: string): string {
-  let actual = id;
-  for (let i = 0; i < 10; i++) {
-    const a = cat.get(actual);
-    if (!a?.alias_de) return actual;
-    actual = a.alias_de;
-  }
-  return actual;
 }
 
 /** Existencia = suma de movimientos de la tienda. Nunca "último saldo recibido". */
 export function stock(ops: Op[], tienda: string): Map<string, number> {
   const m = new Map<string, number>();
-  const fusiones = ops.some((o) => o.tipo === 'item.fusion');
-  const cat = fusiones ? catalogo(ops) : null;
   for (const o of ops) {
     if (o.tipo === 'inv.movement' && o.payload.tienda === tienda) {
-      const id = cat ? resolverAlias(cat, o.payload.item_id) : o.payload.item_id;
-      m.set(id, (m.get(id) ?? 0) + o.payload.delta);
+      m.set(o.payload.item_id, (m.get(o.payload.item_id) ?? 0) + o.payload.delta);
     }
   }
   return m;
@@ -146,4 +128,44 @@ export function intentos(ops: Op[]): Map<string, Intento> {
     }
   }
   return m;
+}
+
+export interface PerdidaDocumental {
+  perdida_id: string;
+  tienda: string;
+  caja: number | null;
+  ocurrio_en: string;
+  alcance: string;
+  folios_sin_evidencia: { desde: number; hasta: number } | null;
+  evidencia: string;
+  estado: 'abierta' | 'declarada_irrecuperable';
+  resolucion?: { usuario: string; evidencia: { tipo: string; referencia: string }; nota: string; ocurrio_en: string };
+}
+
+/**
+ * Pérdida DOCUMENTAL posible: ventas, pagos y folios que nunca salieron de una caja y se perdieron con su disco.
+ * Es un registro independiente de la verificación de INVENTARIO: un conteo físico ajusta existencias, pero no
+ * devuelve ni reemplaza ventas, pagos ni folios, así que no la cierra. Solo una decisión administrativa
+ * documentada cambia su estado (y aun así la venta sigue sin existir en el sistema).
+ */
+export function perdidasDocumentales(ops: Op[]): PerdidaDocumental[] {
+  const m = new Map<string, PerdidaDocumental>();
+  for (const o of ops) {
+    if (o.tipo === 'doc.perdida_posible') {
+      m.set(o.op_id, {
+        perdida_id: o.op_id, tienda: o.payload.tienda, caja: o.payload.caja ?? null, ocurrio_en: o.ocurrio_en,
+        alcance: o.payload.alcance, folios_sin_evidencia: o.payload.folios_sin_evidencia ?? null, evidencia: o.payload.evidencia, estado: 'abierta',
+      });
+    }
+  }
+  for (const o of ops) {
+    if (o.tipo === 'doc.perdida_resuelta') {
+      const p = m.get(o.payload.perdida_id);
+      if (p) {
+        p.estado = 'declarada_irrecuperable';
+        p.resolucion = { usuario: o.payload.usuario, evidencia: o.payload.evidencia, nota: o.payload.nota, ocurrio_en: o.ocurrio_en };
+      }
+    }
+  }
+  return [...m.values()];
 }

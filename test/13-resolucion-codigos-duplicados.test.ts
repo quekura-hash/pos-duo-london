@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import { it } from 'node:test';
-import { codigosDuplicados, fusionarArticulos, historialResoluciones, reasignarCodigo } from '../src/administracion.ts';
+import * as administracion from '../src/administracion.ts';
+import { codigosDuplicados, historialResoluciones, reasignarCodigo } from '../src/administracion.ts';
 import { detectar } from '../src/incidencias.ts';
-import { catalogo, stock, ventas } from '../src/proyecciones.ts';
+import { catalogo, ventas } from '../src/proyecciones.ts';
 import type { Actor } from '../src/tipos.ts';
 import { nuevoMundo, politica, porAlmacen, type Ctx } from './ayudas/comun.ts';
 
@@ -55,10 +56,9 @@ porAlmacen('Resolución administrativa de códigos duplicados', (alm) => {
   it('CD2 el cajero no puede listar ni resolver: es una función solo de Administración', (t) => {
     const ctx = nuevoMundo(alm, politica());
     t.after(ctx.limpiar);
-    const { duo, lon } = crearDuplicado(ctx);
+    const { lon } = crearDuplicado(ctx);
     assert.throws(() => codigosDuplicados(cajero, ctx.m.central.repo.ops()), { codigo: 'PROHIBIDO' });
     assert.throws(() => reasignarCodigo(cajero, ctx.m.central, { item_id: lon.item_id, codigo_nuevo: 'X', motivo: 'm' }), { codigo: 'PROHIBIDO' });
-    assert.throws(() => fusionarArticulos(cajero, ctx.m.central, { conservar_id: duo.item_id, absorber_id: lon.item_id, motivo: 'm' }), { codigo: 'PROHIBIDO' });
     assert.throws(() => historialResoluciones(cajero, ctx.m.central.repo.ops()), { codigo: 'PROHIBIDO' });
   });
 
@@ -98,45 +98,19 @@ porAlmacen('Resolución administrativa de códigos duplicados', (alm) => {
     assert.equal(historialResoluciones(admin, ctx.m.central.repo.ops()).length, 0, 'los intentos inválidos no dejan resolución');
   });
 
-  it('CD5 fusionar: decisión explícita; el absorbido queda como alias, sus existencias se suman y su historia se conserva', (t) => {
+  it('CD5 la fusión de artículos NO está implementada: no existe la función ni una operación de fusión surte efecto', (t) => {
     const ctx = nuevoMundo(alm, politica());
     t.after(ctx.limpiar);
     const { duo, lon } = crearDuplicado(ctx);
-    const c = ctx.m.caja('LON', 1);
-    const cart = c.abrirCarrito();
-    const l = c.agregarLinea(cart, { item_id: lon.item_id, qty: 1 }); // venta anterior a la fusión
-    const v = c.cobrar(cart, [{ metodo: 'efectivo', monto: l.importe }]);
-    ctx.m.pump();
-    const itemNoAbs = catalogo(ctx.m.central.repo.ops()).get(lon.item_id)!.item_no;
-
-    const op = fusionarArticulos(admin, ctx.m.central, { conservar_id: duo.item_id, absorber_id: lon.item_id, motivo: 'es el mismo producto, lotes distintos del mismo proveedor' });
-    assert.equal(op.payload.item_no_absorbido, itemNoAbs, 'el Item # absorbido queda registrado, no se pierde');
-    assert.deepEqual(op.payload.existencias_absorbido_al_fusionar, { DUO: 0, LON: 3 });
+    assert.equal('fusionarArticulos' in administracion, false);
+    // aunque alguien inyectara una operación `item.fusion`, el catálogo la ignora: los dos artículos siguen distintos
+    ctx.m.central.emitirAdmin('item.fusion', { conservado_id: duo.item_id, absorbido_id: lon.item_id });
     ctx.m.pump();
     ctx.m.pump();
-
     const cat = catalogo(ctx.m.central.repo.ops());
-    assert.equal(cat.get(lon.item_id)!.alias_de, duo.item_id);
-    assert.equal(stock(ctx.m.central.repo.ops(), 'LON').get(duo.item_id), 3, 'las existencias de London se cuentan bajo el artículo vigente');
-    assert.equal(stock(ctx.m.central.repo.ops(), 'DUO').get(duo.item_id), 10);
-    for (const caja of ctx.m.cajas.values()) assert.deepEqual(caja.buscarPorCodigo(CODIGO).map((a) => a.item_id), [duo.item_id]);
-    // escanear ya no es ambiguo; usar el id del absorbido redirige al vigente
-    const c2 = ctx.m.caja('LON', 2);
-    const cart2 = c2.abrirCarrito();
-    assert.equal(c2.agregarLinea(cart2, { codigo: CODIGO, qty: 1 }).item_id, duo.item_id);
-    assert.equal(c2.agregarLinea(cart2, { item_id: lon.item_id, qty: 1 }).item_id, duo.item_id);
-    assert.equal(ventas(ctx.m.central.repo.ops()).get(v.sale_id)!.lineas[0]!.item_id, lon.item_id, 'el ticket histórico sigue apuntando al id original');
-    assert.deepEqual(codigosDuplicados(admin, ctx.m.central.repo.ops()), []);
-  });
-
-  it('CD6 fusionar valida: mismo código, artículos distintos y motivo', (t) => {
-    const ctx = nuevoMundo(alm, politica());
-    t.after(ctx.limpiar);
-    const { duo, lon } = crearDuplicado(ctx);
-    const base = ctx.items[0]!.item_id;
-    assert.throws(() => fusionarArticulos(admin, ctx.m.central, { conservar_id: duo.item_id, absorber_id: base, motivo: 'm' }), { codigo: 'NO_ES_DUPLICADO' });
-    assert.throws(() => fusionarArticulos(admin, ctx.m.central, { conservar_id: duo.item_id, absorber_id: duo.item_id, motivo: 'm' }), { codigo: 'FUSION_INVALIDA' });
-    assert.throws(() => fusionarArticulos(admin, ctx.m.central, { conservar_id: duo.item_id, absorber_id: lon.item_id, motivo: '' }), { codigo: 'MOTIVO_REQUERIDO' });
+    assert.ok(cat.has(duo.item_id) && cat.has(lon.item_id));
+    assert.equal(codigosDuplicados(admin, ctx.m.central.repo.ops()).length, 1, 'el conflicto sigue abierto');
+    for (const caja of ctx.m.cajas.values()) assert.equal(caja.buscarPorCodigo(CODIGO).length, 2);
   });
 
   it('CD7 una caja aislada sigue viendo el conflicto hasta recibir la resolución; sus ventas quedan marcadas', (t) => {
@@ -154,21 +128,5 @@ porAlmacen('Resolución administrativa de códigos duplicados', (alm) => {
     ctx.m.pump();
     assert.equal(c.buscarPorCodigo(CODIGO).length, 1);
     void lon;
-  });
-
-  it('CD8 una venta aislada del artículo absorbido, hecha antes de enterarse de la fusión, se cuenta bajo el vigente', (t) => {
-    const ctx = nuevoMundo(alm, politica());
-    t.after(ctx.limpiar);
-    const { duo, lon } = crearDuplicado(ctx);
-    ctx.m.cortarLan('LON', 1);
-    const c = ctx.m.caja('LON', 1);
-    const cart = c.abrirCarrito();
-    const l = c.agregarLinea(cart, { item_id: lon.item_id, qty: 2 });
-    c.cobrar(cart, [{ metodo: 'efectivo', monto: l.importe }]);
-    fusionarArticulos(admin, ctx.m.central, { conservar_id: duo.item_id, absorber_id: lon.item_id, motivo: 'm' });
-    ctx.m.restablecerLan('LON', 1);
-    ctx.m.pump();
-    ctx.m.pump();
-    assert.equal(stock(ctx.m.central.repo.ops(), 'LON').get(duo.item_id), 2, '4 − 2 bajo el artículo vigente');
   });
 });

@@ -70,7 +70,10 @@ export interface InformeRehidratacion {
     evidencia: 'techo_de_folios' | 'ninguna';
     folios_sin_evidencia: { desde: number; hasta: number } | null;
   };
+  /** Registro de INVENTARIO: se cierra por artículo con conteo físico. */
   existencias: { estado: 'no_verificadas' | 'verificables_si_las_cajas_reenvian'; alcance: 'todos_los_articulos_de_la_tienda' | 'ninguno'; verificacion_op: string | null };
+  /** Registro DOCUMENTAL (ventas, pagos, folios): independiente; un conteo físico NO lo cierra. */
+  documentos: { estado: 'perdida_posible_abierta'; alcance: string; perdida_id: string } | null;
   /** Operaciones que las cajas vuelven a enviar al hub reconstruido (conservan sus propias operaciones). */
   reenviadas_por_cajas?: number;
   /** Compatibilidad: total de operaciones copiadas. */
@@ -218,8 +221,8 @@ export class Mundo {
     for (const f of fuentes) {
       for (const op of f.ops) {
         const esCatalogo = op.tipo.startsWith('item.');
-        const esInv = op.tipo.startsWith('inv.') && op.payload?.tienda === t;
-        const esPropia = op.tienda === t && op.caja === n && !op.tipo.startsWith('folio.lease') && !op.tipo.startsWith('inv.');
+        const esInv = (op.tipo.startsWith('inv.') || op.tipo.startsWith('doc.')) && op.payload?.tienda === t;
+        const esPropia = op.tienda === t && op.caja === n && !op.tipo.startsWith('folio.lease') && !op.tipo.startsWith('inv.') && !op.tipo.startsWith('doc.');
         if (!(esCatalogo || esInv || esPropia)) continue;
         if (caja.repo.appendOp(op)) {
           if (esCatalogo) rec.catalogo++;
@@ -239,7 +242,8 @@ export class Mundo {
     const marca = caja.registrarRehidratacion({ fuentes: fuentes.map((f) => f.nombre), recuperado: rec, no_replicado });
     return {
       fuentes: fuentes.map((f) => f.nombre), recuperado: rec, no_replicado,
-      existencias: { estado: 'no_verificadas', alcance: 'todos_los_articulos_de_la_tienda', verificacion_op: marca.op_id },
+      existencias: { estado: 'no_verificadas', alcance: 'todos_los_articulos_de_la_tienda', verificacion_op: marca.inventario.op_id },
+      documentos: { estado: 'perdida_posible_abierta', alcance: 'ventas_pagos_y_folios_de_la_caja', perdida_id: marca.documental.op_id },
       copiadas: rec.catalogo + rec.movimientos + rec.operaciones_propias,
     };
   }
@@ -252,8 +256,8 @@ export class Mundo {
     const techos = new Map<number, number>();
     for (const op of this.central.repo.ops()) {
       const esCatalogo = op.tipo.startsWith('item.');
-      const esInv = op.tipo.startsWith('inv.') && op.payload?.tienda === t;
-      const esTienda = op.tienda === t && !op.tipo.startsWith('inv.');
+      const esInv = (op.tipo.startsWith('inv.') || op.tipo.startsWith('doc.')) && op.payload?.tienda === t;
+      const esTienda = op.tienda === t && !op.tipo.startsWith('inv.') && !op.tipo.startsWith('doc.');
       if (op.tipo === 'folio.lease_granted' && op.tienda === t) techos.set(op.caja!, Math.max(techos.get(op.caja!) ?? 0, op.payload.techo));
       if (!(esCatalogo || esInv || esTienda)) continue;
       if (hub.repo.appendOp(op)) {
@@ -265,7 +269,7 @@ export class Mundo {
     for (const [caja, techo] of techos) hub.repo.kvSet(`techo:${caja}`, techo);
     // La cola de relevo del hub se perdió: se reenvía a las cajas todo el catálogo e inventario (las cajas deduplican).
     for (const op of hub.repo.ops()) {
-      if (op.tipo.startsWith('item.') || (op.tipo.startsWith('inv.') && op.payload?.tienda === t)) {
+      if (op.tipo.startsWith('item.') || ((op.tipo.startsWith('inv.') || op.tipo.startsWith('doc.')) && op.payload?.tienda === t)) {
         for (const c of this.ctx.cajasCfg.filter((x) => x.tienda === t)) hub.repo.encolar(op.op_id, `caja:${t}/${c.caja}`);
       }
     }
@@ -277,7 +281,7 @@ export class Mundo {
       if (caja.estadoFolios().estado !== 'activa') cajaPerdida = true;
       for (const op of caja.repo.ops()) {
         const propia = op.caja === c.caja && op.tienda === t && !op.tipo.startsWith('folio.lease');
-        const compartida = op.tipo.startsWith('item.') || (op.tipo.startsWith('inv.') && op.payload?.tienda === t); // lo que la caja aprendió de su par
+        const compartida = op.tipo.startsWith('item.') || ((op.tipo.startsWith('inv.') || op.tipo.startsWith('doc.')) && op.payload?.tienda === t); // lo que la caja aprendió de su par
         if ((propia || compartida) && !hub.repo.tieneOp(op.op_id)) {
           caja.repo.reencolar(op.op_id, `hub:${t}`);
           reenviadas++;
@@ -293,8 +297,9 @@ export class Mundo {
     return {
       fuentes: ['central'], recuperado: rec, no_replicado, reenviadas_por_cajas: reenviadas,
       existencias: cajaPerdida
-        ? { estado: 'no_verificadas', alcance: 'todos_los_articulos_de_la_tienda', verificacion_op: marca!.op_id }
+        ? { estado: 'no_verificadas', alcance: 'todos_los_articulos_de_la_tienda', verificacion_op: marca!.inventario.op_id }
         : { estado: 'verificables_si_las_cajas_reenvian', alcance: 'ninguno', verificacion_op: null },
+      documentos: marca ? { estado: 'perdida_posible_abierta', alcance: 'ventas_pagos_y_folios_de_las_cajas_y_del_hub', perdida_id: marca.documental.op_id } : null,
       copiadas: rec.catalogo + rec.movimientos + rec.operaciones_propias,
     };
   }

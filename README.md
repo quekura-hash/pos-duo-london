@@ -7,7 +7,11 @@ Estado: **Etapa 0 — diseño y simulador con datos sintéticos.** No es un POS 
 - `docs/arquitectura-etapa-0.md` — arquitectura propuesta, políticas pendientes (P-01…P-12).
 - `docs/pruebas-sinteticas-etapa-0.md` — escenarios ejecutados, resultados, hallazgos y limitaciones.
 - `src/` — motor y simulador (cajas, hub, central, almacenamiento en memoria y SQLite).
+- `src/app/` — servicio de venta, servidor local y la interfaz (`publico/`).
+- `src/ticket.ts`, `src/impresion.ts` — ticket (texto y ESC/POS) e impresora simulada.
 - `src/transporte/` — hub y caja como procesos reales con HTTP local (solo para pruebas de integración).
-- `test/` — pruebas (`npm test`, Node ≥ 22.18; `npm run typecheck`).
+- `test/` — pruebas (`npm test`, Node ≥ 22.18; `npm run typecheck`; las de navegador usan Chromium: variable `POS_CHROMIUM` si no está en la ruta habitual).
+
+Primera operación completa (escanear → cobrar en efectivo → ticket → corte): `npm run demo` levanta 4 cajas y Administración con datos sintéticos en `127.0.0.1:3001-3004` y `:3010`. Capturas en `docs/capturas/`. El mockup visual aprobado **no** se ha recibido: la interfaz sigue la descripción textual y debe compararse con él.
 
 Las políticas comerciales pendientes se configuran de forma explícita y están marcadas `ENSAYO_NO_APROBADO`.

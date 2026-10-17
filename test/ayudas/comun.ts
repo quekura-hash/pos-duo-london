@@ -17,6 +17,7 @@ export const BASE_ENSAYO: Omit<Politicas, 'estado'> = {
   P06_huecos_de_folio: 'no_aceptados',
   P07_item_no: 'a_central',
   P12_tarjeta_con_pendiente: 'permitir_con_aviso',
+  P14_venta_con_inventario_no_verificado: 'permitir_con_aviso',
   K_folios: 6,
   K_item_no: 5,
 };
@@ -49,7 +50,7 @@ export const ALMACENES: Almacen[] = [
 export interface Ctx {
   m: Mundo;
   items: Articulo[];
-  limpiar(): void;
+  limpiar: () => void;
 }
 export function nuevoMundo(a: Almacen, pol: Politicas, sembrar = true): Ctx {
   const { fabrica, limpiar } = a.crear();
@@ -73,4 +74,36 @@ export function vender(m: Mundo, t: string, c: number, itemId: string, qty = 1, 
   const l = caja.agregarLinea(cart, { item_id: itemId, qty, precio_unit: extra.precio, descuento: extra.descuento });
   const total = l.importe;
   return { cart, venta: caja.cobrar(cart, [{ metodo: 'efectivo', monto: total }]), linea: l };
+}
+
+// ── servicio de venta (capa que usa la UI) ──
+import { mkdirSync } from 'node:fs';
+import { ServicioCaja, type Conexion } from '../../src/app/servicio.ts';
+import { ImpresoraArchivo } from '../../src/impresion.ts';
+
+export interface Servicio {
+  svc: ServicioCaja;
+  impresora: ImpresoraArchivo;
+  /** "Sincronizar" = entregar pendientes en la red simulada; registra la hora de la última actualización. */
+  sync(): void;
+}
+/** Servicio de la caja (tienda, n) con una impresora SIMULADA que escribe archivos. */
+export function servicioDe(ctx: Ctx, tienda: string, n: number, usuario = 'Ana'): Servicio {
+  const dir = mkdtempSync(join(tmpdir(), `pos-imp-${tienda}${n}-`));
+  mkdirSync(dir, { recursive: true });
+  const impresora = new ImpresoraArchivo(dir);
+  let ultima: string | null = null;
+  const caja = () => ctx.m.caja(tienda, n);
+  const sync = () => { ctx.m.pump(); ultima = ctx.m.reloj.now(); };
+  const conexion: Conexion = {
+    hubAlcanzable: () => caja().enlace.hubAlcanzable(),
+    internet: () => ctx.m.internet.get(tienda) !== false,
+    pendientes: () => caja().repo.pendientes(`hub:${tienda}`).length,
+    ultimaSync: () => ultima,
+    sincronizar: sync,
+  };
+  const prev = ctx.limpiar;
+  ctx.limpiar = () => { prev(); rmSync(dir, { recursive: true, force: true }); };
+  const svc = new ServicioCaja({ caja: caja(), actor: { rol: 'cajero', usuario, tienda, caja: n }, impresora, conexion, reloj: ctx.m.reloj });
+  return { svc, impresora, sync };
 }

@@ -3,14 +3,18 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "POS DÚO / London — Etapa 0: simulador y pruebas sintéticas",
-  "engines": { "node": ">=22.18" },
+  "description": "POS D\u00daO / London \u2014 Etapa 0: simulador y pruebas sint\u00e9ticas",
+  "engines": {
+    "node": ">=22.18"
+  },
   "scripts": {
     "test": "node --no-warnings --test --test-reporter=spec \"test/*.test.ts\"",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "demo": "node --no-warnings src/app/demo.ts"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "playwright-core": "^1.56.1",
     "typescript": "^5.6.0"
   }
 }

@@ -5,7 +5,7 @@ import { BASE_ENSAYO, politica } from './ayudas/comun.ts';
 
 describe('[memoria — lógica pura] Políticas pendientes como configuración explícita', () => {
   it('PO1 no existe valor por omisión: faltar una política es error', () => {
-    for (const k of ['P01_hub_no_disponible', 'P02_existencia_insuficiente', 'P03_devolucion_venta_no_local', 'P06_huecos_de_folio', 'P07_item_no', 'P12_tarjeta_con_pendiente'] as const) {
+    for (const k of ['P01_hub_no_disponible', 'P02_existencia_insuficiente', 'P03_devolucion_venta_no_local', 'P06_huecos_de_folio', 'P07_item_no', 'P12_tarjeta_con_pendiente', 'P14_venta_con_inventario_no_verificado'] as const) {
       const { [k]: _omitida, ...resto } = BASE_ENSAYO;
       assert.throws(() => crearPoliticasEnsayo(resto as any), { codigo: 'POLITICA_FALTANTE' }, k);
     }

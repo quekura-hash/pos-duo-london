@@ -18,6 +18,8 @@ export interface Politicas {
   P07_item_no: 'a_central' | 'b_bloques' | 'c_espacios';
   /** P-12: nuevo cobro con tarjeta mientras hay otro intento pendiente. */
   P12_tarjeta_con_pendiente: 'permitir_con_aviso' | 'bloquear_solo_tarjeta';
+  /** P-14: vender artículos cuya existencia está marcada no verificada (ALTERNATIVA DE ENSAYO, no aprobada). */
+  P14_venta_con_inventario_no_verificado: 'permitir_con_aviso' | 'bloquear_articulo_no_verificado';
   /** Parámetros numéricos del arrendamiento / bloques. */
   K_folios: number;
   K_item_no: number;
@@ -30,6 +32,7 @@ const VALORES: Record<string, readonly string[]> = {
   P06_huecos_de_folio: ['no_aceptados', 'aceptados'],
   P07_item_no: ['a_central', 'b_bloques', 'c_espacios'],
   P12_tarjeta_con_pendiente: ['permitir_con_aviso', 'bloquear_solo_tarjeta'],
+  P14_venta_con_inventario_no_verificado: ['permitir_con_aviso', 'bloquear_articulo_no_verificado'],
 };
 
 export function crearPoliticasEnsayo(v: Omit<Politicas, 'estado'>): Politicas {

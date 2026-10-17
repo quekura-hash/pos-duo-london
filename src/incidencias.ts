@@ -1,5 +1,5 @@
 import type { Op } from './tipos.ts';
-import { catalogo, devoluciones, intentos, stock, ventas } from './proyecciones.ts';
+import { catalogo, devoluciones, intentos, perdidasDocumentales, stock, ventas } from './proyecciones.ts';
 
 export interface Incidencia {
   tipo: string;
@@ -80,6 +80,7 @@ export function detectar(ops: Op[]): Incidencia[] {
     if (i.estado === 'iniciado' || i.estado === 'desconocido') out.push({ tipo: 'cobro_tarjeta_pendiente', intent_id: i.intent_id, estado: i.estado });
   }
 
+  for (const p of perdidasDocumentales(ops)) if (p.estado === 'abierta') out.push({ tipo: 'perdida_documental_abierta', perdida_id: p.perdida_id, tienda: p.tienda, caja: p.caja, folios_sin_evidencia: p.folios_sin_evidencia });
   for (const o of ops) if (o.tipo === 'op.rechazada') out.push({ tipo: 'op_rechazada', op_id: o.payload.op_id, motivo: o.payload.motivo });
   return out;
 }

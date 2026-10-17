@@ -14,7 +14,11 @@ export interface Op {
 
 export interface Pago {
   metodo: Metodo;
+  /** Importe APLICADO a la venta (en efectivo: lo que queda en caja, ya sin el cambio). */
   monto: number;
+  /** Solo efectivo: lo que entregó el cliente y el cambio devuelto. */
+  recibido?: number;
+  cambio?: number;
   autorizacion?: string;
   marca?: string;
   ultimos4?: string;
@@ -23,8 +27,14 @@ export interface Pago {
 export interface Linea {
   linea_id: string;
   item_id: string;
+  /** Fotografía del artículo al momento de la venta: el ticket no cambia si después se edita el catálogo. */
+  item_no: string | null;
   codigo: string;
   descripcion: string;
+  marca: string;
+  estilo: string;
+  lote: string;
+  departamento: string;
   qty: number;
   precio_unit: number;
   descuento: number;
@@ -59,8 +69,6 @@ export interface Articulo {
   departamento: string;
   precio: number;
   origen: string;
-  /** Si no es null, este registro fue fusionado explícitamente por Administración con otro artículo. */
-  alias_de?: string | null;
 }
 
 export interface CajaCfg {

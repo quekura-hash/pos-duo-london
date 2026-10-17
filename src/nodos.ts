@@ -1,6 +1,6 @@
 import { ErrorDominio } from './errores.ts';
 import type { Politicas } from './politicas.ts';
-import { catalogo, devoluciones, devueltoPorLinea, existenciaVerificada, intentos, resolverAlias, stock, ventas, type Devolucion, type ExistenciaVerificada, type Intento } from './proyecciones.ts';
+import { catalogo, devoluciones, devueltoPorLinea, existenciaVerificada, intentos, perdidasDocumentales, stock, ventas, type Devolucion, type ExistenciaVerificada, type Intento, type PerdidaDocumental } from './proyecciones.ts';
 import type { Repo } from './repo.ts';
 import { validarOpEntrante } from './reglas.ts';
 import type { Articulo, CajaCfg, Linea, Op, Pago, Venta } from './tipos.ts';
@@ -55,8 +55,9 @@ interface Reserva {
   resultado: ResultadoReserva;
 }
 
-const BROADCAST_TIENDA = new Set(['inv.movement', 'inv.conteo', 'inv.verificacion_pendiente', 'item.created', 'item.item_no_assigned']);
-const CATALOGO = new Set(['item.created', 'item.item_no_assigned', 'item.codigo_corregido', 'item.fusion']);
+const BROADCAST_TIENDA = new Set(['inv.movement', 'inv.conteo', 'inv.verificacion_pendiente', 'doc.perdida_posible', 'item.created', 'item.item_no_assigned']);
+// Lo que el central baja a hubs y cajas (catálogo y resoluciones administrativas).
+const CATALOGO = new Set(['item.created', 'item.item_no_assigned', 'item.codigo_corregido', 'doc.perdida_resuelta']);
 
 // ───────────────────────────── Hub ─────────────────────────────
 
@@ -151,14 +152,20 @@ export class Hub {
     return this.reservas().filter((r) => r.estado === 'abierta' && r.hasta > ahora);
   }
 
-  /** Marca el inventario de la tienda como no verificable tras reconstruir este hub desde el central. */
+  /**
+   * Tras reconstruir este hub desde el central abre DOS registros separados: existencias no verificadas (se cierran con
+   * conteo físico) y pérdida documental posible (no se cierra con conteo).
+   */
   registrarRehidratacion(informe: object) {
-    const op = crearOp('inv.verificacion_pendiente', this.tienda, null, this.id, this.ctx.reloj.now(), { tienda: this.tienda, caja: null, motivo: 'hub_reconstruido_desde_central', ...informe });
-    if (this.repo.appendOp(op)) {
-      this.repo.encolar(op.op_id, 'central');
-      for (const n of this.cajasDeTienda()) this.repo.encolar(op.op_id, `caja:${this.tienda}/${n}`);
+    const inv = crearOp('inv.verificacion_pendiente', this.tienda, null, this.id, this.ctx.reloj.now(), { tienda: this.tienda, caja: null, motivo: 'hub_reconstruido_desde_central', ...informe });
+    const doc = crearOp('doc.perdida_posible', this.tienda, null, this.id, this.ctx.reloj.now(), { tienda: this.tienda, caja: null, alcance: 'ventas_pagos_y_folios_de_las_cajas_y_del_hub', folios_sin_evidencia: null, evidencia: 'ninguna', ...informe });
+    for (const op of [inv, doc]) {
+      if (this.repo.appendOp(op)) {
+        this.repo.encolar(op.op_id, 'central');
+        for (const n of this.cajasDeTienda()) this.repo.encolar(op.op_id, `caja:${this.tienda}/${n}`);
+      }
     }
-    return op;
+    return { inventario: inv, documental: doc };
   }
 
   hwm(caja: number): number {
@@ -432,7 +439,7 @@ export class Caja {
 
   // ── catálogo y altas (incluye alta sin internet) ──
   buscarPorCodigo(codigo: string): Articulo[] {
-    return [...catalogo(this.ops()).values()].filter((a) => a.codigo === codigo && !a.alias_de);
+    return [...catalogo(this.ops()).values()].filter((a) => a.codigo === codigo);
   }
 
   altaArticulo(d: { codigo: string; marca: string; descripcion: string; estilo: string; lote: string; departamento: string; precio: number; existencia_inicial?: number }): Articulo {
@@ -475,18 +482,29 @@ export class Caja {
   }
 
   // ── verificación de existencias ──
-  /** Marca TODA la existencia de la tienda como no verificable: lo perdido no se puede atribuir a artículos concretos. */
-  registrarRehidratacion(informe: object): Op {
-    const op = this.emitir('inv.verificacion_pendiente', { tienda: this.tienda, caja: this.caja, motivo: 'operaciones_no_replicadas_posibles', ...informe });
-    return op;
+  /**
+   * Abre DOS registros independientes tras una reconstrucción:
+   *  - inv.verificacion_pendiente: TODA la existencia de la tienda queda no verificada (lo perdido no se puede atribuir
+   *    a artículos concretos); se cierra por artículo con un conteo físico;
+   *  - doc.perdida_posible: ventas, pagos y folios que pudieron perderse; NO se cierra con un conteo.
+   */
+  registrarRehidratacion(informe: { no_replicado: { folios_sin_evidencia: unknown; evidencia: string; alcance: string } } & Record<string, unknown>): { inventario: Op; documental: Op } {
+    const inventario = this.emitir('inv.verificacion_pendiente', { tienda: this.tienda, caja: this.caja, motivo: 'operaciones_no_replicadas_posibles', ...informe });
+    const documental = this.emitir('doc.perdida_posible', {
+      tienda: this.tienda, caja: this.caja, alcance: 'ventas_pagos_y_folios_de_la_caja',
+      folios_sin_evidencia: informe.no_replicado.folios_sin_evidencia, evidencia: informe.no_replicado.evidencia, ...informe,
+    });
+    return { inventario, documental };
+  }
+  perdidasDocumentalesAbiertas(): PerdidaDocumental[] {
+    return perdidasDocumentales(this.ops()).filter((p) => p.estado === 'abierta' && p.tienda === this.tienda && (p.caja === this.caja || p.caja === null));
   }
   existenciaVerificada(itemId: string): ExistenciaVerificada {
-    const cat = catalogo(this.ops());
-    return existenciaVerificada(this.ops(), this.tienda, resolverAlias(cat, itemId));
+    return existenciaVerificada(this.ops(), this.tienda, itemId);
   }
   articulosNoVerificados(): string[] {
     const ops = this.ops();
-    return [...catalogo(ops).values()].filter((a) => !a.alias_de && !existenciaVerificada(ops, this.tienda, a.item_id).verificada).map((a) => a.item_id);
+    return [...catalogo(ops).values()].filter((a) => !existenciaVerificada(ops, this.tienda, a.item_id).verificada).map((a) => a.item_id);
   }
   /** Conteo físico: ajusta a lo contado mediante movimiento (contar 10 deja 10) y limpia SOLO la marca de ese artículo. */
   contarFisico(itemId: string, contado: number, usuario: string) {
@@ -522,14 +540,67 @@ export class Caja {
   private carritoIds(): string[] {
     return this.repo.kvGet<string[]>('carts') ?? [];
   }
+  private exigirAbierto(c: Carrito) {
+    if (c.estado !== 'abierto') throw new ErrorDominio('CARRITO_CERRADO', 'la venta ya se confirmó');
+  }
+  /**
+   * Resultado de escanear un código. NO adivina: un código ambiguo devuelve los candidatos y no agrega nada;
+   * resolver el conflicto es tarea administrativa (ver administracion.ts).
+   */
+  escanear(cartId: string, codigo: string):
+    | { resultado: 'agregado' | 'cantidad_incrementada'; linea: Linea }
+    | { resultado: 'no_encontrado'; codigo: string }
+    | { resultado: 'ambiguo'; codigo: string; candidatos: { item_id: string; item_no: string | null; marca: string; descripcion: string; estilo: string; lote: string }[] } {
+    const cod = codigo.replace(/[\r\n]+$/g, ''); // el lector termina con Enter; los ceros iniciales se conservan
+    const c = this.cartGet(cartId);
+    this.exigirAbierto(c);
+    const r = this.buscarPorCodigo(cod);
+    if (r.length === 0) return { resultado: 'no_encontrado', codigo: cod };
+    if (r.length > 1) return { resultado: 'ambiguo', codigo: cod, candidatos: r.map((a) => ({ item_id: a.item_id, item_no: a.item_no, marca: a.marca, descripcion: a.descripcion, estilo: a.estilo, lote: a.lote })) };
+    const art = r[0]!;
+    // Mismo artículo, sin precio ni descuento editados: se suma una pieza a la línea existente.
+    const existente = c.lineas.find((x) => x.item_id === art.item_id && x.precio_unit === art.precio && x.descuento === 0);
+    if (existente) return { resultado: 'cantidad_incrementada', linea: this.cambiarCantidad(cartId, existente.linea_id, existente.qty + 1) };
+    return { resultado: 'agregado', linea: this.agregarLinea(cartId, { item_id: art.item_id, qty: 1 }) };
+  }
+  cambiarCantidad(cartId: string, lineaId: string, qty: number): Linea {
+    const c = this.cartGet(cartId);
+    this.exigirAbierto(c);
+    this.exigirSinCobroPendiente(c);
+    if (!Number.isInteger(qty) || qty < 1) throw new ErrorDominio('CANTIDAD_INVALIDA', 'la cantidad es un entero positivo');
+    const l = c.lineas.find((x) => x.linea_id === lineaId);
+    if (!l) throw new ErrorDominio('LINEA_INEXISTENTE', lineaId);
+    l.qty = qty;
+    l.importe = qty * l.precio_unit - l.descuento;
+    this.repo.kvSet(`cart:${cartId}`, c);
+    return l;
+  }
+  quitarLinea(cartId: string, lineaId: string): void {
+    const c = this.cartGet(cartId);
+    this.exigirAbierto(c);
+    this.exigirSinCobroPendiente(c);
+    if (!c.lineas.some((x) => x.linea_id === lineaId)) throw new ErrorDominio('LINEA_INEXISTENTE', lineaId);
+    c.lineas = c.lineas.filter((x) => x.linea_id !== lineaId);
+    this.repo.kvSet(`cart:${cartId}`, c);
+  }
+  /** Búsqueda por código exacto, Item # exacto o texto en marca, descripción, estilo y lote. */
+  buscar(texto: string, limite = 20): Articulo[] {
+    const q = texto.trim();
+    if (!q) return [];
+    const norm = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+    const nq = norm(q);
+    const todos = [...catalogo(this.ops()).values()];
+    const exactos = todos.filter((a) => a.codigo === q || a.item_no === q);
+    const texto_ = todos.filter((a) => !exactos.includes(a) && norm(`${a.marca} ${a.descripcion} ${a.estilo} ${a.lote}`).includes(nq));
+    return [...exactos, ...texto_].slice(0, limite);
+  }
   agregarLinea(cartId: string, l: { codigo?: string; item_id?: string; qty: number; precio_unit?: number; descuento?: number }): Linea {
     const c = this.cartGet(cartId);
+    this.exigirAbierto(c);
     this.exigirSinCobroPendiente(c);
     let art: Articulo | undefined;
-    if (l.item_id) {
-      const cat = catalogo(this.ops());
-      art = cat.get(resolverAlias(cat, l.item_id)); // un artículo fusionado redirige al vigente
-    } else {
+    if (l.item_id) art = catalogo(this.ops()).get(l.item_id);
+    else {
       const r = this.buscarPorCodigo(l.codigo!);
       if (r.length > 1) throw new ErrorDominio('CODIGO_AMBIGUO', `el código ${l.codigo} corresponde a ${r.length} artículos`, r.map((a) => a.item_id));
       art = r[0];
@@ -537,8 +608,10 @@ export class Caja {
     if (!art) throw new ErrorDominio('ARTICULO_INEXISTENTE', String(l.codigo ?? l.item_id));
     const precio = l.precio_unit ?? art.precio; // editar precio "solo en esta venta" no toca el catálogo
     const descuento = l.descuento ?? 0;
+    if (!Number.isInteger(l.qty) || l.qty < 1) throw new ErrorDominio('CANTIDAD_INVALIDA', 'la cantidad es un entero positivo');
     const linea: Linea = {
-      linea_id: uuid(), item_id: art.item_id, codigo: art.codigo, descripcion: art.descripcion,
+      linea_id: uuid(), item_id: art.item_id, item_no: art.item_no, codigo: art.codigo, descripcion: art.descripcion,
+      marca: art.marca, estilo: art.estilo, lote: art.lote, departamento: art.departamento,
       qty: l.qty, precio_unit: precio, descuento, importe: l.qty * precio - descuento,
     };
     const candidatos = this.buscarPorCodigo(art.codigo).map((a) => a.item_id);
@@ -585,9 +658,14 @@ export class Caja {
       // Un cobro con tarjeta solo entra por un intento persistido y resuelto (iniciarCobroTarjeta/resolverIntento).
       throw new ErrorDominio('TARJETA_REQUIERE_INTENTO', 'el cobro con tarjeta debe pasar por un intento registrado antes de usar la terminal');
     }
+    // Existencia marcada no verificada: ALTERNATIVA DE ENSAYO (P-14), no una política aprobada.
+    const noVerificados = [...new Set(c.lineas.map((l) => l.item_id))].filter((id) => !this.existenciaVerificada(id).verificada);
+    if (noVerificados.length && this.ctx.politicas.P14_venta_con_inventario_no_verificado === 'bloquear_articulo_no_verificado') {
+      throw new ErrorDominio('INVENTARIO_NO_VERIFICADO', `existencia no verificada de ${noVerificados.join(', ')} (P-14 en ensayo)`, noVerificados);
+    }
     // Arbitraje: con hub, la existencia la concede el hub (serializa a las dos cajas); sin hub, rige la vista local.
     let reservado = false;
-    let avisos: string[] = [];
+    let avisos: string[] = noVerificados.map((i) => `inventario_no_verificado:${i}`);
     if (hubOk) {
       const r = this.enlace.reservar(c.id, this.caja, c.lineas.map((l) => ({ item_id: l.item_id, qty: l.qty })));
       if (r === null) {
@@ -597,7 +675,7 @@ export class Caja {
         throw new ErrorDominio('SIN_EXISTENCIA', `el hub no concede existencia de ${(r.faltantes ?? []).join(', ')}`, r);
       } else {
         reservado = true;
-        avisos = (r.sobreventa ?? []).map((i) => `sobreventa:${i}`);
+        avisos = [...avisos, ...(r.sobreventa ?? []).map((i) => `sobreventa:${i}`)];
       }
     } else {
       this.exigirExistenciaLocal(c);
@@ -618,6 +696,28 @@ export class Caja {
     const pedido = new Map<string, number>();
     for (const l of c.lineas) pedido.set(l.item_id, (pedido.get(l.item_id) ?? 0) + l.qty);
     for (const [item, q] of pedido) if ((st.get(item) ?? 0) < q) throw new ErrorDominio('SIN_EXISTENCIA', `existencia insuficiente de ${item}`);
+  }
+
+  /** Cobro en efectivo MXN con recibido y cambio. El importe aplicado (y lo que cuenta en el corte) es el total, no lo recibido. */
+  cobrarEfectivo(cartId: string, recibido: number, cajero = 'cajero'): Venta {
+    const previa = this.repo.getOp(`sale:${cartId}`);
+    if (previa) return ventas([previa]).get(cartId)!;
+    const c = this.cartGet(cartId);
+    const total = c.lineas.reduce((a, l) => a + l.importe, 0);
+    if (!Number.isInteger(recibido) || recibido < total) {
+      throw new ErrorDominio('EFECTIVO_INSUFICIENTE', `el efectivo recibido no cubre el total`, { recibido, total });
+    }
+    return this.cobrar(cartId, [{ metodo: 'efectivo', monto: total, recibido, cambio: recibido - total }], cajero);
+  }
+
+  /** Bitácora de impresión: una falla de impresora nunca duplica ni revierte la venta. */
+  registrarImpresion(d: { sale_id: string; tipo: 'original' | 'reimpresion'; resultado: 'ok' | 'error'; error?: string; usuario: string }): Op {
+    const v = ventas(this.ops()).get(d.sale_id);
+    if (!v || v.tienda !== this.tienda || v.caja !== this.caja) throw new ErrorDominio('PROHIBIDO', 'solo se imprimen ventas de la propia caja');
+    return this.emitir('ticket.impresion', { ...d, tienda: this.tienda, caja: this.caja, folio: v.folio });
+  }
+  impresionesDe(saleId: string) {
+    return this.ops().filter((o) => o.tipo === 'ticket.impresion' && o.payload.sale_id === saleId).map((o) => ({ ...o.payload, ocurrio_en: o.ocurrio_en }));
   }
 
   /** Una sola transacción: folio + venta + movimientos + cola de salida. Todo o nada. */
@@ -757,7 +857,8 @@ export class Caja {
   movimientoEfectivo(tipo: 'fondo_inicial' | 'retiro' | 'entrada', monto: number) {
     this.emitir('cash.movement', { tienda: this.tienda, caja: this.caja, tipo, monto, fecha: fechaLocal(this.ctx.reloj.now()) });
   }
-  generarCorte(fecha: string) {
+  /** Corte "en vivo": se calcula SOLO con las operaciones de esta caja y refleja todo lo ocurrido hasta ahora. No se guarda. */
+  corteEnVivo(fecha: string) {
     const ops = this.ops();
     const propia = (t: string | null, c: number | null) => t === this.tienda && c === this.caja;
     const vs = [...ventas(ops).values()].filter((v) => propia(v.tienda, v.caja) && fechaLocal(v.ocurrio_en) === fecha);
@@ -765,6 +866,7 @@ export class Caja {
     const devs = devoluciones(ops).filter((d) => propia(d.tienda, d.caja) && fechaLocal(d.ocurrio_en) === fecha);
     const mov = ops.filter((o) => o.tipo === 'cash.movement' && propia(o.payload.tienda, o.payload.caja) && o.payload.fecha === fecha).map((o) => o.payload);
     const suma = (xs: number[]) => xs.reduce((a, b) => a + b, 0);
+    const lineas = confirmadas.flatMap((v) => v.lineas);
     const efectivoCobrado = suma(confirmadas.flatMap((v) => v.pagos.filter((p) => p.metodo === 'efectivo').map((p) => p.monto)));
     const tarjeta = suma(confirmadas.flatMap((v) => v.pagos.filter((p) => p.metodo === 'tarjeta').map((p) => p.monto)));
     const fondo = suma(mov.filter((m) => m.tipo === 'fondo_inicial').map((m) => m.monto));
@@ -772,14 +874,23 @@ export class Caja {
     const retiros = suma(mov.filter((m) => m.tipo === 'retiro').map((m) => m.monto));
     const reembolsos = suma(devs.map((d) => d.importe));
     const folios = vs.map((v) => v.folio);
-    const corte = {
+    return {
       tienda: this.tienda, caja: this.caja, fecha, tickets: confirmadas.length,
+      tickets_cancelados: vs.length - confirmadas.length,
+      ventas_brutas: suma(lineas.map((l) => l.qty * l.precio_unit)), descuentos: suma(lineas.map((l) => l.descuento)),
       ventas: suma(confirmadas.map((v) => v.total)), devoluciones: reembolsos,
       ventas_netas: suma(confirmadas.map((v) => v.total)) - reembolsos,
       cobros_efectivo: efectivoCobrado, cobros_tarjeta: tarjeta, fondo_inicial: fondo, entradas, retiros,
       efectivo_esperado: fondo + efectivoCobrado + entradas - reembolsos - retiros,
       folio_inicial: folios.length ? Math.min(...folios) : null, folio_final: folios.length ? Math.max(...folios) : null,
+      perdida_documental_abierta: this.perdidasDocumentalesAbiertas().map((x) => x.perdida_id),
     };
+  }
+  /** Cierre del corte del día: se guarda UNA vez por caja y fecha; llamarlo otra vez devuelve el ya guardado. */
+  generarCorte(fecha: string) {
+    const previo = this.repo.getOp(`corte:${this.id}:${fecha}`);
+    if (previo) return previo.payload as ReturnType<Caja['corteEnVivo']>;
+    const corte = this.corteEnVivo(fecha);
     this.emitir('corte.generado', corte, `corte:${this.id}:${fecha}`);
     return corte;
   }
