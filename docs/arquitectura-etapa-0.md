@@ -317,7 +317,7 @@ Respuestas dadas por el propietario. «Hecho» = ya está en el código y probad
 |---|---|---|
 | P-01 | Con el hub caído se sigue vendiendo con aviso (venta autónoma) | Hecho (configuración de la demo y del banco) |
 | P-02 | Se permite vender aunque la existencia sea 0 o insuficiente y se concilia después. Aclaración: la existencia del archivo actual es errónea; se corregirá con el primer lote recibido en almacén | Hecho (el banco usaba «bloquear»; se cambió) |
-| P-03 | Las devoluciones se aceptan solo en la misma tienda. Sin ticket, la venta debe poder buscarse por fecha y hora **en ambas cajas** y también escaneando el artículo (historial de cuándo y en qué caja se vendió). Al encontrar la caja, el cambio o devolución se hace en la caja correspondiente. Cada ticket debe decir Caja 1 o Caja 2 | Parcial: configuración «permitir con incidencia». **Falta** la búsqueda por fecha/hora y por artículo, y la devolución solo dentro de la tienda |
+| P-03 | Las devoluciones se aceptan solo en la misma tienda. Sin ticket, la venta debe poder buscarse por fecha y hora **en ambas cajas** y también escaneando el artículo (historial de cuándo y en qué caja se vendió). Al encontrar la caja, el cambio o devolución se hace en la caja correspondiente. Cada ticket debe decir Caja 1 o Caja 2. Aclarado 17-oct: **la devolución se hace solo en la caja donde se vendió** | Parcial: configuración «permitir con incidencia». **Falta** la búsqueda por fecha/hora y por artículo, y la devolución solo dentro de la tienda |
 | P-04 | Crédito: dar crédito solo con conexión | Falta (crédito no se construye todavía) |
 | P-05 | Abono duplicado: avisar al cajero y que decida | Falta (crédito) |
 | P-06 | Folios: **no** se salta con huecos. El sistema debe informar hasta qué folio está bien registrado, sugerir el siguiente y pedir confirmación para continuar | Parcial: bloqueo y atestación existen; **falta** la pantalla que informa el último folio bueno, sugiere el siguiente y pide confirmación |
@@ -327,7 +327,7 @@ Respuestas dadas por el propietario. «Hecho» = ya está en el código y probad
 | P-10 | Catálogo compartido. Inventario compartido con **flujo de almacén**: la mercancía se da de alta primero en Almacén; al salir se registra la distribución por tienda (ej. 24 piezas = 12 DÚO + 12 London); cada tienda confirma al escanear por primera vez («¿confirmas 12 piezas?»). Resultado: Almacén 0, DÚO 12, London 12 | Falta (entradas a almacén, salidas por tienda y confirmación al primer escaneo) |
 | P-11 | Entregará existencias y ventas. Un artículo con cantidad 0 se debe poder seguir vendiendo | Hecho para la venta en 0 (ver P-02); archivos pendientes de recibir |
 | P-12 | Tarjeta con cobro pendiente: permitir con aviso | Hecho |
-| P-13 | El cajero puede elegir entre artículos con código duplicado, con la venta marcada para revisión | **Conflicto**: el 14-oct se pidió que la elección no quedara al cajero como solución definitiva. La capa de venta hoy bloquea. Pendiente de confirmar |
+| P-13 | No debería haber códigos duplicados (se resuelven por Administración); si aun así ocurre, **el cajero decide** y la venta queda marcada para revisión. Aclarado 17-oct: sustituye a la instrucción del 14-oct | Falta (el motor ya lo soporta; la capa de venta hoy bloquea) |
 | P-14 | Vender con inventario no verificado: permitir con aviso | Hecho |
 | P-15 | Recuperación mediante **respaldo diario en cada corte o cierre**, guardado en una carpeta de GitHub con 7 días de retención. Sin reconstrucción con tickets impresos | Falta. Ver advertencias abajo |
 | P-16 | Entregará un archivo nuevo con los nombres de columna correctos que reemplaza al actual | Pendiente de recibir |
@@ -340,14 +340,11 @@ Respuestas dadas por el propietario. «Hecho» = ya está en el código y probad
 | P-23 | La tarjeta de regalo vale solo en la tienda que la emitió | Hecho |
 | P-24 | La venta de una tarjeta de regalo **lleva folio normal**, como cualquier venta | Falta (hoy es comprobante sin folio) |
 | P-25 | La Caja 2 **no** maneja tarjetas de regalo (ni vender ni pagar) | Hecho |
-| P-26 | Devolución de una venta pagada con tarjeta de regalo: se emite un **vale** | Falta |
+| P-26 | ~~Vale~~: los **vales se eliminan** (17-oct). Falta definir cómo se devuelve una venta pagada con tarjeta de regalo (¿saldo a la misma tarjeta?) | Pendiente de decisión |
 | P-26b | Las tarjetas de regalo vencen a los 12 meses | Falta |
 | P-26c | Se permite recarga; no reposición por pérdida | Falta |
 
 ### Puntos que requieren confirmación antes de implementar
 
-1. **P-13 contra la instrucción anterior** (elección del cajero ante un código duplicado).
 2. **P-15**: un respaldo diario deja una ventana (lo vendido entre el último respaldo y la falla sigue perdido y debe seguir marcándose como posible pérdida documental). Subir datos de ventas a GitHub exige un repositorio **privado**, y borrar archivos viejos no los quita del historial de git (la «retención de 7 días» no se cumple en el sentido de privacidad).
 3. **P-24 con tarjetas**: si la venta de la tarjeta lleva folio y cuenta como venta, y luego pagar con la tarjeta también cuenta como venta, las ventas netas contarían el mismo dinero dos veces. Hace falta una línea de «ventas de mercancía» separada.
-4. **P-03**: «solo por tienda» y «en la caja correspondiente»: confirmar si una devolución de una venta de Caja 1 se hace obligatoriamente en la Caja 1, o puede hacerse en cualquier caja de esa tienda.
-5. **P-26 y P-26b**: el vale que sustituye al efectivo, ¿vence también a 12 meses? ¿Tiene su propio código y saldo (igual que una tarjeta de regalo)?
