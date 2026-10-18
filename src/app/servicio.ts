@@ -1,4 +1,4 @@
-import { cortesPorCaja, dolaresPorCaja, reporteConsolidado, ventasPorCaja, type Filtro } from '../consultas.ts';
+import { cortesPorCaja, descuentosPorCaja, dolaresPorCaja, reporteConsolidado, ventasPorCaja, type Filtro } from '../consultas.ts';
 import { DIAS_URGENTE, diasHasta, existenciaAlmacen, recepcionesPendientes, recordatoriosPiso, revisarAlta, type AltaManual } from '../almacen.ts';
 import { DEPARTAMENTOS_BASE, resolverDepartamento } from '../departamentos.ts';
 import { formatoTasa } from '../dinero.ts';
@@ -7,7 +7,7 @@ import type { Impresora } from '../impresion.ts';
 import type { Caja } from '../nodos.ts';
 import { estadoPromo, type Promocion } from '../promociones.ts';
 import { catalogo, nombresTienda, departamentos as proyDepartamentos, promocionesDe, supervisoresDe, permisos as proyPermisos, tarjetasRegalo, tiposDeCambio, tipoCambioVigente, ventas, type TipoCambio } from '../proyecciones.ts';
-import { hojaDolares, hojaInventario, leerInventario, PERFIL_CONFIRMADO, type Hoja } from '../inventario.ts';
+import { hojaDescuentos, hojaDolares, hojaInventario, leerInventario, PERFIL_CONFIRMADO, type Hoja } from '../inventario.ts';
 import { codigoTicket, construirTicket, NEGOCIOS, renderTextoEscPos, renderTicketDevolucionTexto, renderTicketEscPos, renderTicketTexto, type NegocioCfg } from '../ticket.ts';
 import type { Actor, Articulo, Linea, Op, Venta } from '../tipos.ts';
 import { fechaLocal } from '../util.ts';
@@ -619,6 +619,13 @@ export class ServicioAdmin {
   }
   hojaDolares(f: Filtro = {}): Hoja {
     return hojaDolares(this.dolares(f));
+  }
+  /** Promociones, cupones y descuentos autorizados por supervisor, con el ticket de cada uno. */
+  descuentos(f: Filtro = {}) {
+    return descuentosPorCaja(this.actor, this.fuente(), f);
+  }
+  hojaDescuentos(f: Filtro = {}): Hoja {
+    return hojaDescuentos(this.descuentos(f));
   }
 
   /** Libro mayor de tarjetas de regalo de todas las tiendas (solo Administración). */

@@ -126,7 +126,7 @@ const folioTexto = () => (S.ultimoFolio ? `Folio ${String(S.ultimoFolio).padStar
 // ── navegación ──
 const NAV = {
   venta: ['Venta', 'cart'], ventas: ['Historial', 'clock'], creditos: ['Créditos', 'card'], corte: ['Corte de caja', 'chart'],
-  tarjetas: ['Tarjetas de regalo', 'gift'], reportes: ['Reportes', 'chart'], cortes: ['Cortes', 'cash'], dolares: ['Dólares recibidos', 'dollar'], inventario: ['Inventario', 'box'], departamentos: ['Departamentos', 'box'], almacen: ['Almacén', 'warehouse'], promociones: ['Promociones', 'percent'], tiendas: ['Tiendas', 'store'], administracion: ['Administración', 'gear'], volver_caja: ['Caja', 'caja'], tipo_cambio: ['Tipo de cambio', 'refresh'],
+  tarjetas: ['Tarjetas de regalo', 'gift'], reportes: ['Reportes', 'chart'], cortes: ['Cortes', 'cash'], dolares: ['Dólares recibidos', 'dollar'], descuentos: ['Descuentos', 'percent'], inventario: ['Inventario', 'box'], departamentos: ['Departamentos', 'box'], almacen: ['Almacén', 'warehouse'], promociones: ['Promociones', 'percent'], tiendas: ['Tiendas', 'store'], administracion: ['Administración', 'gear'], volver_caja: ['Caja', 'caja'], tipo_cambio: ['Tipo de cambio', 'refresh'],
 };
 function pintarNav() {
   // En la página de prueba (una sola ventana) se puede pasar de la caja a Administración y volver; en la app real cada sesión es la suya.
@@ -147,7 +147,7 @@ async function ir(v) {
   S.vista = v;
   pintarNav();
   await pintarEncabezado();
-  await ({ venta: vistaVenta, corte: vistaCorte, ventas: vistaVentas, reportes: vistaReportes, inventario: vistaInventario, almacen: vistaAlmacen, promociones: vistaPromociones, tiendas: vistaTiendas, departamentos: vistaDepartamentos, tarjetas: vistaTarjetas, devolucion: vistaDevolucion, dolares: vistaDolares, tipo_cambio: vistaTipoCambio, cortes: vistaCortes })[v]();
+  await ({ venta: vistaVenta, corte: vistaCorte, ventas: vistaVentas, reportes: vistaReportes, inventario: vistaInventario, almacen: vistaAlmacen, promociones: vistaPromociones, tiendas: vistaTiendas, departamentos: vistaDepartamentos, tarjetas: vistaTarjetas, devolucion: vistaDevolucion, dolares: vistaDolares, descuentos: vistaDescuentos, tipo_cambio: vistaTipoCambio, cortes: vistaCortes })[v]();
   if (v !== 'almacen') await avisosPisoInicial();
 }
 
@@ -1045,6 +1045,43 @@ async function vistaDolares() {
   await consultar();
 }
 
+
+// ── Reporte de promociones y descuentos autorizados por supervisor ──
+const pctBp = (bp) => `${(bp / 100).toFixed(2).replace(/\.00$/, '')} %`;
+const NOM_TIPO_DESC = { promo: 'Promoción', cupon: 'Cupón', manual: 'Manual (supervisor)' };
+async function vistaDescuentos() {
+  const hoy = new Date(Date.now() - 7 * 3600e3).toISOString().slice(0, 10);
+  $('#vista').innerHTML = `<div class="titulo-vista">${ico('percent')}<h1>Descuentos y promociones</h1></div>
+    <form class="filtros panel" id="filtros-desc"><label>Desde <input type="date" id="desc-desde" value="${hoy}"></label><label>Hasta <input type="date" id="desc-hasta" value="${hoy}"></label>
+      <button class="btn btn-primario" type="submit" style="width:auto">${ico('search')}<span>Consultar</span></button>
+      <button class="btn" type="button" id="btn-exportar-desc">${ico('download')}<span>Exportar a Excel</span></button><span id="estado-exportar-desc" role="status" aria-live="polite"></span></form>
+    <div id="resultado-desc"></div>`;
+  const consultar = async () => {
+    const { reporte: r } = await api(`/api/admin/descuentos?desde=${$('#desc-desde').value}&hasta=${$('#desc-hasta').value}`);
+    const R = r.resumen;
+    $('#resultado-desc').innerHTML = `<div class="panel"><p class="nota" style="margin-top:0">Los totales no incluyen las ventas canceladas (aparecen en el detalle marcadas). El importe de la venta es la mercancía a precio de lista.</p>
+      <table id="tabla-desc-resumen"><tbody>
+        <tr><th scope="row">Total descontado</th><td class="num" data-campo="monto"><b>${mxn(R.monto)}</b></td><td class="num" data-campo="tickets">${R.tickets} ticket(s)</td></tr>
+        <tr><th scope="row">Promociones</th><td class="num" data-campo="promo">${mxn(R.promo.monto)}</td><td class="num">${R.promo.tickets} ticket(s)</td></tr>
+        <tr><th scope="row">Cupones</th><td class="num" data-campo="cupon">${mxn(R.cupon.monto)}</td><td class="num">${R.cupon.tickets} ticket(s)</td></tr>
+        <tr><th scope="row">Descuentos autorizados por supervisor</th><td class="num" data-campo="manual">${mxn(R.manual.monto)}</td><td class="num">${R.manual.tickets} ticket(s)</td></tr></tbody></table></div>
+      <div class="panel" style="margin-top:12px"><h2 style="margin-top:0">Por supervisor</h2>
+        <table id="tabla-desc-supervisor"><thead><tr><th>Supervisor</th><th class="num">Descuentos</th><th class="num">Monto</th><th class="num">Mayor % de una venta</th><th class="num">Al 100 %</th></tr></thead><tbody>
+        ${r.porSupervisor.map((x) => `<tr data-supervisor="${esc(x.supervisor)}"><td>${esc(x.supervisor)}</td><td class="num">${x.descuentos}</td><td class="num">${mxn(x.monto)}</td><td class="num">${pctBp(x.mayor_pct_bp)}</td><td class="num">${x.al_100}</td></tr>`).join('') || '<tr><td colspan="5" class="vacio">Sin descuentos autorizados en el periodo.</td></tr>'}</tbody></table></div>
+      <div class="panel" style="margin-top:12px"><h2 style="margin-top:0">Por promoción o cupón</h2>
+        <table id="tabla-desc-promos"><thead><tr><th>Tipo</th><th>Nombre</th><th class="num">Tickets</th><th class="num">Monto</th></tr></thead><tbody>
+        ${r.porPromocion.map((x) => `<tr data-ref="${esc(x.ref)}"><td>${NOM_TIPO_DESC[x.tipo]}</td><td>${esc(x.concepto)}</td><td class="num">${x.tickets}</td><td class="num">${mxn(x.monto)}</td></tr>`).join('') || '<tr><td colspan="4" class="vacio">Sin promociones ni cupones aplicados en el periodo.</td></tr>'}</tbody></table></div>
+      <div class="panel" style="margin-top:12px"><h2 style="margin-top:0">Detalle por ticket</h2><div class="tabla-cont"><table id="tabla-desc-detalle"><thead><tr><th>Tienda</th><th>Caja</th><th>Folio</th><th>Fecha</th><th>Cajero</th><th>Tipo</th><th>Concepto</th><th>Autorizó</th><th class="num">Venta</th><th class="num">Descuento</th><th class="num">% venta</th><th>Estado</th></tr></thead><tbody>
+        ${r.filas.map((f) => `<tr data-folio="${f.folio}" data-tipo="${f.tipo}"><td>${esc(f.tienda)}</td><td>${f.caja}</td><td>${String(f.folio).padStart(6, '0')}</td><td>${esc(f.fecha_local)} ${esc(f.hora)}</td><td>${esc(f.cajero)}</td><td>${NOM_TIPO_DESC[f.tipo]}</td><td>${esc(f.concepto)}</td><td>${esc(f.supervisor ?? '')}</td><td class="num">${mxn(f.importe_venta)}</td><td class="num">${mxn(f.monto)}</td><td class="num">${pctBp(f.pct_bp)}</td><td>${f.estado === 'cancelada' ? '<span class="insignia cancelada">cancelada</span>' : 'confirmada'}</td></tr>`).join('') || '<tr><td colspan="12" class="vacio">Sin descuentos en el periodo.</td></tr>'}</tbody></table></div></div>`;
+  };
+  $('#filtros-desc').addEventListener('submit', async (ev) => { ev.preventDefault(); await consultar(); });
+  $('#btn-exportar-desc').addEventListener('click', async () => {
+    const e = $('#estado-exportar-desc');
+    e.textContent = 'Preparando el archivo…';
+    try { e.textContent = await exportarArchivo(`/api/admin/descuentos.xlsx?desde=${$('#desc-desde').value}&hasta=${$('#desc-hasta').value}`, 'descuentos.xlsx'); } catch (err) { e.textContent = `No se pudo exportar: ${err.message}`; }
+  });
+  await consultar();
+}
 
 // ── promociones, cupón y descuentos autorizados (venta) ──
 function pintarPromos() {

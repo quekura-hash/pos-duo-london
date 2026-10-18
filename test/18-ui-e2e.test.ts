@@ -200,7 +200,7 @@ describe('[navegador real — Chromium con Playwright, UI sobre SQLite]', { time
     ctx.m.pump();
     const { page, errores } = await pagina(browser, adm.url);
     await page.waitForSelector('#filtros');
-    assert.deepEqual(await page.$$eval('#nav button', (b) => b.map((x) => x.textContent)), ['Reportes', 'Cortes', 'Dólares recibidos', 'Inventario', 'Almacén', 'Promociones', 'Tiendas', 'Departamentos', 'Tarjetas de regalo', 'Tipo de cambio', 'Créditos']);
+    assert.deepEqual(await page.$$eval('#nav button', (b) => b.map((x) => x.textContent)), ['Reportes', 'Cortes', 'Dólares recibidos', 'Descuentos', 'Inventario', 'Almacén', 'Promociones', 'Tiendas', 'Departamentos', 'Tarjetas de regalo', 'Tipo de cambio', 'Créditos']);
     await page.fill('#desde', '2026-10-01');
     await page.fill('#hasta', '2026-10-01');
     await page.click('#filtros button[type="submit"]');

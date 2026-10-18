@@ -94,7 +94,7 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     await page.uncheck('#falla-hub');
     await page.selectOption('#sesion-prueba', 'admin');
     await page.waitForSelector('#filtros');
-    assert.deepEqual(await page.$$eval('#nav button', (b) => b.map((x) => x.textContent)), ['Reportes', 'Cortes', 'Dólares recibidos', 'Inventario', 'Almacén', 'Promociones', 'Tiendas', 'Departamentos', 'Tarjetas de regalo', 'Tipo de cambio', 'Créditos', 'Caja']);
+    assert.deepEqual(await page.$$eval('#nav button', (b) => b.map((x) => x.textContent)), ['Reportes', 'Cortes', 'Dólares recibidos', 'Descuentos', 'Inventario', 'Almacén', 'Promociones', 'Tiendas', 'Departamentos', 'Tarjetas de regalo', 'Tipo de cambio', 'Créditos', 'Caja']);
     await page.click('#filtros button[type="submit"]');
     await page.waitForSelector('#tabla-reporte tbody tr');
     assert.equal(await page.locator('#tabla-reporte tbody tr').count(), 3, 'las 3 ventas, tras sincronizar');
@@ -446,6 +446,15 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     const ticket = (await page.textContent('#ticket-texto'))!;
     assert.match(ticket, /Descuento autorizado por Ana +-\$899\.00\s+Supervisora/);
     assert.match(ticket, /TOTAL +\$0\.00/);
+    // reporte de descuentos: la venta aparece con el supervisor que la autorizó
+    await page.click('#btn-nueva');
+    await page.click('#nav button[data-vista="administracion"]');
+    await page.click('#nav button[data-vista="descuentos"]');
+    await page.waitForSelector('#tabla-desc-supervisor tr[data-supervisor]');
+    assert.match((await page.textContent('#tabla-desc-supervisor tr[data-supervisor="Ana Supervisora"]'))!, /Ana Supervisora.*\$899\.00.*100 %/s);
+    assert.equal(await page.textContent('#tabla-desc-resumen [data-campo="tickets"]'), '1 ticket(s)');
+    assert.match((await page.textContent('#tabla-desc-detalle tr[data-tipo="manual"]'))!, /Descuento autorizado.*Ana Supervisora.*\$899\.00.*confirmada/s);
+    await page.screenshot({ path: join(RAIZ, 'docs', 'capturas', '32-reporte-descuentos.png') });
     assert.deepEqual(errores, []);
   });
   it('B6 promoción por tienda desde Inventario («Crear promoción»), paquete a precio fijo, nombre de tienda editable', async (t) => {

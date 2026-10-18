@@ -221,3 +221,84 @@ export function dolaresPorCaja(actor: Actor, ops: Op[], f: Filtro = {}): Reporte
   const porCaja = [...por.values()];
   return { filas, porCaja, usd: porCaja.reduce((a, c) => a + c.usd, 0), equivalente_historico: porCaja.reduce((a, c) => a + c.equivalente_historico, 0) };
 }
+
+// ── promociones y descuentos autorizados ──
+export interface FilaDescuento {
+  tienda: string; caja: number; folio: number; sale_id: string; fecha_local: string; hora: string; cajero: string;
+  tipo: 'promo' | 'cupon' | 'manual';
+  /** id de la promoción o cupón (o del supervisor, en un descuento manual). */
+  ref: string;
+  concepto: string;
+  supervisor: string | null;
+  /** Mercancía de la venta a precio de lista. */
+  importe_venta: number;
+  monto: number;
+  /** Porcentaje del importe de la venta, en diezmilésimas (10000 = 100 %). */
+  pct_bp: number;
+  estado: 'confirmada' | 'cancelada';
+}
+export interface ReporteDescuentos {
+  filas: FilaDescuento[];
+  /** Totales SIN las ventas canceladas. */
+  resumen: { tickets: number; monto: number; promo: { tickets: number; monto: number }; cupon: { tickets: number; monto: number }; manual: { tickets: number; monto: number } };
+  porPromocion: { tipo: 'promo' | 'cupon'; ref: string; concepto: string; tickets: number; monto: number }[];
+  porSupervisor: { supervisor: string; descuentos: number; tickets: number; monto: number; mayor_pct_bp: number; al_100: number }[];
+}
+/**
+ * Descuentos de las ventas del periodo, con su origen: promoción, cupón o descuento manual autorizado por un supervisor.
+ * El supervisor sale del registro de la propia venta; una venta anterior a ese registro aparece «sin registro de supervisor».
+ */
+export function descuentosPorCaja(actor: Actor, ops: Op[], f: Filtro = {}): ReporteDescuentos {
+  const permitidas = cajasPermitidas(actor, f);
+  const nombresSup = new Map<string, string>();
+  for (const o of ops) if (o.tipo === 'supervisor.guardado') nombresSup.set(o.payload.id, o.payload.nombre);
+  const filas: FilaDescuento[] = [];
+  for (const v of ventas(ops).values()) {
+    if (permitidas !== 'todas' && !permitidas.some((c) => mismaCaja(c, v))) continue;
+    if (!enPeriodo(v.ocurrio_en, f)) continue;
+    const bruto = v.lineas.filter((l) => !l.tarjeta_regalo).reduce((a, l) => a + l.qty * l.precio_unit, 0);
+    const grupos = new Map<string, { tipo: FilaDescuento['tipo']; ref: string; concepto: string; monto: number }>();
+    for (const l of v.lineas) {
+      const det = l.descuento_detalle ?? (l.descuento > 0 ? [{ tipo: 'manual' as const, ref: '', nombre: 'Descuento', monto: l.descuento }] : []);
+      for (const d of det) {
+        const k = `${d.tipo}|${d.ref}`;
+        const g = grupos.get(k) ?? { tipo: d.tipo, ref: d.ref, concepto: d.nombre, monto: 0 };
+        g.monto += d.monto;
+        grupos.set(k, g);
+      }
+    }
+    const local = new Date(Date.parse(v.ocurrio_en) - 7 * 3600_000).toISOString();
+    for (const g of grupos.values()) {
+      if (g.monto <= 0) continue;
+      filas.push({
+        tienda: v.tienda, caja: v.caja, folio: v.folio, sale_id: v.sale_id, fecha_local: fechaLocal(v.ocurrio_en), hora: local.slice(11, 16), cajero: v.cajero,
+        tipo: g.tipo, ref: g.ref, concepto: g.tipo === 'manual' ? 'Descuento autorizado' : g.concepto,
+        supervisor: g.tipo === 'manual' ? (g.ref ? (nombresSup.get(g.ref) ?? g.concepto.replace(/^Descuento autorizado por /, '')) : 'sin registro de supervisor') : null,
+        importe_venta: bruto, monto: g.monto, pct_bp: bruto > 0 ? Math.round((g.monto * 10000) / bruto) : 0, estado: v.estado,
+      });
+    }
+  }
+  filas.sort((a, b) => a.fecha_local.localeCompare(b.fecha_local) || a.tienda.localeCompare(b.tienda) || a.caja - b.caja || a.folio - b.folio);
+  const vivas = filas.filter((r) => r.estado === 'confirmada');
+  const resumen = { tickets: new Set(vivas.map((r) => r.sale_id)).size, monto: vivas.reduce((a, r) => a + r.monto, 0), promo: { tickets: 0, monto: 0 }, cupon: { tickets: 0, monto: 0 }, manual: { tickets: 0, monto: 0 } };
+  for (const t of ['promo', 'cupon', 'manual'] as const) {
+    const l = vivas.filter((r) => r.tipo === t);
+    resumen[t] = { tickets: new Set(l.map((r) => r.sale_id)).size, monto: l.reduce((a, r) => a + r.monto, 0) };
+  }
+  const pp = new Map<string, ReporteDescuentos['porPromocion'][number]>();
+  const ps = new Map<string, ReporteDescuentos['porSupervisor'][number]>();
+  for (const r of vivas) {
+    if (r.tipo === 'manual') {
+      const k = r.supervisor!;
+      const x = ps.get(k) ?? { supervisor: k, descuentos: 0, tickets: 0, monto: 0, mayor_pct_bp: 0, al_100: 0 };
+      x.descuentos++; x.tickets++; x.monto += r.monto; x.mayor_pct_bp = Math.max(x.mayor_pct_bp, r.pct_bp); if (r.pct_bp >= 10000) x.al_100++;
+      ps.set(k, x);
+    } else {
+      const k = `${r.tipo}|${r.ref}`;
+      const x = pp.get(k) ?? { tipo: r.tipo, ref: r.ref, concepto: r.concepto, tickets: 0, monto: 0 };
+      x.tickets++; x.monto += r.monto;
+      pp.set(k, x);
+    }
+  }
+  return { filas, resumen, porPromocion: [...pp.values()].sort((a, b) => b.monto - a.monto), porSupervisor: [...ps.values()].sort((a, b) => b.monto - a.monto) };
+}

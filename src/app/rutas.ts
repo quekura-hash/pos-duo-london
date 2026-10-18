@@ -32,7 +32,7 @@ export async function atender(o: { cajero?: ServicioCaja; admin?: ServicioAdmin 
       case 'GET /api/sesion':
         return ok(C
           ? { rol: 'cajero', usuario: C.actor.usuario, tienda: C.caja.tienda, caja: C.caja.caja, nav: ['venta', 'ventas', 'corte', ...(C.caja.cfg.metodos.includes('tarjeta_regalo') ? ['tarjetas'] : [])] }
-          : { rol: 'admin', usuario: A!.actor.usuario, cajas: A!.cajas, nav: ['reportes', 'cortes', 'dolares', 'inventario', 'almacen', 'promociones', 'tiendas', 'departamentos', 'tarjetas', 'tipo_cambio'] });
+          : { rol: 'admin', usuario: A!.actor.usuario, cajas: A!.cajas, nav: ['reportes', 'cortes', 'dolares', 'descuentos', 'inventario', 'almacen', 'promociones', 'tiendas', 'departamentos', 'tarjetas', 'tipo_cambio'] });
       // ── cajero ──
       case 'GET /api/estado': return ok({ estado: exigirCajero().estado() });
       case 'POST /api/venta/actual': { const c = exigirCajero(); const cart = c.carritoActual(); return ok({ cart, carrito: c.vista(cart) }); }
@@ -109,6 +109,11 @@ export async function atender(o: { cajero?: ServicioCaja; admin?: ServicioAdmin 
         id: b.id === undefined ? undefined : String(b.id), nombre: b.nombre === undefined ? undefined : String(b.nombre),
         activo: b.activo === undefined ? undefined : !!b.activo, alias: Array.isArray(b.alias) ? b.alias.map(String) : undefined,
       }));
+      case 'GET /api/admin/descuentos': {
+        const A3 = exigirAdmin();
+        const f = { cajas: cajasParam(q.get('cajas')), desde: q.get('desde') || undefined, hasta: q.get('hasta') || undefined };
+        return ok({ reporte: A3.descuentos(f), ...(q.get('completo') === '1' ? { hoja: A3.hojaDescuentos(f) } : {}) });
+      }
       case 'GET /api/admin/dolares': {
         const A2 = exigirAdmin();
         const f = { cajas: cajasParam(q.get('cajas')), desde: q.get('desde') || undefined, hasta: q.get('hasta') || undefined };
