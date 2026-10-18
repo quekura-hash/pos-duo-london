@@ -133,4 +133,32 @@ porAlmacen('Almacén: alta de lote, entregas y recepción en tienda', (alm) => {
     assert.equal(ex.existencia_almacen, -3);
     assert.ok(existenciaAlmacen(ctx.m.central.repo.ops()).get(item.item_id)!.entregas.some((e) => e.exceso));
   });
+
+  it('A5 recordatorio de sacar a piso: fecha por artículo, aviso agrupado, urgente a 7 días o menos y sin aviso al entregarse todo', (t) => {
+    const ctx = nuevoMundo(alm, politica());
+    t.after(ctx.limpiar);
+    const a = admin(ctx);
+    a.altaLote({ lote_id: 'L1', filas: [ENC, [24, 'BLUSA', 'B1', 'CAPELLA', '202610001', 349, '1', 'DAMA'], [12, 'PANTALON', 'P1', 'WAX', '202610002', 649, '1', 'DAMA'], [8, 'FALDA', 'F1', 'WAX', '202610003', 300, '1', 'DAMA']] });
+    const id = (c: string) => [...catalogo(ctx.m.central.repo.ops()).values()].find((x) => x.codigo === c)!.item_id;
+    const dia = (n: number) => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10);
+    assert.deepEqual(a.almacen().avisos, []);
+    assert.throws(() => a.fijarSacarAPiso(id('202610001'), '2026-02-31'), { codigo: 'FECHA_INVALIDA' });
+    assert.throws(() => a.fijarSacarAPiso(id('202610001'), '12/11/2026'), { codigo: 'FECHA_INVALIDA' });
+    assert.throws(() => a.fijarSacarAPiso('nada', dia(3)), { codigo: 'ARTICULO_INEXISTENTE' });
+    a.fijarSacarAPiso(id('202610001'), dia(30));
+    a.fijarSacarAPiso(id('202610002'), dia(5));
+    const r = a.fijarSacarAPiso(id('202610003'), dia(5));
+    assert.deepEqual(r.avisos.map((x) => [x.fecha, x.articulos, x.urgente]), [[dia(5), 2, true], [dia(30), 1, false]]);
+    assert.equal(r.items.find((x) => x.codigo === '202610001')!.sacar_a_piso, dia(30));
+    // pasada la fecha sigue urgente (vencido); la corrección de fecha reemplaza a la anterior
+    a.fijarSacarAPiso(id('202610003'), dia(-2));
+    assert.deepEqual(a.almacen().avisos.map((x) => [x.dias, x.urgente]), [[-2, true], [5, true], [30, false]]);
+    // entregar todo lo del artículo lo saca del aviso; quitar la fecha también
+    a.entregarAlmacen({ item_id: id('202610002'), destinos: { DUO: 12 }, etiqueta_precio: true, etiqueta_costura: true });
+    a.fijarSacarAPiso(id('202610001'), null);
+    assert.deepEqual(a.almacen().avisos.map((x) => x.dias), [-2]);
+    // el recordatorio es interno: no llega a las tiendas
+    ctx.m.pump();
+    assert.equal(ctx.m.caja('DUO', 1).ops().some((o) => o.tipo === 'alm.recordatorio'), false);
+  });
 });

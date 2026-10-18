@@ -88,6 +88,7 @@ export async function atender(o: { cajero?: ServicioCaja; admin?: ServicioAdmin 
       case 'GET /api/admin/almacen': return ok(exigirAdmin().almacen());
       case 'POST /api/admin/almacen/revisar': return ok(exigirAdmin().revisarAltaLote(b.filas, { decisiones: b.decisiones, regla: b.regla }));
       case 'POST /api/admin/almacen/alta': return ok(exigirAdmin().altaLote({ lote_id: String(b.lote_id ?? ''), nombre: b.nombre, filas: b.filas, decisiones: b.decisiones, regla: b.regla, pedimento_lote: b.pedimento_lote }));
+      case 'POST /api/admin/almacen/piso': return ok(exigirAdmin().fijarSacarAPiso(String(b.item_id ?? ''), b.fecha ? String(b.fecha) : null));
       case 'POST /api/admin/almacen/manual': return ok(exigirAdmin().altaManual(b));
       case 'POST /api/admin/almacen/entregar': return ok(exigirAdmin().entregarAlmacen({ item_id: String(b.item_id ?? ''), destinos: b.destinos ?? {}, etiqueta_precio: !!b.etiqueta_precio, etiqueta_costura: !!b.etiqueta_costura, confirmar_exceso: !!b.confirmar_exceso, ref: b.ref }));
       case 'GET /api/recepciones': return ok({ recepciones: exigirCajero().recepcionesPendientes() });

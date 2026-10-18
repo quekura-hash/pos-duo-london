@@ -1,6 +1,6 @@
 import type { BusquedaVentas, VentaLocalizada } from './consultas.ts';
 import { ErrorDominio } from './errores.ts';
-import { existenciaAlmacen, recepcionesPendientes, type AltaManual, type RecepcionPendiente } from './almacen.ts';
+import { existenciaAlmacen, fechaValida, recepcionesPendientes, type AltaManual, type RecepcionPendiente } from './almacen.ts';
 import { slug, validarCambioDepto, type CambioDepto, type ErrorDepto } from './departamentos.ts';
 import { DENOMINACIONES_USD, esImporteEnBilletesUsd, superaUmbralTasa, totalDenominacionesMxn, totalDenominacionesUsd, usdAMxn, variacionTasaPb } from './dinero.ts';
 import { TASA_SIN_VERIFICAR_OMISION, type Politicas } from './politicas.ts';
@@ -347,6 +347,12 @@ export class Central {
     return { ok: true, op: this.emitirAdmin('depto.editado', payload) };
   }
 
+  /** Recordatorio interno de almacén: fecha para sacar el artículo a piso (null la quita). Solo del central, no viaja a las tiendas. */
+  recordarSacarAPiso(itemId: string, fecha: string | null, por: string): Op | null {
+    if (!catalogo(this.repo.ops()).has(itemId)) throw new ErrorDominio('ARTICULO_INEXISTENTE', itemId);
+    if (fecha !== null && !fechaValida(fecha)) throw new ErrorDominio('FECHA_INVALIDA', 'la fecha debe ser un día válido (AAAA-MM-DD)');
+    return this.emitirUna('alm.recordatorio', { item_id: itemId, fecha, por }, `alm.recordatorio:${uuid()}`, false);
+  }
   /** Emite una operación del central solo si no existe (los reintentos de una alta o entrega no duplican nada). */
   private emitirUna(tipo: string, payload: unknown, opId: string, relevar = true): Op | null {
     if (this.repo.tieneOp(opId)) return null;

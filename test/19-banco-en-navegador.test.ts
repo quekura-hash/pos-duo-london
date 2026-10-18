@@ -246,6 +246,19 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     assert.equal(await page.textContent(`${fila} [data-col="almacen"]`), '24');
     assert.match((await page.textContent(fila))!, /PED-OCT-1/);
 
+    // recordatorio de sacar a piso: morado si faltan más de 7 días, rojo si faltan 7 o menos; aviso en el menú lateral
+    const dia = (n: number) => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10);
+    const f2 = '#alm-cuerpo tr[data-codigo="202610002"]';
+    await page.fill(`${fila} .f-piso`, dia(30));
+    await page.waitForSelector(`${fila}[data-piso="morada"]`);
+    assert.match((await page.textContent('#aviso-piso'))!, /Revise los artículos para sacar a piso el \d\d\/\w{3}\/\d\d \(1\)/);
+    assert.match((await page.getAttribute('#aviso-piso', 'class'))!, /morada/);
+    await page.fill(`${f2} .f-piso`, dia(5));
+    await page.waitForSelector(`${f2}[data-piso="roja"]`);
+    assert.match((await page.textContent(`${f2} [data-col="marca-piso"]`))!, /En 5 días/);
+    assert.match((await page.getAttribute('#aviso-piso', 'class'))!, /roja/);
+    await page.screenshot({ path: join(RAIZ, 'docs', 'capturas', '27-almacen-sacar-a-piso.png') });
+
     // entrega: escribir cantidades marca solas las etiquetas; sin ellas no se entrega
     assert.equal(await page.isChecked(`${fila} .et-precio`), false);
     await page.fill(`${fila} .q-DUO`, '12');
@@ -264,6 +277,8 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     await page.click(`${fila} .btn-entregar`);
     await page.waitForFunction(() => /Entrega registrada. En el almacén quedan 0/.test(document.querySelector('#msg-alm')!.textContent!));
     assert.match((await page.textContent(`${fila} [data-col="pendiente"]`))!, /Tienda DÚO: 12 · Tienda London: 12/);
+    assert.equal(await page.locator(`${fila}[data-piso]`).count(), 0, 'ya se sacó todo del almacén: sin marca');
+    assert.equal(await page.inputValue(`${fila} .f-piso`), dia(30), 'la fecha se conserva como referencia');
     await page.screenshot({ path: join(RAIZ, 'docs', 'capturas', '25-almacen-entregas.png') });
 
     // la tienda: el catálogo ya llegó, la existencia no hasta confirmar al primer escaneo

@@ -1,5 +1,5 @@
 import { cortesPorCaja, dolaresPorCaja, reporteConsolidado, ventasPorCaja, type Filtro } from '../consultas.ts';
-import { existenciaAlmacen, recepcionesPendientes, revisarAlta, type AltaManual } from '../almacen.ts';
+import { DIAS_URGENTE, diasHasta, existenciaAlmacen, recepcionesPendientes, recordatoriosPiso, revisarAlta, type AltaManual } from '../almacen.ts';
 import { DEPARTAMENTOS_BASE, resolverDepartamento } from '../departamentos.ts';
 import { formatoTasa } from '../dinero.ts';
 import { ErrorDominio } from '../errores.ts';
@@ -372,7 +372,7 @@ export class ServicioAdmin {
   readonly cajas: { tienda: string; caja: number }[];
   private inv?: FuenteInventario;
   private central?: { fijarTipoCambio(tasa: number, usuario: string, versionBase: number, confirmarVariacion?: boolean): import('../nodos.ts').ResultadoTipoCambio; asignarPermiso(usuario: string, permiso: string, valor: boolean, por: string): Op; guardarDepto(c: import('../departamentos.ts').CambioDepto, por: string): { ok: true; op: Op } | { ok: false; error: import('../departamentos.ts').ErrorDepto };
-    altaLote: import('../nodos.ts').Central['altaLote']; entregar: import('../nodos.ts').Central['entregar'] };
+    recordarSacarAPiso: import('../nodos.ts').Central['recordarSacarAPiso']; altaLote: import('../nodos.ts').Central['altaLote']; entregar: import('../nodos.ts').Central['entregar'] };
   constructor(o: { actor: Extract<Actor, { rol: 'admin' }>; fuente: () => Op[]; cajas: { tienda: string; caja: number }[]; inventario?: FuenteInventario; central?: ServicioAdmin['central'] }) {
     this.central = o.central;
     this.actor = o.actor;
@@ -449,14 +449,29 @@ export class ServicioAdmin {
     const tiendas = this.tiendas();
     const pend = new Map<string, Record<string, number>>();
     for (const t of tiendas) for (const r of recepcionesPendientes(ops, t)) { const x = pend.get(r.item_id) ?? {}; x[t] = (x[t] ?? 0) + r.qty; pend.set(r.item_id, x); }
+    const piso = recordatoriosPiso(ops);
     const items = [...ex.values()].filter((e) => cat.has(e.item_id)).map((e) => {
       const a = cat.get(e.item_id)!;
       return {
         item_id: a.item_id, item_no: a.item_no, codigo: a.codigo, marca: a.marca, descripcion: a.descripcion, estilo: a.estilo, lote: a.lote, departamento: a.departamento, precio: a.precio,
         pedimentos: e.pedimentos, recibido: e.recibido, entregado: e.entregado, existencia: e.existencia, pendiente_por_tienda: pend.get(a.item_id) ?? {},
+        sacar_a_piso: piso.get(a.item_id) ?? null,
       };
     }).sort((x, y) => Number(y.item_no ?? 0) - Number(x.item_no ?? 0));
-    return { tiendas, items };
+    const hoy = fechaLocal(new Date().toISOString());
+    return { tiendas, hoy, items, avisos: this.avisosPiso(items, hoy) };
+  }
+  /** Fechas de «sacar a piso» con artículos que aún tienen piezas en el almacén. Urgente: faltan 7 días o menos, o ya pasó. */
+  private avisosPiso(items: { sacar_a_piso: string | null; existencia: number }[], hoy: string) {
+    const por = new Map<string, number>();
+    for (const i of items) if (i.sacar_a_piso && i.existencia > 0) por.set(i.sacar_a_piso, (por.get(i.sacar_a_piso) ?? 0) + 1);
+    return [...por].sort((a, b) => a[0].localeCompare(b[0])).map(([fecha, articulos]) => ({ fecha, articulos, dias: diasHasta(hoy, fecha), urgente: diasHasta(hoy, fecha) <= DIAS_URGENTE }));
+  }
+  /** Recordatorio interno: fecha en que se debe sacar el artículo a piso. */
+  fijarSacarAPiso(itemId: string, fecha: string | null) {
+    if (!this.central) throw new ErrorDominio('SIN_CENTRAL', 'esta sesión no tiene acceso al servicio central');
+    this.central.recordarSacarAPiso(itemId, fecha || null, this.actor.usuario);
+    return this.almacen();
   }
   private deptosActivos() { return proyDepartamentos(this.fuente()); }
   /** Lee y revisa un archivo de alta SIN guardar nada: columnas, departamentos a confirmar, artículos que ya existen. */

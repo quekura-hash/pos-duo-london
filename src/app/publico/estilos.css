@@ -1,4 +1,5 @@
 :root {
+  --morado: #6d3fc0; --morado-fondo: #efe8fb; --morado-texto: #4a2a8a;
   --fondo: #f1f4f7; --superficie: #ffffff; --superficie-2: #eaf0f4; --borde: #d3dbe3; --texto: #14202e; --texto-2: #5a6878;
   --marino: #0d2238; --marino-2: #16314e; --marino-texto: #e9f0f7; --marino-texto-2: #9fb3c8;
   --acento: #0e6b75; --acento-texto: #ffffff; --acento-suave: #e0f2f3; --ok: #1d7a46; --ok-fondo: #e3f4ea; --error: #b3261e; --error-fondo: #fbe9e7;
@@ -6,12 +7,14 @@
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
+    --morado: #b79cf0; --morado-fondo: #2a2144; --morado-texto: #d9c9ff;
     --fondo: #0f141a; --superficie: #19212a; --superficie-2: #212b36; --borde: #323d4a; --texto: #e8edf2; --texto-2: #9aa8b8;
     --acento: #3db4be; --acento-texto: #06161a; --acento-suave: #12373c; --ok: #5fcf8e; --ok-fondo: #14301f; --error: #ff8a80; --error-fondo: #3a1b18;
     --aviso: #f0c35c; --aviso-fondo: #3a2f12; --sombra: none; color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
+  --morado: #b79cf0; --morado-fondo: #2a2144; --morado-texto: #d9c9ff;
   --fondo: #0f141a; --superficie: #19212a; --superficie-2: #212b36; --borde: #323d4a; --texto: #e8edf2; --texto-2: #9aa8b8;
   --acento: #3db4be; --acento-texto: #06161a; --acento-suave: #12373c; --ok: #5fcf8e; --ok-fondo: #14301f; --error: #ff8a80; --error-fondo: #3a1b18;
   --aviso: #f0c35c; --aviso-fondo: #3a2f12; --sombra: none; color-scheme: dark;
@@ -143,3 +146,14 @@ pre.ticket { background: #fff; color: #111; border: 1px dashed #888; padding: 12
 .zona-archivo p { margin: 4px 0; }
 .aviso-depto td { background: var(--aviso-fondo); }
 #dlg-alta-lote { max-width: min(1100px, 96vw); width: 96vw; } #dlg-alta-lote label { display: block; margin: 4px 0; } .anomalias td, .anomalias th { white-space: normal; }
+
+tr.piso-morada td:first-child { box-shadow: inset 5px 0 0 var(--morado); } tr.piso-morada { background: var(--morado-fondo); }
+tr.piso-roja td:first-child { box-shadow: inset 5px 0 0 var(--error); } tr.piso-roja { background: var(--error-fondo); }
+.marca-piso { display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
+.marca-piso.morada { background: var(--morado); color: #fff; } .marca-piso.roja { background: var(--error); color: #fff; }
+.celda-piso { white-space: nowrap; } .f-piso { padding: 4px; border: 1px solid var(--borde); border-radius: 6px; background: var(--superficie); color: var(--texto); }
+.aviso-piso { margin: auto 12px 0; text-align: left; font-size: 12px; border-radius: 8px; padding: 8px; cursor: pointer; border: 1px solid transparent; }
+.aviso-piso.morada { color: var(--morado-texto); background: var(--morado-fondo); border-color: var(--morado); }
+.aviso-piso.roja { color: var(--error); background: var(--error-fondo); border-color: var(--error); }
+.aviso-piso + .prueba { margin-top: 8px; }
+@media (max-width: 1280px) { .aviso-piso { display: none; } }

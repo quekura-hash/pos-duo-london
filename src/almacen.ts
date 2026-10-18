@@ -30,6 +30,21 @@ export function existenciaAlmacen(ops: Op[]): Map<string, ExistenciaAlmacen> {
   return m;
 }
 
+/** Recordatorio interno del almacén: fecha (AAAA-MM-DD) en que hay que sacar el artículo a piso. El último registro gana; null lo quita. */
+export function recordatoriosPiso(ops: Op[]): Map<string, string> {
+  const m = new Map<string, string>();
+  for (const o of ops) if (o.tipo === 'alm.recordatorio') { if (o.payload.fecha) m.set(o.payload.item_id, o.payload.fecha); else m.delete(o.payload.item_id); }
+  return m;
+}
+export const fechaValida = (f: unknown): f is string => {
+  if (typeof f !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(f)) return false;
+  const d = new Date(`${f}T00:00:00Z`);
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === f;
+};
+/** Días de `hoy` a `fecha` (negativo = ya pasó). */
+export const diasHasta = (hoy: string, fecha: string) => Math.round((Date.parse(`${fecha}T00:00:00Z`) - Date.parse(`${hoy}T00:00:00Z`)) / 86400000);
+export const DIAS_URGENTE = 7;
+
 export interface RecepcionPendiente { entrega_id: string; item_id: string; tienda: string; qty: number; ocurrio_en: string }
 /** Entregas dirigidas a una tienda que su personal aún no confirmó. */
 export function recepcionesPendientes(ops: Op[], tienda: string): RecepcionPendiente[] {

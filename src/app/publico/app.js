@@ -148,6 +148,7 @@ async function ir(v) {
   pintarNav();
   await pintarEncabezado();
   await ({ venta: vistaVenta, corte: vistaCorte, ventas: vistaVentas, reportes: vistaReportes, inventario: vistaInventario, almacen: vistaAlmacen, departamentos: vistaDepartamentos, tarjetas: vistaTarjetas, devolucion: vistaDevolucion, dolares: vistaDolares, tipo_cambio: vistaTipoCambio, cortes: vistaCortes })[v]();
+  if (v !== 'almacen') await avisosPisoInicial();
 }
 
 // ── venta ──
@@ -1057,7 +1058,8 @@ const TIENDAS_ALM = { DUO: 'Tienda DÚO', LON: 'Tienda London' };
 const uuid = () => (window.crypto?.randomUUID ? window.crypto.randomUUID() : `id-${Date.now()}-${Math.random().toString(16).slice(2)}`);
 async function vistaAlmacen() {
   const j = await api('/api/admin/almacen');
-  S.alm = { ...(S.alm ?? { q: '', solo: true }), tiendas: j.tiendas, items: j.items };
+  S.alm = { ...(S.alm ?? { q: '', solo: true }), tiendas: j.tiendas, items: j.items, hoy: j.hoy };
+  pintarAvisoPiso(j.avisos);
   $('#vista').innerHTML = `<div class="titulo-vista">${ico('warehouse')}<h1>Almacén</h1></div>
     <section class="panel"><div class="filas" style="align-items:center">
       <button class="btn btn-primario" id="btn-alta-lote" type="button" style="width:auto">${ico('upload')}<span>Alta Lote de inventario</span></button>
@@ -1066,7 +1068,7 @@ async function vistaAlmacen() {
       <label><input type="checkbox" id="alm-solo" ${S.alm.solo ? 'checked' : ''}> Solo con piezas en el almacén o por confirmar</label></div>
       <p class="nota">Las piezas llegan aquí sin etiquetar y sin existencia en tienda. Confirme las etiquetas, anote cuántas va a cada tienda y entregue: la tienda confirma la recepción al escanear el artículo por primera vez.</p>
       <div id="msg-alm" class="mensaje" role="status" aria-live="polite"></div></section>
-    <section class="panel" style="margin-top:12px"><div class="tabla-cont"><table id="tabla-almacen"><thead><tr><th>Item #</th><th>Código</th><th>Descripción</th><th>Estilo</th><th>Lote</th><th>Pedimento</th><th>Departamento</th><th class="num">Almacén</th><th>Etiqueta precio</th><th>Etiqueta costura</th>${j.tiendas.map((t) => `<th>${esc(TIENDAS_ALM[t] ?? t)}</th>`).join('')}<th>Por confirmar</th><th></th></tr></thead><tbody id="alm-cuerpo"></tbody></table></div><p class="nota" id="alm-pie"></p></section>`;
+    <section class="panel" style="margin-top:12px"><div class="tabla-cont"><table id="tabla-almacen"><thead><tr><th>Item #</th><th>Código</th><th>Descripción</th><th>Estilo</th><th>Lote</th><th>Pedimento</th><th>Departamento</th><th class="num">Almacén</th><th>Etiqueta precio</th><th>Etiqueta costura</th>${j.tiendas.map((t) => `<th>${esc(TIENDAS_ALM[t] ?? t)}</th>`).join('')}<th>Por confirmar</th><th>Sacar a piso</th><th></th></tr></thead><tbody id="alm-cuerpo"></tbody></table></div><p class="nota" id="alm-pie"></p></section>`;
   $('#btn-alta-lote').addEventListener('click', abrirAltaLote);
   $('#btn-alta-manual').addEventListener('click', abrirAltaManual);
   $('#alm-q').addEventListener('input', (ev) => { S.alm.q = ev.target.value; pintarAlmacen(); });
@@ -1079,20 +1081,55 @@ function pintarAlmacen() {
   const visibles = a.items.filter((i) => (!a.solo || i.existencia !== 0 || Object.keys(i.pendiente_por_tienda).length)
     && (!q || [i.codigo, i.item_no, i.descripcion, i.marca, i.estilo, i.lote, i.departamento, ...i.pedimentos].join(' ').toLowerCase().includes(q)));
   const lim = visibles.slice(0, 150);
-  $('#alm-cuerpo').innerHTML = lim.map((i) => `<tr data-item="${esc(i.item_id)}" data-codigo="${esc(i.codigo)}">
+  $('#alm-cuerpo').innerHTML = lim.map((i) => `<tr data-item="${esc(i.item_id)}" data-codigo="${esc(i.codigo)}" ${marcaPiso(i) ? `class="piso-${marcaPiso(i).tono}" data-piso="${marcaPiso(i).tono}"` : ''}>
     <td>${esc(i.item_no ?? '—')}</td><td>${esc(i.codigo)}</td><td class="desc">${esc(i.descripcion)} ${esc(i.marca)}</td><td>${esc(i.estilo)}</td><td>${esc(i.lote)}</td><td>${esc(i.pedimentos.join(', ') || '—')}</td><td>${esc(i.departamento)}</td>
     <td class="num" data-col="almacen"><b>${i.existencia}</b></td>
     <td><input type="checkbox" class="et-precio" aria-label="Etiqueta de precio"></td><td><input type="checkbox" class="et-costura" aria-label="Etiqueta de costura"></td>
     ${a.tiendas.map((t) => `<td><input type="number" min="0" step="1" class="q-${esc(t)}" data-tienda="${esc(t)}" aria-label="Piezas para ${esc(TIENDAS_ALM[t] ?? t)}" style="width:70px;padding:4px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie);text-align:right"></td>`).join('')}
     <td data-col="pendiente">${Object.entries(i.pendiente_por_tienda).map(([t, n]) => `${esc(TIENDAS_ALM[t] ?? t)}: ${n}`).join(' · ') || '—'}</td>
+    <td class="celda-piso"><input type="date" class="f-piso" value="${esc(i.sacar_a_piso ?? '')}" aria-label="Fecha para sacar a piso"> ${marcaPiso(i) ? `<span class="marca-piso ${marcaPiso(i).tono}" data-col="marca-piso">${esc(marcaPiso(i).texto)}</span>` : ''}</td>
     <td><button class="btn btn-entregar" type="button">${ico('check')}<span>Entregar</span></button></td></tr>`).join('')
-    || `<tr><td colspan="${11 + a.tiendas.length}" class="vacio">${a.items.length ? 'Nada coincide con el filtro.' : 'El almacén está vacío. Use «Alta Lote de inventario» o «Alta manual».'}</td></tr>`;
+    || `<tr><td colspan="${12 + a.tiendas.length}" class="vacio">${a.items.length ? 'Nada coincide con el filtro.' : 'El almacén está vacío. Use «Alta Lote de inventario» o «Alta manual».'}</td></tr>`;
   $('#alm-pie').textContent = visibles.length > lim.length ? `Se muestran ${lim.length} de ${visibles.length}. Use el buscador para acotar.` : `${visibles.length} artículo(s).`;
   for (const tr of $('#alm-cuerpo').querySelectorAll('tr[data-item]')) {
     // Escribir una cantidad para una tienda marca solas las dos etiquetas (el almacén las pone al preparar la entrega).
     for (const inp of tr.querySelectorAll('input[type=number]')) inp.addEventListener('input', () => { if (Number(inp.value) > 0) { tr.querySelector('.et-precio').checked = true; tr.querySelector('.et-costura').checked = true; } });
     tr.querySelector('.btn-entregar').addEventListener('click', () => entregarFila(tr, false));
+    tr.querySelector('.f-piso').addEventListener('change', (ev) => fijarPiso(tr.dataset.item, ev.target.value));
   }
+}
+const fechaPiso = (f) => `${f.slice(8, 10)}/${MESES[Number(f.slice(5, 7)) - 1]}/${f.slice(2, 4)}`;
+const diasPiso = (hoy, f) => Math.round((Date.parse(`${f}T00:00:00Z`) - Date.parse(`${hoy}T00:00:00Z`)) / 86400000);
+/** Morado: hay fecha y faltan más de 7 días. Rojo: faltan 7 días o menos (o ya pasó) y todavía hay piezas en el almacén. Sin piezas, ya se sacó: sin marca. */
+function marcaPiso(i) {
+  if (!i.sacar_a_piso || i.existencia <= 0) return null;
+  const d = diasPiso(S.alm.hoy, i.sacar_a_piso);
+  if (d < 0) return { tono: 'roja', texto: `Vencido hace ${-d} día${d === -1 ? '' : 's'}` };
+  if (d <= 7) return { tono: 'roja', texto: d === 0 ? 'Hoy' : `En ${d} día${d === 1 ? '' : 's'}` };
+  return { tono: 'morada', texto: `En ${d} días` };
+}
+async function fijarPiso(itemId, fecha) {
+  const m = $('#msg-alm');
+  try {
+    const r = await api('/api/admin/almacen/piso', { item_id: itemId, fecha: fecha || null });
+    S.alm.items = r.items; S.alm.hoy = r.hoy;
+    pintarAlmacen(); pintarAvisoPiso(r.avisos);
+    m.className = 'mensaje ok'; m.textContent = fecha ? `Recordatorio guardado: sacar a piso el ${fechaPiso(fecha)}.` : 'Recordatorio quitado.';
+  } catch (e) { m.className = 'mensaje error'; m.textContent = e.message; }
+}
+/** Aviso en el menú lateral de Administración (junto al de modo de prueba). */
+function pintarAvisoPiso(avisos) {
+  let a = $('#aviso-piso');
+  if (S.sesion?.rol !== 'admin' || !avisos?.length) { if (a) a.remove(); return; }
+  if (!a) { a = document.createElement('button'); a.id = 'aviso-piso'; a.type = 'button'; $('.nav').insertBefore(a, $('.nav .prueba')); a.addEventListener('click', () => ir('almacen')); }
+  const urgente = avisos.some((x) => x.urgente);
+  a.className = `aviso-piso ${urgente ? 'roja' : 'morada'}`;
+  const prim = avisos.slice(0, 3);
+  a.innerHTML = `<strong>Sacar a piso</strong><br>Revise los artículos para sacar a piso el ${prim.map((x) => `<b>${fechaPiso(x.fecha)}</b> (${x.articulos})`).join(', ')}${avisos.length > 3 ? ` y ${avisos.length - 3} fecha(s) más` : ''}.`;
+}
+async function avisosPisoInicial() {
+  if (S.sesion?.rol !== 'admin') return pintarAvisoPiso(null);
+  try { pintarAvisoPiso((await api('/api/admin/almacen')).avisos); } catch { /* sin aviso */ }
 }
 async function entregarFila(tr, confirmarExceso) {
   const m = $('#msg-alm');
@@ -1103,8 +1140,8 @@ async function entregarFila(tr, confirmarExceso) {
   try {
     const r = await api('/api/admin/almacen/entregar', { item_id: tr.dataset.item, destinos, etiqueta_precio: tr.querySelector('.et-precio').checked, etiqueta_costura: tr.querySelector('.et-costura').checked, confirmar_exceso: confirmarExceso, ref });
     delete S.refEntrega[tr.dataset.item];
-    S.alm.items = r.almacen.items;
-    pintarAlmacen();
+    S.alm.items = r.almacen.items; S.alm.hoy = r.almacen.hoy;
+    pintarAlmacen(); pintarAvisoPiso(r.almacen.avisos);
     m.className = 'mensaje ok'; m.textContent = `Entrega registrada. En el almacén quedan ${r.existencia_almacen} pieza(s); cada tienda las recibe al confirmar el primer escaneo.`;
   } catch (e) {
     if (e.codigo === 'CONFIRMACION_REQUERIDA') {
