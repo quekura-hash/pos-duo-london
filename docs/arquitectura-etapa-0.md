@@ -445,3 +445,7 @@ Decisiones del propietario (punto 5): sin desglose de IVA en el ticket (el preci
 - **Clic en un artículo** abre su edición: descripción, marca, estilo, lote, departamento (solo los activos del catálogo) y precio. El código no se edita aquí. Cada cambio se guarda como `item.editado` con el valor anterior y el nuevo, llega a todas las cajas y vale para las ventas siguientes (lo ya vendido conserva su precio). Sin cambios no se escribe nada.
 - **Historial** (botón en la edición): alta, cambios con «antes → después» y quién los hizo, entradas al almacén (con pedimento), entregas a tiendas, recepciones, ventas con tienda/caja/folio, cancelaciones, devoluciones y conteos físicos; lo más reciente primero.
 - **Crear promoción** (botón en la edición): abre la promoción con **ese artículo ya elegido**. Los tipos «lleva X paga Y» y «paquete a precio fijo» piden uno o varios artículos (o departamento / palabras); «por cada $X de compra» y los cupones no necesitan elegir artículos y lo dicen en pantalla.
+
+## 21. Menú de Administración
+
+Reportes · Cortes (con el botón «Dólares recibidos») · Inventario · Almacén · Promociones (con el botón «Reporte de promociones») · Tarjetas de regalo · **Configuración** · Créditos (próximamente) · Caja (solo en la página de prueba). **Configuración** reúne en pestañas **Tiendas** (nombre comercial editable), **Departamentos** y **Tipo de cambio** (con sus permisos). El tipo de cambio sigue editándose también con el lápiz de la barra lateral.

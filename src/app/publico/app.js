@@ -126,7 +126,7 @@ const folioTexto = () => (S.ultimoFolio ? `Folio ${String(S.ultimoFolio).padStar
 // ── navegación ──
 const NAV = {
   venta: ['Venta', 'cart'], ventas: ['Historial', 'clock'], creditos: ['Créditos', 'card'], corte: ['Corte de caja', 'chart'],
-  tarjetas: ['Tarjetas de regalo', 'gift'], reportes: ['Reportes', 'chart'], cortes: ['Cortes', 'cash'], dolares: ['Dólares recibidos', 'dollar'], descuentos: ['Descuentos', 'percent'], inventario: ['Inventario', 'box'], departamentos: ['Departamentos', 'box'], almacen: ['Almacén', 'warehouse'], promociones: ['Promociones', 'percent'], tiendas: ['Tiendas', 'store'], administracion: ['Administración', 'gear'], volver_caja: ['Caja', 'caja'], tipo_cambio: ['Tipo de cambio', 'refresh'],
+  tarjetas: ['Tarjetas de regalo', 'gift'], reportes: ['Reportes', 'chart'], cortes: ['Cortes', 'cash'], dolares: ['Dólares recibidos', 'dollar'], descuentos: ['Descuentos', 'percent'], inventario: ['Inventario', 'box'], departamentos: ['Departamentos', 'box'], almacen: ['Almacén', 'warehouse'], promociones: ['Promociones', 'percent'], tiendas: ['Tiendas', 'store'], configuracion: ['Configuración', 'gear'], administracion: ['Administración', 'gear'], volver_caja: ['Caja', 'caja'], tipo_cambio: ['Tipo de cambio', 'refresh'],
 };
 function pintarNav() {
   // En la página de prueba (una sola ventana) se puede pasar de la caja a Administración y volver; en la app real cada sesión es la suya.
@@ -147,7 +147,7 @@ async function ir(v) {
   S.vista = v;
   pintarNav();
   await pintarEncabezado();
-  await ({ venta: vistaVenta, corte: vistaCorte, ventas: vistaVentas, reportes: vistaReportes, inventario: vistaInventario, almacen: vistaAlmacen, promociones: vistaPromociones, tiendas: vistaTiendas, departamentos: vistaDepartamentos, tarjetas: vistaTarjetas, devolucion: vistaDevolucion, dolares: vistaDolares, descuentos: vistaDescuentos, tipo_cambio: vistaTipoCambio, cortes: vistaCortes })[v]();
+  await ({ venta: vistaVenta, corte: vistaCorte, ventas: vistaVentas, reportes: vistaReportes, inventario: vistaInventario, almacen: vistaAlmacen, promociones: vistaPromociones, configuracion: vistaConfiguracion, tiendas: vistaTiendas, departamentos: vistaDepartamentos, tarjetas: vistaTarjetas, devolucion: vistaDevolucion, dolares: vistaDolares, descuentos: vistaDescuentos, tipo_cambio: vistaTipoCambio, cortes: vistaCortes })[v]();
   if (v !== 'almacen') await avisosPisoInicial();
 }
 
@@ -997,7 +997,7 @@ function abrirEditarTc() {
       await api(S.sesion.rol === 'admin' ? '/api/admin/tipo-cambio' : '/api/tipo-cambio', { tasa, ...(confirmado ? { confirmar: true } : {}) });
       dlg.close();
       await pintarEncabezado();
-      if (S.vista === 'tipo_cambio') await vistaTipoCambio();
+      if (S.vista === 'configuracion' && S.configTab === 'tipo_cambio') await vistaTipoCambio();
     } catch (e) {
       m.className = 'mensaje error';
       if (e.codigo === 'CONFIRMACION_REQUERIDA') {
@@ -1647,11 +1647,24 @@ async function abrirPromo(p, preset) {
   d.showModal();
 }
 
+// ── Configuración: Tiendas, Departamentos y Tipo de cambio en una sola entrada ──
+const cuerpoVista = () => $('#config-cuerpo') ?? $('#vista');
+const TABS_CONFIG = [['tiendas', 'Tiendas', 'store'], ['departamentos', 'Departamentos', 'box'], ['tipo_cambio', 'Tipo de cambio', 'refresh']];
+async function vistaConfiguracion(tab) {
+  tab = tab ?? S.configTab ?? 'tiendas';
+  S.configTab = tab;
+  $('#vista').innerHTML = `<div class="titulo-vista">${ico('gear')}<h1>Configuración</h1></div>
+    <div class="filas" role="tablist" aria-label="Configuración" style="margin-bottom:12px">${TABS_CONFIG.map(([id, rotulo, icono]) => `<button class="btn" type="button" role="tab" id="cfg-tab-${id}" data-tab="${id}" aria-selected="${id === tab}" style="${id === tab ? 'background:var(--acento);color:var(--acento-texto);border-color:var(--acento)' : ''}">${ico(icono)}<span>${rotulo}</span></button>`).join('')}</div>
+    <div id="config-cuerpo" role="tabpanel"></div>`;
+  for (const b of $('#vista').querySelectorAll('[role="tab"]')) b.addEventListener('click', () => vistaConfiguracion(b.dataset.tab));
+  await ({ tiendas: vistaTiendas, departamentos: vistaDepartamentos, tipo_cambio: vistaTipoCambio })[tab]();
+}
+
 // ── Tiendas: nombre comercial editable ──
 async function vistaTiendas() {
   const { tiendas } = await api('/api/admin/tiendas');
   S.tiendasInfo = tiendas;
-  $('#vista').innerHTML = `<div class="titulo-vista">${ico('store')}<h1>Tiendas</h1></div>
+  cuerpoVista().innerHTML = `<div class="titulo-vista">${ico('store')}<h1>Tiendas</h1></div>
     <section class="panel"><p class="nota">El nombre comercial de cada tienda sale en el ticket, en la pantalla de la caja y en las imágenes de los cupones. Se actualiza en todas las cajas.</p>
       <div class="tabla-cont"><table id="tabla-tiendas"><thead><tr><th>Tienda</th><th>Nombre comercial</th><th></th></tr></thead><tbody>
       ${tiendas.map((t) => `<tr data-tienda="${esc(t.tienda)}"><td>${esc(t.tienda)}</td><td><input class="texto t-nombre" value="${esc(t.nombre)}" maxlength="40" aria-label="Nombre de la tienda ${esc(t.tienda)}" style="padding:6px 8px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie);min-width:260px"></td><td class="filas" style="flex-wrap:nowrap"><button class="btn t-guardar" type="button">${ico('check')}<span>Guardar</span></button><button class="btn t-fabrica" type="button" title="Volver al nombre original">Restablecer</button></td></tr>`).join('')}</tbody></table></div>
@@ -1758,7 +1771,7 @@ function abrirImagenCupon(p) {
 
 async function vistaDepartamentos() {
   const { departamentos: lista } = await api('/api/admin/departamentos');
-  $('#vista').innerHTML = `<div class="titulo-vista">${ico('box')}<h1>Departamentos</h1></div>
+  cuerpoVista().innerHTML = `<div class="titulo-vista">${ico('box')}<h1>Departamentos</h1></div>
     <section class="panel"><p class="nota">Cambiar el nombre actualiza los artículos que ya lo usan. Los alias son otras formas de escribirlo que se aceptan sin preguntar al importar (separe con comas). Un departamento desactivado ya no se ofrece al dar de alta artículos; los que ya lo tienen no cambian.</p>
       <div class="tabla-cont"><table id="tabla-deptos"><thead><tr><th>Nombre</th><th>Alias</th><th>Activo</th><th class="num">Artículos</th><th></th></tr></thead><tbody>
       ${lista.map((d) => `<tr data-depto="${esc(d.id)}"><td><input class="texto d-nombre" value="${esc(d.nombre)}" aria-label="Nombre de ${esc(d.nombre)}"></td><td><input class="texto d-alias" value="${esc(d.alias.join(', '))}" aria-label="Alias de ${esc(d.nombre)}"></td><td><input type="checkbox" class="d-activo" ${d.activo ? 'checked' : ''} ${d.id === 'sin-clasificar' ? 'disabled' : ''} aria-label="Activo"></td><td class="num">${d.articulos}</td><td><button class="btn d-guardar" type="button">${ico('check')}<span>Guardar</span></button></td></tr>`).join('')}</tbody></table></div>
@@ -1781,7 +1794,7 @@ async function vistaDepartamentos() {
 async function vistaTipoCambio() {
   const j = await api('/api/admin/tipo-cambio');
   const v = j.vigente;
-  $('#vista').innerHTML = `<div class="titulo-vista">${ico('refresh')}<h1>Tipo de cambio del dólar</h1></div>
+  cuerpoVista().innerHTML = `<div class="titulo-vista">${ico('refresh')}<h1>Tipo de cambio del dólar</h1></div>
     <div class="cuadricula">
       <section class="panel"><h2 style="margin-top:0">Vigente</h2>
         <p id="tc-vigente" style="font-size:22px;margin:0">${v ? `<b>$${esc(v.texto)}</b> MXN por USD` : 'Sin definir'}</p>

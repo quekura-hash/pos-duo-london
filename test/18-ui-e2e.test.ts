@@ -200,7 +200,7 @@ describe('[navegador real — Chromium con Playwright, UI sobre SQLite]', { time
     ctx.m.pump();
     const { page, errores } = await pagina(browser, adm.url);
     await page.waitForSelector('#filtros');
-    assert.deepEqual(await page.$$eval('#nav button', (b) => b.map((x) => x.textContent)), ['Reportes', 'Cortes', 'Inventario', 'Almacén', 'Promociones', 'Tiendas', 'Departamentos', 'Tarjetas de regalo', 'Tipo de cambio', 'Créditos']);
+    assert.deepEqual(await page.$$eval('#nav button', (b) => b.map((x) => x.textContent)), ['Reportes', 'Cortes', 'Inventario', 'Almacén', 'Promociones', 'Tarjetas de regalo', 'Configuración', 'Créditos']);
     await page.fill('#desde', '2026-10-01');
     await page.fill('#hasta', '2026-10-01');
     await page.click('#filtros button[type="submit"]');
@@ -668,7 +668,8 @@ describe('[navegador real — Chromium con Playwright, UI sobre SQLite]', { time
     await page.waitForSelector('#nav');
     assert.match((await page.textContent('[data-tc="tasa"]'))!, /Dólar: \$19\.00 MXN/);
     // permisos por usuario
-    await page.click('#nav button[data-vista="tipo_cambio"]');
+    await page.click('#nav button[data-vista="configuracion"]');
+    await page.click('#cfg-tab-tipo_cambio');
     await page.waitForSelector('#tabla-tc tbody tr');
     assert.deepEqual(await page.$$eval('#tabla-tc tbody tr', (r) => r.map((x) => [...x.querySelectorAll('td')].slice(0, 4).map((c) => c.textContent))), [['v2', '$19.00', '$18.00 (v1)', 'Gerencia'], ['v1', '$18.00', '—', 'Gerencia']]);
     await page.fill('#perm-usuario', 'Ana');
@@ -801,7 +802,8 @@ describe('[navegador real — Chromium con Playwright, UI sobre SQLite]', { time
     t.after(async () => { await browser.close(); await adm.cerrar(); ctx.limpiar(); });
     const { page, errores } = await pagina(browser, adm.url, 1440, 900);
     await page.waitForSelector('#nav');
-    await page.click('#nav button[data-vista="departamentos"]');
+    await page.click('#nav button[data-vista="configuracion"]');
+    await page.click('#cfg-tab-departamentos');
     await page.waitForSelector('#tabla-deptos tbody tr');
     const nombres = await page.$$eval('#tabla-deptos .d-nombre', (i) => i.map((x) => (x as HTMLInputElement).value));
     assert.ok(nombres.includes('Bolsos y Carteras') && nombres.includes('Envolturas y Bolsas de regalo'));

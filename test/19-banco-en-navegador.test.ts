@@ -94,7 +94,7 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     await page.uncheck('#falla-hub');
     await page.selectOption('#sesion-prueba', 'admin');
     await page.waitForSelector('#filtros');
-    assert.deepEqual(await page.$$eval('#nav button', (b) => b.map((x) => x.textContent)), ['Reportes', 'Cortes', 'Inventario', 'Almacén', 'Promociones', 'Tiendas', 'Departamentos', 'Tarjetas de regalo', 'Tipo de cambio', 'Créditos', 'Caja']);
+    assert.deepEqual(await page.$$eval('#nav button', (b) => b.map((x) => x.textContent)), ['Reportes', 'Cortes', 'Inventario', 'Almacén', 'Promociones', 'Tarjetas de regalo', 'Configuración', 'Créditos', 'Caja']);
     await page.click('#filtros button[type="submit"]');
     await page.waitForSelector('#tabla-reporte tbody tr');
     assert.equal(await page.locator('#tabla-reporte tbody tr').count(), 3, 'las 3 ventas, tras sincronizar');
@@ -475,7 +475,8 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     await page.click('#nav button[data-vista="administracion"]');
 
     // nombre de la tienda editable
-    await page.click('#nav button[data-vista="tiendas"]');
+    await page.click('#nav button[data-vista="configuracion"]');
+    await page.click('#cfg-tab-tiendas');
     await page.waitForSelector('#tabla-tiendas tr[data-tienda="DUO"]');
     assert.equal(await page.inputValue('#tabla-tiendas tr[data-tienda="DUO"] .t-nombre'), 'DÚO New York');
     await page.fill('#tabla-tiendas tr[data-tienda="DUO"] .t-nombre', 'DÚO Centro');

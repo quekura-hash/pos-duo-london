@@ -32,7 +32,7 @@ export async function atender(o: { cajero?: ServicioCaja; admin?: ServicioAdmin 
       case 'GET /api/sesion':
         return ok(C
           ? { rol: 'cajero', usuario: C.actor.usuario, tienda: C.caja.tienda, caja: C.caja.caja, nav: ['venta', 'ventas', 'corte', ...(C.caja.cfg.metodos.includes('tarjeta_regalo') ? ['tarjetas'] : [])] }
-          : { rol: 'admin', usuario: A!.actor.usuario, cajas: A!.cajas, nav: ['reportes', 'cortes', 'inventario', 'almacen', 'promociones', 'tiendas', 'departamentos', 'tarjetas', 'tipo_cambio'] });
+          : { rol: 'admin', usuario: A!.actor.usuario, cajas: A!.cajas, nav: ['reportes', 'cortes', 'inventario', 'almacen', 'promociones', 'tarjetas', 'configuracion'] });
       // ── cajero ──
       case 'GET /api/estado': return ok({ estado: exigirCajero().estado() });
       case 'POST /api/venta/actual': { const c = exigirCajero(); const cart = c.carritoActual(); return ok({ cart, carrito: c.vista(cart) }); }
