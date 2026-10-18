@@ -149,12 +149,23 @@ function empaquetar(campos: string[], cols: number): string[] {
   if (linea) out.push(linea);
   return out;
 }
+/** Envuelve con sangría francesa: los renglones siguientes empiezan bajo el texto, no bajo la cantidad. */
+function envolverConSangria(prefijo: string, texto: string, cols: number): string[] {
+  const sangria = ' '.repeat(prefijo.length);
+  const [primero = '', ...resto] = envolver(texto, cols - prefijo.length);
+  return [prefijo + primero, ...resto.map((x) => sangria + x)];
+}
+/** Primer renglón de un artículo: «1 MASCADA EFENTUS A-12» (cantidad, descripción, marca y estilo; sin rótulos ni lote). */
+export function renglonArticulo(l: { qty: number; descripcion: string; marca: string; estilo: string; tarjeta_regalo?: boolean }, cols: number): string[] {
+  const texto = (l.tarjeta_regalo ? [l.descripcion] : [l.descripcion, l.marca, l.estilo]).map((x) => (x ?? '').trim()).filter(Boolean).join(' ');
+  return envolverConSangria(`${l.qty} `, texto, cols);
+}
 const centrar = (t: string, cols: number) => ' '.repeat(Math.max(0, Math.floor((cols - t.length) / 2))) + t;
 const dos = (izq: string, der: string, cols: number) => izq + ' '.repeat(Math.max(1, cols - izq.length - der.length)) + der;
 
 /**
  * Texto del ticket. Precios finales y total neto: NO hay renglón de IVA, impuesto ni porcentaje alguno (presentación
- * comercial; no implica que los productos sean fiscalmente exentos). Los campos del artículo van separados y rotulados.
+ * comercial; no implica que los productos sean fiscalmente exentos). Cada artículo: «cantidad descripción marca estilo», su Item # y código, y el precio.
  */
 export function renderTicketTexto(t: Ticket): string {
   const c = t.columnas;
@@ -167,13 +178,10 @@ export function renderTicketTexto(t: Ticket): string {
   if (t.reimpresion > 0) L.push(centrar(`*** REIMPRESIÓN ${t.reimpresion} ***`, c));
   L.push(regla);
   for (const l of t.lineas) {
-    L.push(...envolver(l.descripcion, c));
+    L.push(...renglonArticulo(l, c));
     if (l.tarjeta_regalo) L.push(`Código: ${l.codigo}`, 'Vigencia: 12 meses desde la compra o la última recarga');
-    else {
-      L.push(...empaquetar([`Item #: ${l.item_no ?? 'pendiente'}`, `Código: ${l.codigo}`], c));
-      L.push(...empaquetar([`Marca: ${l.marca}`, `Estilo: ${l.estilo}`, `Lote: ${l.lote}`], c));
-    }
-    L.push(dos(`${l.qty} x ${formatoMXN(l.precio_unit)}`, formatoMXN(l.qty * l.precio_unit), c));
+    else L.push(...empaquetar([`Item #: ${l.item_no ?? 'pendiente'}`, `Código: ${l.codigo}`], c));
+    L.push(dos(l.qty === 1 ? '' : `c/u ${formatoMXN(l.precio_unit)}`, formatoMXN(l.qty * l.precio_unit), c));
     if (l.descuento > 0) {
       if (l.descuentos?.length) {
         for (const d of l.descuentos) {
@@ -254,10 +262,9 @@ export function renderTicketDevolucionTexto(d: Devolucion, v: Venta, cfg: Negoci
   L.push(`Venta original: ${codigoTicket(v.tienda, v.caja, v.folio, negocios)}`, regla);
   for (const dl of d.lineas) {
     const l = v.lineas.find((x) => x.linea_id === dl.linea_id)!;
-    L.push(...envolver(l.descripcion, c));
+    L.push(...renglonArticulo({ ...l, qty: dl.qty, tarjeta_regalo: !!l.tarjeta_regalo }, c));
     L.push(...empaquetar([`Item #: ${l.item_no ?? 'pendiente'}`, `Código: ${l.codigo}`], c));
-    L.push(...empaquetar([`Marca: ${l.marca}`, `Estilo: ${l.estilo}`, `Lote: ${l.lote}`], c));
-    L.push(dos(`${dl.qty} pza.`, formatoMXN(dl.importe), c));
+    L.push(dos('', formatoMXN(dl.importe), c));
   }
   L.push(regla, dos('TOTAL DEVUELTO', formatoMXN(d.importe), c));
   for (const r of d.reembolsos) L.push(dos(r.metodo === 'efectivo' ? 'Reembolso en efectivo MXN' : r.metodo === 'tarjeta' ? 'Reverso a tarjeta bancaria' : `A tarjeta de regalo ${r.tarjeta}`, formatoMXN(r.monto), c));

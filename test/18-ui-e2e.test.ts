@@ -95,7 +95,8 @@ describe('[navegador real — Chromium con Playwright, UI sobre SQLite]', { time
     assert.match((await page.textContent('#estado-impresion'))!, /Ticket enviado a la impresora/);
     const ticket = (await page.textContent('#ticket-texto'))!;
     assert.match(ticket, /Item #: 1001 +Código: 0002026090782/);
-    assert.match(ticket, /Marca: LEVIS +Estilo: 726- +Lote: 20260913/);
+    assert.match(ticket, /^\d+ JEANS LEVIS 726-$/m);
+    assert.doesNotMatch(ticket, /Marca:|Estilo:|Lote/);
     assert.match(ticket, /TOTAL +\$2,038\.00/);
     assert.match(ticket, /Efectivo MXN +\$2,038\.00/);
     assert.doesNotMatch(ticket, /iva|tax|impuesto|%/i);

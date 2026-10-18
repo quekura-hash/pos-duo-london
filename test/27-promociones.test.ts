@@ -262,7 +262,8 @@ porAlmacen('Promociones, cupones y descuentos con clave de supervisor en la caja
     const lista = a.supervisores().supervisores;
     assert.deepEqual(lista.map((x) => [x.nombre, x.activo]), [['Ana Supervisora', true]]);
     assert.equal(JSON.stringify(lista).includes('4321'), false, 'la clave no sale nunca de Administración');
-    assert.equal(JSON.stringify(ctx.m.central.repo.ops().filter((o) => o.tipo === 'supervisor.guardado')).includes('4321'), false, 'ni se guarda en claro');
+    const opsSup = ctx.m.central.repo.ops().filter((o) => o.tipo === 'supervisor.guardado');
+    assert.ok(opsSup.every((o) => !('clave' in o.payload) && /^[0-9a-f]{64}$/.test(o.payload.hash) && o.payload.hash !== '4321'), 'ni se guarda en claro: solo sal y hash');
     ctx.m.pump();
     const s = servicioDe(ctx, 'DUO', 1);
     const cart = s.svc.nuevaVenta();
