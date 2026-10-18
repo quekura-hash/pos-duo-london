@@ -26,11 +26,11 @@ const BASE: Omit<Record<Campo, string[]>, 'marca' | 'descripcion'> = {
   precio: ['regular price', 'precio de venta', 'precio'],
   precio_alterno: ['custom price 1', 'precio alterno'],
   codigo_alterno: ['alternate lookup', 'codigo alterno'],
-  etiqueta_costura: ['etiqt-costura', 'etiqueta costura', 'etiqueta de costura'],
-  etiqueta_precio: ['etiqt- precio', 'etiqt-precio', 'etiqueta precio', 'etiqueta de precio'],
+  etiqueta_costura: ['etiqt-costura', 'etiqueta costura', 'etiqueta de costura', 'etiq costura'],
+  etiqueta_precio: ['etiqt- precio', 'etiqt-precio', 'etiqueta precio', 'etiqueta de precio', 'etiq precio'],
   pedimento: ['no. pedimento', 'pedimento'],
   codigo_2: ['upc 2', 'codigo 2'],
-  existencia: ['on-hand qty', 'existencia'],
+  existencia: ['on-hand qty', 'existencia', 'cantidad'],
 };
 
 /** Mapeo CONFIRMADO en la especificación: Item Name → Marca, Item Description → Descripción. */

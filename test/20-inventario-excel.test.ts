@@ -29,6 +29,23 @@ async function banco(perfil = PERFIL_CONFIRMADO, existenciaPrueba: Record<string
 }
 
 describe('[memoria — inventario en Excel] Lectura, reporte, carga al sistema y exportación', () => {
+  it('IX1b el formato corregido (Item Number, Descripcion, Marca, Estilo, Lote, Precio, UPC, departamento, cantidad, etiq precio, etiq costura) se lee con el mapeo confirmado y trae existencias', async () => {
+    const encabezados = ['Item Number', 'Descripcion', 'Marca', 'Estilo', 'Lote', 'Precio', 'UPC', 'departamento', 'cantidad', 'etiq precio', 'etiq costura'];
+    const filas = [
+      [1, 'BLUSA', '', null, null, 169, '0021001403065', "Women's", 1, 'Yes', null],
+      [2, 'PANTALON AMBIANCE', 'AMBIANCE', '726-', '20260913', 249, null, "Men's", -2, 'Yes', null],
+      [3, 'CUPON', '', null, null, -50, '0121020030001', 'System', 0, 'Yes', null],
+    ];
+    const r = leerInventario(await filasDeXlsx(await xlsxDeFilas(filas as never, encabezados)), PERFIL_CONFIRMADO);
+    assert.deepEqual(r.errores, []);
+    assert.deepEqual(r.columnas.ignoradas, []);
+    assert.deepEqual(r.columnas.faltantes.sort(), ['codigo_2', 'codigo_alterno', 'pedimento', 'precio_alterno']);
+    assert.deepEqual([r.columnas.usadas.marca, r.columnas.usadas.descripcion, r.columnas.usadas.existencia, r.columnas.usadas.etiqueta_precio, r.columnas.usadas.etiqueta_costura], ['Marca', 'Descripcion', 'cantidad', 'etiq precio', 'etiq costura']);
+    assert.deepEqual(r.articulos.map((a) => [a.item_no, a.codigo, a.descripcion, a.marca, a.precio, a.existencia]), [['1', '0021001403065', 'BLUSA', '', 16900, 1], ['2', '', 'PANTALON AMBIANCE', 'AMBIANCE', 24900, -2], ['3', '0121020030001', 'CUPON', '', -5000, 0]]);
+    assert.deepEqual(r.articulos.map((a) => [a.etiqueta_precio, a.etiqueta_costura]), [[true, null], [true, null], [true, null]]);
+    assert.equal(r.porTipo.find((x) => x.tipo === 'precio_negativo')!.cantidad, 1, 'el cupón sigue señalado');
+  });
+
   it('IX1 reconoce las columnas del archivo real y no ignora ninguna', async () => {
     const r = leerInventario(await filasDeXlsx(await xlsxDeFilas(FILAS_REALISTAS)));
     assert.deepEqual(r.errores, []);
@@ -244,22 +261,22 @@ describe('[memoria — inventario en Excel] Lectura, reporte, carga al sistema y
 
 const REAL = process.env.POS_INVENTARIO_REAL;
 describe('[archivo real] Inventario real de DÚO (solo si POS_INVENTARIO_REAL apunta al .xlsx; no se guarda en el repositorio)', { skip: REAL && existsSync(REAL) ? false : 'defina POS_INVENTARIO_REAL con la ruta del inventario' }, () => {
-  it('IR1 los números del archivo real', async () => {
+  it('IR1 los números del archivo real (inventario_POS.xlsx: columnas Item Number, Descripcion, Marca, Estilo, Lote, Precio, UPC, departamento, cantidad, etiq precio, etiq costura)', async () => {
     const hojas = await leerXlsxNode(readFileSync(REAL!));
     assert.equal(hojas.length, 1);
     const c = leerInventario(hojas[0]!.filas, PERFIL_CONFIRMADO);
-    const p = leerInventario(hojas[0]!.filas, PERFIL_PRENDA_EN_NOMBRE);
     assert.deepEqual(c.errores, []);
-    assert.deepEqual(c.columnas.ignoradas, []);
+    assert.deepEqual(c.columnas.ignoradas, [], 'ninguna columna se ignora');
+    assert.deepEqual(Object.values(c.columnas.usadas).sort(), ['Descripcion', 'Estilo', 'Item Number', 'Lote', 'Marca', 'Precio', 'UPC', 'cantidad', 'departamento', 'etiq costura', 'etiq precio']);
     const e = c.estadisticas;
     assert.deepEqual(
-      [e.filas, e.con_codigo, e.sin_codigo, e.con_codigo_alterno, e.item_no_duplicados, e.codigos_duplicados, e.precio_no_vendible, e.etiqueta_costura_si, e.etiqueta_precio_vacia],
-      [21220, 20565, 655, 107, 3, 0, 187, 21220, 21220],
+      [e.filas, e.con_codigo, e.sin_codigo, e.item_no_duplicados, e.codigos_duplicados, e.precio_no_vendible, e.descripcion_vacia],
+      [21220, 20565, 655, 3, 0, 187, 0],
+      'con las columnas ya corregidas el mapeo confirmado (Marca / Descripcion) funciona sin perfil alterno',
     );
-    assert.equal(e.descripcion_vacia, 8810, 'con el mapeo confirmado, 8,810 artículos quedan sin Descripción');
-    assert.equal(p.estadisticas.marca_vacia, 8810);
-    assert.equal(p.estadisticas.descripcion_vacia, 0);
     assert.equal(c.porTipo.find((x) => x.tipo === 'precio_negativo')!.cantidad, 133);
     assert.equal(c.porTipo.find((x) => x.tipo === 'precio_cero')!.cantidad, 54);
+    const q = c.articulos.map((a) => a.existencia as number);
+    assert.deepEqual([q.length, q.filter((x) => x < 0).length, q.filter((x) => x === 0).length], [21220, 2101, 3165], 'la columna cantidad trae existencias, con negativas');
   });
 });
