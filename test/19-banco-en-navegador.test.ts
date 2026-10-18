@@ -94,7 +94,7 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     await page.uncheck('#falla-hub');
     await page.selectOption('#sesion-prueba', 'admin');
     await page.waitForSelector('#filtros');
-    assert.deepEqual(await page.$$eval('#nav button', (b) => b.map((x) => x.textContent)), ['Reportes', 'Cortes', 'Dólares recibidos', 'Inventario', 'Tarjetas de regalo', 'Tipo de cambio']);
+    assert.deepEqual(await page.$$eval('#nav button', (b) => b.map((x) => x.textContent)), ['Reportes', 'Cortes', 'Dólares recibidos', 'Inventario', 'Departamentos', 'Tarjetas de regalo', 'Tipo de cambio']);
     await page.click('#filtros button[type="submit"]');
     await page.waitForSelector('#tabla-reporte tbody tr');
     assert.equal(await page.locator('#tabla-reporte tbody tr').count(), 3, 'las 3 ventas, tras sincronizar');
@@ -135,6 +135,13 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     assert.deepEqual(await page.$$eval('#imp-previa tbody tr:first-child td', (c) => c.slice(2, 4).map((x) => x.textContent)), ['blusa seksy', 'BLUSA'], 'el perfil alternativo invierte Marca y Descripción');
     await page.check('input[name="imp-perfil"][value="0"]');
     await page.screenshot({ path: join(RAIZ, 'docs', 'capturas', '10-importar-inventario.png') });
+    // departamentos: ZAPATOS ya no se vende; los nombres en inglés/escritos distinto se piden revisar y se puede elegir el destino
+    assert.equal(await page.getAttribute('#imp-deptos tr[data-clave="zapatos"]', 'data-estado'), 'descontinuado');
+    assert.equal(await page.inputValue('#imp-deptos tr[data-clave="zapatos"] select'), 'Sin clasificar');
+    assert.equal(await page.inputValue('#imp-deptos tr[data-clave="system"] select'), 'Sin clasificar');
+    assert.equal(await page.inputValue('#imp-deptos tr[data-clave="cupones"] select'), 'Tarjetas de regalo y cupones');
+    await page.selectOption('#imp-deptos tr[data-clave="women s"] select', 'Dama');
+    assert.equal(await page.isChecked('#imp-regla-env'), true);
     await page.fill('#imp-duo', '10');
     await page.click('#imp-cargar');
     await page.waitForFunction(() => /Inventario cargado: inventario_prueba\.xlsx · 14 artículos/.test(document.querySelector('#estado-inv')!.textContent!));

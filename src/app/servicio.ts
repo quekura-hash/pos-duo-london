@@ -3,7 +3,7 @@ import { formatoTasa } from '../dinero.ts';
 import { ErrorDominio } from '../errores.ts';
 import type { Impresora } from '../impresion.ts';
 import type { Caja } from '../nodos.ts';
-import { catalogo, permisos as proyPermisos, tarjetasRegalo, tiposDeCambio, tipoCambioVigente, ventas, type TipoCambio } from '../proyecciones.ts';
+import { catalogo, departamentos as proyDepartamentos, permisos as proyPermisos, tarjetasRegalo, tiposDeCambio, tipoCambioVigente, ventas, type TipoCambio } from '../proyecciones.ts';
 import { hojaDolares, hojaInventario, type Hoja } from '../inventario.ts';
 import { codigoTicket, construirTicket, NEGOCIOS, renderTextoEscPos, renderTicketDevolucionTexto, renderTicketEscPos, renderTicketTexto, type NegocioCfg } from '../ticket.ts';
 import type { Actor, Articulo, Linea, Op, Venta } from '../tipos.ts';
@@ -359,7 +359,7 @@ export class ServicioAdmin {
   private fuente: () => Op[];
   readonly cajas: { tienda: string; caja: number }[];
   private inv?: FuenteInventario;
-  private central?: { fijarTipoCambio(tasa: number, usuario: string, versionBase: number, confirmarVariacion?: boolean): import('../nodos.ts').ResultadoTipoCambio; asignarPermiso(usuario: string, permiso: string, valor: boolean, por: string): Op };
+  private central?: { fijarTipoCambio(tasa: number, usuario: string, versionBase: number, confirmarVariacion?: boolean): import('../nodos.ts').ResultadoTipoCambio; asignarPermiso(usuario: string, permiso: string, valor: boolean, por: string): Op; guardarDepto(c: import('../departamentos.ts').CambioDepto, por: string): { ok: true; op: Op } | { ok: false; error: import('../departamentos.ts').ErrorDepto } };
   constructor(o: { actor: Extract<Actor, { rol: 'admin' }>; fuente: () => Op[]; cajas: { tienda: string; caja: number }[]; inventario?: FuenteInventario; central?: ServicioAdmin['central'] }) {
     this.central = o.central;
     this.actor = o.actor;
@@ -412,6 +412,19 @@ export class ServicioAdmin {
     if (!u) throw new ErrorDominio('DATOS_REQUERIDOS', 'falta el usuario');
     this.central.asignarPermiso(u, 'editar_tipo_cambio', valor, this.actor.usuario);
     return this.tipoCambio();
+  }
+  // ── departamentos (catálogo editable; los cambios viajan a todas las tiendas) ──
+  departamentos() {
+    const ops = this.fuente();
+    const cuenta = new Map<string, number>();
+    for (const a of catalogo(ops).values()) cuenta.set(a.departamento, (cuenta.get(a.departamento) ?? 0) + 1);
+    return { departamentos: proyDepartamentos(ops).map((d) => ({ ...d, articulos: cuenta.get(d.nombre) ?? 0 })) };
+  }
+  guardarDepartamento(c: import('../departamentos.ts').CambioDepto) {
+    if (!this.central) throw new ErrorDominio('SIN_CENTRAL', 'esta sesión no tiene acceso al servicio central');
+    const r = this.central.guardarDepto(c, this.actor.usuario);
+    if (!r.ok) throw new ErrorDominio(r.error.codigo === 'NO_EXISTE' ? 'NO_ENCONTRADO' : 'DEPARTAMENTO_INVALIDO', r.error.mensaje, { motivo: r.error.codigo });
+    return this.departamentos();
   }
   /** Dólares físicos recibidos y su equivalente con la tasa de cada operación (no la del día). */
   dolares(f: Filtro = {}) {

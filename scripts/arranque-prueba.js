@@ -39,7 +39,9 @@
   }
 
   // ── importar inventario (.xlsx) ──
-  var estado = null; // { nombre, bytes, hojas, hoja, perfil, duo, lon }
+  var estado = null; // { nombre, bytes, hojas, hoja, perfil, duo, lon, decisiones, regla }
+  var NOM_ESTADO = { vacio: 'Sin departamento', exacto: 'Reconocido', alias: 'Reconocido (otra forma de escribirlo)', descontinuado: 'Ya no se vende', sugerido: 'Parecido a uno existente: confirme', desconocido: 'Desconocido: elija' };
+  function activos() { return PosBanco.DEPARTAMENTOS_BASE.filter(function (d) { return d.activo; }).map(function (d) { return d.nombre; }); }
   var ETQ = { item_no: 'Item #', codigo: 'Código', marca: 'Marca', descripcion: 'Descripción', estilo: 'Estilo', lote: 'Lote', departamento: 'Departamento', precio: 'Precio de venta', precio_alterno: 'Precio alterno', codigo_alterno: 'Código alterno', etiqueta_costura: 'Etiqueta costura', etiqueta_precio: 'Etiqueta precio', pedimento: 'Pedimento', codigo_2: 'Código 2', existencia: 'Existencia' };
   var ROT = { bloquea_venta: 'No se puede vender', revisar: 'Revisar', info: 'Informativo' };
   var NOM_ANOM = { sin_codigo: 'Sin código (no se escanea)', item_no_duplicado: 'Item # repetido', codigo_duplicado: 'Código repetido', precio_cero: 'Precio 0', precio_negativo: 'Precio negativo (¿cupón o certificado?)', precio_ilegible: 'Precio ilegible', precio_con_centavos: 'Precio con centavos', codigo_numerico_posible_truncamiento: 'Código guardado como número', codigo_con_espacios: 'Código con espacios', item_no_ausente: 'Sin Item #', alterno_coincide_con_codigo: 'Código alterno igual al código de otro', existencia_ilegible: 'Existencia ilegible' };
@@ -58,6 +60,16 @@
       '<p><small>Columnas reconocidas: ' + esc(Object.keys(cols.usadas).map(function (k) { return ETQ[k] + ' ← ' + cols.usadas[k]; }).join(' · ')) + (cols.ignoradas.length ? ' · ignoradas: ' + esc(cols.ignoradas.join(', ')) : '') + (cols.faltantes.indexOf('existencia') >= 0 ? ' · <strong>el archivo no trae cantidades</strong>' : '') + '</small></p>' +
       '<div class="tabla-cont"><table id="imp-previa"><thead><tr><th>Item #</th><th>Código</th><th>Marca</th><th>Descripción</th><th>Estilo</th><th>Lote</th><th class="num">Precio</th></tr></thead><tbody>' +
       r.articulos.slice(0, 6).map(function (a) { return '<tr><td>' + esc(a.item_no) + '</td><td>' + esc(a.codigo) + '</td><td>' + esc(a.marca) + '</td><td>' + esc(a.descripcion) + '</td><td>' + esc(a.estilo) + '</td><td>' + esc(a.lote) + '</td><td class="num">' + pesos(a.precio) + '</td></tr>'; }).join('') + '</tbody></table></div>' +
+      '<h3>Departamentos del archivo</h3>' +
+      '<p><small>Los nombres que no coinciden con un departamento del sistema se sugieren aquí; elija el destino de cada uno antes de cargar. Lo que no se reconoce queda en «Sin clasificar».</small></p>' +
+      '<div class="tabla-cont anomalias"><table id="imp-deptos"><thead><tr><th>En el archivo</th><th class="num">Artículos</th><th>Situación</th><th>Departamento en el sistema</th></tr></thead><tbody>' +
+      r.departamentos.map(function (g) {
+        var elegido = estado.decisiones[g.clave] || g.propuesto;
+        var aviso = (g.estado === 'sugerido' || g.estado === 'desconocido' || g.estado === 'descontinuado' || g.estado === 'vacio') ? ' class="aviso-depto"' : '';
+        return '<tr data-clave="' + esc(g.clave) + '" data-estado="' + g.estado + '"' + aviso + '><td>' + (g.original ? esc(g.original) : '<em>(vacío)</em>') + '</td><td class="num">' + g.articulos + '</td><td>' + NOM_ESTADO[g.estado] + (g.estado === 'sugerido' ? ': ¿«' + esc(g.propuesto) + '»?' : '') + '</td><td><select class="sel-depto" data-clave="' + esc(g.clave) + '">' +
+          activos().map(function (n) { return '<option' + (n === elegido ? ' selected' : '') + '>' + esc(n) + '</option>'; }).join('') + '</select></td></tr>';
+      }).join('') + '</tbody></table></div>' +
+      '<label><input type="checkbox" id="imp-regla-env"' + (estado.regla ? ' checked' : '') + '> Mover las bolsas y cajas de regalo (' + r.envolturas + ' artículos por su descripción) a «Envolturas y Bolsas de regalo»</label>' +
       '<h3>Hallazgos del archivo</h3><div class="tabla-cont anomalias"><table id="imp-anomalias"><thead><tr><th>Tipo</th><th>Gravedad</th><th class="num">Filas</th><th>Ejemplo</th></tr></thead><tbody>' +
       r.porTipo.map(function (t) { return '<tr data-tipo="' + t.tipo + '"><td>' + esc(NOM_ANOM[t.tipo] || t.tipo) + '</td><td>' + ROT[t.severidad] + '</td><td class="num">' + t.cantidad + '</td><td>fila ' + t.ejemplos[0].fila + ': ' + esc(t.ejemplos[0].detalle) + '</td></tr>'; }).join('') + '</tbody></table></div>' +
       '<p><small>Nada se descarta ni se corrige: las filas con hallazgos se cargan tal cual y quedan señaladas. Los artículos con precio no vendible no se pueden agregar a una venta.</small></p>' +
@@ -68,16 +80,19 @@
       '<div class="filas"><button class="btn" type="button" id="imp-cancelar">Cancelar</button><button class="btn btn-primario" type="button" id="imp-cargar" style="width:auto;flex:1"' + (r.errores.length ? ' disabled' : '') + '>Cargar ' + e.filas + ' artículos al sistema</button></div>';
     var h = $('#imp-hoja'); if (h) h.addEventListener('change', function (ev) { estado.hoja = Number(ev.target.value); pintarImportacion(); });
     Array.prototype.forEach.call(d.querySelectorAll('input[name="imp-perfil"]'), function (x) { x.addEventListener('change', function (ev) { estado.perfil = Number(ev.target.value); estado.duo = Number($('#imp-duo').value) || 0; estado.lon = Number($('#imp-lon').value) || 0; pintarImportacion(); }); });
+    Array.prototype.forEach.call(d.querySelectorAll('.sel-depto'), function (x) { x.addEventListener('change', function (ev) { estado.decisiones[ev.target.getAttribute('data-clave')] = ev.target.value; }); });
+    $('#imp-regla-env').addEventListener('change', function (ev) { estado.regla = ev.target.checked; });
     $('#imp-cancelar').addEventListener('click', function () { d.close(); });
     $('#imp-cargar').addEventListener('click', function () { estado.duo = Number($('#imp-duo').value) || 0; estado.lon = Number($('#imp-lon').value) || 0; cargar(true); });
   }
   function cargar(guardarArchivo) {
     var r = lectura();
-    var o = PosBanco.aOperacionesInventario(r.articulos, { ahora: new Date().toISOString(), idImportacion: 'imp1', existenciaPrueba: { DUO: estado.duo, LON: estado.lon } });
-    var muestra = r.articulos.filter(function (a) { return a.codigo && a.precio > 0; }).slice(0, 8).map(function (a) { return { codigo: a.codigo, item_no: a.item_no, descripcion: a.descripcion || '(sin descripción)', marca: a.marca, precio: a.precio, existencia: estado.duo + ' / ' + estado.lon }; });
+    var dep = PosBanco.aplicarDepartamentos(r.articulos, PosBanco.DEPARTAMENTOS_BASE, { decisiones: estado.decisiones, reglaEnvolturas: estado.regla });
+    var o = PosBanco.aOperacionesInventario(dep.articulos, { ahora: new Date().toISOString(), idImportacion: 'imp1', existenciaPrueba: { DUO: estado.duo, LON: estado.lon } });
+    var muestra = dep.articulos.filter(function (a) { return a.codigo && a.precio > 0; }).slice(0, 8).map(function (a) { return { codigo: a.codigo, item_no: a.item_no, descripcion: a.descripcion || '(sin descripción)', marca: a.marca, precio: a.precio, existencia: estado.duo + ' / ' + estado.lon }; });
     var texto = 'Inventario cargado: ' + estado.nombre + ' · ' + r.estadisticas.filas + ' artículos · mapeo «' + PosBanco.PERFILES[estado.perfil].id + '» · existencia de prueba DÚO ' + estado.duo + ', London ' + estado.lon;
     ctl.cargarInventario(o.ops, texto, muestra);
-    if (guardarArchivo) guardar('inventario', { nombre: estado.nombre, bytes: estado.bytes, hoja: estado.hoja, perfil: estado.perfil, duo: estado.duo, lon: estado.lon });
+    if (guardarArchivo) guardar('inventario', { nombre: estado.nombre, bytes: estado.bytes, hoja: estado.hoja, perfil: estado.perfil, duo: estado.duo, lon: estado.lon, decisiones: estado.decisiones, regla: estado.regla });
     var d = $('#dlg-importar'); if (d.open) d.close();
     $('#sesion-prueba').value = ctl.sesion;
   }
@@ -86,7 +101,7 @@
     return archivo.arrayBuffer().then(function (buf) {
       var bytes = new Uint8Array(buf);
       return PosBanco.leerXlsx(window.ExcelJS, bytes).then(function (hojas) {
-        estado = { nombre: archivo.name, bytes: bytes, hojas: hojas, hoja: 0, perfil: 0, duo: 10, lon: 0 };
+        estado = { nombre: archivo.name, bytes: bytes, hojas: hojas, hoja: 0, perfil: 0, duo: 10, lon: 0, decisiones: {}, regla: true };
         pintarImportacion();
         $('#dlg-importar').showModal();
         aplicar();
@@ -131,7 +146,7 @@
     if (!g) return;
     $('#estado-inv').textContent = 'Cargando el inventario guardado en este navegador…';
     return PosBanco.leerXlsx(window.ExcelJS, g.bytes).then(function (hojas) {
-      estado = { nombre: g.nombre, bytes: g.bytes, hojas: hojas, hoja: g.hoja, perfil: g.perfil, duo: g.duo, lon: g.lon };
+      estado = { nombre: g.nombre, bytes: g.bytes, hojas: hojas, hoja: g.hoja, perfil: g.perfil, duo: g.duo, lon: g.lon, decisiones: g.decisiones || {}, regla: g.regla !== false };
       cargar(false);
     });
   }).catch(function () { aplicar(); });

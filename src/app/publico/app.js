@@ -124,7 +124,7 @@ const folioTexto = () => (S.ultimoFolio ? `Folio ${String(S.ultimoFolio).padStar
 // ── navegación ──
 const NAV = {
   venta: ['Venta', 'cart'], ventas: ['Historial', 'clock'], creditos: ['Créditos', 'card'], corte: ['Corte de caja', 'chart'],
-  tarjetas: ['Tarjetas de regalo', 'gift'], reportes: ['Reportes', 'chart'], cortes: ['Cortes', 'cash'], dolares: ['Dólares recibidos', 'dollar'], inventario: ['Inventario', 'box'], tipo_cambio: ['Tipo de cambio', 'refresh'],
+  tarjetas: ['Tarjetas de regalo', 'gift'], reportes: ['Reportes', 'chart'], cortes: ['Cortes', 'cash'], dolares: ['Dólares recibidos', 'dollar'], inventario: ['Inventario', 'box'], departamentos: ['Departamentos', 'box'], tipo_cambio: ['Tipo de cambio', 'refresh'],
 };
 function pintarNav() {
   const items = S.sesion.rol === 'cajero' ? S.sesion.nav.flatMap((v) => (v === 'ventas' ? [v, 'creditos'] : [v])) : S.sesion.nav;
@@ -137,7 +137,7 @@ async function ir(v) {
   S.vista = v;
   pintarNav();
   await pintarEncabezado();
-  await ({ venta: vistaVenta, corte: vistaCorte, ventas: vistaVentas, reportes: vistaReportes, inventario: vistaInventario, tarjetas: vistaTarjetas, devolucion: vistaDevolucion, dolares: vistaDolares, tipo_cambio: vistaTipoCambio, cortes: vistaCortes })[v]();
+  await ({ venta: vistaVenta, corte: vistaCorte, ventas: vistaVentas, reportes: vistaReportes, inventario: vistaInventario, departamentos: vistaDepartamentos, tarjetas: vistaTarjetas, devolucion: vistaDevolucion, dolares: vistaDolares, tipo_cambio: vistaTipoCambio, cortes: vistaCortes })[v]();
 }
 
 // ── venta ──
@@ -1010,6 +1010,28 @@ async function vistaDolares() {
     try { e.textContent = await exportarArchivo(`/api/admin/dolares.xlsx?desde=${$('#usd-desde').value}&hasta=${$('#usd-hasta').value}`, 'dolares-recibidos.xlsx'); } catch (err) { e.textContent = `No se pudo exportar: ${err.message}`; }
   });
   await consultar();
+}
+async function vistaDepartamentos() {
+  const { departamentos: lista } = await api('/api/admin/departamentos');
+  $('#vista').innerHTML = `<div class="titulo-vista">${ico('box')}<h1>Departamentos</h1></div>
+    <section class="panel"><p class="nota">Cambiar el nombre actualiza los artículos que ya lo usan. Los alias son otras formas de escribirlo que se aceptan sin preguntar al importar (separe con comas). Un departamento desactivado ya no se ofrece al dar de alta artículos; los que ya lo tienen no cambian.</p>
+      <div class="tabla-cont"><table id="tabla-deptos"><thead><tr><th>Nombre</th><th>Alias</th><th>Activo</th><th class="num">Artículos</th><th></th></tr></thead><tbody>
+      ${lista.map((d) => `<tr data-depto="${esc(d.id)}"><td><input class="texto d-nombre" value="${esc(d.nombre)}" aria-label="Nombre de ${esc(d.nombre)}"></td><td><input class="texto d-alias" value="${esc(d.alias.join(', '))}" aria-label="Alias de ${esc(d.nombre)}"></td><td><input type="checkbox" class="d-activo" ${d.activo ? 'checked' : ''} ${d.id === 'sin-clasificar' ? 'disabled' : ''} aria-label="Activo"></td><td class="num">${d.articulos}</td><td><button class="btn d-guardar" type="button">${ico('check')}<span>Guardar</span></button></td></tr>`).join('')}</tbody></table></div>
+      <div id="msg-depto" class="mensaje" role="status" aria-live="polite"></div></section>
+    <section class="panel" style="margin-top:12px"><h2 style="margin-top:0">Nuevo departamento</h2>
+      <form id="form-depto" autocomplete="off"><div class="campo"><label for="nd-nombre">Nombre</label><input id="nd-nombre" class="texto"></div>
+      <div class="campo"><label for="nd-alias">Alias (opcional, separados por comas)</label><input id="nd-alias" class="texto"></div>
+      <button class="btn btn-primario" id="btn-nuevo-depto" type="submit">${ico('check')}<span>Agregar departamento</span></button></form></section>`;
+  const partir = (t) => t.split(',').map((x) => x.trim()).filter(Boolean);
+  const m = $('#msg-depto');
+  const intentar = async (cuerpo) => { try { await api('/api/admin/departamentos', cuerpo); await vistaDepartamentos(); $('#msg-depto').className = 'mensaje ok'; $('#msg-depto').textContent = 'Guardado.'; } catch (e) { m.className = 'mensaje error'; m.textContent = e.message; } };
+  for (const b of $('#tabla-deptos').querySelectorAll('.d-guardar')) {
+    b.addEventListener('click', () => {
+      const tr = b.closest('tr');
+      intentar({ id: tr.dataset.depto, nombre: tr.querySelector('.d-nombre').value, alias: partir(tr.querySelector('.d-alias').value), activo: tr.querySelector('.d-activo').checked });
+    });
+  }
+  $('#form-depto').addEventListener('submit', (ev) => { ev.preventDefault(); intentar({ nombre: $('#nd-nombre').value, alias: partir($('#nd-alias').value) }); });
 }
 async function vistaTipoCambio() {
   const j = await api('/api/admin/tipo-cambio');

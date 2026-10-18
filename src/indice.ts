@@ -1,3 +1,4 @@
+import { aplicarOpDepto, copiarBase, type Departamento } from './departamentos.ts';
 import { aplicarPermiso, aplicarTarjeta, type PerdidaDocumental, type TarjetaRegalo, type TipoCambio } from './proyecciones.ts';
 import type { Repo } from './repo.ts';
 import type { Articulo } from './tipos.ts';
@@ -26,6 +27,7 @@ export class Indice {
   private tarjetas = new Map<string, TarjetaRegalo>();
   private tipos = new Map<number, TipoCambio>();
   private permisos = new Map<string, Set<string>>();
+  private deptos: Departamento[] = copiarBase();
 
   constructor(repo: Repo) {
     this.repo = repo;
@@ -34,7 +36,7 @@ export class Indice {
   private reiniciar() {
     this.seq = 0;
     this.cat = new Map(); this.porCodigo = new Map(); this.porAlterno = new Map(); this.porItemNo = new Map(); this.texto = new Map();
-    this.stock = new Map(); this.marcas = new Map(); this.cubiertas = new Map(); this.perdidas = new Map(); this.tarjetas = new Map(); this.tipos = new Map(); this.permisos = new Map();
+    this.stock = new Map(); this.marcas = new Map(); this.cubiertas = new Map(); this.perdidas = new Map(); this.tarjetas = new Map(); this.tipos = new Map(); this.permisos = new Map(); this.deptos = copiarBase();
   }
 
   actualizar() {
@@ -68,6 +70,10 @@ export class Indice {
     const p = o.payload;
     if (o.tipo.startsWith('giftcard.')) aplicarTarjeta(this.tarjetas, o);
     if (o.tipo === 'permiso.asignado') aplicarPermiso(this.permisos, o);
+    if (o.tipo.startsWith('depto.')) {
+      const cambio = aplicarOpDepto(this.deptos, o);
+      if (cambio) for (const a of this.cat.values()) if (a.departamento === cambio.de) { a.departamento = cambio.a; this.texto.set(a.item_id, this.textoDe(a)); }
+    }
     if (o.tipo === 'config.tipo_cambio') this.tipos.set(p.version, { ...p, ocurrio_en: o.ocurrio_en });
     switch (o.tipo) {
       case 'item.created': {
@@ -173,6 +179,10 @@ export class Indice {
   todas(): PerdidaDocumental[] {
     this.actualizar();
     return [...this.perdidas.values()];
+  }
+  departamentos(): Departamento[] {
+    this.actualizar();
+    return this.deptos.map((d) => ({ ...d, alias: [...d.alias] }));
   }
   /** Tipo de cambio vigente (mayor versión) o null si aún no se ha fijado. */
   tipoCambio(): TipoCambio | null {

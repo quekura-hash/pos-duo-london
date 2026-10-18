@@ -29,6 +29,7 @@ const estiloBanco = `
 .banco label { display: inline-flex; gap: 6px; align-items: center; } .banco select { padding: 4px 6px; border: 1px solid var(--borde); border-radius: 6px; background: var(--superficie); }
 .banco details { flex-basis: 100%; } .banco summary { cursor: pointer; font-weight: 600; } .banco .tabla-ayuda { overflow-x: auto; } .banco table { margin: 8px 0; background: var(--superficie); } .banco code { font-family: ui-monospace, Menlo, Consolas, monospace; user-select: all; }
 .banco .estado-inv { font-weight: 600; } .banco .fila-inv { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; }
+.aviso-depto td { background: color-mix(in srgb, #f5b301 18%, transparent); }
 #dlg-importar { max-width: min(860px, 96vw); width: 96vw; } #dlg-importar h2 { margin: 0 0 8px; } #dlg-importar fieldset { border: 1px solid var(--borde); border-radius: 8px; margin: 8px 0; } #dlg-importar label { display: block; margin: 4px 0; } #dlg-importar input[type=number] { width: 90px; padding: 4px; border: 1px solid var(--borde); border-radius: 6px; background: var(--superficie); text-align: right; } .anomalias td, .anomalias th { white-space: normal; }
 .app { min-height: calc(100vh - 44px); }`;
 const marcado = `

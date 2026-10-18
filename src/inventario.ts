@@ -1,3 +1,4 @@
+import { DEPARTAMENTOS_BASE, esEnvoltura, revisarDepartamentos, type Departamento, type GrupoDepto } from './departamentos.ts';
 import { formatoTasa } from './dinero.ts';
 import type { Articulo, Op } from './tipos.ts';
 import { aCentavos, aMXN } from './util.ts';
@@ -71,6 +72,10 @@ export interface ResultadoInventario {
   columnas: { usadas: Partial<Record<Campo, string>>; ignoradas: string[]; faltantes: Campo[] };
   articulos: ArticuloImportado[];
   anomalias: Anomalia[];
+  /** Textos de departamento distintos del archivo y qué departamento se propone para cada uno (para revisar antes de importar). */
+  departamentos: GrupoDepto[];
+  /** Artículos que por su descripción son bolsas o cajas de regalo. */
+  envolturas: number;
   porTipo: { tipo: string; severidad: Severidad; cantidad: number; ejemplos: Anomalia[] }[];
   estadisticas: {
     filas: number; con_codigo: number; sin_codigo: number; con_codigo_alterno: number; descripcion_vacia: number; marca_vacia: number;
@@ -96,9 +101,9 @@ const booleano = (v: unknown): boolean | null => {
  * ceros; un código que Excel entregó como número se advierte y NO se reconstruye. Item # repetidos, códigos repetidos
  * y artículos sin código se REPORTAN, nunca se fusionan ni se renumeran.
  */
-export function leerInventario(filas: unknown[][], perfil: Perfil = PERFIL_CONFIRMADO): ResultadoInventario {
+export function leerInventario(filas: unknown[][], perfil: Perfil = PERFIL_CONFIRMADO, deptos: Departamento[] = DEPARTAMENTOS_BASE): ResultadoInventario {
   const res: ResultadoInventario = {
-    perfil: perfil.id, columnas: { usadas: {}, ignoradas: [], faltantes: [] }, articulos: [], anomalias: [], porTipo: [],
+    perfil: perfil.id, columnas: { usadas: {}, ignoradas: [], faltantes: [] }, articulos: [], anomalias: [], departamentos: [], envolturas: 0, porTipo: [],
     estadisticas: {
       filas: 0, con_codigo: 0, sin_codigo: 0, con_codigo_alterno: 0, descripcion_vacia: 0, marca_vacia: 0, estilo_vacio: 0, lote_vacio: 0,
       departamento_sin_clasificar: 0, precio_no_vendible: 0, con_precio_alterno: 0, etiqueta_costura_si: 0, etiqueta_precio_vacia: 0,
@@ -187,6 +192,8 @@ export function leerInventario(filas: unknown[][], perfil: Perfil = PERFIL_CONFI
   for (const [c, l] of vistosCodigo) if (l.length > 1) { res.estadisticas.codigos_duplicados++; for (const a of l) anom('codigo_duplicado', 'revisar', a, `el código ${c} aparece en ${l.length} filas; el POS no adivina cuál es hasta que Administración lo resuelva`); }
   for (const a of res.articulos) if (a.codigo_alterno && vistosCodigo.has(a.codigo_alterno) && vistosCodigo.get(a.codigo_alterno)![0] !== a) anom('alterno_coincide_con_codigo', 'revisar', a, `el código alterno ${a.codigo_alterno} es el UPC de otro artículo`);
 
+  res.departamentos = revisarDepartamentos(res.articulos, deptos);
+  res.envolturas = res.articulos.filter(esEnvoltura).length;
   const grupos = new Map<string, Anomalia[]>();
   for (const x of res.anomalias) { const l = grupos.get(x.tipo); if (l) l.push(x); else grupos.set(x.tipo, [x]); }
   res.porTipo = [...grupos].map(([tipo, l]) => ({ tipo, severidad: l[0]!.severidad, cantidad: l.length, ejemplos: l.slice(0, 5) }))

@@ -221,7 +221,7 @@ actualizado?
 | P-19 | Item # repetido en el archivo (3 valores, 6 filas): hoy se conservan ambas filas, señaladas; falta decidir cuál se corrige y cómo |
 | P-20 | Existencias: el archivo no trae cantidades. Las de prueba son sintéticas y marcadas; falta la existencia inicial real por ubicación |
 | P-21 | Significado de «Etiqt-Costura» (Yes en 21,220) y «Etiqt- precio» (vacío en todos) para la migración: se conservan tal cual; la regla "lo cargado antes entra como etiquetado" cubre ambos checks o solo el de costura |
-| P-22 | Departamentos: 199 valores distintos, 9,926 con «System» (sin clasificar) y sinónimos (Women's, WOMEN, DAMA…); se conservan sin normalizar |
+| P-22 | Decidido y construido: catálogo de departamentos editable (sección 17). Zapatos y Niños se eliminaron (ya no se venden); «Bolsas y Equipaje» pasó a «Bolsos y Carteras»; se agregó «Envolturas y Bolsas de regalo». Al importar, los nombres distintos se agrupan y se sugiere el destino |
 | P-23 | Tarjeta de regalo entre tiendas: en ensayo vale en DÚO y London (el central reparte el libro de tarjetas). Configurable `P23_tarjeta_regalo_entre_tiendas` = `compartida` / `solo_tienda_emisora`; sin aprobar |
 | P-24 | El alta de una tarjeta de regalo es un ingreso de efectivo **sin folio de ticket** (se imprime un comprobante aparte). Falta decidir si debe tener serie/folio propio y cómo se reporta fiscal y contablemente |
 | P-25 | Decidido: la Caja 2 NO maneja tarjetas de regalo (sección 15) |
@@ -349,7 +349,7 @@ Respuestas dadas por el propietario. «Hecho» = ya está en el código y probad
 | P-19 | Administración decide cuál de los Item # repetidos se renumera | Hecho en lo señalado; la resolución administrativa de Item # repetido falta |
 | P-20 | Existencia inicial real por archivo de Excel de cantidades | Pendiente de recibir; ver P-10/P-11 |
 | P-21 | Todo lo cargado ya está etiquetado (costura y precio) | Decidido |
-| P-22 | Unificar nombres repetidos de departamentos (se propondrá la lista) | Falta |
+| P-22 | Departamentos: catálogo editable, avisos al importar, regla de envolturas | Hecho |
 | P-23 | La tarjeta de regalo vale solo en la tienda que la emitió | Hecho |
 | P-24 | La venta de una tarjeta de regalo **lleva folio normal**, como cualquier venta; el corte la separa de la mercancía (aclarado 17-oct: no entra dinero al pagar con ella, es forma de pago, no descuento) | Hecho |
 | P-25 | La Caja 2 **no** maneja tarjetas de regalo (ni vender ni pagar) | Hecho |
@@ -359,7 +359,7 @@ Respuestas dadas por el propietario. «Hecho» = ya está en el código y probad
 
 ### Pendiente de construir
 
-P-06 (pantalla de folio), P-10 (flujo de almacén y confirmación al primer escaneo), P-15 (respaldos cifrados a Drive), P-17 (cupones como descuento), P-22 (unificar departamentos), crédito (P-04, P-05) y los archivos de Excel (P-11, P-16, P-20).
+P-06 (pantalla de folio), P-10 (flujo de almacén y confirmación al primer escaneo), P-15 (respaldos cifrados a Drive), P-17 (cupones como descuento), crédito (P-04, P-05) y los archivos de Excel (P-11, P-16, P-20).
 
 ## 16. Dólares estadounidenses en efectivo [P]
 
@@ -395,3 +395,11 @@ P-06 (pantalla de folio), P-10 (flujo de almacén y confirmación al primer esca
 - La verificación de la tasa la anota la capa de servicio cuando hay hub e internet; en la demo local el enlace a internet es «sin dato», así que nunca verifica y la antigüedad crece.
 - Los cortes guardados **antes** de esta versión no traen las columnas por moneda (se muestran con ceros en dólares y el esperado en pesos).
 - Los billetes se capturan como un total en dólares enteros por cobro; el desglose por denominación se hace en el conteo del corte.
+
+## 17. Departamentos [P]
+
+- **Catálogo** (`src/departamentos.ts`): Dama, Dama Plus, Vestidos de noche, Caballero, Accesorios, Accesorios caballero, Bolsos y Carteras, Cosméticos y perfumes, Envolturas y Bolsas de regalo, Tarjetas de regalo y cupones, Electrónicos y Sin clasificar. No existen Zapatos ni Niños.
+- **Administración** (vista «Departamentos»): alta, renombre, alias y activar/desactivar. Se guardan como operaciones `depto.alta` / `depto.editado` en el central y viajan a todas las tiendas como el tipo de cambio. Renombrar actualiza los artículos que ya usan el nombre; los nombres y alias no se pueden repetir; «Sin clasificar» no se desactiva.
+- **Al importar**: los textos de departamento del archivo se agrupan y cada uno se clasifica como reconocido, otra forma de escribirlo (alias, p. ej. «mujer plus» → Dama Plus), ya no se vende (Zapatos, Niños: pasan a Sin clasificar), parecido a uno existente (sugerencia, p. ej. «Damma plus») o desconocido (Sin clasificar). La tabla del diálogo deja elegir el destino de cada uno antes de cargar; nada se pierde ni se inventa.
+- **Regla de envolturas**: los artículos cuya descripción es bolsa o caja de regalo se mandan a «Envolturas y Bolsas de regalo»; se puede apagar en el diálogo. Las tarjetas de regalo no entran.
+- Pendiente: usar este mismo catálogo en el alta por lote del Almacén y en el alta manual.

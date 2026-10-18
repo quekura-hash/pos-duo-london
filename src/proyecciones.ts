@@ -1,4 +1,5 @@
 import type { Articulo, Op, Venta } from './tipos.ts';
+import { aplicarOpDepto, copiarBase, type Departamento } from './departamentos.ts';
 import { fechaLocal } from './util.ts';
 
 // Proyecciones puras sobre la bitácora. El estado derivado nunca se sincroniza: se recalcula.
@@ -7,6 +8,10 @@ export function catalogo(ops: Op[]): Map<string, Articulo> {
   const m = new Map<string, Articulo>();
   for (const o of ops) {
     if (o.tipo === 'item.created') m.set(o.payload.item_id, { ...o.payload });
+    // Renombrar un departamento actualiza los artículos que ya lo usan.
+    if (o.tipo === 'depto.editado' && o.payload.nombre_anterior != null) {
+      for (const a of m.values()) if (a.departamento === o.payload.nombre_anterior) a.departamento = o.payload.nombre;
+    }
   }
   for (const o of ops) {
     if (o.tipo === 'item.item_no_assigned') {
@@ -308,4 +313,11 @@ export function movimientosCaja(ops: Op[], tienda: string, caja: number): Movimi
     }
   }
   return out;
+}
+
+/** Catálogo de departamentos: el inicial más las operaciones `depto.alta` / `depto.editado` del central, en orden. */
+export function departamentos(ops: Op[]): Departamento[] {
+  const l = copiarBase();
+  for (const o of ops) aplicarOpDepto(l, o);
+  return l;
 }

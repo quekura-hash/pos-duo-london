@@ -1,10 +1,11 @@
 import type { BusquedaVentas, VentaLocalizada } from './consultas.ts';
 import { ErrorDominio } from './errores.ts';
+import { slug, validarCambioDepto, type CambioDepto, type ErrorDepto } from './departamentos.ts';
 import { DENOMINACIONES_USD, esImporteEnBilletesUsd, superaUmbralTasa, totalDenominacionesMxn, totalDenominacionesUsd, usdAMxn, variacionTasaPb } from './dinero.ts';
 import { TASA_SIN_VERIFICAR_OMISION, type Politicas } from './politicas.ts';
 import { Indice } from './indice.ts';
 import { localizarVentas } from './consultas.ts';
-import { efectivoDeVenta, movimientosCaja, tipoCambioVigente, catalogo, devoluciones, devueltoPorLinea, existenciaVerificada, intentos, perdidasDocumentales, stock, ventas, type Devolucion, type ExistenciaVerificada, type Intento, type PerdidaDocumental, type TarjetaRegalo, type TipoCambio } from './proyecciones.ts';
+import { departamentos, efectivoDeVenta, movimientosCaja, tipoCambioVigente, catalogo, devoluciones, devueltoPorLinea, existenciaVerificada, intentos, perdidasDocumentales, stock, ventas, type Devolucion, type ExistenciaVerificada, type Intento, type PerdidaDocumental, type TarjetaRegalo, type TipoCambio } from './proyecciones.ts';
 import type { Repo } from './repo.ts';
 import { validarOpEntrante } from './reglas.ts';
 import type { Articulo, CajaCfg, Linea, Op, Pago, Venta } from './tipos.ts';
@@ -85,7 +86,7 @@ interface Reserva {
 
 const BROADCAST_TIENDA = new Set(['inv.movement', 'inv.conteo', 'inv.verificacion_pendiente', 'doc.perdida_posible', 'item.created', 'item.item_no_assigned', 'giftcard.emitida', 'giftcard.recarga', 'giftcard.uso', 'giftcard.reintegro']);
 // Lo que el central baja a hubs y cajas (catálogo y resoluciones administrativas).
-const CATALOGO = new Set(['item.created', 'item.item_no_assigned', 'item.codigo_corregido', 'doc.perdida_resuelta', 'giftcard.emitida', 'giftcard.recarga', 'giftcard.uso', 'giftcard.reintegro', 'config.tipo_cambio', 'permiso.asignado']);
+const CATALOGO = new Set(['item.created', 'item.item_no_assigned', 'item.codigo_corregido', 'doc.perdida_resuelta', 'giftcard.emitida', 'giftcard.recarga', 'giftcard.uso', 'giftcard.reintegro', 'config.tipo_cambio', 'permiso.asignado', 'depto.alta', 'depto.editado']);
 
 // ───────────────────────────── Hub ─────────────────────────────
 
@@ -322,6 +323,27 @@ export class Central {
   /** Permiso por usuario (p. ej. `editar_tipo_cambio`), configurable desde Administración y propagado a todas las cajas. */
   asignarPermiso(usuario: string, permiso: string, valor: boolean, por: string): Op {
     return this.emitirAdmin('permiso.asignado', { usuario, permiso, valor, por });
+  }
+
+  /**
+   * Alta o edición de un departamento (renombrar, activar/desactivar, alias). Renombrar actualiza los artículos que lo usan.
+   * Sin `id` es un alta. El central valida que nombres y alias no se repitan entre departamentos.
+   */
+  guardarDepto(c: CambioDepto, por: string): { ok: true; op: Op } | { ok: false; error: ErrorDepto } {
+    const lista = departamentos(this.repo.ops());
+    const error = validarCambioDepto(lista, c);
+    if (error) return { ok: false, error };
+    if (!c.id) {
+      const nombre = c.nombre!.trim().replace(/\s+/g, ' ');
+      const id = slug(nombre);
+      return { ok: true, op: this.emitirAdmin('depto.alta', { id, nombre, alias: (c.alias ?? []).map((a) => a.trim()).filter(Boolean), por }) };
+    }
+    const actual = lista.find((d) => d.id === c.id)!;
+    const payload: Record<string, unknown> = { id: c.id, por };
+    if (c.nombre !== undefined && c.nombre.trim().replace(/\s+/g, ' ') !== actual.nombre) { payload.nombre = c.nombre.trim().replace(/\s+/g, ' '); payload.nombre_anterior = actual.nombre; }
+    if (c.activo !== undefined && c.activo !== actual.activo) payload.activo = c.activo;
+    if (c.alias) payload.alias = c.alias.map((a) => a.trim()).filter(Boolean);
+    return { ok: true, op: this.emitirAdmin('depto.editado', payload) };
   }
 
   anclas(tienda: string, caja: number): Anclas {

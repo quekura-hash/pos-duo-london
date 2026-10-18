@@ -1,7 +1,7 @@
 import { ErrorDominio } from '../errores.ts';
 import type { ServicioAdmin, ServicioCaja } from './servicio.ts';
 
-const STATUS: Record<string, number> = { PROHIBIDO: 403, ARTICULO_INEXISTENTE: 404, CARRITO_INEXISTENTE: 404, LINEA_INEXISTENTE: 404 };
+const STATUS: Record<string, number> = { PROHIBIDO: 403, ARTICULO_INEXISTENTE: 404, CARRITO_INEXISTENTE: 404, LINEA_INEXISTENTE: 404, NO_ENCONTRADO: 404 };
 
 export interface Respuesta {
   status: number;
@@ -32,7 +32,7 @@ export async function atender(o: { cajero?: ServicioCaja; admin?: ServicioAdmin 
       case 'GET /api/sesion':
         return ok(C
           ? { rol: 'cajero', usuario: C.actor.usuario, tienda: C.caja.tienda, caja: C.caja.caja, nav: ['venta', 'ventas', 'corte', ...(C.caja.cfg.metodos.includes('tarjeta_regalo') ? ['tarjetas'] : [])] }
-          : { rol: 'admin', usuario: A!.actor.usuario, cajas: A!.cajas, nav: ['reportes', 'cortes', 'dolares', 'inventario', 'tarjetas', 'tipo_cambio'] });
+          : { rol: 'admin', usuario: A!.actor.usuario, cajas: A!.cajas, nav: ['reportes', 'cortes', 'dolares', 'inventario', 'departamentos', 'tarjetas', 'tipo_cambio'] });
       // ── cajero ──
       case 'GET /api/estado': return ok({ estado: exigirCajero().estado() });
       case 'POST /api/venta/actual': { const c = exigirCajero(); const cart = c.carritoActual(); return ok({ cart, carrito: c.vista(cart) }); }
@@ -85,6 +85,11 @@ export async function atender(o: { cajero?: ServicioCaja; admin?: ServicioAdmin 
       case 'GET /api/admin/tipo-cambio': return ok(exigirAdmin().tipoCambio());
       case 'POST /api/admin/tipo-cambio': return ok(exigirAdmin().fijarTipoCambio(Number(b.tasa), !!b.confirmar));
       case 'POST /api/admin/permisos': return ok(exigirAdmin().asignarPermisoTipoCambio(String(b.usuario ?? ''), !!b.editar_tipo_cambio));
+      case 'GET /api/admin/departamentos': return ok(exigirAdmin().departamentos());
+      case 'POST /api/admin/departamentos': return ok(exigirAdmin().guardarDepartamento({
+        id: b.id === undefined ? undefined : String(b.id), nombre: b.nombre === undefined ? undefined : String(b.nombre),
+        activo: b.activo === undefined ? undefined : !!b.activo, alias: Array.isArray(b.alias) ? b.alias.map(String) : undefined,
+      }));
       case 'GET /api/admin/dolares': {
         const A2 = exigirAdmin();
         const f = { cajas: cajasParam(q.get('cajas')), desde: q.get('desde') || undefined, hasta: q.get('hasta') || undefined };

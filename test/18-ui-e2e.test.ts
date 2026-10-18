@@ -200,7 +200,7 @@ describe('[navegador real — Chromium con Playwright, UI sobre SQLite]', { time
     ctx.m.pump();
     const { page, errores } = await pagina(browser, adm.url);
     await page.waitForSelector('#filtros');
-    assert.deepEqual(await page.$$eval('#nav button', (b) => b.map((x) => x.textContent)), ['Reportes', 'Cortes', 'Dólares recibidos', 'Inventario', 'Tarjetas de regalo', 'Tipo de cambio']);
+    assert.deepEqual(await page.$$eval('#nav button', (b) => b.map((x) => x.textContent)), ['Reportes', 'Cortes', 'Dólares recibidos', 'Inventario', 'Departamentos', 'Tarjetas de regalo', 'Tipo de cambio']);
     await page.fill('#desde', '2026-10-01');
     await page.fill('#hasta', '2026-10-01');
     await page.click('#filtros button[type="submit"]');
@@ -791,6 +791,39 @@ describe('[navegador real — Chromium con Playwright, UI sobre SQLite]', { time
     assert.deepEqual([await c('usd-cobros'), await c('usd-esperado'), await c('usd-contado'), await c('usd-diferencia'), await c('equivalente')], ['US$100.00', 'US$100.00', '—', '—', '$1,800.00']);
     assert.match((await a.textContent('#resultado-cortes'))!, /Pesos y dólares son dinero físico distinto/);
     await a.screenshot({ path: join(CAPTURAS, '22-cortes-consolidados-por-moneda.png') });
+    assert.deepEqual(errores.filter((e) => !/409/.test(e)), []);
+  });
+  it('UI14 Administración: alta, edición, renombre y desactivación de departamentos, con avisos de repetidos', async (t) => {
+    const browser = await chromium.launch({ executablePath: chromiumPath, args: ['--no-sandbox'] });
+    const ctx = nuevoMundo(sqlite, politica());
+    const adm = await appAdmin(ctx);
+    t.after(async () => { await browser.close(); await adm.cerrar(); ctx.limpiar(); });
+    const { page, errores } = await pagina(browser, adm.url, 1440, 900);
+    await page.waitForSelector('#nav');
+    await page.click('#nav button[data-vista="departamentos"]');
+    await page.waitForSelector('#tabla-deptos tbody tr');
+    const nombres = await page.$$eval('#tabla-deptos .d-nombre', (i) => i.map((x) => (x as HTMLInputElement).value));
+    assert.ok(nombres.includes('Bolsos y Carteras') && nombres.includes('Envolturas y Bolsas de regalo'));
+    assert.ok(!nombres.some((n) => /zapato|niños/i.test(n)));
+    assert.equal(await page.isDisabled('#tabla-deptos tr[data-depto="sin-clasificar"] .d-activo'), true);
+    // alta
+    await page.fill('#nd-nombre', 'Hogar y cocina');
+    await page.fill('#nd-alias', 'hogar, cocina');
+    await page.click('#btn-nuevo-depto');
+    await page.waitForSelector('#tabla-deptos tr[data-depto="hogar-y-cocina"]');
+    assert.equal(await page.inputValue('#tabla-deptos tr[data-depto="hogar-y-cocina"] .d-alias'), 'hogar, cocina');
+    // repetido: se avisa y no se crea
+    await page.fill('#nd-nombre', 'mujer');
+    await page.click('#btn-nuevo-depto');
+    await page.waitForFunction(() => /ya es un nombre o alias|ya existe/.test(document.querySelector('#msg-depto')!.textContent!));
+    // renombrar y desactivar
+    const fila = '#tabla-deptos tr[data-depto="electronicos"]';
+    await page.fill(`${fila} .d-nombre`, 'Electrónica y celulares');
+    await page.uncheck(`${fila} .d-activo`);
+    await page.click(`${fila} .d-guardar`);
+    await page.waitForFunction(() => (document.querySelector('#tabla-deptos tr[data-depto="electronicos"] .d-nombre') as HTMLInputElement).value === 'Electrónica y celulares');
+    assert.equal(await page.isChecked(`${fila} .d-activo`), false);
+    await page.screenshot({ path: join(CAPTURAS, '23-departamentos.png') });
     assert.deepEqual(errores.filter((e) => !/409/.test(e)), []);
   });
 });
