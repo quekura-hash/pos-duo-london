@@ -414,3 +414,10 @@ P-06 (pantalla de folio), P-15 (respaldos cifrados a Drive), P-17 (cupones como 
 - **Recepción**: la tienda no recibe existencia hasta que su personal confirma. Al escanear por primera vez el artículo, la caja pregunta «¿Confirmas que recibiste N piezas?»; al aceptar entra el movimiento `entrada_almacen`. Ejemplo: Almacén 24 → entrega 12 y 12 → Almacén 0 / DÚO 12 / London 12. Si no confirman, la entrega sigue pendiente y visible en Administración.
 - **Sacar a piso** (recordatorio interno del almacén, no viaja a las tiendas): columna con calendario por artículo. El renglón se marca en **morado** si faltan más de 7 días y en **rojo** si faltan 7 o menos (o ya pasó) y todavía hay piezas en el almacén; al entregar todo, la marca desaparece y la fecha queda como referencia. En el menú lateral de Administración aparece el aviso «Revise los artículos para sacar a piso el 12/nov/26 (N)», agrupado por fecha, rojo si alguna es urgente; al pulsarlo abre Almacén. Se guarda como `alm.recordatorio` (el último registro de cada artículo gana).
 - **Pendiente**: reporte de entregas y diferencias, corrección de una entrada capturada mal, y el inventario inicial del catálogo sin existencias.
+
+## 19. Decisiones del propietario sobre el punto 5 [D]
+
+- **IVA**: el ticket no desglosa IVA; el precio del catálogo es el precio final.
+- **Descuentos**: solo un supervisor autoriza descuentos, sin tope (hasta 100 %). Falta definir cómo se autoriza (clave del supervisor o desde Administración). Hoy el botón «Aplicar descuento» sigue como «Próximamente».
+- **Cupones y certificados**: quedan obsoletos (era el sistema viejo). Se creará un apartado de **Promociones y cupones de descuento**; falta definir su diseño. Los 133 artículos con precio negativo siguen sin poder venderse.
+- **Créditos**: se quitó del menú de venta; queda en Administración (deshabilitado, «Próximamente»).

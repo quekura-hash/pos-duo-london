@@ -131,7 +131,7 @@ const NAV = {
 function pintarNav() {
   // En la página de prueba (una sola ventana) se puede pasar de la caja a Administración y volver; en la app real cada sesión es la suya.
   const cambia = !!window.__POS_CAMBIAR_SESION__;
-  const items = S.sesion.rol === 'cajero' ? [...S.sesion.nav.flatMap((v) => (v === 'ventas' ? [v, 'creditos'] : [v])), ...(cambia ? ['administracion'] : [])] : [...S.sesion.nav, ...(cambia ? ['volver_caja'] : [])];
+  const items = S.sesion.rol === 'cajero' ? [...S.sesion.nav, ...(cambia ? ['administracion'] : [])] : [...S.sesion.nav, 'creditos', ...(cambia ? ['volver_caja'] : [])]; // Créditos vive en Administración, no en la venta
   $('#nav').innerHTML = items.map((v) => v === 'creditos'
     ? `<button type="button" data-proximamente="creditos" disabled title="Próximamente" aria-label="Créditos (próximamente)">${ico(NAV[v][1])}<span>${NAV[v][0]}</span></button>`
     : `<button type="button" data-vista="${v}" title="${NAV[v][0]}" ${v === S.vista ? 'aria-current="page"' : ''}>${ico(NAV[v][1])}<span>${NAV[v][0]}</span></button>`).join('');
