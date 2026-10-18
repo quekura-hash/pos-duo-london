@@ -6,9 +6,10 @@ import { ErrorDominio } from '../errores.ts';
 import type { Impresora } from '../impresion.ts';
 import type { Caja } from '../nodos.ts';
 import { estadoPromo, type Promocion } from '../promociones.ts';
-import { CAMPOS_EDITABLES, catalogo, historialArticulo, nombresTienda, departamentos as proyDepartamentos, promocionesDe, supervisoresDe, permisos as proyPermisos, tarjetasRegalo, tiposDeCambio, tipoCambioVigente, ventas, type TipoCambio } from '../proyecciones.ts';
+import { CAMPOS_EDITABLES, catalogo, historialArticulo, nombresTienda, datosTiendas, departamentos as proyDepartamentos, promocionesDe, supervisoresDe, permisos as proyPermisos, tarjetasRegalo, tiposDeCambio, tipoCambioVigente, ventas, type TipoCambio } from '../proyecciones.ts';
 import { hojaDescuentos, hojaDolares, hojaInventario, leerInventario, PERFIL_CONFIRMADO, type Hoja } from '../inventario.ts';
-import { codigoTicket, construirTicket, formatoMXN, NEGOCIOS, renderTextoEscPos, renderTicketDevolucionTexto, renderTicketEscPos, renderTicketTexto, type NegocioCfg } from '../ticket.ts';
+import { LOGOS_TICKET } from '../logos-ticket.ts';
+import { aplicarDatosTienda, codigoTicket, construirTicket, formatoMXN, NEGOCIOS, renderTextoEscPos, renderTicketDevolucionTexto, renderTicketEscPos, renderTicketTexto, type NegocioCfg } from '../ticket.ts';
 import type { Actor, Articulo, Linea, Op, Venta } from '../tipos.ts';
 import { fechaLocal } from '../util.ts';
 
@@ -141,8 +142,8 @@ export class ServicioCaja {
 
   /** Configuración de cada negocio con el nombre editado en Administración (si lo hay). */
   private negociosVivos(): Record<string, NegocioCfg> {
-    const nombres = this.caja.idx.nombresDeTienda();
-    return Object.fromEntries(Object.entries(this.negocios).map(([t, c]) => [t, nombres.has(t) ? { ...c, nombre: nombres.get(t)! } : c]));
+    const datos = this.caja.idx.datosDeTienda();
+    return Object.fromEntries(Object.entries(this.negocios).map(([t, c]) => [t, aplicarDatosTienda(c, datos.get(t))]));
   }
 
   /** Reutiliza la venta en curso (sobrevive a reinicios) o abre una nueva. */
@@ -240,7 +241,7 @@ export class ServicioCaja {
     const ticket = construirTicket(v, cfg, n, this.negociosVivos());
     const texto = renderTicketTexto(ticket);
     // El cajón se abre con el cobro en efectivo original, no al reimprimir.
-    const bytes = renderTicketEscPos(ticket, { abrirCajon: tipo === 'original' });
+    const bytes = renderTicketEscPos(ticket, { abrirCajon: tipo === 'original', logo: LOGOS_TICKET[v.tienda] });
     let impresion: { ok: boolean; error?: string };
     try {
       await this.impresora.imprimir({ ref: ticket.codigo_ticket, texto, bytes });
@@ -400,7 +401,7 @@ export class ServicioAdmin {
   readonly cajas: { tienda: string; caja: number }[];
   private inv?: FuenteInventario;
   private central?: { fijarTipoCambio(tasa: number, usuario: string, versionBase: number, confirmarVariacion?: boolean): import('../nodos.ts').ResultadoTipoCambio; asignarPermiso(usuario: string, permiso: string, valor: boolean, por: string): Op; guardarDepto(c: import('../departamentos.ts').CambioDepto, por: string): { ok: true; op: Op } | { ok: false; error: import('../departamentos.ts').ErrorDepto };
-    guardarNombreTienda: import('../nodos.ts').Central['guardarNombreTienda']; editarArticulo: import('../nodos.ts').Central['editarArticulo']; guardarPromocion: import('../nodos.ts').Central['guardarPromocion']; guardarSupervisor: import('../nodos.ts').Central['guardarSupervisor']; recordarSacarAPiso: import('../nodos.ts').Central['recordarSacarAPiso']; altaLote: import('../nodos.ts').Central['altaLote']; entregar: import('../nodos.ts').Central['entregar'] };
+    guardarDatosTienda: import('../nodos.ts').Central['guardarDatosTienda']; editarArticulo: import('../nodos.ts').Central['editarArticulo']; guardarPromocion: import('../nodos.ts').Central['guardarPromocion']; guardarSupervisor: import('../nodos.ts').Central['guardarSupervisor']; recordarSacarAPiso: import('../nodos.ts').Central['recordarSacarAPiso']; altaLote: import('../nodos.ts').Central['altaLote']; entregar: import('../nodos.ts').Central['entregar'] };
   constructor(o: { actor: Extract<Actor, { rol: 'admin' }>; fuente: () => Op[]; cajas: { tienda: string; caja: number }[]; inventario?: FuenteInventario; central?: ServicioAdmin['central'] }) {
     this.central = o.central;
     this.actor = o.actor;
@@ -467,16 +468,30 @@ export class ServicioAdmin {
     if (!r.ok) throw new ErrorDominio(r.error.codigo === 'NO_EXISTE' ? 'NO_ENCONTRADO' : 'DEPARTAMENTO_INVALIDO', r.error.mensaje, { motivo: r.error.codigo });
     return this.departamentos();
   }
-  // ── tiendas (nombre comercial editable) ──
+  // ── tiendas: nombre comercial, datos del ticket y política de devolución (editables) ──
   tiendasInfo() {
-    const nombres = nombresTienda(this.fuente());
-    return this.tiendas().map((t) => ({ tienda: t, nombre: nombres.get(t) ?? NEGOCIOS[t]?.nombre ?? t, de_fabrica: NEGOCIOS[t]?.nombre ?? t }));
+    const datos = datosTiendas(this.fuente());
+    return this.tiendas().map((t) => {
+      const f = NEGOCIOS[t];
+      const vivo = aplicarDatosTienda(f ?? { nombre: t, letra: t[0] ?? '?', leyendas: [], columnas: 42 }, datos.get(t));
+      const fab = f ?? { nombre: t, leyendas: [] as string[] };
+      return {
+        tienda: t, nombre: vivo.nombre, razon_social: vivo.razon_social ?? '', rfc: vivo.rfc ?? '', direccion: vivo.direccion ?? '', ciudad: vivo.ciudad ?? '', telefono: vivo.telefono ?? '', politica: vivo.leyendas.join('\n'),
+        de_fabrica: { nombre: fab.nombre, razon_social: f?.razon_social ?? '', rfc: f?.rfc ?? '', direccion: f?.direccion ?? '', ciudad: f?.ciudad ?? '', telefono: f?.telefono ?? '', politica: fab.leyendas.join('\n') },
+      };
+    });
   }
-  guardarNombreTienda(tienda: string, nombre: string) {
+  guardarDatosTienda(tienda: string, datos: Record<string, unknown>) {
     if (!this.central) throw new ErrorDominio('SIN_CENTRAL', 'esta sesión no tiene acceso al servicio central');
-    const r = this.central.guardarNombreTienda(tienda, nombre, this.actor.usuario);
+    const lim: Record<string, string> = {};
+    for (const c of ['nombre', 'razon_social', 'rfc', 'direccion', 'ciudad', 'telefono', 'politica']) if (c in datos) lim[c] = String(datos[c] ?? '');
+    const r = this.central.guardarDatosTienda(tienda, lim, this.actor.usuario);
     if (!r.ok) throw new ErrorDominio('TIENDA_INVALIDA', r.mensaje);
     return { tiendas: this.tiendasInfo() };
+  }
+  /** Solo el nombre comercial. */
+  guardarNombreTienda(tienda: string, nombre: string) {
+    return this.guardarDatosTienda(tienda, { nombre });
   }
   /**
    * Lista y búsqueda de artículos (Inventario y selector de promociones). Sin texto devuelve TODO el catálogo (con `todos`),

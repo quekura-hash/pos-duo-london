@@ -21,6 +21,7 @@ const bundle = r.outputFiles[0].text.replace(/<\/script/gi, '<\\/script');
 const exceljs = readFileSync(join(raiz, 'node_modules/exceljs/dist/exceljs.min.js'), 'utf8').replace(/<\/script/gi, '<\\/script');
 const logo = (n) => 'data:image/png;base64,' + readFileSync(join(raiz, 'src/app/publico', n)).toString('base64');
 const logos = JSON.stringify({ DUO: logo('logo-duo.png'), LON: logo('logo-london.png') });
+const logosTicket = JSON.stringify({ DUO: logo('ticket-duo.png'), LON: logo('ticket-london.png') });
 const css = readFileSync(join(raiz, 'src/app/publico/estilos.css'), 'utf8');
 const app = readFileSync(join(raiz, 'src/app/publico/app.js'), 'utf8').replace(/<\/script/gi, '<\\/script');
 const qr = readFileSync(join(raiz, 'src/app/publico/qr.js'), 'utf8').replace(/<\/script/gi, '<\\/script');
@@ -70,7 +71,7 @@ ${css}
 ${estiloBanco}
 </style>
 ${marcado}
-<script>window.__POS_MANUAL__ = true; window.__POS_LOGOS__ = ${logos};</script>
+<script>window.__POS_MANUAL__ = true; window.__POS_LOGOS__ = ${logos}; window.__POS_LOGOS_TICKET__ = ${logosTicket};</script>
 <script>
 ${qr}
 </script>

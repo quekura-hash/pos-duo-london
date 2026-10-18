@@ -166,3 +166,7 @@ tr.piso-roja td:first-child { box-shadow: inset 5px 0 0 var(--error); } tr.piso-
 .ico-izq { transform: rotate(180deg); }
 #dlg-articulo { max-width: min(860px, 96vw); width: 96vw; max-height: 92vh; overflow: auto; }
 #tabla-inv-lista tbody tr:hover { background: var(--acento-suave); }
+
+.logo-ticket-cont { background: #fff; text-align: center; padding: 8px 0 0; border-radius: 6px 6px 0 0; }
+.logo-ticket { max-width: 200px; max-height: 110px; image-rendering: auto; }
+.logo-ticket-cont + pre.ticket { margin-top: 0; border-top: 0; }

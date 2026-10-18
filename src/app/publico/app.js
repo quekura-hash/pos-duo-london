@@ -79,6 +79,10 @@ const fechaCorta = (iso) => { const l = new Date(Date.parse(iso) - 7 * 3600e3).t
 const logoDe = (t) => window.__POS_LOGOS__?.[t] ?? (t === 'DUO' ? 'logo-duo.png' : 'logo-london.png');
 const NOMBRE_METODO = { efectivo: 'Efectivo', tarjeta: 'Tarjeta', tarjeta_regalo: 'Tarjeta de regalo' };
 
+/** Logo de la tienda arriba del ticket (versión en 1 bit para papel térmico). */
+const logoTicket = (t) => window.__POS_LOGOS_TICKET__?.[t] ?? (t === 'DUO' ? 'ticket-duo.png' : 'ticket-london.png');
+const logoTicketHtml = () => (S.estado?.tienda ? `<div class="logo-ticket-cont"><img class="logo-ticket" id="logo-ticket" src="${logoTicket(S.estado.tienda)}" alt="Logo de ${esc(S.estado.negocio ?? S.estado.tienda)}"></div>` : '');
+
 // ── barra superior y pie ──
 async function pintarEncabezado() {
   const h = $('#encabezado');
@@ -525,7 +529,7 @@ function mostrarTicket(r) {
     <p style="margin:0" id="resumen-venta">Folio <b>${String(r.venta.folio).padStart(6, '0')}</b> · ticket <b>${esc(r.codigo_ticket)}</b> · cambio <b id="dlg-cambio">${mxn(r.cambio)}</b>${r.venta.pagos.some((p) => p.metodo === 'efectivo_usd') ? ` · dólares recibidos <b id="dlg-usd">${usd(r.venta.pagos.find((p) => p.metodo === 'efectivo_usd').usd)}</b>` : ''}${regalo ? ` · saldo de la tarjeta <b id="dlg-saldo-regalo">${mxn(regalo.saldo_despues ?? 0)}</b>` : ''}</p>
     <div id="estado-impresion" class="mensaje ${imp.ok ? 'ok' : 'error'}" role="status">${imp.ok ? 'Ticket enviado a la impresora.' : `La impresora falló: ${esc(imp.error)}. La venta SÍ quedó guardada; reintente la impresión.`}</div>
     ${(r.avisos ?? []).length ? `<div class="mensaje aviso" id="avisos-venta">${r.avisos.map((a) => esc(/^cambio_excede_efectivo_mxn:/.test(a) ? `Advertencia: el cambio entregado superó en ${mxn(Number(a.split(':')[1]))} los pesos que se sabía que había en la caja: revise el efectivo.` : a)).join(' · ')}</div>` : ''}
-    <pre class="ticket" id="ticket-texto" tabindex="0">${esc(r.ticket_texto)}</pre>
+    ${logoTicketHtml()}<pre class="ticket" id="ticket-texto" tabindex="0">${esc(r.ticket_texto)}</pre>
     <div class="filas"><button class="btn" id="btn-reimprimir" type="button">${ico('printer')}<span>${imp.ok ? 'Reimprimir ticket' : 'Reintentar impresión'}</span></button><button class="btn btn-primario" id="btn-nueva" type="button" style="width:auto;flex:1">${ico('plus')}<span>Nueva venta</span></button></div>`;
   dlg.showModal();
   $('#btn-reimprimir').addEventListener('click', async () => {
@@ -640,7 +644,7 @@ async function vistaVentas() {
     b.addEventListener('click', async () => {
       const t = await api(`/api/ticket?sale_id=${b.dataset.ver}`);
       const dlg = $('#dlg-ticket');
-      dlg.innerHTML = `<h2 id="dlg-titulo" style="margin:0">Ticket</h2><pre class="ticket" id="ticket-texto">${esc(t.ticket_texto)}</pre><div class="filas"><button class="btn" id="btn-reimprimir" type="button">${ico('printer')}<span>Reimprimir</span></button><button class="btn" id="btn-cerrar" type="button">${ico('x')}<span>Cerrar</span></button></div><div id="estado-impresion" class="mensaje" role="status"></div>`;
+      dlg.innerHTML = `<h2 id="dlg-titulo" style="margin:0">Ticket</h2>${logoTicketHtml()}<pre class="ticket" id="ticket-texto">${esc(t.ticket_texto)}</pre><div class="filas"><button class="btn" id="btn-reimprimir" type="button">${ico('printer')}<span>Reimprimir</span></button><button class="btn" id="btn-cerrar" type="button">${ico('x')}<span>Cerrar</span></button></div><div id="estado-impresion" class="mensaje" role="status"></div>`;
       dlg.showModal();
       $('#btn-cerrar').addEventListener('click', () => dlg.close());
       $('#btn-reimprimir').addEventListener('click', async () => {
@@ -797,7 +801,7 @@ function dialogoTicketTarjeta(titulo, r) {
     <p style="margin:0" id="resumen-alta">Código <b>${esc(r.tarjeta.codigo)}</b> · saldo <b>${mxn(r.tarjeta.saldo)}</b> · folio <b>${String(r.venta.folio).padStart(6, '0')}</b> · ticket <b>${esc(r.codigo_ticket)}</b> · cambio <b>${mxn(r.cambio)}</b></p>
     <p class="nota" style="margin:2px 0">Vigente hasta ${esc(venceTxt(r.tarjeta.vigente_hasta))}</p>
     <div class="mensaje ${imp.ok ? 'ok' : 'error'}" id="estado-impresion" role="status">${imp.ok ? 'Ticket enviado a la impresora.' : `La impresora falló: ${esc(imp.error)}. La venta SÍ quedó guardada.`}</div>
-    <pre class="ticket" id="ticket-texto" tabindex="0">${esc(r.ticket_texto)}</pre>
+    ${logoTicketHtml()}<pre class="ticket" id="ticket-texto" tabindex="0">${esc(r.ticket_texto)}</pre>
     <div class="filas"><button class="btn btn-primario" id="btn-cerrar" type="button">${ico('check')}<span>Listo</span></button></div>`;
   dlg.showModal();
   $('#btn-cerrar').addEventListener('click', async () => { dlg.close(); await vistaTarjetas(); });
@@ -943,7 +947,7 @@ async function devolverVenta(form) {
     dlg.innerHTML = `<h2 id="dlg-titulo" style="margin:0 0 4px">Devolución registrada</h2>
       <p style="margin:0" id="resumen-devolucion">Folio <b>${String(d.folio).padStart(6, '0')}</b> · devuelto <b>${mxn(d.importe)}</b>${d.reembolsos.map((x) => ` · ${x.metodo === 'efectivo' ? 'efectivo' : x.metodo === 'tarjeta' ? 'reverso a la tarjeta bancaria (hágalo en la terminal)' : `a la tarjeta ${esc(x.tarjeta)}`} <b>${mxn(x.monto)}</b>`).join('')}</p>
       <div class="mensaje ${r.impresion.ok ? 'ok' : 'error'}" id="estado-impresion" role="status">${r.impresion.ok ? 'Ticket enviado a la impresora.' : `La impresora falló: ${esc(r.impresion.error)}. La devolución SÍ quedó guardada.`}</div>
-      <pre class="ticket" id="ticket-texto" tabindex="0">${esc(r.ticket_texto)}</pre>
+      ${logoTicketHtml()}<pre class="ticket" id="ticket-texto" tabindex="0">${esc(r.ticket_texto)}</pre>
       <div class="filas"><button class="btn btn-primario" id="btn-cerrar" type="button">${ico('check')}<span>Listo</span></button></div>`;
     dlg.showModal();
     $('#btn-cerrar').addEventListener('click', async () => { dlg.close(); await buscarVentasDev(); await pintarEncabezado(); });
@@ -1660,21 +1664,26 @@ async function vistaConfiguracion(tab) {
   await ({ tiendas: vistaTiendas, departamentos: vistaDepartamentos, tipo_cambio: vistaTipoCambio })[tab]();
 }
 
-// ── Tiendas: nombre comercial editable ──
+// ── Tiendas: nombre comercial, datos del ticket y política de devolución ──
 async function vistaTiendas() {
   const { tiendas } = await api('/api/admin/tiendas');
   S.tiendasInfo = tiendas;
+  const campo = (cls, rotulo, v, extra = '') => `<div class="campo" style="margin:6px 0"><label>${rotulo}<input class="texto ${cls}" value="${esc(v)}" ${extra} style="width:100%;padding:8px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie);text-align:left;font-size:15px"></label></div>`;
   cuerpoVista().innerHTML = `<div class="titulo-vista">${ico('store')}<h1>Tiendas</h1></div>
-    <section class="panel"><p class="nota">El nombre comercial de cada tienda sale en el ticket, en la pantalla de la caja y en las imágenes de los cupones. Se actualiza en todas las cajas.</p>
-      <div class="tabla-cont"><table id="tabla-tiendas"><thead><tr><th>Tienda</th><th>Nombre comercial</th><th></th></tr></thead><tbody>
-      ${tiendas.map((t) => `<tr data-tienda="${esc(t.tienda)}"><td>${esc(t.tienda)}</td><td><input class="texto t-nombre" value="${esc(t.nombre)}" maxlength="40" aria-label="Nombre de la tienda ${esc(t.tienda)}" style="padding:6px 8px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie);min-width:260px"></td><td class="filas" style="flex-wrap:nowrap"><button class="btn t-guardar" type="button">${ico('check')}<span>Guardar</span></button><button class="btn t-fabrica" type="button" title="Volver al nombre original">Restablecer</button></td></tr>`).join('')}</tbody></table></div>
-      <div id="msg-tiendas" class="mensaje" role="status" aria-live="polite"></div></section>`;
-  const msgT = (t, tipo) => { const m = $('#msg-tiendas'); m.className = `mensaje ${tipo}`; m.textContent = t; };
-  for (const tr of $('#tabla-tiendas').querySelectorAll('tr[data-tienda]')) {
-    const t = tiendas.find((x) => x.tienda === tr.dataset.tienda);
-    const guardar = async (nombre) => { try { await api('/api/admin/tiendas', { tienda: t.tienda, nombre }); await vistaTiendas(); msgT('Nombre guardado.', 'ok'); } catch (e) { msgT(e.message, 'error'); } };
-    tr.querySelector('.t-guardar').addEventListener('click', () => guardar(tr.querySelector('.t-nombre').value));
-    tr.querySelector('.t-fabrica').addEventListener('click', () => guardar(t.de_fabrica));
+    <p class="nota">Estos datos salen en el encabezado y el pie del ticket (con el logo de la tienda arriba) y en las imágenes de los cupones. Se actualizan en todas las cajas. Lo que deje vacío no se imprime.</p>
+    <div id="msg-tiendas" class="mensaje" role="status" aria-live="polite"></div>
+    <div class="cuadricula" id="tabla-tiendas">${tiendas.map((t) => `<section class="panel" data-tienda="${esc(t.tienda)}"><h2 style="margin-top:0">${esc(t.nombre)} <small class="nota">(${esc(t.tienda)})</small></h2>
+      <img src="${logoTicket(t.tienda)}" alt="Logo en el ticket de ${esc(t.nombre)}" style="max-height:70px;display:block;margin-bottom:8px;background:#fff;padding:4px;border-radius:6px">
+      ${campo('t-nombre', 'Nombre comercial', t.nombre, 'maxlength="40"')}${campo('t-razon', 'Razón social (a nombre de quién se factura)', t.razon_social, 'maxlength="80"')}${campo('t-rfc', 'RFC', t.rfc, 'maxlength="20"')}
+      ${campo('t-direccion', 'Dirección', t.direccion, 'maxlength="120"')}${campo('t-ciudad', 'Ciudad y estado', t.ciudad, 'maxlength="80"')}${campo('t-telefono', 'Teléfono', t.telefono, 'maxlength="30"')}
+      <div class="campo" style="margin:6px 0"><label>Política de devolución (un renglón por línea; sale al pie del ticket)<textarea class="t-politica" rows="7" maxlength="1500" style="width:100%;padding:8px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie);color:var(--texto);font:inherit">${esc(t.politica)}</textarea></label></div>
+      <div class="filas"><button class="btn btn-primario t-guardar" type="button" style="width:auto">${ico('check')}<span>Guardar</span></button><button class="btn t-fabrica" type="button" title="Volver a los datos originales">Restablecer</button></div></section>`).join('')}</div>`;
+  const msgT = (tx, tipo) => { const m = $('#msg-tiendas'); m.className = `mensaje ${tipo}`; m.textContent = tx; };
+  for (const sec of $('#tabla-tiendas').querySelectorAll('section[data-tienda]')) {
+    const t = tiendas.find((x) => x.tienda === sec.dataset.tienda);
+    const guardar = async (datos) => { try { await api('/api/admin/tiendas', { tienda: t.tienda, ...datos }); await vistaTiendas(); msgT('Datos guardados.', 'ok'); } catch (e) { msgT(e.message, 'error'); } };
+    sec.querySelector('.t-guardar').addEventListener('click', () => guardar({ nombre: sec.querySelector('.t-nombre').value, razon_social: sec.querySelector('.t-razon').value, rfc: sec.querySelector('.t-rfc').value, direccion: sec.querySelector('.t-direccion').value, ciudad: sec.querySelector('.t-ciudad').value, telefono: sec.querySelector('.t-telefono').value, politica: sec.querySelector('.t-politica').value }));
+    sec.querySelector('.t-fabrica').addEventListener('click', () => guardar(t.de_fabrica));
   }
 }
 

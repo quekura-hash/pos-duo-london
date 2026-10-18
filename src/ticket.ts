@@ -20,14 +20,32 @@ export interface NegocioCfg {
   nombre: string;
   /** Letra que identifica la tienda en el código del ticket. */
   letra: string;
+  /** Datos de la tienda que salen en el encabezado del ticket (editables en Administración → Configuración → Tiendas). */
+  razon_social?: string;
+  rfc?: string;
+  direccion?: string;
+  ciudad?: string;
+  telefono?: string;
   /** Leyendas al pie, CONFIGURABLES. "No hacemos devoluciones de efectivo" es un aviso al cliente, no un bloqueo del programa. */
   leyendas: string[];
   /** Caracteres por renglón. 42 es un supuesto para 58 mm; el ancho real depende del papel y la fuente de la impresora (pendiente). */
   columnas: number;
 }
 
+/** Política de devolución de DÚO (del ticket vigente; se edita en Administración). */
+export const POLITICA_DUO = [
+  'PÓLIZA DE DEVOLUCIÓN',
+  'Las prendas y/o artículos tienen una garantía de (5) días a partir de la compra en defectos de fabricación, siempre y cuando no haya sido usada.',
+  '***NO HAY CAMBIOS SIN RECIBO***',
+  'No hacemos devoluciones de efectivo',
+  'EN VESTIDOS Y ACCESORIOS DE NOCHE NO HAY CAMBIOS NI DEVOLUCIONES SIN EXCEPCIÓN',
+];
 export const NEGOCIOS: Record<string, NegocioCfg> = {
-  DUO: { nombre: 'DÚO New York', letra: 'D', leyendas: ['No hacemos devoluciones de efectivo'], columnas: 42 },
+  DUO: {
+    nombre: 'DÚO New York', letra: 'D', columnas: 42, leyendas: POLITICA_DUO,
+    razon_social: 'KARINA PALAFOX VILLALOBOS', rfc: 'PAVK-781208-TB9', direccion: 'AV. LIBERTAD entre calles 8 y 9 #803', ciudad: 'San Luis Río Colorado, Sonora', telefono: '534-0607',
+  },
+  // London Love: sin datos de fábrica; se capturan en Administración → Configuración → Tiendas.
   LON: { nombre: 'London Love', letra: 'L', leyendas: ['No hacemos devoluciones de efectivo'], columnas: 42 },
 };
 
@@ -74,10 +92,25 @@ export interface Ticket {
   lineas: LineaTicket[];
   total: number;
   pagos: { etiqueta: string; monto: number; recibido?: number; cambio?: number; tarjeta?: string; saldo_despues?: number; dolares?: { usd: number; tasa: number; version: number; equivalente: number; pesos: number; cambio: number } }[];
+  /** Encabezado bajo el nombre: dirección, ciudad, razón social y RFC (lo que esté capturado). */
+  encabezado: string[];
+  telefono: string;
   leyendas: string[];
   columnas: number;
   reimpresion: number;
 }
+
+/** Configuración de fábrica del negocio con lo editado en Administración encima (cadena vacía = no mostrar; la política se parte en renglones). */
+export function aplicarDatosTienda(base: NegocioCfg, d?: import('./proyecciones.ts').DatosTienda): NegocioCfg {
+  if (!d) return base;
+  const c: NegocioCfg = { ...base };
+  if (d.nombre) c.nombre = d.nombre;
+  for (const k of ['razon_social', 'rfc', 'direccion', 'ciudad', 'telefono'] as const) if (d[k] !== undefined) c[k] = d[k];
+  if (d.politica !== undefined) c.leyendas = d.politica.split('\n').map((x) => x.trim()).filter(Boolean);
+  return c;
+}
+/** Líneas del encabezado de la tienda (las vacías no salen). */
+export const encabezadoDe = (cfg: NegocioCfg): string[] => [cfg.direccion, cfg.ciudad, cfg.razon_social, cfg.rfc ? `RFC: ${cfg.rfc}` : ''].map((x) => (x ?? '').trim()).filter(Boolean);
 
 export function construirTicket(v: Venta, cfg: NegocioCfg = NEGOCIOS[v.tienda]!, reimpresion = 0, negocios = NEGOCIOS): Ticket {
   const local = new Date(Date.parse(v.ocurrio_en) - 7 * 3600_000).toISOString();
@@ -91,7 +124,7 @@ export function construirTicket(v: Venta, cfg: NegocioCfg = NEGOCIOS[v.tienda]!,
     })),
     total: v.total,
     pagos: v.pagos.map((p) => ({ etiqueta: p.metodo === 'efectivo' ? 'Efectivo MXN' : p.metodo === 'efectivo_usd' ? 'Efectivo (dólares)' : p.metodo === 'tarjeta_regalo' ? 'Tarjeta de regalo' : 'Tarjeta', monto: p.monto, recibido: p.recibido, cambio: p.cambio, tarjeta: p.tarjeta, saldo_despues: p.saldo_despues, dolares: p.metodo === 'efectivo_usd' ? { usd: p.usd!, tasa: p.tasa!, version: p.tasa_version!, equivalente: p.equivalente!, pesos: p.pesos_recibidos!, cambio: p.cambio_mxn! } : undefined })),
-    leyendas: cfg.leyendas, columnas: cfg.columnas, reimpresion,
+    encabezado: encabezadoDe(cfg), telefono: cfg.telefono ?? '', leyendas: cfg.leyendas, columnas: cfg.columnas, reimpresion,
   };
 }
 
@@ -127,7 +160,9 @@ export function renderTicketTexto(t: Ticket): string {
   const c = t.columnas;
   const regla = '-'.repeat(c);
   const L: string[] = [];
-  L.push(centrar(t.negocio, c), centrar(`Tienda ${t.tienda} - Caja ${t.caja}`, c));
+  L.push(centrar(t.negocio, c));
+  for (const x of t.encabezado) L.push(...envolver(x, c).map((y) => centrar(y, c)));
+  L.push(centrar(`Tienda ${t.tienda} - Caja ${t.caja}`, c));
   L.push(`Cajero: ${t.cajero}`, `Fecha: ${t.fecha}  Hora: ${t.hora}`, `Folio: ${String(t.folio).padStart(6, '0')}`);
   if (t.reimpresion > 0) L.push(centrar(`*** REIMPRESIÓN ${t.reimpresion} ***`, c));
   L.push(regla);
@@ -163,6 +198,8 @@ export function renderTicketTexto(t: Ticket): string {
     if (p.recibido !== undefined) L.push(dos('Recibido', formatoMXN(p.recibido), c), dos('Cambio', formatoMXN(p.cambio ?? 0), c));
   }
   L.push(regla);
+  if (t.telefono) L.push('', centrar(`TELÉFONO ${t.telefono}`, c));
+  if (t.leyendas.length) L.push('');
   for (const leyenda of t.leyendas) L.push(...envolver(leyenda, c).map((x) => centrar(x, c)));
   L.push(centrar(t.codigo_ticket, c));
   return L.join('\n') + '\n';
@@ -183,11 +220,12 @@ export function aCP858(s: string): number[] {
   return out;
 }
 
-export function renderTicketEscPos(t: Ticket, opts: { abrirCajon?: boolean } = {}): Uint8Array {
+export function renderTicketEscPos(t: Ticket, opts: { abrirCajon?: boolean; logo?: import('./logos-ticket.ts').LogoRaster } = {}): Uint8Array {
   const b: number[] = [];
   b.push(0x1b, 0x40); // ESC @ inicializar
   b.push(0x1b, 0x74, 19); // ESC t 19: página de códigos PC858 (acentos del español)
   if (opts.abrirCajon) b.push(0x1b, 0x70, 0x00, 25, 250); // ESC p: pulso al cajón
+  if (opts.logo) b.push(...rasterEscPos(opts.logo)); // logo de la tienda arriba, centrado (GS v 0)
   b.push(...aCP858(renderTicketTexto(t).replace(/\n$/, '')), 0x0a);
   const datos = aCP858(`{B${t.codigo_ticket}`); // Code128 juego B
   b.push(0x1b, 0x61, 1); // centrar
@@ -198,13 +236,20 @@ export function renderTicketEscPos(t: Ticket, opts: { abrirCajon?: boolean } = {
   return Uint8Array.from(b);
 }
 
+/** Imagen en 1 bit como ESC/POS «GS v 0» (modo normal), centrada. NO validado con una impresora real. */
+export function rasterEscPos(l: import('./logos-ticket.ts').LogoRaster): number[] {
+  const bytes = Array.from(atob(l.datos), (c) => c.charCodeAt(0));
+  const bpr = Math.ceil(l.ancho / 8);
+  return [0x1b, 0x61, 1, 0x1d, 0x76, 0x30, 0, bpr & 255, bpr >> 8, l.alto & 255, l.alto >> 8, ...bytes, 0x0a, 0x1b, 0x61, 0];
+}
+
 // ── ticket de devolución: lleva folio de la MISMA serie que las ventas (P-08) ──
 export function renderTicketDevolucionTexto(d: Devolucion, v: Venta, cfg: NegocioCfg = NEGOCIOS[v.tienda]!, negocios = NEGOCIOS): string {
   const c = cfg.columnas;
   const regla = '-'.repeat(c);
   const local = new Date(Date.parse(d.ocurrio_en) - 7 * 3600_000).toISOString();
   const [y, mo, dd] = fechaLocal(d.ocurrio_en).split('-');
-  const L: string[] = [centrar(cfg.nombre, c), centrar(`Tienda ${d.tienda} - Caja ${d.caja}`, c), centrar('DEVOLUCIÓN', c)];
+  const L: string[] = [centrar(cfg.nombre, c), ...encabezadoDe(cfg).flatMap((x) => envolver(x, c).map((y) => centrar(y, c))), centrar(`Tienda ${d.tienda} - Caja ${d.caja}`, c), centrar('DEVOLUCIÓN', c)];
   L.push(`Cajero: ${d.cajero}`, `Fecha: ${dd}/${mo}/${y}  Hora: ${local.slice(11, 16)}`, `Folio: ${String(d.folio ?? 0).padStart(6, '0')}`);
   L.push(`Venta original: ${codigoTicket(v.tienda, v.caja, v.folio, negocios)}`, regla);
   for (const dl of d.lineas) {

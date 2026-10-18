@@ -477,14 +477,21 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     // nombre de la tienda editable
     await page.click('#nav button[data-vista="configuracion"]');
     await page.click('#cfg-tab-tiendas');
-    await page.waitForSelector('#tabla-tiendas tr[data-tienda="DUO"]');
-    assert.equal(await page.inputValue('#tabla-tiendas tr[data-tienda="DUO"] .t-nombre'), 'DÚO New York');
-    await page.fill('#tabla-tiendas tr[data-tienda="DUO"] .t-nombre', 'DÚO Centro');
-    await page.click('#tabla-tiendas tr[data-tienda="DUO"] .t-guardar');
-    await page.waitForFunction(() => /Nombre guardado/.test(document.querySelector('#msg-tiendas')!.textContent!));
-    await page.fill('#tabla-tiendas tr[data-tienda="DUO"] .t-nombre', ' ');
-    await page.click('#tabla-tiendas tr[data-tienda="DUO"] .t-guardar');
+    const duo = '#tabla-tiendas section[data-tienda="DUO"]';
+    await page.waitForSelector(duo);
+    assert.equal(await page.inputValue(`${duo} .t-nombre`), 'DÚO New York');
+    assert.equal(await page.inputValue(`${duo} .t-rfc`), 'PAVK-781208-TB9');
+    assert.match(await page.inputValue(`${duo} .t-politica`), /PÓLIZA DE DEVOLUCIÓN[\s\S]*NO HAY CAMBIOS SIN RECIBO/);
+    assert.equal(await page.inputValue('#tabla-tiendas section[data-tienda="LON"] .t-rfc'), '', 'London no trae datos de fábrica');
+    await page.fill(`${duo} .t-nombre`, 'DÚO Centro');
+    await page.fill(`${duo} .t-direccion`, 'Calle Nueva 123');
+    await page.fill(`${duo} .t-politica`, 'Cambios en 5 días con ticket\nNo hacemos devoluciones de efectivo');
+    await page.click(`${duo} .t-guardar`);
+    await page.waitForFunction(() => /Datos guardados/.test(document.querySelector('#msg-tiendas')!.textContent!));
+    await page.fill(`${duo} .t-nombre`, ' ');
+    await page.click(`${duo} .t-guardar`);
     await page.waitForFunction(() => /falta el nombre/.test(document.querySelector('#msg-tiendas')!.textContent!));
+    await page.screenshot({ path: join(RAIZ, 'docs', 'capturas', '34-datos-de-tienda.png') });
 
     // Inventario → buscar el artículo → clic en la fila abre su edición → «Crear promoción» con ese artículo ya elegido
     await page.click('#nav button[data-vista="inventario"]');
@@ -529,6 +536,16 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     // acumulable: 8 piezas = dos paquetes
     for (let i = 0; i < 4; i++) { await escanear('7501234567890'); await page.waitForTimeout(150); }
     await page.waitForFunction(() => document.querySelector('#total')!.textContent === '$370.00');
+    // el ticket sale con el logo de la tienda, sus datos editados y su política
+    await page.click('#btn-exacto');
+    await page.click('#btn-cobrar');
+    await page.waitForSelector('#dlg-ticket[open]');
+    assert.equal(await page.$eval('#logo-ticket', (i) => (i as HTMLImageElement).naturalWidth > 100), true, 'el logo del ticket cargó');
+    const ticketDuo = (await page.textContent('#ticket-texto'))!;
+    for (const x of ['DÚO Centro', 'Calle Nueva 123', 'RFC: PAVK-781208-TB9', 'TELÉFONO 534-0607', 'Cambios en 5 días con ticket']) assert.ok(ticketDuo.includes(x), x);
+    assert.doesNotMatch(ticketDuo, /PÓLIZA/, 'la política editada reemplaza la de fábrica');
+    await page.screenshot({ path: join(RAIZ, 'docs', 'capturas', '35-ticket-con-logo-y-datos.png') });
+    await page.click('#btn-nueva');
     await page.selectOption('#sesion-prueba', 'LON/1');
     await page.waitForSelector('[data-chip="tienda"]');
     for (let i = 0; i < 4; i++) { await escanear('7501234567890'); await page.waitForTimeout(150); }

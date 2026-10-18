@@ -8,7 +8,7 @@ import { DENOMINACIONES_USD, esImporteEnBilletesUsd, superaUmbralTasa, totalDeno
 import { TASA_SIN_VERIFICAR_OMISION, type Politicas } from './politicas.ts';
 import { Indice } from './indice.ts';
 import { localizarVentas } from './consultas.ts';
-import { CAMPOS_EDITABLES, type CampoEditable, departamentos, promocionesDe, supervisoresDe, efectivoDeVenta, movimientosCaja, tipoCambioVigente, catalogo, devoluciones, devueltoPorLinea, existenciaVerificada, intentos, perdidasDocumentales, stock, ventas, type Devolucion, type ExistenciaVerificada, type Intento, type PerdidaDocumental, type TarjetaRegalo, type TipoCambio } from './proyecciones.ts';
+import { CAMPOS_EDITABLES, CAMPOS_TIENDA, type CampoEditable, departamentos, promocionesDe, supervisoresDe, efectivoDeVenta, movimientosCaja, tipoCambioVigente, catalogo, devoluciones, devueltoPorLinea, existenciaVerificada, intentos, perdidasDocumentales, stock, ventas, type Devolucion, type ExistenciaVerificada, type Intento, type PerdidaDocumental, type TarjetaRegalo, type TipoCambio } from './proyecciones.ts';
 import type { Repo } from './repo.ts';
 import { validarOpEntrante } from './reglas.ts';
 import type { Articulo, CajaCfg, Linea, Op, Pago, Venta } from './tipos.ts';
@@ -376,15 +376,26 @@ export class Central {
     return { ...actual, ...Object.fromEntries(Object.entries(cambios).map(([k, c]) => [k, c.despues])) } as Articulo;
   }
 
-  /** Nombre comercial de una tienda (sale en el ticket, la pantalla y las imágenes de cupón). Se propaga a todas las cajas. */
-  guardarNombreTienda(tienda: string, nombre: string, por: string): { ok: true } | { ok: false; mensaje: string } {
-    const n = String(nombre ?? '').trim().replace(/\s+/g, ' ');
+  /**
+   * Datos de una tienda (nombre comercial, razón social, RFC, dirección, ciudad, teléfono y política de devolución): salen en el
+   * ticket y las imágenes de cupón. Solo cambian los campos enviados; una cadena vacía quita ese dato del ticket. Se propaga a todas las cajas.
+   */
+  guardarDatosTienda(tienda: string, datos: Partial<Record<(typeof CAMPOS_TIENDA)[number], string>>, por: string): { ok: true } | { ok: false; mensaje: string } {
     if (!this.ctx.tiendas.includes(tienda)) return { ok: false, mensaje: 'tienda desconocida' };
-    if (!n) return { ok: false, mensaje: 'falta el nombre de la tienda' };
-    if (n.length > 40) return { ok: false, mensaje: 'el nombre es demasiado largo (máximo 40 caracteres)' };
-    this.emitirAdmin('config.negocio', { tienda, nombre: n, por });
+    const limites: Record<string, number> = { nombre: 40, razon_social: 80, rfc: 20, direccion: 120, ciudad: 80, telefono: 30, politica: 1500 };
+    const payload: Record<string, string> = {};
+    for (const c of CAMPOS_TIENDA) {
+      if (!(c in datos)) continue;
+      const v = c === 'politica' ? String(datos[c] ?? '').split('\n').map((l) => l.trim().replace(/\s+/g, ' ')).filter(Boolean).join('\n') : String(datos[c] ?? '').trim().replace(/\s+/g, ' ');
+      if (c === 'nombre' && !v) return { ok: false, mensaje: 'falta el nombre de la tienda' };
+      if (v.length > limites[c]!) return { ok: false, mensaje: `«${c.replace('_', ' ')}» es demasiado largo (máximo ${limites[c]} caracteres)` };
+      payload[c] = v;
+    }
+    if (!Object.keys(payload).length) return { ok: true };
+    this.emitirAdmin('config.negocio', { tienda, ...payload, por });
     return { ok: true };
   }
+
   /** Alta o edición de una promoción o cupón (con `id` es edición). Se propaga a todas las cajas. */
   guardarPromocion(p: Promocion, por: string): { ok: true; promo: Promocion } | { ok: false; error: ErrorPromo } {
     const otras = promocionesDe(this.repo.ops());

@@ -339,10 +339,22 @@ export function supervisoresDe(ops: Op[]): import('./supervisores.ts').Superviso
   return [...m.values()];
 }
 
+/** Datos de cada tienda editados en Administración. Cada campo es opcional: sin dato vale el de fábrica; cadena vacía = «no mostrar». */
+export interface DatosTienda { nombre?: string; razon_social?: string; rfc?: string; direccion?: string; ciudad?: string; telefono?: string; politica?: string }
+export const CAMPOS_TIENDA = ['nombre', 'razon_social', 'rfc', 'direccion', 'ciudad', 'telefono', 'politica'] as const;
+export function datosTiendas(ops: Op[]): Map<string, DatosTienda> {
+  const m = new Map<string, DatosTienda>();
+  for (const o of ops) if (o.tipo === 'config.negocio') {
+    const x = m.get(o.payload.tienda) ?? {};
+    for (const c of CAMPOS_TIENDA) if (typeof o.payload[c] === 'string') x[c] = o.payload[c];
+    m.set(o.payload.tienda, x);
+  }
+  return m;
+}
 /** Nombres comerciales de tienda editados en Administración (el último de cada tienda). */
 export function nombresTienda(ops: Op[]): Map<string, string> {
   const m = new Map<string, string>();
-  for (const o of ops) if (o.tipo === 'config.negocio') m.set(o.payload.tienda, o.payload.nombre);
+  for (const [t, d] of datosTiendas(ops)) if (d.nombre) m.set(t, d.nombre);
   return m;
 }
 

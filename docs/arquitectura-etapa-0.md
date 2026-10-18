@@ -449,3 +449,10 @@ Decisiones del propietario (punto 5): sin desglose de IVA en el ticket (el preci
 ## 21. Menú de Administración
 
 Reportes · Cortes (con el botón «Dólares recibidos») · Inventario · Almacén · Promociones (con el botón «Reporte de promociones») · Tarjetas de regalo · **Configuración** · Créditos (próximamente) · Caja (solo en la página de prueba). **Configuración** reúne en pestañas **Tiendas** (nombre comercial editable), **Departamentos** y **Tipo de cambio** (con sus permisos). El tipo de cambio sigue editándose también con el lápiz de la barra lateral.
+
+## 22. Datos de la tienda y logo en el ticket [P]
+
+- **Editable** en Administración → Configuración → Tiendas (se propaga a todas las cajas como `config.negocio`): nombre comercial, razón social, RFC, dirección, ciudad y estado, teléfono y **política de devolución** (un renglón por línea). Lo que se deja vacío no se imprime; «Restablecer» vuelve a los datos de fábrica.
+- **Ticket**: logo de la tienda arriba; nombre, dirección, ciudad, razón social y RFC bajo el logo; al pie el teléfono y la política de devolución (como el ticket vigente de DÚO). DÚO trae de fábrica los datos de su ticket actual (dirección, razón social, RFC, teléfono y política, con ortografía corregida); London Love sale sin datos hasta capturarlos y con la política «No hacemos devoluciones de efectivo».
+- **Logos del ticket**: versiones de 1 bit para papel térmico (DÚO en negro sobre blanco, para ahorrar tinta; London con tramado), generadas con `scripts/generar-logos-ticket.py`. En pantalla se ven arriba del ticket; en la impresión salen como imagen ESC/POS (`GS v 0`, centrada). **El comando de imagen no se ha probado con una impresora real**: falta validar ancho, densidad y que el modelo de impresora lo acepte.
+- El ticket de devolución también lleva el encabezado de la tienda (sin logo todavía).
