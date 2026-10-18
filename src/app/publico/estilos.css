@@ -170,3 +170,6 @@ tr.piso-roja td:first-child { box-shadow: inset 5px 0 0 var(--error); } tr.piso-
 .logo-ticket-cont { background: #fff; text-align: center; padding: 8px 0 0; border-radius: 6px 6px 0 0; }
 .logo-ticket { max-width: 200px; max-height: 110px; image-rendering: auto; }
 .logo-ticket-cont + pre.ticket { margin-top: 0; border-top: 0; }
+
+#btn-regalo[aria-pressed="true"], #btn-regalo[aria-pressed="true"]:hover:not(:disabled) { background: var(--acento); color: var(--acento-texto); border-color: var(--acento); }
+#dlg-regalo { max-width: min(460px, 94vw); }

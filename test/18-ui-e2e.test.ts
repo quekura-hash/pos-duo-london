@@ -49,10 +49,11 @@ describe('[navegador real — Chromium con Playwright, UI sobre SQLite]', { time
     // tabla: columnas separadas y en el orden pedido
     assert.deepEqual(await page.$$eval('#tabla-venta thead th:not(:last-child)', (h) => h.map((x) => x.textContent)),
       ['Item #', 'Código', 'Descripción', 'Marca', 'Estilo', 'Lote', 'Cant.', 'Precio', 'Desc.', 'Importe']);
-    // botón de regalo visible y deshabilitado (etapa posterior), debajo de Cobrar
+    // botón de ticket de regalo visible y activo (se enciende antes de cobrar), debajo de Cobrar
     const regalo = page.locator('#btn-regalo');
     assert.equal(await regalo.isVisible(), true);
-    assert.equal(await regalo.isDisabled(), true);
+    assert.equal(await regalo.isDisabled(), false);
+    assert.equal(await regalo.getAttribute('aria-pressed'), 'false');
     const yCobrar = (await page.locator('#btn-cobrar').boundingBox())!.y;
     assert.ok((await regalo.boundingBox())!.y > yCobrar, 'el botón de regalo va debajo de Cobrar');
 
@@ -315,7 +316,7 @@ describe('[navegador real — Chromium con Playwright, UI sobre SQLite]', { time
       assert.equal(await page.locator('#nav button svg').count(), tienda === 'DUO' ? 4 : 3, 'cada opción de navegación tiene su icono (la Caja 2 no tiene Tarjetas de regalo)');
       const sinIcono = await page.$$eval('button:not(.btn-icono):not([type=submit])', (bs) => bs.filter((b) => !b.querySelector('svg') && !/^[−+]$/.test(b.textContent!.trim())).map((b) => b.textContent!.trim()));
       assert.deepEqual(sinIcono, [], 'todo botón visible lleva icono');
-      for (const id of ['btn-nuevo-articulo', 'btn-editar-venta', 'btn-espera', 'btn-regalo']) {
+      for (const id of ['btn-nuevo-articulo', 'btn-editar-venta', 'btn-espera']) {
         const b = page.locator(`#${id}`);
         if (await b.count()) { assert.equal(await b.isDisabled(), true, id); assert.equal(await b.getAttribute('title'), 'Próximamente'); }
       }

@@ -98,6 +98,8 @@ export interface Ticket {
   leyendas: string[];
   columnas: number;
   reimpresion: number;
+  /** Ticket de regalo: sin precios, pagos ni descuentos; lleva el código de la compra para el cambio. */
+  regalo?: boolean;
 }
 
 /** Configuración de fábrica del negocio con lo editado en Administración encima (cadena vacía = no mostrar; la política se parte en renglones). */
@@ -149,6 +151,35 @@ function empaquetar(campos: string[], cols: number): string[] {
   if (linea) out.push(linea);
   return out;
 }
+/**
+ * Ticket de regalo de una venta: la mercancía SIN precios, descuentos, pagos ni cajero, con el código de la compra (para el cambio) y la
+ * política de la tienda. Las tarjetas de regalo no se incluyen (no tienen cambio). Devuelve null si no hay mercancía.
+ */
+export function construirTicketRegalo(v: Venta, cfg: NegocioCfg = NEGOCIOS[v.tienda]!, negocios = NEGOCIOS): Ticket | null {
+  const base = construirTicket(v, cfg, 0, negocios);
+  const lineas = base.lineas.filter((l) => !l.tarjeta_regalo);
+  return lineas.length ? { ...base, lineas, pagos: [], total: 0, regalo: true } : null;
+}
+function renderTicketRegaloTexto(t: Ticket): string {
+  const c = t.columnas;
+  const regla = '-'.repeat(c);
+  const L: string[] = [centrar(t.negocio, c)];
+  for (const x of t.encabezado) L.push(...envolver(x, c).map((y) => centrar(y, c)));
+  L.push(centrar(`Tienda ${t.tienda} - Caja ${t.caja}`, c), '', centrar('*** TICKET DE REGALO ***', c), '');
+  L.push(`Fecha de compra: ${t.fecha}`, `Compra: ${t.codigo_ticket}`, regla);
+  for (const l of t.lineas) {
+    L.push(...renglonArticulo(l, c));
+    const id = [l.item_no ? `#${l.item_no}` : '', l.codigo].filter(Boolean).join(' ');
+    if (id) L.push(id);
+  }
+  L.push(regla, ...envolver('Para cambios presente este ticket.', c).map((x) => centrar(x, c)));
+  if (t.telefono) L.push('', centrar(`TELÉFONO ${t.telefono}`, c));
+  if (t.leyendas.length) L.push('');
+  for (const leyenda of t.leyendas) L.push(...envolver(leyenda, c).map((x) => centrar(x, c)));
+  L.push(regla, centrar(t.codigo_ticket, c));
+  return L.join('\n') + '\n';
+}
+
 /** Envuelve con sangría francesa: los renglones siguientes empiezan bajo el texto, no bajo la cantidad. */
 function envolverConSangria(prefijo: string, texto: string, cols: number): string[] {
   const sangria = ' '.repeat(prefijo.length);
@@ -177,6 +208,7 @@ const dos = (izq: string, der: string, cols: number) => izq + ' '.repeat(Math.ma
  * comercial; no implica que los productos sean fiscalmente exentos). Cada artículo en dos renglones: «cantidad descripción marca estilo» y «#Item código … importe».
  */
 export function renderTicketTexto(t: Ticket): string {
+  if (t.regalo) return renderTicketRegaloTexto(t);
   const c = t.columnas;
   const regla = '-'.repeat(c);
   const L: string[] = [];

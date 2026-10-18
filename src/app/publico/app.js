@@ -214,10 +214,11 @@ async function vistaVenta() {
         </div>
         <div id="pago"></div>
         <button class="btn btn-primario" id="btn-cobrar" type="button" disabled><span id="txt-cobrar">COBRAR $0.00</span>${ico('chevron')}</button>
-        <div class="aux">${pronto('btn-regalo', 'gift', 'Ticket de regalo')}</div>
+        <div class="aux"><button class="btn" id="btn-regalo" type="button" aria-pressed="${S.conRegalo ? 'true' : 'false'}" title="Al cobrar, imprime también un ticket de regalo: la mercancía sin precios">${ico('gift')}<span>Ticket de regalo</span></button></div>
       </aside>
     </div>`;
   $('#escaneo').addEventListener('submit', async (ev) => { ev.preventDefault(); await escanear(); });
+  $('#btn-regalo').addEventListener('click', () => { S.conRegalo = !S.conRegalo; $('#btn-regalo').setAttribute('aria-pressed', S.conRegalo ? 'true' : 'false'); msg(S.conRegalo ? 'Al cobrar se imprimirá también el ticket de regalo (sin precios).' : 'Sin ticket de regalo.', 'aviso'); });
   $('#btn-descuento').addEventListener('click', abrirDescuento);
   $('#btn-cupon').addEventListener('click', () => abrirCupon());
   $('#btn-cobrar').addEventListener('click', cobrar);
@@ -530,8 +531,15 @@ function mostrarTicket(r) {
     <div id="estado-impresion" class="mensaje ${imp.ok ? 'ok' : 'error'}" role="status">${imp.ok ? 'Ticket enviado a la impresora.' : `La impresora falló: ${esc(imp.error)}. La venta SÍ quedó guardada; reintente la impresión.`}</div>
     ${(r.avisos ?? []).length ? `<div class="mensaje aviso" id="avisos-venta">${r.avisos.map((a) => esc(/^cambio_excede_efectivo_mxn:/.test(a) ? `Advertencia: el cambio entregado superó en ${mxn(Number(a.split(':')[1]))} los pesos que se sabía que había en la caja: revise el efectivo.` : a)).join(' · ')}</div>` : ''}
     ${logoTicketHtml()}<pre class="ticket" id="ticket-texto" tabindex="0">${esc(r.ticket_texto)}</pre>
-    <div class="filas"><button class="btn" id="btn-reimprimir" type="button">${ico('printer')}<span>${imp.ok ? 'Reimprimir ticket' : 'Reintentar impresión'}</span></button><button class="btn btn-primario" id="btn-nueva" type="button" style="width:auto;flex:1">${ico('plus')}<span>Nueva venta</span></button></div>`;
+    <div class="filas"><button class="btn" id="btn-reimprimir" type="button">${ico('printer')}<span>${imp.ok ? 'Reimprimir ticket' : 'Reintentar impresión'}</span></button><button class="btn" id="btn-ticket-regalo" type="button">${ico('gift')}<span>Ticket de regalo</span></button><button class="btn btn-primario" id="btn-nueva" type="button" style="width:auto;flex:1">${ico('plus')}<span>Nueva venta</span></button></div>`;
   dlg.showModal();
+  $('#btn-ticket-regalo').addEventListener('click', () => abrirTicketRegalo(r.venta.sale_id));
+  if (S.conRegalo) {
+    // se pidió ticket de regalo antes de cobrar: sale junto con el ticket de la venta
+    S.conRegalo = false;
+    api('/api/venta/ticket-regalo', { sale_id: r.venta.sale_id }).then((x) => { $('#estado-impresion').insertAdjacentHTML('afterend', `<div class="mensaje ${x.impresion.ok ? 'ok' : 'error'}" id="estado-regalo" role="status">${x.impresion.ok ? 'Ticket de regalo enviado a la impresora.' : `El ticket de regalo no se imprimió: ${esc(x.impresion.error)}. Use el botón «Ticket de regalo» para reintentar.`}</div>`); })
+      .catch((e) => $('#estado-impresion').insertAdjacentHTML('afterend', `<div class="mensaje error" id="estado-regalo">${esc(e.message)}</div>`));
+  }
   $('#btn-reimprimir').addEventListener('click', async () => {
     try {
       const x = await api('/api/venta/reimprimir', { sale_id: r.venta.sale_id });
@@ -547,6 +555,24 @@ function mostrarTicket(r) {
     S.cart = n.cart; S.carrito = n.carrito; S.sel = null;
     await ir('venta');
   });
+}
+
+/** Imprime y muestra el ticket de regalo (mercancía sin precios) de una venta de esta caja. */
+async function abrirTicketRegalo(saleId) {
+  const d = dialogo('dlg-regalo');
+  d.setAttribute('aria-labelledby', 'regalo-titulo');
+  const pintar = (x, nota) => {
+    d.innerHTML = `<h2 id="regalo-titulo" style="margin:0 0 4px">Ticket de regalo</h2>
+      <div id="estado-regalo-dlg" class="mensaje ${x.impresion.ok ? 'ok' : 'error'}" role="status">${x.impresion.ok ? esc(nota) : `La impresora falló: ${esc(x.impresion.error)}.`}</div>
+      ${logoTicketHtml()}<pre class="ticket" id="ticket-regalo-texto">${esc(x.ticket_texto)}</pre>
+      <div class="filas"><button class="btn" id="regalo-cerrar" type="button">${ico('x')}<span>Cerrar</span></button><button class="btn btn-primario" id="regalo-reimprimir" type="button" style="width:auto;flex:1">${ico('printer')}<span>Imprimir otra vez</span></button></div>`;
+    $('#regalo-cerrar').addEventListener('click', () => d.close());
+    $('#regalo-reimprimir').addEventListener('click', async () => { try { pintar(await api('/api/venta/ticket-regalo', { sale_id: saleId }), 'Ticket de regalo enviado a la impresora.'); } catch (e) { $('#estado-regalo-dlg').className = 'mensaje error'; $('#estado-regalo-dlg').textContent = e.message; } });
+  };
+  try {
+    pintar(await api('/api/venta/ticket-regalo', { sale_id: saleId }), 'Ticket de regalo enviado a la impresora.');
+    d.showModal();
+  } catch (e) { const m = $('#estado-impresion'); if (m) { m.className = 'mensaje error'; m.textContent = e.message; } else msg(e.message, 'error'); }
 }
 
 // ── corte ──
@@ -644,9 +670,10 @@ async function vistaVentas() {
     b.addEventListener('click', async () => {
       const t = await api(`/api/ticket?sale_id=${b.dataset.ver}`);
       const dlg = $('#dlg-ticket');
-      dlg.innerHTML = `<h2 id="dlg-titulo" style="margin:0">Ticket</h2>${logoTicketHtml()}<pre class="ticket" id="ticket-texto">${esc(t.ticket_texto)}</pre><div class="filas"><button class="btn" id="btn-reimprimir" type="button">${ico('printer')}<span>Reimprimir</span></button><button class="btn" id="btn-cerrar" type="button">${ico('x')}<span>Cerrar</span></button></div><div id="estado-impresion" class="mensaje" role="status"></div>`;
+      dlg.innerHTML = `<h2 id="dlg-titulo" style="margin:0">Ticket</h2>${logoTicketHtml()}<pre class="ticket" id="ticket-texto">${esc(t.ticket_texto)}</pre><div class="filas"><button class="btn" id="btn-reimprimir" type="button">${ico('printer')}<span>Reimprimir</span></button><button class="btn" id="btn-ticket-regalo" type="button">${ico('gift')}<span>Ticket de regalo</span></button><button class="btn" id="btn-cerrar" type="button">${ico('x')}<span>Cerrar</span></button></div><div id="estado-impresion" class="mensaje" role="status"></div>`;
       dlg.showModal();
       $('#btn-cerrar').addEventListener('click', () => dlg.close());
+      $('#btn-ticket-regalo').addEventListener('click', () => abrirTicketRegalo(b.dataset.ver));
       $('#btn-reimprimir').addEventListener('click', async () => {
         const x = await api('/api/venta/reimprimir', { sale_id: b.dataset.ver });
         $('#ticket-texto').textContent = x.ticket_texto;
@@ -1832,7 +1859,7 @@ async function vistaTipoCambio() {
 
 // ── arranque ──
 async function iniciar() {
-  Object.assign(S, { sesion: null, vista: null, cart: null, carrito: null, sel: null, estado: null, ultimoFolio: null });
+  Object.assign(S, { conRegalo: false, sesion: null, vista: null, cart: null, carrito: null, sel: null, estado: null, ultimoFolio: null });
   S.sesion = await api('/api/sesion');
   await ir(S.sesion.nav[0]);
 }

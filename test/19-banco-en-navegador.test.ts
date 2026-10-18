@@ -618,6 +618,52 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     assert.match((await page.textContent('#pr-items'))!, /ARTICULO 77 ACME/);
     assert.deepEqual(errores, []);
   });
+  it('B8 ticket de regalo: se pide antes de cobrar o después, sale sin precios y se reimprime desde el historial', async (t) => {
+    execFileSync(process.execPath, [join(RAIZ, 'scripts', 'construir-prueba.mjs')], { stdio: 'pipe' });
+    const browser = await chromium.launch({ executablePath: chromiumPath, args: ['--no-sandbox'] });
+    t.after(() => browser.close());
+    const page = await (await browser.newContext({ viewport: { width: 1440, height: 900 }, colorScheme: 'light' })).newPage();
+    const errores: string[] = [];
+    page.on('pageerror', (e) => errores.push(String(e)));
+    page.on('console', (m) => { if (m.type() === 'error') errores.push(m.text()); });
+    await page.goto(`file://${HTML}`);
+    await page.waitForSelector('[data-chip="tienda"]');
+    const escanear = async (c: string) => { await page.fill('#scan', c); await page.press('#scan', 'Enter'); };
+    // 1) se enciende «Ticket de regalo» ANTES de cobrar: sale junto con el ticket de la venta
+    await escanear('0002026090782');
+    await page.waitForSelector('#cuerpo tr[data-linea]');
+    await page.click('#btn-regalo');
+    assert.equal(await page.getAttribute('#btn-regalo', 'aria-pressed'), 'true');
+    await page.fill('#recibido', '1000');
+    await page.click('#btn-cobrar');
+    await page.waitForSelector('#dlg-ticket[open]');
+    await page.waitForFunction(() => /Ticket de regalo enviado a la impresora/.test(document.querySelector('#estado-regalo')?.textContent ?? ''));
+    // 2) desde el mismo diálogo se puede ver (e imprimir otra vez)
+    await page.click('#btn-ticket-regalo');
+    await page.waitForSelector('#ticket-regalo-texto');
+    const regalo = (await page.textContent('#ticket-regalo-texto'))!;
+    assert.match(regalo, /\*\*\* TICKET DE REGALO \*\*\*/);
+    assert.match(regalo, /^1 JEANS LEVIS 726-$/m);
+    assert.match(regalo, /^Compra: D1-000001$/m);
+    assert.doesNotMatch(regalo, /\$|TOTAL|Efectivo/);
+    assert.equal(await page.$eval('#dlg-regalo #logo-ticket', (i) => (i as HTMLImageElement).naturalWidth > 100), true, 'lleva el logo');
+    await page.screenshot({ path: join(RAIZ, 'docs', 'capturas', '36-ticket-de-regalo.png') });
+    await page.click('#regalo-reimprimir');
+    await page.waitForFunction(() => /enviado a la impresora/.test(document.querySelector('#estado-regalo-dlg')!.textContent!));
+    await page.click('#regalo-cerrar');
+    await page.click('#btn-nueva');
+    // la casilla se apaga sola para la siguiente venta
+    await page.waitForSelector('#btn-regalo');
+    assert.equal(await page.getAttribute('#btn-regalo', 'aria-pressed'), 'false');
+    // 3) desde el historial
+    await page.click('#nav button[data-vista="ventas"]');
+    await page.waitForSelector('#tabla-ventas [data-ver]');
+    await page.click('#tabla-ventas [data-ver]');
+    await page.click('#btn-ticket-regalo');
+    await page.waitForSelector('#ticket-regalo-texto');
+    assert.match((await page.textContent('#ticket-regalo-texto'))!, /JEANS LEVIS/);
+    assert.deepEqual(errores, []);
+  });
 });
 
 const REAL = process.env.POS_INVENTARIO_REAL;

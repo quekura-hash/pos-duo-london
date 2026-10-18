@@ -1312,7 +1312,7 @@ export class Caja {
   }
 
   /** Bitácora de impresión: una falla de impresora nunca duplica ni revierte la venta. */
-  registrarImpresion(d: { sale_id: string; tipo: 'original' | 'reimpresion'; resultado: 'ok' | 'error'; error?: string; usuario: string }): Op {
+  registrarImpresion(d: { sale_id: string; tipo: 'original' | 'reimpresion' | 'regalo'; resultado: 'ok' | 'error'; error?: string; usuario: string }): Op {
     const v = ventas(this.opsVentas()).get(d.sale_id);
     if (!v || v.tienda !== this.tienda || v.caja !== this.caja) throw new ErrorDominio('PROHIBIDO', 'solo se imprimen ventas de la propia caja');
     return this.emitir('ticket.impresion', { ...d, tienda: this.tienda, caja: this.caja, folio: v.folio });

@@ -9,7 +9,7 @@ import { estadoPromo, type Promocion } from '../promociones.ts';
 import { CAMPOS_EDITABLES, catalogo, historialArticulo, nombresTienda, datosTiendas, departamentos as proyDepartamentos, promocionesDe, supervisoresDe, permisos as proyPermisos, tarjetasRegalo, tiposDeCambio, tipoCambioVigente, ventas, type TipoCambio } from '../proyecciones.ts';
 import { hojaDescuentos, hojaDolares, hojaInventario, leerInventario, PERFIL_CONFIRMADO, type Hoja } from '../inventario.ts';
 import { LOGOS_TICKET } from '../logos-ticket.ts';
-import { aplicarDatosTienda, codigoTicket, construirTicket, formatoMXN, NEGOCIOS, renderTextoEscPos, renderTicketDevolucionTexto, renderTicketEscPos, renderTicketTexto, type NegocioCfg } from '../ticket.ts';
+import { aplicarDatosTienda, codigoTicket, construirTicket, construirTicketRegalo, formatoMXN, NEGOCIOS, renderTextoEscPos, renderTicketDevolucionTexto, renderTicketEscPos, renderTicketTexto, type NegocioCfg } from '../ticket.ts';
 import type { Actor, Articulo, Linea, Op, Venta } from '../tipos.ts';
 import { fechaLocal } from '../util.ts';
 
@@ -354,6 +354,29 @@ export class ServicioCaja {
     if (!v || v.tienda !== this.caja.tienda || v.caja !== this.caja.caja) throw new ErrorDominio('PROHIBIDO', 'solo se reimprimen ventas de la propia caja');
     const n = this.caja.impresionesDe(saleId).filter((i) => i.tipo === 'reimpresion').length + 1;
     return this.imprimirVenta(saleId, 'reimpresion', n);
+  }
+
+  /**
+   * Imprime el ticket de regalo de una venta ya cobrada de ESTA caja: la mercancía sin precios y con el código de la compra para el
+   * cambio. No abre el cajón ni cuenta como reimpresión del ticket de venta. Una venta cancelada o sin mercancía no tiene ticket de regalo.
+   */
+  async ticketRegalo(saleId: string) {
+    const v = ventas(this.caja.opsVentas()).get(saleId);
+    if (!v || v.tienda !== this.caja.tienda || v.caja !== this.caja.caja) throw new ErrorDominio('PROHIBIDO', 'solo se imprimen tickets de regalo de ventas de la propia caja');
+    if (v.estado === 'cancelada') throw new ErrorDominio('VENTA_CANCELADA', 'la venta está cancelada: no tiene ticket de regalo');
+    const neg = this.negociosVivos();
+    const ticket = construirTicketRegalo(v, neg[v.tienda]!, neg);
+    if (!ticket) throw new ErrorDominio('SIN_MERCANCIA', 'la venta no tiene mercancía (las tarjetas de regalo no llevan ticket de regalo)');
+    const texto = renderTicketTexto(ticket);
+    let impresion: { ok: boolean; error?: string };
+    try {
+      await this.impresora.imprimir({ ref: `regalo-${ticket.codigo_ticket}`, texto, bytes: renderTicketEscPos(ticket, { logo: LOGOS_TICKET[v.tienda] }) });
+      impresion = { ok: true };
+    } catch (e) {
+      impresion = { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+    this.caja.registrarImpresion({ sale_id: saleId, tipo: 'regalo', resultado: impresion.ok ? 'ok' : 'error', error: impresion.error, usuario: this.actor.usuario });
+    return { ticket_texto: texto, codigo_ticket: ticket.codigo_ticket, impresion };
   }
 
   ticketTexto(saleId: string): string {

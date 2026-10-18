@@ -65,6 +65,7 @@ export async function atender(o: { cajero?: ServicioCaja; admin?: ServicioAdmin 
       }
       case 'POST /api/venta/devolver': return ok(await exigirCajero().devolver(b.sale_id, b.renglones ?? [], String(b.motivo ?? 'devolución')));
       case 'POST /api/tarjeta/recargar': return ok(await exigirCajero().recargarTarjetaRegalo(String(b.codigo ?? ''), Number(b.monto), b.recibido === undefined ? undefined : Number(b.recibido), b.ref));
+      case 'POST /api/venta/ticket-regalo': return ok(await exigirCajero().ticketRegalo(b.sale_id));
       case 'POST /api/venta/reimprimir': return ok(await exigirCajero().reimprimir(b.sale_id));
       case 'GET /api/buscar': return ok({ ...exigirCajero().buscarConTotal(q.get('q') ?? '') });
       case 'GET /api/ventas': {
