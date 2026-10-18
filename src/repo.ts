@@ -130,8 +130,19 @@ export class MemoriaRepo implements Repo {
     this.kv.set(k, JSON.stringify(v));
     if (this.prof > 0) this.undo.push(() => (prev === undefined ? this.kv.delete(k) : this.kv.set(k, prev)));
   }
+  /** Copia serializable del estado (operaciones desde `desde`, cola de salida y clave/valor): para guardar el banco de pruebas del navegador. */
+  exportar(desde = 0): EstadoRepo {
+    return { desde, ops: this.ops_.slice(desde), outbox: [...this.outbox], kv: [...this.kv] };
+  }
+  /** Reaplica un estado exportado sobre un repositorio que ya tiene la misma base (las operaciones repetidas se ignoran). */
+  importar(e: EstadoRepo) {
+    for (const op of e.ops) this.appendOp(op);
+    for (const [k, v] of e.outbox) this.outbox.set(k, v);
+    for (const [k, v] of e.kv) this.kv.set(k, v);
+  }
   cerrar() {}
 }
+export interface EstadoRepo { desde: number; ops: Op[]; outbox: [string, boolean][]; kv: [string, string][] }
 
 export class SqliteRepo implements Repo {
   readonly tipo = 'sqlite' as const;

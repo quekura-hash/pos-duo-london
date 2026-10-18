@@ -13,6 +13,8 @@ import { Reloj } from './util.ts';
 export interface FabricaRepo {
   tipo: 'memoria' | 'sqlite';
   abrir(nombre: string, cajas: CajaCfg[]): Repo;
+  /** Repositorios abiertos (solo memoria): permite guardar y restaurar el banco de pruebas. */
+  todos?(): [string, Repo][];
   destruir(nombre: string): void;
   /** Copia consistente del almacenamiento (solo SQLite). */
   respaldar?(repo: Repo, nombre: string): string;
@@ -30,6 +32,7 @@ export function fabricaMemoria(): FabricaRepo {
     destruir(n) {
       cache.delete(n);
     },
+    todos: () => [...cache],
   };
 }
 

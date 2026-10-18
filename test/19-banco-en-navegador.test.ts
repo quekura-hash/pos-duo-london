@@ -298,6 +298,47 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     assert.equal(await page.locator('#dlg-recepcion[open]').count(), 0, 'ya confirmada: no vuelve a preguntar');
     assert.deepEqual(errores, []);
   });
+  it('B4 lo que se hace en la página (alta de almacén, departamento) se conserva al recargar', async (t) => {
+    execFileSync(process.execPath, [join(RAIZ, 'scripts', 'construir-prueba.mjs')], { stdio: 'pipe' });
+    const browser = await chromium.launch({ executablePath: chromiumPath, args: ['--no-sandbox'] });
+    t.after(() => browser.close());
+    const page = await (await browser.newContext({ viewport: { width: 1440, height: 900 }, colorScheme: 'light' })).newPage();
+    const errores: string[] = [];
+    page.on('pageerror', (e) => errores.push(String(e)));
+    page.on('console', (m) => { if (m.type() === 'error') errores.push(m.text()); });
+    await page.goto(`file://${HTML}`);
+    await page.waitForSelector('[data-chip="tienda"]');
+    await page.waitForFunction(() => !!(window as any).__POS_GUARDAR_ESTADO__);
+    await page.waitForTimeout(500);
+    await page.click('#nav button[data-vista="administracion"]');
+    await page.click('#nav button[data-vista="almacen"]');
+    await page.click('#btn-alta-manual');
+    await page.fill('#man-cantidad', '7');
+    await page.fill('#man-codigo', 'PERSIST-1');
+    await page.fill('#man-descripcion', 'CAMISA PRUEBA');
+    await page.fill('#man-precio', '250');
+    await page.click('#manual-guardar');
+    await page.waitForSelector('#alm-cuerpo tr[data-codigo="PERSIST-1"]');
+    await page.evaluate(() => (window as any).__POS_GUARDAR_ESTADO__());
+    await page.reload();
+    await page.waitForSelector('[data-chip="tienda"]');
+    await page.waitForTimeout(800);
+    await page.click('#nav button[data-vista="administracion"]');
+    await page.click('#nav button[data-vista="almacen"]');
+    await page.waitForSelector('#alm-cuerpo tr[data-codigo="PERSIST-1"]');
+    assert.equal(await page.textContent('#alm-cuerpo tr[data-codigo="PERSIST-1"] [data-col="almacen"]'), '7');
+    // «Reiniciar datos de prueba» sí borra todo
+    await page.click('#reiniciar');
+    await page.waitForTimeout(500);
+    await page.reload();
+    await page.waitForSelector('[data-chip="tienda"]');
+    await page.waitForTimeout(800);
+    await page.click('#nav button[data-vista="administracion"]');
+    await page.click('#nav button[data-vista="almacen"]');
+    await page.waitForSelector('#alm-cuerpo');
+    assert.equal(await page.locator('#alm-cuerpo tr[data-codigo="PERSIST-1"]').count(), 0);
+    assert.deepEqual(errores, []);
+  });
 });
 
 const REAL = process.env.POS_INVENTARIO_REAL;

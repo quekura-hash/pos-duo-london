@@ -85,13 +85,14 @@
     $('#imp-cancelar').addEventListener('click', function () { d.close(); });
     $('#imp-cargar').addEventListener('click', function () { estado.duo = Number($('#imp-duo').value) || 0; estado.lon = Number($('#imp-lon').value) || 0; cargar(true); });
   }
-  function cargar(guardarArchivo) {
+  function cargar(guardarArchivo, estadoGuardado) {
     var r = lectura();
     var dep = PosBanco.aplicarDepartamentos(r.articulos, PosBanco.DEPARTAMENTOS_BASE, { decisiones: estado.decisiones, reglaEnvolturas: estado.regla });
     var o = PosBanco.aOperacionesInventario(dep.articulos, { ahora: new Date().toISOString(), idImportacion: 'imp1', existenciaPrueba: { DUO: estado.duo, LON: estado.lon } });
     var muestra = dep.articulos.filter(function (a) { return a.codigo && a.precio > 0; }).slice(0, 8).map(function (a) { return { codigo: a.codigo, item_no: a.item_no, descripcion: a.descripcion || '(sin descripción)', marca: a.marca, precio: a.precio, existencia: estado.duo + ' / ' + estado.lon }; });
     var texto = 'Inventario cargado: ' + estado.nombre + ' · ' + r.estadisticas.filas + ' artículos · mapeo «' + PosBanco.PERFILES[estado.perfil].id + '» · existencia de prueba DÚO ' + estado.duo + ', London ' + estado.lon;
-    ctl.cargarInventario(o.ops, texto, muestra);
+    if (guardarArchivo) borrar('estado'); // inventario nuevo = base nueva: lo guardado era de la base anterior
+    ctl.cargarInventario(o.ops, texto, muestra, estadoGuardado);
     if (guardarArchivo) guardar('inventario', { nombre: estado.nombre, bytes: estado.bytes, hoja: estado.hoja, perfil: estado.perfil, duo: estado.duo, lon: estado.lon, decisiones: estado.decisiones, regla: estado.regla });
     var d = $('#dlg-importar'); if (d.open) d.close();
     $('#sesion-prueba').value = ctl.sesion;
@@ -110,7 +111,7 @@
   }
   $('#importar').addEventListener('click', function () { $('#archivo-inventario').click(); });
   $('#archivo-inventario').addEventListener('change', function (e) { var f = e.target.files[0]; e.target.value = ''; if (f) abrirArchivo(f); });
-  $('#quitar-inv').addEventListener('click', function () { borrar('inventario').then(function () { ctl.quitarInventario(); $('#sesion-prueba').value = ctl.sesion; }); });
+  $('#quitar-inv').addEventListener('click', function () { Promise.all([borrar('inventario'), borrar('estado')]).then(function () { ctl.quitarInventario(); $('#sesion-prueba').value = ctl.sesion; }); });
 
   // ── exportar inventario (Administración) ──
   window.__POS_EXPORTAR__ = function (ruta, archivo) {
@@ -136,7 +137,7 @@
   $('#sesion-prueba').addEventListener('change', function (e) { ctl.seleccionar(e.target.value); });
   $('#falla-hub').addEventListener('change', function (e) { ctl.caerHub(ctl.tienda(), e.target.checked); });
   $('#falla-imp').addEventListener('change', function (e) { ctl.fallaImpresora(ctl.sesion, e.target.checked); });
-  $('#reiniciar').addEventListener('click', function () { ctl.reiniciar(); $('#sesion-prueba').value = ctl.sesion; });
+  $('#reiniciar').addEventListener('click', function () { borrar('estado'); ultimaVersion = -1; ctl.reiniciar(); $('#sesion-prueba').value = ctl.sesion; });
   // Una sola ventana: la caja y Administración se alternan desde el menú lateral (en la app real cada sesión es aparte y con acceso propio).
   var ultimaCaja = 'DUO/1';
   window.__POS_CAMBIAR_SESION__ = function (a) {
@@ -148,13 +149,32 @@
   aplicar(); pintarAyuda();
   window.POS_UI.iniciar();
 
-  // Si ya se importó un inventario en este navegador, se vuelve a cargar solo.
-  leer('inventario').then(function (g) {
-    if (!g) return;
+  // Todo lo que se haga (altas de almacén, entregas, ventas, departamentos…) se conserva en ESTE navegador y vuelve al abrir la página.
+  var ultimaVersion = -1;
+  var listo = false; // no se guarda nada hasta terminar de recuperar lo anterior (si no, se pisaría con un banco vacío)
+  function guardarEstado() {
+    if (!listo) return Promise.resolve();
+    var f = ctl.estadoParaGuardar();
+    if (f.version === ultimaVersion) return Promise.resolve();
+    ultimaVersion = f.version;
+    return guardar('estado', f.estado);
+  }
+  setInterval(guardarEstado, 2000);
+  window.addEventListener('pagehide', guardarEstado);
+  document.addEventListener('visibilitychange', function () { if (document.hidden) guardarEstado(); });
+  window.__POS_GUARDAR_ESTADO__ = guardarEstado;
+
+  // Si ya se importó un inventario en este navegador, se vuelve a cargar solo (con lo que se hizo después).
+  Promise.all([leer('inventario'), leer('estado')]).then(function (r) {
+    var g = r[0], est = r[1];
+    if (!g) {
+      if (est && !est.conInventario) { ctl.restaurar(est); $('#sesion-prueba').value = ctl.sesion; }
+      return;
+    }
     $('#estado-inv').textContent = 'Cargando el inventario guardado en este navegador…';
     return PosBanco.leerXlsx(window.ExcelJS, g.bytes).then(function (hojas) {
       estado = { nombre: g.nombre, bytes: g.bytes, hojas: hojas, hoja: g.hoja, perfil: g.perfil, duo: g.duo, lon: g.lon, decisiones: g.decisiones || {}, regla: g.regla !== false };
-      cargar(false);
+      cargar(false, est && est.conInventario ? est : undefined);
     });
-  }).catch(function () { aplicar(); });
+  }).catch(function () { aplicar(); }).then(function () { ultimaVersion = -1; listo = true; });
 })();

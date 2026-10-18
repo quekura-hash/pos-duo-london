@@ -5,6 +5,7 @@ import { CAJAS_ESTANDAR, fabricaMemoria, Mundo } from '../mundo.ts';
 import { crearPoliticasEnsayo } from '../politicas.ts';
 import { aplicarDepartamentos, DEPARTAMENTOS_BASE } from '../departamentos.ts';
 import { aOperacionesInventario, leerInventario, PERFILES } from '../inventario.ts';
+import { MemoriaRepo, type EstadoRepo } from '../repo.ts';
 import type { Op } from '../tipos.ts';
 import { escribirXlsx, leerXlsx } from '../xlsx.ts';
 import { atender } from './rutas.ts';
@@ -30,9 +31,13 @@ export const ARTICULOS_DE_PRUEBA: { codigo: string; item_no: string; marca: stri
   { codigo: '7508888888888', item_no: '1006', marca: 'MARCA B', descripcion: 'FALDA', estilo: 'F-1', lote: '20261016', departamento: 'DAMA', precio: 30000, existencias: { DUO: 2 } },
 ];
 
-export function crearBanco(opsCatalogo?: Op[]) {
+/** Lo que se guarda del banco de pruebas en el navegador: lo que ocurrió DESPUÉS de cargar el catálogo base. */
+export interface EstadoBanco { conInventario: boolean; repos: Record<string, EstadoRepo> }
+
+export function crearBanco(opsCatalogo?: Op[], estado?: EstadoBanco) {
+  const fab = fabricaMemoria();
   const m = new Mundo({
-    fabrica: fabricaMemoria(),
+    fabrica: fab,
     politicas: crearPoliticasEnsayo({
       P01_hub_no_disponible: 'vender_autonomo_con_aviso', P02_existencia_insuficiente: 'permitir_y_conciliar', P03_devolucion_venta_no_local: 'permitir_con_incidencia',
       P06_huecos_de_folio: 'no_aceptados', P07_item_no: 'a_central', P12_tarjeta_con_pendiente: 'permitir_con_aviso',
@@ -66,18 +71,25 @@ export function crearBanco(opsCatalogo?: Op[]) {
     }));
   }
   const admin = new ServicioAdmin({ central: m.central, actor: { rol: 'admin', usuario: 'Administración' }, fuente: () => m.central.repo.ops(), cajas: CAJAS_ESTANDAR.map((c) => ({ tienda: c.tienda, caja: c.caja })), inventario: m.inventarioCentral() });
-  return { m, servicios, admin, impresoras, ultimaSync, ahora };
+  // Base = configuración inicial + catálogo; todo lo posterior (altas, ventas, entregas…) es lo que vale la pena conservar.
+  const bases = new Map<string, number>((fab.todos?.() ?? []).map(([n, r]) => [n, r.seqMax()]));
+  if (estado && estado.conInventario === !!opsCatalogo) {
+    for (const [n, r] of fab.todos?.() ?? []) { const e = estado.repos[n]; if (e && r instanceof MemoriaRepo) r.importar(e); }
+  }
+  const exportar = (): EstadoBanco => ({ conInventario: !!opsCatalogo, repos: Object.fromEntries((fab.todos?.() ?? []).filter(([, r]) => r instanceof MemoriaRepo).map(([n, r]) => [n, (r as MemoriaRepo).exportar(bases.get(n) ?? 0)])) });
+  const version = () => (fab.todos?.() ?? []).reduce((a, [, r]) => a + r.seqMax(), 0);
+  return { m, servicios, admin, impresoras, ultimaSync, ahora, exportar, version };
 }
 
 export type Banco = ReturnType<typeof crearBanco>;
 
 export { aplicarDepartamentos, DEPARTAMENTOS_BASE, aOperacionesInventario, escribirXlsx, leerInventario, leerXlsx, PERFILES };
 
-export function iniciarBanco(opciones: { alCambiar: () => void }) {
+export function iniciarBanco(opciones: { alCambiar: () => void; estadoInicial?: EstadoBanco }) {
   let opsCatalogo: Op[] | undefined;
   let etiqueta = '';
   let muestra: { codigo: string; descripcion: string; marca: string; precio: number; item_no: string | null }[] = [];
-  let banco = crearBanco();
+  let banco = crearBanco(undefined, opciones.estadoInicial);
   let sesion = 'DUO/1';
   const atenderSesion = async (metodo: string, ruta: string, cuerpo: unknown) => {
     banco.m.reloj.fijar(banco.ahora());
@@ -93,7 +105,11 @@ export function iniciarBanco(opciones: { alCambiar: () => void }) {
     seleccionar(id: string) { banco.m.pump(); sesion = id; opciones.alCambiar(); },
     reiniciar() { banco = crearBanco(opsCatalogo); opciones.alCambiar(); },
     /** Carga un inventario importado (operaciones de catálogo y existencia de prueba) en lugar de los datos de ejemplo. */
-    cargarInventario(ops: Op[], texto: string, ejemplos: typeof muestra) { opsCatalogo = ops; etiqueta = texto; muestra = ejemplos; banco = crearBanco(opsCatalogo); opciones.alCambiar(); },
+    cargarInventario(ops: Op[], texto: string, ejemplos: typeof muestra, estado?: EstadoBanco) { opsCatalogo = ops; etiqueta = texto; muestra = ejemplos; banco = crearBanco(opsCatalogo, estado); opciones.alCambiar(); },
+    /** Foto del estado para guardarla (null si no cambió desde la última vez que se pidió). */
+    estadoParaGuardar(): { version: number; estado: EstadoBanco } { return { version: banco.version(), estado: banco.exportar() }; },
+    /** Recupera lo guardado (altas, ventas, entregas…) sobre los datos de ejemplo. */
+    restaurar(estado: EstadoBanco) { banco = crearBanco(opsCatalogo, estado); opciones.alCambiar(); },
     quitarInventario() { opsCatalogo = undefined; etiqueta = ''; muestra = []; banco = crearBanco(); opciones.alCambiar(); },
     inventarioCargado: () => ({ etiqueta, muestra, conInventario: !!opsCatalogo }),
     caerHub(t: string, v: boolean) { if (v) banco.m.caerHub(t); else banco.m.levantarHub(t); },
