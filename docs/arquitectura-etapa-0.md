@@ -417,7 +417,7 @@ P-06 (pantalla de folio), P-15 (respaldos cifrados a Drive), P-17 (cupones como 
 
 ## 19. Promociones, cupones y descuentos con clave [P]
 
-Decisiones del propietario (punto 5): sin desglose de IVA en el ticket (el precio del catálogo es el final); los cupones y certificados del sistema viejo quedan **obsoletos** (la importación los omite); Créditos salió del menú de venta y queda en Administración (deshabilitado, «Próximamente»).
+Decisiones del propietario (punto 5): sin desglose de IVA en el ticket (el precio del catálogo es el final); los cupones y certificados del sistema viejo quedan **obsoletos** (la importación los omite y avisa cuántos: «Cupón o certificado del sistema anterior (no se importa)»); Créditos salió del menú de venta y queda en Administración (deshabilitado, «Próximamente»).
 
 - **Promociones** (Administración → Promociones; se guardan como `promo.guardada` en el central y viajan a todas las cajas). Todas llevan fecha de inicio y de término, o **sin fecha límite** hasta que Administración las desactive. Estados: activa, programada, vencida, desactivada. Las fechas son locales y se cuentan inclusive.
   - **Lleva X, paga Y** (2x1, 3x2…): en la mercancía que cumpla el alcance (departamentos y/o palabras de la descripción; si se ponen ambos deben cumplirse los dos). De cada grupo de X piezas, las más baratas salen gratis. Las piezas sueltas no cuentan.

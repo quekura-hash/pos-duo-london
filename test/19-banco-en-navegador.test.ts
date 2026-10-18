@@ -127,9 +127,9 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
 
     await page.setInputFiles('#archivo-inventario', archivo);
     await page.waitForSelector('#dlg-importar[open]');
-    assert.match((await page.textContent('#imp-resumen'))!, /14 artículos · con código 12 · sin código 2 /);
+    assert.match((await page.textContent('#imp-resumen'))!, /13 artículos · con código 11 · sin código 2 /);
     assert.equal(await page.locator('#imp-anomalias tr[data-tipo="item_no_duplicado"]').count(), 1);
-    assert.match((await page.textContent('#imp-anomalias tr[data-tipo="precio_negativo"]'))!, /cupón/i);
+    assert.match((await page.textContent('#imp-anomalias tr[data-tipo="cupon_obsoleto"]'))!, /cupón/i);
     assert.deepEqual(await page.$$eval('#imp-previa tbody tr:first-child td', (c) => c.map((x) => x.textContent)), ['1', '0021001403065', 'BLUSA', 'blusa seksy', '', '', '$169.00']);
     await page.check('input[name="imp-perfil"][value="1"]');
     assert.deepEqual(await page.$$eval('#imp-previa tbody tr:first-child td', (c) => c.slice(2, 4).map((x) => x.textContent)), ['blusa seksy', 'BLUSA'], 'el perfil alternativo invierte Marca y Descripción');
@@ -139,12 +139,12 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     assert.equal(await page.getAttribute('#imp-deptos tr[data-clave="zapatos"]', 'data-estado'), 'descontinuado');
     assert.equal(await page.inputValue('#imp-deptos tr[data-clave="zapatos"] select'), 'Sin clasificar');
     assert.equal(await page.inputValue('#imp-deptos tr[data-clave="system"] select'), 'Sin clasificar');
-    assert.equal(await page.inputValue('#imp-deptos tr[data-clave="cupones"] select'), 'Tarjetas de regalo y cupones');
+    assert.equal(await page.inputValue('#imp-deptos tr[data-clave="perfumes"] select'), 'Cosméticos y perfumes');
     await page.selectOption('#imp-deptos tr[data-clave="women s"] select', 'Dama');
     assert.equal(await page.isChecked('#imp-regla-env'), true);
     await page.fill('#imp-duo', '10');
     await page.click('#imp-cargar');
-    await page.waitForFunction(() => /Inventario cargado: inventario_prueba\.xlsx · 14 artículos/.test(document.querySelector('#estado-inv')!.textContent!));
+    await page.waitForFunction(() => /Inventario cargado: inventario_prueba\.xlsx · 13 artículos/.test(document.querySelector('#estado-inv')!.textContent!));
     assert.equal(await page.isVisible('#quitar-inv'), true);
 
     // vender un artículo importado
@@ -152,9 +152,9 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     await page.waitForSelector('#cuerpo tr[data-linea]');
     const celdas = await page.$$eval('#cuerpo tr[data-linea]:nth-child(1) td[data-col]', (t) => Object.fromEntries(t.map((x) => [x.getAttribute('data-col'), x.textContent!.replace(/[−+]/g, '').replace(/×.*$/, '').trim()])));
     assert.deepEqual([celdas.item_no, celdas.codigo, celdas.marca, celdas.descripcion, celdas.precio], ['1', '0021001403065', 'BLUSA', 'blusa seksy', '$169.00']);
-    await escanear('0121020030001'); // cupón con precio negativo
+    await escanear('0000000000322'); // precio 0: no se puede vender
     await page.waitForFunction(() => /precio/i.test(document.querySelector('#mensaje')!.textContent!));
-    assert.equal(await page.locator('#cuerpo tr[data-linea]').count(), 1, 'el cupón no se agrega');
+    assert.equal(await page.locator('#cuerpo tr[data-linea]').count(), 1, 'el artículo sin precio no se agrega');
     await escanear('1010M3'); // código alterno
     await page.waitForFunction(() => document.querySelectorAll('#cuerpo tr[data-linea]').length === 2);
     await escanear('rhapsody'); // sin código: se elige de la búsqueda
@@ -172,20 +172,20 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     await page.selectOption('#sesion-prueba', 'admin');
     await page.click('#nav button[data-vista="inventario"]');
     await page.waitForSelector('#tabla-inv-resumen');
-    assert.equal(await page.textContent('#tabla-inv-resumen [data-campo="articulos"]'), '14');
+    assert.equal(await page.textContent('#tabla-inv-resumen [data-campo="articulos"]'), '13');
     assert.equal(await page.textContent('#tabla-inv-resumen [data-campo="sin_codigo"]'), '2');
-    assert.equal(await page.textContent('#tabla-inv-resumen [data-campo="precio_no_vendible"]'), '2');
+    assert.equal(await page.textContent('#tabla-inv-resumen [data-campo="precio_no_vendible"]'), '1');
     await page.screenshot({ path: join(RAIZ, 'docs', 'capturas', '11-inventario-en-la-pagina.png') });
     const [descarga] = await Promise.all([page.waitForEvent('download'), page.click('#btn-exportar')]);
     const filas = (await leerXlsxNode(readFileSync((await descarga.path())!)))[0]!.filas;
-    assert.equal(filas.length, 15);
+    assert.equal(filas.length, 14);
     const f1 = filas.find((f) => f[0] === 1)!;
     assert.deepEqual([f1[1], f1[2], f1[3], f1[7]], ['0021001403065', 'BLUSA', 'blusa seksy', 169]);
     assert.equal(f1[12], 9, 'DÚO: 10 de prueba − 1 vendida (ya sincronizada)');
 
     // persistencia: al recargar, el inventario sigue cargado (guardado en este navegador)
     await page.reload();
-    await page.waitForFunction(() => /Inventario cargado: inventario_prueba\.xlsx · 14 artículos/.test(document.querySelector('#estado-inv')!.textContent!), null, { timeout: 15000 });
+    await page.waitForFunction(() => /Inventario cargado: inventario_prueba\.xlsx · 13 artículos/.test(document.querySelector('#estado-inv')!.textContent!), null, { timeout: 15000 });
     await page.selectOption('#sesion-prueba', 'DUO/2');
     await page.waitForSelector('#scan');
     await escanear('0031001403033');

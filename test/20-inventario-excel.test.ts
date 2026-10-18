@@ -41,9 +41,10 @@ describe('[memoria — inventario en Excel] Lectura, reporte, carga al sistema y
     assert.deepEqual(r.columnas.ignoradas, []);
     assert.deepEqual(r.columnas.faltantes.sort(), ['codigo_2', 'codigo_alterno', 'pedimento', 'precio_alterno']);
     assert.deepEqual([r.columnas.usadas.marca, r.columnas.usadas.descripcion, r.columnas.usadas.existencia, r.columnas.usadas.etiqueta_precio, r.columnas.usadas.etiqueta_costura], ['Marca', 'Descripcion', 'cantidad', 'etiq precio', 'etiq costura']);
-    assert.deepEqual(r.articulos.map((a) => [a.item_no, a.codigo, a.descripcion, a.marca, a.precio, a.existencia]), [['1', '0021001403065', 'BLUSA', '', 16900, 1], ['2', '', 'PANTALON AMBIANCE', 'AMBIANCE', 24900, -2], ['3', '0121020030001', 'CUPON', '', -5000, 0]]);
-    assert.deepEqual(r.articulos.map((a) => [a.etiqueta_precio, a.etiqueta_costura]), [[true, null], [true, null], [true, null]]);
-    assert.equal(r.porTipo.find((x) => x.tipo === 'precio_negativo')!.cantidad, 1, 'el cupón sigue señalado');
+    assert.deepEqual(r.articulos.map((a) => [a.item_no, a.codigo, a.descripcion, a.marca, a.precio, a.existencia]), [['1', '0021001403065', 'BLUSA', '', 16900, 1], ['2', '', 'PANTALON AMBIANCE', 'AMBIANCE', 24900, -2]]);
+    assert.deepEqual(r.articulos.map((a) => [a.etiqueta_precio, a.etiqueta_costura]), [[true, null], [true, null]]);
+    assert.equal(r.porTipo.find((x) => x.tipo === 'cupon_obsoleto')!.cantidad, 1, 'el cupón del sistema anterior se omite y se informa');
+    assert.equal(r.estadisticas.cupones_omitidos, 1);
   });
 
   it('IX1 reconoce las columnas del archivo real y no ignora ninguna', async () => {
@@ -53,7 +54,7 @@ describe('[memoria — inventario en Excel] Lectura, reporte, carga al sistema y
     assert.deepEqual(r.columnas.faltantes, ['existencia'], 'el archivo no trae cantidades: no se inventan');
     assert.equal(r.columnas.usadas.marca, 'Item Name');
     assert.equal(r.columnas.usadas.descripcion, 'Item Description');
-    assert.equal(r.articulos.length, FILAS_REALISTAS.length);
+    assert.equal(r.articulos.length, FILAS_REALISTAS.length - 1, 'el cupón obsoleto (precio negativo) no se importa');
   });
 
   it('IX2 códigos como texto con sus ceros; un código guardado como número se advierte y NO se reconstruye', async () => {
@@ -93,15 +94,14 @@ describe('[memoria — inventario en Excel] Lectura, reporte, carga al sistema y
     assert.equal(ag.carrito.lineas.length, 2);
   });
 
-  it('IX5 precio 0, negativo (cupones) o ilegible: se importan y se señalan, pero NO se pueden vender con el precio del catálogo', async (t) => {
+  it('IX5 precio 0 o ilegible: se importan y se señalan, pero NO se pueden vender; el cupón obsoleto (precio negativo) no se importa', async (t) => {
     const b = await banco();
     t.after(b.limpiar);
     const tipos = Object.fromEntries(b.lectura.porTipo.map((x) => [x.tipo, x.cantidad]));
-    assert.deepEqual([tipos.precio_negativo, tipos.precio_cero, tipos.precio_con_centavos], [1, 1, 1]);
+    assert.deepEqual([tipos.precio_negativo, tipos.cupon_obsoleto, tipos.precio_cero, tipos.precio_con_centavos], [undefined, 1, 1, 1]);
     const cart = b.svc.nuevaVenta();
-    for (const cod of ['0121020030001', '0000000000322']) {
-      assert.throws(() => b.svc.escanear(cart, cod), { codigo: 'PRECIO_INVALIDO' });
-    }
+    assert.throws(() => b.svc.escanear(cart, '0000000000322'), { codigo: 'PRECIO_INVALIDO' });
+    assert.equal(b.svc.escanear(cart, '0121020030001').resultado, 'no_encontrado', 'el cupón viejo ya no existe en el catálogo');
     assert.equal(b.svc.vista(cart).total, 0, 'un cupón nunca resta importe en silencio');
     assert.equal(b.svc.escanear(cart, '0000000003300').resultado, 'agregado');
     assert.equal(b.svc.vista(cart).total, 56350, 'precio con centavos exacto');
@@ -172,7 +172,7 @@ describe('[memoria — inventario en Excel] Lectura, reporte, carga al sistema y
     await b.svc.cobrarEfectivo(cart, 200000);
     b.m.pump();
     const { resumen, hoja } = b.admin.inventario(true);
-    assert.equal((resumen as any).articulos, FILAS_REALISTAS.length);
+    assert.equal((resumen as any).articulos, FILAS_REALISTAS.length - 1);
     assert.equal((resumen as any).por_tienda.DUO.piezas, 10 * b.lectura.articulos.filter((a) => a.precio > 0).length - 4, 'las ventas se descuentan; los artículos no vendibles no reciben existencia de prueba');
     const bytes = await escribirXlsxNode([hoja]);
     const wb = new ExcelJS.Workbook();
@@ -274,7 +274,7 @@ describe('[archivo real] Inventario real de DÚO (solo si POS_INVENTARIO_REAL ap
       [21220, 20565, 655, 3, 0, 187, 0],
       'con las columnas ya corregidas el mapeo confirmado (Marca / Descripcion) funciona sin perfil alterno',
     );
-    assert.equal(c.porTipo.find((x) => x.tipo === 'precio_negativo')!.cantidad, 133);
+    assert.equal(c.porTipo.find((x) => x.tipo === 'cupon_obsoleto')!.cantidad, 133);
     assert.equal(c.porTipo.find((x) => x.tipo === 'precio_cero')!.cantidad, 54);
     const q = c.articulos.map((a) => a.existencia as number);
     assert.deepEqual([q.length, q.filter((x) => x < 0).length, q.filter((x) => x === 0).length], [21220, 2101, 3165], 'la columna cantidad trae existencias, con negativas');

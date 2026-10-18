@@ -81,6 +81,8 @@ export interface ResultadoInventario {
     filas: number; con_codigo: number; sin_codigo: number; con_codigo_alterno: number; descripcion_vacia: number; marca_vacia: number;
     estilo_vacio: number; lote_vacio: number; departamento_sin_clasificar: number; precio_no_vendible: number; con_precio_alterno: number;
     etiqueta_costura_si: number; etiqueta_precio_vacia: number; item_no_duplicados: number; codigos_duplicados: number;
+    /** Cupones y certificados del sistema anterior (precio negativo): ya no se importan. */
+    cupones_omitidos: number;
   };
   /** Errores que impiden importar (p. ej. falta una columna indispensable). */
   errores: string[];
@@ -107,7 +109,7 @@ export function leerInventario(filas: unknown[][], perfil: Perfil = PERFIL_CONFI
     estadisticas: {
       filas: 0, con_codigo: 0, sin_codigo: 0, con_codigo_alterno: 0, descripcion_vacia: 0, marca_vacia: 0, estilo_vacio: 0, lote_vacio: 0,
       departamento_sin_clasificar: 0, precio_no_vendible: 0, con_precio_alterno: 0, etiqueta_costura_si: 0, etiqueta_precio_vacia: 0,
-      item_no_duplicados: 0, codigos_duplicados: 0,
+      item_no_duplicados: 0, codigos_duplicados: 0, cupones_omitidos: 0,
     },
     errores: [],
   };
@@ -157,6 +159,12 @@ export function leerInventario(filas: unknown[][], perfil: Perfil = PERFIL_CONFI
       pedimento: recorte(cel(r, 'pedimento')) || null, codigo_2: texto(cel(r, 'codigo_2')) || null,
       fila_origen: fila, existencia: Number.isFinite(existencia as number) ? existencia : null,
     };
+    // Los cupones y certificados del sistema anterior (precio negativo) quedaron obsoletos: se omiten y se informa cuántos.
+    if (!precioIlegible && precio < 0) {
+      res.estadisticas.cupones_omitidos++;
+      res.anomalias.push({ tipo: 'cupon_obsoleto', severidad: 'info', fila, item_no, codigo, detalle: `precio ${precio / 100}: cupón o certificado del sistema anterior; no se importa (los descuentos ahora son promociones y cupones nuevos)` });
+      continue;
+    }
     res.articulos.push(a);
     const e = res.estadisticas;
     e.filas++;
