@@ -426,7 +426,9 @@ Decisiones del propietario (punto 5): sin desglose de IVA en el ticket (el preci
   - **Lleva X, paga Y** (2x1, 3x2…): las piezas más baratas de cada grupo salen gratis; las sueltas no cuentan.
   - **Paquete a precio fijo** («lleva 4 por $185», p. ej. el accesorio popular de $55): cada grupo completo de N piezas se cobra al precio del paquete; con 5 piezas de un paquete de 4, se cobra un paquete más una suelta a precio normal.
   - **Qué mercancía**: se eligen **artículos concretos con un buscador** (código, Item #, descripción, marca) dentro de la promoción, o desde **Inventario → buscar artículo → «Crear promoción»**; también se puede por departamento y/o palabras de la descripción.
-  - **Por cada $X de compra, $Y de descuento**: escalones completos.
+  - **Por cada $X de compra, $Y de descuento**: escalones completos (por cada $500, $50: con $2,650 son 5 escalones = $250 de descuento).
+  - **Acumulable** (casilla en lleva-paga, paquete y por-cada; marcada por omisión): se repite por cada grupo completo, así que 8 piezas de «4 por $185» son dos paquetes ($370). Sin marcar, aplica una sola vez por compra. No tiene que ver con combinar promociones distintas, que sigue prohibido.
+  - **Promoción activa / desactivada**: la casilla de estado se rotula «Promoción activa» o «Promoción desactivada» según esté marcada.
   - **Cupón** con código, % o $ fijo, compra mínima ($X **o más**), usos máximos (vacío = sin límite; 1 = un solo uso; una venta cancelada libera el uso).
 - **Cálculo** (`src/promociones.ts`, centavos enteros): se recalcula en cada cambio del carrito y antes de cobrar; nunca pasa del importe de la línea y los repartos entre líneas son exactos (mayor residuo). El ticket muestra cada descuento con su nombre.
 - **Nombre de las tiendas** (Administración → Tiendas): el nombre comercial es editable y se actualiza en todas las cajas; sale en el ticket, en la pantalla y en la imagen del cupón (que muestra solo la(s) tienda(s) donde vale).

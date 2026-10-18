@@ -29,6 +29,8 @@ export interface Promocion {
   pct?: number;
   monto?: number;
   minimo?: number;
+  /** Lleva-paga, paquete y por-cada: true (o sin dato) = se repite por cada grupo completo (8 piezas de un paquete de 4 = 2 paquetes); false = aplica una sola vez por compra. */
+  acumulable?: boolean;
   /** Veces que se puede canjear en total (null = sin límite). */
   usos_max?: number | null;
 }
@@ -65,7 +67,7 @@ export function validarPromocion(p: Promocion, otras: Promocion[], tiendasValida
   const tiendas = [...new Set((p.tiendas ?? []).map((t) => String(t).trim()).filter(Boolean))];
   if (!tiendas.length) return mal('elija en qué tienda vale (DÚO, London o ambas)');
   if (tiendasValidas.length && tiendas.some((t) => !tiendasValidas.includes(t))) return mal('tienda desconocida');
-  const base: Promocion = { id: p.id, tipo: p.tipo, nombre, activa: !!p.activa, tiendas, inicio, fin };
+  const base: Promocion = { id: p.id, tipo: p.tipo, nombre, activa: !!p.activa, tiendas, inicio, fin, ...(p.tipo !== 'cupon' ? { acumulable: p.acumulable !== false } : {}) };
   if (p.tipo === 'nxm' || p.tipo === 'paquete') {
     if (p.tipo === 'nxm' && (!entero(p.lleva, 2) || !entero(p.paga, 1) || p.paga! >= p.lleva!)) return mal('«lleva» debe ser 2 o más y «paga» un número menor que «lleva»');
     if (p.tipo === 'paquete' && (!entero(p.lleva, 2) || !entero(p.precio, 0))) return mal('el paquete lleva 2 piezas o más y un precio total en pesos');
@@ -136,7 +138,8 @@ function descuentoDe(p: Promocion, merc: Linea[], restante: (l: Linea) => number
     const unidades: { l: Linea; precio: number }[] = [];
     for (const l of merc) if (aplicaAlcance(p.alcance!, l)) for (let i = 0; i < l.qty; i++) unidades.push({ l, precio: l.precio_unit });
     unidades.sort((a, b) => b.precio - a.precio);
-    for (let g = 0; (g + 1) * p.lleva! <= unidades.length; g++) {
+    const maxGrupos = p.acumulable === false ? 1 : Infinity;
+    for (let g = 0; (g + 1) * p.lleva! <= unidades.length && g < maxGrupos; g++) {
       const grupo = unidades.slice(g * p.lleva!, (g + 1) * p.lleva!);
       if (p.tipo === 'nxm') {
         for (const u of grupo.slice(grupo.length - (p.lleva! - p.paga!))) suma(u.l, u.precio);
@@ -150,7 +153,7 @@ function descuentoDe(p: Promocion, merc: Linea[], restante: (l: Linea) => number
   }
   const elegible = merc.reduce((a, l) => a + restante(l), 0);
   let monto = 0;
-  if (p.tipo === 'por_cada') monto = Math.min(Math.floor(elegible / p.cada!) * p.descuenta!, elegible);
+  if (p.tipo === 'por_cada') monto = Math.min(Math.min(Math.floor(elegible / p.cada!), p.acumulable === false ? 1 : Infinity) * p.descuenta!, elegible);
   else if (usarCupon) monto = Math.min(p.pct !== undefined ? Math.floor((elegible * p.pct + 50) / 100) : p.monto!, elegible);
   if (monto > 0) repartir(monto, merc.map(restante)).forEach((m, i) => suma(merc[i]!, m));
   return por;

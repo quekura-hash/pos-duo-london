@@ -1415,9 +1415,10 @@ function alcanceTexto(a) {
   return [a.item_ids?.length ? `artículos: ${nombresArticulos(a.item_ids).join(', ')}` : '', a.departamentos?.length ? `departamentos: ${a.departamentos.join(', ')}` : '', a.palabras?.length ? `descripción con: ${a.palabras.join(', ')}` : ''].filter(Boolean).join(' · ');
 }
 function reglaTexto(p) {
-  if (p.tipo === 'nxm') return `Lleva ${p.lleva}, paga ${p.paga} (${alcanceTexto(p.alcance ?? {})})`;
-  if (p.tipo === 'paquete') return `Lleva ${p.lleva} por ${mxn(p.precio)} (${alcanceTexto(p.alcance ?? {})})`;
-  if (p.tipo === 'por_cada') return `Por cada ${mxn(p.cada)} de compra, ${mxn(p.descuenta)} de descuento`;
+  const acum = p.acumulable === false ? ' · una sola vez por compra' : ' · acumulable';
+  if (p.tipo === 'nxm') return `Lleva ${p.lleva}, paga ${p.paga} (${alcanceTexto(p.alcance ?? {})})${acum}`;
+  if (p.tipo === 'paquete') return `Lleva ${p.lleva} por ${mxn(p.precio)} (${alcanceTexto(p.alcance ?? {})})${acum}`;
+  if (p.tipo === 'por_cada') return `Por cada ${mxn(p.cada)} de compra, ${mxn(p.descuenta)} de descuento${acum}`;
   const q = p.pct !== undefined ? `${p.pct} %` : mxn(p.monto);
   return `Código ${p.codigo}: ${q} de descuento${p.minimo ? ` en compras desde ${mxn(p.minimo)}` : ''}${p.usos_max ? ` · máx. ${p.usos_max} uso(s)` : ''}`;
 }
@@ -1434,7 +1435,7 @@ async function vistaPromociones() {
       <div id="msg-promo" class="mensaje" role="status" aria-live="polite"></div>
       <div class="tabla-cont"><table id="tabla-promos"><thead><tr><th>Nombre</th><th>Tienda</th><th>Tipo</th><th>Regla</th><th>Vigencia</th><th>Estado</th><th class="num">Usos</th><th></th></tr></thead><tbody>
       ${promociones.map((p) => `<tr data-promo="${esc(p.id)}" data-estado="${p.estado}"><td>${esc(p.nombre)}</td><td data-col="tiendas">${esc(tiendasTexto(p))}</td><td>${NOM_TIPO[p.tipo]}</td><td class="desc">${esc(reglaTexto(p))}</td><td>${esc(vigenciaTexto(p))}</td><td><span class="insignia ${p.estado === 'activa' ? '' : 'cancelada'}">${NOM_ESTADO_PROMO[p.estado]}</span></td><td class="num">${p.usos}</td>
-        <td class="filas" style="flex-wrap:nowrap"><button class="btn p-editar" type="button">${ico('pencil')}<span>Editar</span></button><button class="btn p-activa" type="button">${p.activa ? 'Desactivar' : 'Activar'}</button>${p.tipo === 'cupon' ? `<button class="btn p-qr" type="button">${ico('download')}<span>Imagen QR</span></button>` : ''}</td></tr>`).join('') || '<tr><td colspan="8" class="vacio">Aún no hay promociones ni cupones.</td></tr>'}</tbody></table></div></section>
+        <td class="filas" style="flex-wrap:nowrap"><button class="btn p-editar" type="button">${ico('pencil')}<span>Editar</span></button><button class="btn p-activa" type="button">${p.activa ? 'Desactivar promoción' : 'Activar promoción'}</button>${p.tipo === 'cupon' ? `<button class="btn p-qr" type="button">${ico('download')}<span>Imagen QR</span></button>` : ''}</td></tr>`).join('') || '<tr><td colspan="8" class="vacio">Aún no hay promociones ni cupones.</td></tr>'}</tbody></table></div></section>
     <section class="panel" style="margin-top:12px"><h2 style="margin-top:0">Supervisores que autorizan descuentos</h2>
       <p class="nota">Solo un supervisor puede autorizar un descuento en la caja, tecleando su clave (4 a 8 dígitos). El descuento puede llegar hasta el 100 %. La clave no se puede volver a ver: si se olvida, se cambia.</p>
       <div class="tabla-cont"><table id="tabla-supervisores"><thead><tr><th>Nombre</th><th>Estado</th><th>Nueva clave</th><th></th></tr></thead><tbody>
@@ -1520,8 +1521,9 @@ async function abrirPromo(p, preset) {
         ${campo('pr-minimo', 'Compra mínima ($, vacío = sin mínimo; el mínimo se cumple con esa cantidad o más)', q.minimo ? centavosAPesos(q.minimo) : '', 'inputmode="decimal"')}
         ${campo('pr-usos', 'Usos máximos (vacío = sin límite; 1 = un solo uso)', q.usos_max ?? '', 'inputmode="numeric"')}
       </div>
-      <p class="nota">En cada compra aplica una sola promoción o cupón (la que más descuento dé); no se combinan.</p>
-      <label style="margin-top:8px"><input type="checkbox" id="pr-activa" ${q.activa ? 'checked' : ''}> Activa</label>
+      <div data-tipo="nxm paquete por_cada"><label style="margin-top:8px"><input type="checkbox" id="pr-acumulable" ${q.acumulable === false ? '' : 'checked'}> <b>Acumulable</b>: se repite por cada grupo completo (8 piezas de un paquete de 4 = 2 paquetes; $2,650 con «por cada $500, $50» = $250 de descuento). Sin marcar, aplica una sola vez por compra.</label></div>
+      <p class="nota">En cada compra aplica una sola promoción o cupón (la que más descuento dé); no se combinan entre sí.</p>
+      <label style="margin-top:8px"><input type="checkbox" id="pr-activa" ${q.activa ? 'checked' : ''}> <span id="pr-activa-txt"></span></label>
       <div id="msg-pr" class="mensaje" role="status" aria-live="polite"></div>
       <div class="filas"><button class="btn" type="button" id="pr-cerrar">Cancelar</button><button class="btn btn-primario" type="submit" id="pr-guardar" style="width:auto;flex:1">${ico('check')}<span>Guardar</span></button></div>
     </form>`;
@@ -1529,6 +1531,9 @@ async function abrirPromo(p, preset) {
   mostrar();
   if (preset?.item && nueva) { $('#pr-tipo').value = 'nxm'; mostrar(); if (!$('#pr-nombre').value) $('#pr-nombre').value = `Promoción ${preset.item.descripcion}`; }
   $('#pr-tipo').addEventListener('change', mostrar);
+  const rotuloActiva = () => { $('#pr-activa-txt').innerHTML = $('#pr-activa').checked ? '<b>Promoción activa</b>' : '<b>Promoción desactivada</b>'; };
+  rotuloActiva();
+  $('#pr-activa').addEventListener('change', rotuloActiva);
   const pintarItems = () => {
     $('#pr-items').innerHTML = items.length ? items.map((id) => `<span class="insignia" data-item="${esc(id)}">${esc(nombresArticulos([id])[0])} <button type="button" class="btn btn-icono pr-quitar" aria-label="Quitar" style="width:20px;height:20px">${ico('x')}</button></span>`).join('') : '<span class="nota">Ningún artículo elegido todavía.</span>';
     for (const b of $('#pr-items').querySelectorAll('.pr-quitar')) b.addEventListener('click', () => { items = items.filter((x) => x !== b.parentElement.dataset.item); pintarItems(); });
@@ -1562,6 +1567,7 @@ async function abrirPromo(p, preset) {
     const body = { id: p?.id ?? '', tipo: t, nombre: $('#pr-nombre').value, activa: $('#pr-activa').checked, tiendas: [...d.querySelectorAll('.pr-tienda:checked')].map((x) => x.value), inicio: $('#pr-inicio').value || null, fin: $('#pr-sin-fin').checked ? null : ($('#pr-fin').value || null) };
     if (!body.tiendas.length) return err('Elija en qué tienda vale (una o ambas).');
     if (!$('#pr-sin-fin').checked && !body.fin) return err('Elija la fecha de término o marque «Sin fecha límite».');
+    if (t !== 'cupon') body.acumulable = $('#pr-acumulable').checked;
     if (t === 'nxm' || t === 'paquete') {
       if (t === 'nxm') { body.lleva = Number($('#pr-lleva').value); body.paga = Number($('#pr-paga').value); }
       else { body.lleva = Number($('#pr-lleva2').value); body.precio = parseMXN($('#pr-precio').value); if (body.precio === null) return err('Escriba el precio del paquete en pesos.'); }

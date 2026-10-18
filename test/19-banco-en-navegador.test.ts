@@ -502,8 +502,13 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     await page.fill('#pr-buscar', '0000000000017');
     await page.waitForSelector('#pr-tabla-res tr[data-item]');
     assert.match((await page.textContent('#pr-tabla-res'))!, /BOLSA/);
-    await page.click('#pr-cerrar');
+    assert.equal(await page.isChecked('#pr-acumulable'), true, 'el paquete es acumulable por omisión');
+    assert.equal(await page.textContent('#pr-activa-txt'), 'Promoción activa');
+    await page.uncheck('#pr-activa');
+    assert.equal(await page.textContent('#pr-activa-txt'), 'Promoción desactivada');
+    await page.check('#pr-activa');
     await page.screenshot({ path: join(RAIZ, 'docs', 'capturas', '31-promocion-por-tienda.png') });
+    await page.click('#pr-cerrar');
 
     // en la caja de DÚO vale; en la de London no. El nombre editado aparece en la pantalla
     await page.click('#nav button[data-vista="volver_caja"]');
@@ -513,6 +518,9 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     for (let i = 0; i < 4; i++) { await escanear('7501234567890'); await page.waitForTimeout(150); }
     await page.waitForFunction(() => document.querySelector('#total')!.textContent === '$185.00');
     assert.match((await page.textContent('#promos-aplicadas'))!, /Accesorio popular: 4 por \$185.*-\$295\.00/);
+    // acumulable: 8 piezas = dos paquetes
+    for (let i = 0; i < 4; i++) { await escanear('7501234567890'); await page.waitForTimeout(150); }
+    await page.waitForFunction(() => document.querySelector('#total')!.textContent === '$370.00');
     await page.selectOption('#sesion-prueba', 'LON/1');
     await page.waitForSelector('[data-chip="tienda"]');
     for (let i = 0; i < 4; i++) { await escanear('7501234567890'); await page.waitForTimeout(150); }

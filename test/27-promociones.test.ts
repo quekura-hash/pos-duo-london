@@ -85,6 +85,23 @@ it('PR6 cupón: % con redondeo al centavo, monto fijo, compra mínima y mensajes
   assert.deepEqual([cg.cupon!.aplicado, cg.aplicadas.length, cg.lineas[0]!.importe], [true, 0, 8000], 'el cupón gana y no se suma la promoción');
 });
 
+it('PR6b acumulable: se repite por grupo completo; sin marcar aplica una sola vez por compra', () => {
+  const paq = P({ tipo: 'paquete', id: 'q', nombre: '4 por $185', lleva: 4, precio: 18500, alcance: { departamentos: [], palabras: ['accesorio'], item_ids: [] } });
+  const imp = (p: Promocion, n: number) => calcularDescuentos([L('a', 'ACCESORIO POPULAR', 5500, n)], [p], null, HOY).lineas[0]!.importe;
+  assert.deepEqual([4, 8, 9, 12].map((n) => imp(paq, n)), [18500, 37000, 37000 + 5500, 55500]);
+  assert.deepEqual([4, 8, 12].map((n) => imp({ ...paq, acumulable: false }, n)), [18500, 18500 + 22000, 18500 + 44000], 'sin acumular: un solo paquete');
+  const dos = dosxuno({ acumulable: false });
+  assert.equal(calcularDescuentos([L('a', 'BLUSA', 10000, 6)], [dos], null, HOY).lineas[0]!.importe, 50000, 'un solo par gratis');
+  const pc = P({ tipo: 'por_cada', id: 'c', nombre: 'Por cada $500, $50', cada: 50000, descuenta: 5000 });
+  const tot = (p: Promocion, precio: number) => calcularDescuentos([L('a', 'X', precio, 1)], [p], null, HOY).lineas[0]!.importe;
+  assert.deepEqual([49900, 50000, 265000].map((x) => tot(pc, x)), [49900, 45000, 240000], '$2,650 → 5 escalones = $250 menos');
+  assert.deepEqual([49900, 50000, 265000].map((x) => tot({ ...pc, acumulable: false }, x)), [49900, 45000, 260000], 'sin acumular: $50 una sola vez');
+  const v = validarPromocion({ ...paq, tiendas: ['DUO'], acumulable: false }, [], ['DUO']);
+  assert.equal(v.ok && v.promo.acumulable, false);
+  const v2 = validarPromocion({ ...paq, tiendas: ['DUO'] }, [], ['DUO']);
+  assert.equal(v2.ok && v2.promo.acumulable, true);
+});
+
 it('PR7 validación: tipos, fechas, códigos y alcance', () => {
   const v = (p: Promocion, otras: Promocion[] = []) => validarPromocion({ tiendas: ['DUO'], ...p }, otras, ['DUO', 'LON']);
   assert.equal(v(dosxuno()).ok, true);
