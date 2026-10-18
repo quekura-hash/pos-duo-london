@@ -180,3 +180,6 @@ tr.piso-roja td:first-child { box-shadow: inset 5px 0 0 var(--error); } tr.piso-
 tr.faltante-pendiente { background: var(--naranja-fondo); } tr.faltante-pendiente td:first-child { box-shadow: inset 5px 0 0 var(--naranja); }
 .faltantes input[type=number] { width: 64px; padding: 4px; border: 1px solid var(--borde); border-radius: 6px; background: var(--superficie); text-align: right; }
 .insignia.naranja { background: var(--naranja); color: #fff; }
+
+/* aviso de retiro: flotante y NO modal, la venta sigue funcionando debajo */
+dialog.aviso-flotante { position: fixed; inset: 16px 16px auto auto; margin: 0; width: min(360px, calc(100vw - 32px)); border: 2px solid var(--naranja); border-radius: 12px; background: var(--superficie); color: inherit; box-shadow: 0 8px 28px rgba(0,0,0,.28); padding: 14px; z-index: 50; }

@@ -893,6 +893,59 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     assert.match((await page.textContent('[data-existencia="limbo"]'))!, /El Limbo: 8/);
     assert.deepEqual(errores, []);
   });
+
+  it('B13 retiro de efectivo: aviso flotante con $10,000 de venta (sin bloquear), retiro con billetes grandes y datos impresos', async (t) => {
+    execFileSync(process.execPath, [join(RAIZ, 'scripts', 'construir-prueba.mjs')], { stdio: 'pipe' });
+    const browser = await chromium.launch({ executablePath: chromiumPath, args: ['--no-sandbox'] });
+    t.after(() => browser.close());
+    const page = await (await browser.newContext({ viewport: { width: 1440, height: 900 }, colorScheme: 'light' })).newPage();
+    const errores: string[] = [];
+    page.on('pageerror', (e) => errores.push(String(e)));
+    page.on('console', (m) => { if (m.type() === 'error') errores.push(m.text()); });
+    await page.goto(`file://${HTML}`);
+    await page.waitForSelector('[data-chip="tienda"]');
+    assert.equal(await page.locator('#nav button[data-vista="retiro"]').count(), 1, 'Retiro está en el menú de venta');
+    // $12,000 de efectivo de venta (el fondo no cuenta): una venta de 12 jeans de $899 + fondo de $3,000
+    await page.evaluate(async () => {
+      const a = (window as any).__POS_ATENDER__;
+      await a('POST', '/api/efectivo/movimiento', { tipo: 'fondo_inicial', monto: 300000, moneda: 'MXN' });
+      const { json: v } = await a('POST', '/api/venta/nueva', {});
+      const { json: e } = await a('POST', '/api/venta/escanear', { cart: v.cart, codigo: '0002026090782' });
+      await a('POST', '/api/venta/cantidad', { cart: v.cart, linea_id: e.linea.linea_id, qty: 12 });
+      await a('POST', '/api/venta/cobrar-efectivo', { cart: v.cart, recibido: 1100000 });
+    });
+    await page.click('#nav button[data-vista="retiro"]');
+    await page.waitForSelector('#ret-resumen');
+    await page.click('#nav button[data-vista="venta"]');
+    await page.waitForSelector('#dlg-retiro-aviso[open]');
+    assert.match((await page.textContent('#ret-aviso-monto'))!, /\$10,788\.00/);
+    // el aviso NO bloquea: se puede escanear con el aviso a la vista
+    await page.fill('#scan', '0002026090799');
+    await page.press('#scan', 'Enter');
+    await page.waitForSelector('#cuerpo tr[data-linea]');
+    await page.screenshot({ path: join(RAIZ, 'docs', 'capturas', '45-aviso-retiro.png') });
+    await page.click('#ret-aviso-despues');
+    assert.equal(await page.locator('#dlg-retiro-aviso[open]').count(), 0);
+    // retiro: no alcanza con $7,000; con $8,500 sí
+    await page.click('#nav button[data-vista="retiro"]');
+    await page.waitForSelector('#ret-tabla-mxn');
+    await page.fill('.ret-mxn[data-den="100000"]', '7');
+    assert.equal(await page.isDisabled('#btn-retirar'), true);
+    assert.match((await page.textContent('#ret-estado'))!, /Faltan \$1,000\.00/);
+    await page.fill('.ret-mxn[data-den="100000"]', '8');
+    await page.fill('.ret-mxn[data-den="50000"]', '1');
+    assert.equal(await page.isDisabled('#btn-retirar'), false);
+    await page.screenshot({ path: join(RAIZ, 'docs', 'capturas', '46-retiro.png') });
+    await page.click('#btn-retirar');
+    await page.waitForSelector('#dlg-retiro-ticket[open]');
+    assert.match((await page.textContent('#ret-tk-resumen'))!, /D1-R0001/);
+    assert.match((await page.textContent('#ret-tk-texto'))!, /TOTAL RETIRADO \(MXN\)\s+\$8,500\.00/);
+    assert.match((await page.textContent('#ret-tk-impresion'))!, /enviados a la impresora/);
+    await page.click('#ret-tk-cerrar');
+    await page.waitForSelector('#tabla-retiros tr[data-retiro]');
+    assert.equal(await page.textContent('#ret-resumen [data-campo="equivalente"]'), '$2,288.00');
+    assert.deepEqual(errores, []);
+  });
 });
 
 const REAL = process.env.POS_INVENTARIO_REAL;

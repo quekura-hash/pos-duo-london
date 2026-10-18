@@ -1,4 +1,5 @@
 import type { Devolucion } from './proyecciones.ts';
+import type { RetiroRegistrado } from './retiros.ts';
 import type { Venta } from './tipos.ts';
 import { formatoTasa } from './dinero.ts';
 import { fechaLocal } from './util.ts';
@@ -318,4 +319,29 @@ export function renderTextoEscPos(texto: string, opts: { abrirCajon?: boolean } 
   if (opts.abrirCajon) b.push(0x1b, 0x70, 0x00, 25, 250);
   b.push(...aCP858(texto.replace(/\n$/, '')), 0x0a, 0x0a, 0x0a, 0x1d, 0x56, 66, 0);
   return Uint8Array.from(b);
+}
+
+// ── ticket de retiro de efectivo ──
+/** Datos del retiro para el cajón y el supervisor: desglose por billete, tipo de cambio, total en pesos y el efectivo de venta antes y después. */
+export function renderTicketRetiroTexto(r: RetiroRegistrado, cfg: NegocioCfg, reimpresion = 0): string {
+  const c = cfg.columnas;
+  const regla = '-'.repeat(c);
+  const local = new Date(Date.parse(r.ocurrio_en) - 7 * 3600_000).toISOString();
+  const [y, mo, dd] = fechaLocal(r.ocurrio_en).split('-');
+  const L: string[] = [centrar(cfg.nombre, c)];
+  for (const x of encabezadoDe(cfg)) L.push(...envolver(x, c).map((y2) => centrar(y2, c)));
+  L.push(centrar(`Tienda ${r.tienda} - Caja ${r.caja}`, c), '', centrar('*** RETIRO DE EFECTIVO ***', c));
+  if (reimpresion > 0) L.push(centrar(`REIMPRESIÓN ${reimpresion}`, c));
+  L.push('', `Retiro: ${r.folio_retiro}`, `Fecha: ${dd}/${mo}/${y}  ${local.slice(11, 16)}`, `Cajero: ${r.usuario}`, regla);
+  const denoms = (d: Record<string, number>, valor: (k: number) => number, fmt: (v: number) => string) => Object.keys(d).map(Number).sort((a, b) => b - a)
+    .map((k) => dos(`${d[String(k)]} x ${fmt(valor(k))}`, fmt(valor(k) * d[String(k)]!), c));
+  if (r.mxn.total > 0) L.push('PESOS', ...denoms(r.mxn.denominaciones, (k) => k, formatoMXN), dos('Total pesos', formatoMXN(r.mxn.total), c));
+  if (r.usd.total > 0) {
+    L.push('DÓLARES', ...denoms(r.usd.denominaciones, (k) => k * 100, formatoUSD), dos('Total dólares', formatoUSD(r.usd.total), c));
+    L.push(`Tipo de cambio ${formatoTasa(r.tasa!)} MXN/USD (v${r.tasa_version})`, dos('Equivalente en pesos', formatoMXN(r.equivalente_mxn - r.mxn.total), c));
+  }
+  L.push(regla, dos('TOTAL RETIRADO (MXN)', formatoMXN(r.equivalente_mxn), c), regla);
+  L.push('Efectivo de venta en caja:', dos('  Antes del retiro', formatoMXN(r.venta_antes), c), dos('  Después del retiro', formatoMXN(r.venta_despues), c));
+  L.push('', '', 'Firma de quien retira:', '', '_'.repeat(c), '', 'Firma de quien recibe:', '', '_'.repeat(c));
+  return L.join('\n') + '\n';
 }

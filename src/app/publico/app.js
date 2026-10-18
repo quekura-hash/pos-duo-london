@@ -129,7 +129,7 @@ const folioTexto = () => (S.ultimoFolio ? `Folio ${String(S.ultimoFolio).padStar
 
 // ── navegación ──
 const NAV = {
-  venta: ['Venta', 'cart'], ventas: ['Historial', 'clock'], creditos: ['Créditos', 'card'], corte: ['Corte de caja', 'chart'],
+  venta: ['Venta', 'cart'], retiro: ['Retiro', 'cash'], ventas: ['Historial', 'clock'], creditos: ['Créditos', 'card'], corte: ['Corte de caja', 'chart'],
   tarjetas: ['Tarjetas de regalo', 'gift'], reportes: ['Reportes', 'chart'], cortes: ['Cortes', 'cash'], dolares: ['Dólares recibidos', 'dollar'], descuentos: ['Descuentos', 'percent'], entregas: ['Entregas de almacén', 'warehouse'], inventario: ['Inventario', 'box'], departamentos: ['Departamentos', 'box'], almacen: ['Almacén', 'warehouse'], promociones: ['Promociones', 'percent'], tiendas: ['Tiendas', 'store'], configuracion: ['Configuración', 'gear'], administracion: ['Administración', 'gear'], volver_caja: ['Caja', 'caja'], tipo_cambio: ['Tipo de cambio', 'refresh'],
 };
 function pintarNav() {
@@ -151,7 +151,7 @@ async function ir(v) {
   S.vista = v;
   pintarNav();
   await pintarEncabezado();
-  await ({ venta: vistaVenta, corte: vistaCorte, ventas: vistaVentas, reportes: vistaReportes, inventario: vistaInventario, almacen: vistaAlmacen, promociones: vistaPromociones, configuracion: vistaConfiguracion, tiendas: vistaTiendas, departamentos: vistaDepartamentos, tarjetas: vistaTarjetas, devolucion: vistaDevolucion, dolares: vistaDolares, descuentos: vistaDescuentos, entregas: vistaEntregas, tipo_cambio: vistaTipoCambio, cortes: vistaCortes })[v]();
+  await ({ venta: vistaVenta, retiro: vistaRetiro, corte: vistaCorte, ventas: vistaVentas, reportes: vistaReportes, inventario: vistaInventario, almacen: vistaAlmacen, promociones: vistaPromociones, configuracion: vistaConfiguracion, tiendas: vistaTiendas, departamentos: vistaDepartamentos, tarjetas: vistaTarjetas, devolucion: vistaDevolucion, dolares: vistaDolares, descuentos: vistaDescuentos, entregas: vistaEntregas, tipo_cambio: vistaTipoCambio, cortes: vistaCortes })[v]();
   if (v !== 'almacen') await avisosPisoInicial();
 }
 
@@ -223,6 +223,7 @@ async function vistaVenta() {
   $('#btn-cupon').addEventListener('click', () => abrirCupon());
   $('#btn-espera').addEventListener('click', () => abrirEspera());
   actualizarEspera();
+  revisarAvisoRetiro();
   $('#btn-cobrar').addEventListener('click', cobrar);
   $('#btn-quitar').addEventListener('click', () => S.sel && accionLinea(S.sel, 'quitar'));
   $('#btn-buscar-ticket').addEventListener('click', () => ir('ventas'));
@@ -1170,6 +1171,109 @@ async function vistaDolares() {
 // ── Reporte de promociones y descuentos autorizados por supervisor ──
 const pctBp = (bp) => `${(bp / 100).toFixed(2).replace(/\.00$/, '')} %`;
 const NOM_TIPO_DESC = { promo: 'Promoción', cupon: 'Cupón', manual: 'Manual (supervisor)' };
+// ── retiro de efectivo ──
+/** Ventana flotante (no modal: no bloquea el escaneo ni el cobro) cuando el efectivo de venta de la caja llega al umbral. «Más tarde» la oculta 15 minutos. */
+async function revisarAvisoRetiro() {
+  if (S.sesion?.rol !== 'cajero' || !S.sesion.nav.includes('retiro') || S.vista === 'retiro') return;
+  try {
+    const { retiro: e } = await api('/api/retiro');
+    S.retiroEstado = e;
+    const d = dialogo('dlg-retiro-aviso');
+    if (!e.avisar) { if (d.open) d.close(); return; }
+    if (d.open || (S.retiroAvisoHasta ?? 0) > Date.now()) return;
+    d.className = 'aviso-flotante';
+    d.setAttribute('role', 'alertdialog');
+    d.setAttribute('aria-labelledby', 'ret-aviso-titulo');
+    d.innerHTML = `<h2 id="ret-aviso-titulo" style="margin:0 0 6px">${ico('cash')} Es hora de un retiro</h2>
+      <p style="margin:0 0 10px">La caja tiene <b id="ret-aviso-monto">${mxn(e.venta.equivalente)}</b> de efectivo de venta (sin contar el fondo). Puede seguir vendiendo.</p>
+      <div class="filas"><button class="btn" type="button" id="ret-aviso-despues">Más tarde</button><button class="btn btn-primario" type="button" id="ret-aviso-ir" style="width:auto;flex:1">${ico('cash')}<span>Hacer el retiro</span></button></div>`;
+    $('#ret-aviso-despues').addEventListener('click', () => { S.retiroAvisoHasta = Date.now() + 15 * 60e3; d.close(); });
+    $('#ret-aviso-ir').addEventListener('click', () => { d.close(); ir('retiro'); });
+    d.show();
+  } catch { /* el aviso es una ayuda: si falla, la venta sigue */ }
+}
+async function vistaRetiro() {
+  const { retiro: e } = await api('/api/retiro');
+  S.retiroEstado = e;
+  const hoyOk = e.venta.equivalente;
+  const retiroId = uuid();
+  const nomUsd = (d) => `US$${d}`;
+  $('#vista').innerHTML = `<div class="titulo-vista">${ico('cash')}<h1>Retiro de efectivo</h1></div>
+    <section class="panel" id="ret-resumen">
+      <p class="nota" style="margin-top:0">Efectivo de venta en la caja (sin contar el fondo inicial). Con ${mxn(e.umbral)} el sistema avisa que toca un retiro; el aviso nunca bloquea la venta.</p>
+      <table><tbody>
+        <tr><th scope="row">Pesos de venta</th><td class="num" data-campo="mxn">${mxn(e.venta.mxn)}</td></tr>
+        <tr><th scope="row">Dólares de venta</th><td class="num" data-campo="usd">${usd(e.venta.usd)}${e.venta.tasa && e.venta.usd > 0 ? ` <span class="nota">(${mxn(e.venta.equivalente - e.venta.mxn)} al tipo de cambio)</span>` : ''}</td></tr>
+        <tr><th scope="row">Total en pesos</th><td class="num" data-campo="equivalente"><b>${mxn(hoyOk)}</b></td></tr>
+      </tbody></table>
+      <div class="mensaje ${e.avisar ? 'aviso' : ''}" id="ret-aviso" role="status">${e.avisar ? 'Ya toca un retiro.' : ''}</div></section>
+    <section class="panel" style="margin-top:12px"><h2 style="margin-top:0">Billetes que se retiran</h2>
+      <p class="nota" style="margin-top:0">Tome billetes grandes y dólares hasta completar al menos <b>${mxn(e.minimo)}</b> (o su equivalente en dólares). No tiene que ser exactamente ${mxn(e.umbral)}.</p>
+      <div class="filas" style="align-items:flex-start;gap:24px;flex-wrap:wrap">
+        <table id="ret-tabla-mxn"><thead><tr><th>Pesos</th><th class="num">Cantidad</th><th class="num">Importe</th></tr></thead><tbody>
+        ${e.billetes.mxn.map((d) => `<tr><td>${mxn(d)}</td><td class="num"><input type="number" min="0" step="1" class="ret-mxn" data-den="${d}" aria-label="Billetes de ${mxn(d)}" style="width:80px;text-align:right"></td><td class="num" data-sub="mxn-${d}">${mxn(0)}</td></tr>`).join('')}</tbody></table>
+        <table id="ret-tabla-usd"><thead><tr><th>Dólares</th><th class="num">Cantidad</th><th class="num">Importe</th></tr></thead><tbody>
+        ${e.billetes.usd.map((d) => `<tr><td>${nomUsd(d)}</td><td class="num"><input type="number" min="0" step="1" class="ret-usd" data-den="${d}" aria-label="Billetes de ${nomUsd(d)}" style="width:80px;text-align:right"></td><td class="num" data-sub="usd-${d}">${usd(0)}</td></tr>`).join('')}</tbody></table>
+      </div>
+      <dl class="calc-usd"><dt>Pesos</dt><dd id="ret-t-mxn">${mxn(0)}</dd><dt>Dólares</dt><dd id="ret-t-usd">${usd(0)}</dd><dt>Total a retirar (MXN)</dt><dd id="ret-total"><b>${mxn(0)}</b></dd></dl>
+      <div class="mensaje" id="ret-estado" role="status" aria-live="polite"></div>
+      <button class="btn btn-primario" id="btn-retirar" type="button" disabled>${ico('printer')}<span>Registrar retiro e imprimir</span></button></section>
+    <section class="panel" style="margin-top:12px"><h2 style="margin-top:0">Retiros de hoy</h2>
+      <table id="tabla-retiros"><thead><tr><th>Retiro</th><th>Hora</th><th>Cajero</th><th class="num">Pesos</th><th class="num">Dólares</th><th class="num">Total (MXN)</th><th></th></tr></thead><tbody>
+      ${e.retiros.map((r) => `<tr data-retiro="${esc(r.retiro_id)}"><td>${esc(r.folio_retiro)}</td><td>${esc(hora(r.ocurrio_en))}</td><td>${esc(r.usuario)}</td><td class="num">${mxn(r.mxn.total)}</td><td class="num">${usd(r.usd.total)}</td><td class="num">${mxn(r.equivalente_mxn)}</td><td><button class="btn btn-reimp-retiro" type="button">${ico('printer')}<span>Reimprimir</span></button></td></tr>`).join('') || '<tr><td colspan="7" class="vacio">Sin retiros hoy.</td></tr>'}</tbody></table>
+      <div id="msg-retiros" class="mensaje" role="status" aria-live="polite"></div></section>`;
+  const cant = (el) => { const n = Number(el.value); return el.value.trim() === '' ? 0 : n; };
+  const leer = () => {
+    const mx = {}, us = {};
+    let tm = 0, tu = 0, valido = true;
+    for (const el of document.querySelectorAll('.ret-mxn')) { const n = cant(el); if (!Number.isInteger(n) || n < 0) valido = false; else if (n) { mx[el.dataset.den] = n; tm += Number(el.dataset.den) * n; } $(`[data-sub="mxn-${el.dataset.den}"]`).textContent = mxn(Number.isInteger(n) && n > 0 ? Number(el.dataset.den) * n : 0); }
+    for (const el of document.querySelectorAll('.ret-usd')) { const n = cant(el); if (!Number.isInteger(n) || n < 0) valido = false; else if (n) { us[el.dataset.den] = n; tu += Number(el.dataset.den) * 100 * n; } $(`[data-sub="usd-${el.dataset.den}"]`).textContent = usd(Number.isInteger(n) && n > 0 ? Number(el.dataset.den) * 100 * n : 0); }
+    return { mx, us, tm, tu, valido };
+  };
+  const pintar = () => {
+    const { tm, tu, valido } = leer();
+    const eq = tm + (tu > 0 && e.tasa ? usdAMxn(tu, e.tasa.tasa) : 0);
+    $('#ret-t-mxn').textContent = mxn(tm); $('#ret-t-usd').textContent = usd(tu); $('#ret-total').innerHTML = `<b>${mxn(eq)}</b>`;
+    let m = '', ok = valido && eq >= e.minimo;
+    if (!valido) m = 'Escriba cantidades enteras de billetes.';
+    else if (tu > 0 && !e.tasa) { m = 'No hay tipo de cambio fijado: no se pueden retirar dólares.'; ok = false; }
+    else if (tm > e.en_cajon.mxn || tu > e.en_cajon.usd) { m = 'El retiro es mayor que el efectivo que registra la caja.'; ok = false; }
+    else if (eq < e.minimo) m = eq > 0 ? `Faltan ${mxn(e.minimo - eq)} para llegar al mínimo de ${mxn(e.minimo)}.` : '';
+    else m = `Retiro de ${mxn(eq)}: queda ${mxn(e.venta.equivalente - eq)} de efectivo de venta en la caja.`;
+    const el = $('#ret-estado'); el.textContent = m; el.className = `mensaje ${ok ? 'ok' : m ? 'aviso' : ''}`;
+    $('#btn-retirar').disabled = !ok;
+  };
+  for (const el of document.querySelectorAll('.ret-mxn, .ret-usd')) el.addEventListener('input', pintar);
+  $('#btn-retirar').addEventListener('click', async () => {
+    const { mx, us } = leer();
+    $('#btn-retirar').disabled = true;
+    try {
+      const r = await api('/api/retiro', { retiro_id: retiroId, mxn: mx, usd: us });
+      mostrarTicketRetiro(r);
+    } catch (err) { const el = $('#ret-estado'); el.className = 'mensaje error'; el.textContent = err.message; pintar(); }
+  });
+  for (const b of document.querySelectorAll('.btn-reimp-retiro')) b.addEventListener('click', async () => {
+    try { mostrarTicketRetiro(await api('/api/retiro/reimprimir', { retiro_id: b.closest('tr').dataset.retiro }), true); } catch (err) { const m = $('#msg-retiros'); m.className = 'mensaje error'; m.textContent = err.message; }
+  });
+}
+function mostrarTicketRetiro(r, reimpresion = false) {
+  const d = dialogo('dlg-retiro-ticket');
+  d.setAttribute('aria-labelledby', 'ret-tk-titulo');
+  const imp = r.impresion;
+  d.innerHTML = `<h2 id="ret-tk-titulo" style="margin:0 0 4px">${reimpresion ? 'Retiro reimpreso' : 'Retiro registrado'}</h2>
+    <p style="margin:0" id="ret-tk-resumen">Retiro <b>${esc(r.retiro.folio_retiro)}</b> · ${mxn(r.retiro.equivalente_mxn)}</p>
+    <div id="ret-tk-impresion" class="mensaje ${imp.ok ? 'ok' : 'error'}" role="status">${imp.ok ? 'Datos del retiro enviados a la impresora.' : `La impresora falló: ${esc(imp.error)}. El retiro SÍ quedó registrado; reimprímalo.`}</div>
+    <pre class="ticket" id="ret-tk-texto" tabindex="0">${esc(r.ticket_texto)}</pre>
+    <div class="filas"><button class="btn" type="button" id="ret-tk-reimprimir">${ico('printer')}<span>${imp.ok ? 'Reimprimir' : 'Reintentar impresión'}</span></button><button class="btn btn-primario" type="button" id="ret-tk-cerrar" style="width:auto;flex:1">${ico('check')}<span>Listo</span></button></div>`;
+  d.showModal();
+  $('#ret-tk-cerrar').addEventListener('click', () => { d.close(); S.retiroAvisoHasta = 0; ir('retiro'); });
+  $('#ret-tk-reimprimir').addEventListener('click', async () => {
+    try {
+      const x = await api('/api/retiro/reimprimir', { retiro_id: r.retiro.retiro_id });
+      const e2 = $('#ret-tk-impresion'); e2.className = `mensaje ${x.impresion.ok ? 'ok' : 'error'}`; e2.textContent = x.impresion.ok ? 'Datos del retiro enviados a la impresora (reimpresión).' : `La impresora falló: ${x.impresion.error}.`;
+    } catch (err) { $('#ret-tk-impresion').textContent = err.message; }
+  });
+}
 const NOM_DIF = { sin_confirmar: 'Sin confirmar', faltante: 'Piezas faltantes', exceso: 'Más de lo registrado', almacen_negativo: 'Almacén negativo' };
 async function vistaEntregas() {
   const hoy = new Date(Date.now() - 7 * 3600e3).toISOString().slice(0, 10);
@@ -2030,7 +2134,7 @@ async function vistaTipoCambio() {
 
 // ── arranque ──
 async function iniciar() {
-  Object.assign(S, { conRegalo: false, sesion: null, vista: null, cart: null, carrito: null, sel: null, estado: null, ultimoFolio: null });
+  Object.assign(S, { conRegalo: false, sesion: null, vista: null, cart: null, carrito: null, sel: null, estado: null, ultimoFolio: null, retiroAvisoHasta: 0, retiroEstado: null });
   S.sesion = await api('/api/sesion');
   await ir(S.sesion.nav[0]);
 }

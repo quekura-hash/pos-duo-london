@@ -9,7 +9,7 @@ import { estadoPromo, type Promocion } from '../promociones.ts';
 import { CAMPOS_EDITABLES, catalogo, historialArticulo, nombresTienda, datosTiendas, departamentos as proyDepartamentos, promocionesDe, supervisoresDe, permisos as proyPermisos, tarjetasRegalo, tiposDeCambio, tipoCambioVigente, ventas, type TipoCambio } from '../proyecciones.ts';
 import { hojaDescuentos, hojaEntregas, hojaDolares, hojaInventario, leerInventario, PERFIL_CONFIRMADO, type Hoja } from '../inventario.ts';
 import { LOGOS_TICKET } from '../logos-ticket.ts';
-import { aplicarDatosTienda, codigoTicket, construirTicket, construirTicketRegalo, formatoMXN, NEGOCIOS, renderTextoEscPos, renderTicketDevolucionTexto, renderTicketEscPos, renderTicketTexto, type NegocioCfg } from '../ticket.ts';
+import { aplicarDatosTienda, codigoTicket, construirTicket, construirTicketRegalo, formatoMXN, NEGOCIOS, renderTextoEscPos, renderTicketDevolucionTexto, renderTicketRetiroTexto, renderTicketEscPos, renderTicketTexto, type NegocioCfg } from '../ticket.ts';
 import { LIMBO, type Actor, type Articulo, type Linea, type Op, type Venta } from '../tipos.ts';
 import { fechaLocal } from '../util.ts';
 
@@ -128,6 +128,31 @@ export class ServicioCaja {
   billeteRechazado(denominacion: number, motivo: 'danado' | 'sospechoso', nota?: string, cantidad = 1) {
     this.caja.registrarBilleteRechazado({ denominacion, cantidad, motivo, nota, usuario: this.actor.usuario });
     return { ok: true };
+  }
+  /** Efectivo de venta en la caja y si ya toca un retiro, más los retiros de hoy. */
+  estadoRetiro() {
+    const e = this.caja.estadoRetiro();
+    return { ...e, retiros: this.caja.retiros(e.fecha) };
+  }
+  /** Registra el retiro y manda a imprimir sus datos. Una falla de impresión no deshace el retiro: se reimprime después. */
+  async registrarRetiro(d: { retiro_id: string; mxn?: Record<string, number>; usd?: Record<string, number> }) {
+    const retiro = this.caja.registrarRetiro({ ...d, usuario: this.actor.usuario });
+    return { retiro, ...(await this.imprimirRetiro(retiro, 0)), estado: this.estadoRetiro() };
+  }
+  async reimprimirRetiro(retiroId: string) {
+    const retiro = this.caja.retiros(fechaLocal(this.reloj.now())).find((r) => r.retiro_id === retiroId)
+      ?? this.caja.retiros(fechaLocal(new Date(Date.parse(this.reloj.now()) - 86400000).toISOString())).find((r) => r.retiro_id === retiroId);
+    if (!retiro) throw new ErrorDominio('RETIRO_INEXISTENTE', 'ese retiro no existe en esta caja');
+    return { retiro, ...(await this.imprimirRetiro(retiro, 1)) };
+  }
+  private async imprimirRetiro(r: ReturnType<Caja['retiros']>[number], reimpresion: number) {
+    const texto = renderTicketRetiroTexto(r, this.negociosVivos()[r.tienda]!, reimpresion);
+    try {
+      await this.impresora.imprimir({ ref: `retiro:${r.retiro_id}${reimpresion ? `:re${Date.now()}` : ''}`, texto, bytes: renderTextoEscPos(texto) });
+      return { ticket_texto: texto, impresion: { ok: true as boolean, error: undefined as string | undefined } };
+    } catch (e) {
+      return { ticket_texto: texto, impresion: { ok: false, error: e instanceof Error ? e.message : String(e) } };
+    }
   }
   /** Venta anulada ANTES de recibir dinero (sin folio ni movimiento físico). */
   anularVenta(cartId: string, motivo: string) {

@@ -31,7 +31,7 @@ export async function atender(o: { cajero?: ServicioCaja; admin?: ServicioAdmin 
     switch (`${metodo} ${url.pathname}`) {
       case 'GET /api/sesion':
         return ok(C
-          ? { rol: 'cajero', usuario: C.actor.usuario, tienda: C.caja.tienda, caja: C.caja.caja, nav: ['venta', 'ventas', 'corte', ...(C.caja.cfg.metodos.includes('tarjeta_regalo') ? ['tarjetas'] : [])] }
+          ? { rol: 'cajero', usuario: C.actor.usuario, tienda: C.caja.tienda, caja: C.caja.caja, nav: ['venta', 'retiro', 'ventas', 'corte', ...(C.caja.cfg.metodos.includes('tarjeta_regalo') ? ['tarjetas'] : [])] }
           : { rol: 'admin', usuario: A!.actor.usuario, cajas: A!.cajas, nav: ['reportes', 'cortes', 'inventario', 'almacen', 'promociones', 'tarjetas', 'configuracion'] });
       // ── cajero ──
       case 'GET /api/estado': return ok({ estado: exigirCajero().estado() });
@@ -57,6 +57,9 @@ export async function atender(o: { cajero?: ServicioCaja; admin?: ServicioAdmin 
       case 'POST /api/venta/espera': return ok(exigirCajero().ponerEnEspera(b.cart, String(b.nota ?? '')));
       case 'POST /api/venta/retomar': return ok(exigirCajero().retomarVenta(b.cart, b.actual ? String(b.actual) : undefined));
       case 'POST /api/venta/espera/descartar': return ok(exigirCajero().descartarEnEspera(b.cart));
+      case 'GET /api/retiro': return ok({ retiro: exigirCajero().estadoRetiro() });
+      case 'POST /api/retiro': return ok(await exigirCajero().registrarRetiro({ retiro_id: String(b.retiro_id ?? ''), mxn: b.mxn ?? {}, usd: b.usd ?? {} }));
+      case 'POST /api/retiro/reimprimir': return ok(await exigirCajero().reimprimirRetiro(String(b.retiro_id ?? '')));
       case 'POST /api/venta/anular': return ok(exigirCajero().anularVenta(b.cart, String(b.motivo ?? 'anulada')));
       case 'POST /api/venta/cancelar': return ok(exigirCajero().cancelarVenta(b.sale_id, String(b.motivo ?? 'cancelada')));
       case 'POST /api/venta/cobrar-tarjeta': return ok(await exigirCajero().cobrarTarjetaManual(b.cart, { importe: b.importe === undefined || b.importe === null ? undefined : Number(b.importe), autorizacion: String(b.autorizacion ?? ''), marca: b.marca, ultimos4: b.ultimos4 }));

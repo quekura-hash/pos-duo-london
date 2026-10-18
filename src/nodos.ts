@@ -2,6 +2,7 @@ import type { BusquedaVentas, VentaLocalizada } from './consultas.ts';
 import { ErrorDominio } from './errores.ts';
 import { calcularDescuentos, normCodigo, repartir, validarPromocion, type ErrorPromo, type Promocion, type ResultadoDescuentos } from './promociones.ts';
 import { claveValida, hashClave, supervisorPorClave, type Supervisor } from './supervisores.ts';
+import { BILLETES_RETIRO_MXN, BILLETES_RETIRO_USD, efectivoDeVentaEnCaja, MINIMO_RETIRO, UMBRAL_AVISO_RETIRO, type RetiroRegistrado } from './retiros.ts';
 import { DESTINOS_FALTANTE_ESPECIALES, existenciaAlmacen, faltantes, fechaValida, recepcionesPendientes, type Faltante, type AltaManual, type RecepcionPendiente } from './almacen.ts';
 import { slug, validarCambioDepto, type CambioDepto, type ErrorDepto } from './departamentos.ts';
 import { DENOMINACIONES_USD, esImporteEnBilletesUsd, superaUmbralTasa, totalDenominacionesMxn, totalDenominacionesUsd, usdAMxn, variacionTasaPb } from './dinero.ts';
@@ -1705,6 +1706,70 @@ export class Caja {
     if (moneda !== 'MXN' && moneda !== 'USD') throw new ErrorDominio('PAGO_INVALIDO', `moneda no soportada: ${moneda}`);
     if (!Number.isInteger(monto) || monto <= 0) throw new ErrorDominio('PAGO_INVALIDO', 'el monto es un entero positivo en centavos');
     this.emitir('cash.movement', { tienda: this.tienda, caja: this.caja, tipo, monto, moneda, fecha: fechaLocal(this.ctx.reloj.now()) });
+  }
+  /** Efectivo de venta en el cajón hoy (sin fondo ni entradas), lo disponible por moneda y si ya toca un retiro. */
+  estadoRetiro() {
+    const fecha = fechaLocal(this.ctx.reloj.now());
+    const libro = movimientosCaja(this.opsDe('sale.confirmed', 'sale.cancelled', 'return.registered', 'cash.movement'), this.tienda, this.caja).filter((m) => m.fecha === fecha);
+    const tc = this.tipoCambio();
+    const venta = efectivoDeVentaEnCaja(libro, tc?.tasa ?? null);
+    const en = (moneda: 'MXN' | 'USD') => libro.filter((m) => m.moneda === moneda).reduce((a, m) => a + m.monto, 0);
+    return {
+      fecha, venta, umbral: UMBRAL_AVISO_RETIRO, minimo: MINIMO_RETIRO, avisar: venta.equivalente >= UMBRAL_AVISO_RETIRO,
+      en_cajon: { mxn: en('MXN'), usd: en('USD') },
+      tasa: tc ? { version: tc.version, tasa: tc.tasa } : null,
+      billetes: { mxn: [...BILLETES_RETIRO_MXN], usd: [...BILLETES_RETIRO_USD] },
+    };
+  }
+  /** Retiros registrados por esta caja en una fecha (la más reciente primero). */
+  retiros(fecha: string): RetiroRegistrado[] {
+    return this.opsDe('cash.retiro').filter((o) => o.payload.tienda === this.tienda && o.payload.caja === this.caja && o.payload.fecha === fecha)
+      .map((o) => ({ ...o.payload, ocurrio_en: o.ocurrio_en }) as RetiroRegistrado).reverse();
+  }
+  /**
+   * Retiro de efectivo: billetes grandes de pesos y/o dólares hasta completar al menos el mínimo (en pesos o su equivalente en dólares al tipo de
+   * cambio vigente). NO bloquea la venta y no tiene que ser exactamente el umbral. Cada moneda sale del libro con su movimiento `retiro`, así
+   * el corte lo descuenta; el registro `cash.retiro` guarda el desglose y el efectivo de venta antes y después. Reintentar con el mismo
+   * `retiro_id` devuelve el mismo retiro.
+   */
+  registrarRetiro(d: { retiro_id: string; mxn?: Record<string, number>; usd?: Record<string, number>; usuario: string }): RetiroRegistrado {
+    if (!d.retiro_id) throw new ErrorDominio('DATOS_REQUERIDOS', 'falta la referencia del retiro');
+    const previo = this.repo.getOp(`retiro:${d.retiro_id}`);
+    if (previo) return { ...previo.payload, ocurrio_en: previo.ocurrio_en } as RetiroRegistrado;
+    const limpia = (x: Record<string, number> | undefined, permitidas: readonly number[], moneda: string) => {
+      const out: Record<string, number> = {};
+      for (const [k, n] of Object.entries(x ?? {})) {
+        if (n === 0) continue;
+        if (!permitidas.includes(Number(k))) throw new ErrorDominio('RETIRO_INVALIDO', `en un retiro de ${moneda} no se admite el billete ${k}`);
+        if (!Number.isInteger(n) || n < 0) throw new ErrorDominio('RETIRO_INVALIDO', `cantidad inválida del billete ${k}`);
+        out[k] = n;
+      }
+      return out;
+    };
+    const mxn = limpia(d.mxn, BILLETES_RETIRO_MXN, 'pesos');
+    const usd = limpia(d.usd, BILLETES_RETIRO_USD, 'dólares');
+    const totalMxn = totalDenominacionesMxn(mxn);
+    const totalUsd = totalDenominacionesUsd(usd);
+    const est = this.estadoRetiro();
+    if (totalUsd > 0 && !est.tasa) throw new ErrorDominio('SIN_TIPO_DE_CAMBIO', 'no hay tipo de cambio fijado: no se puede calcular el equivalente de los dólares');
+    const equivalente = totalMxn + (totalUsd > 0 ? usdAMxn(totalUsd, est.tasa!.tasa) : 0);
+    if (equivalente < MINIMO_RETIRO) throw new ErrorDominio('RETIRO_INSUFICIENTE', `el retiro debe sumar al menos ${MINIMO_RETIRO / 100} pesos (o su equivalente en dólares)`, { minimo: MINIMO_RETIRO, equivalente });
+    if (totalMxn > est.en_cajon.mxn || totalUsd > est.en_cajon.usd) throw new ErrorDominio('RETIRO_EXCEDE_EFECTIVO', 'el retiro es mayor que el efectivo que registra la caja', { pesos_en_cajon: est.en_cajon.mxn, usd_en_cajon: est.en_cajon.usd });
+    const fecha = est.fecha;
+    return this.repo.tx(() => {
+      const n = this.opsDe('cash.retiro').filter((o) => o.payload.tienda === this.tienda && o.payload.caja === this.caja).length + 1;
+      const folio_retiro = `${this.tienda === 'DUO' ? 'D' : this.tienda === 'LON' ? 'L' : this.tienda.slice(0, 1)}${this.caja}-R${String(n).padStart(4, '0')}`;
+      const retiro: Omit<RetiroRegistrado, 'ocurrio_en'> = {
+        retiro_id: d.retiro_id, folio_retiro, tienda: this.tienda, caja: this.caja, usuario: d.usuario, fecha,
+        mxn: { denominaciones: mxn, total: totalMxn }, usd: { denominaciones: usd, total: totalUsd },
+        tasa: totalUsd > 0 ? est.tasa!.tasa : null, tasa_version: totalUsd > 0 ? est.tasa!.version : null, equivalente_mxn: equivalente,
+        venta_antes: est.venta.equivalente, venta_despues: est.venta.equivalente - equivalente,
+      };
+      if (totalMxn > 0) this.emitir('cash.movement', { tienda: this.tienda, caja: this.caja, tipo: 'retiro', monto: totalMxn, moneda: 'MXN', fecha, retiro_id: d.retiro_id }, `retiro:${d.retiro_id}:mxn`);
+      if (totalUsd > 0) this.emitir('cash.movement', { tienda: this.tienda, caja: this.caja, tipo: 'retiro', monto: totalUsd, moneda: 'USD', fecha, retiro_id: d.retiro_id }, `retiro:${d.retiro_id}:usd`);
+      const op = this.emitir('cash.retiro', retiro, `retiro:${d.retiro_id}`);
+      return { ...retiro, ocurrio_en: op.ocurrio_en };
+    });
   }
   /** Conteo físico por denominación (USD: billetes en dólares; MXN: billetes y monedas en centavos). El corte lo compara con lo esperado. */
   registrarConteo(d: { moneda: 'MXN' | 'USD'; denominaciones: Record<string, number>; usuario: string }) {
