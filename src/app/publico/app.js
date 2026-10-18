@@ -134,7 +134,7 @@ function pintarNav() {
   const items = S.sesion.rol === 'cajero' ? [...S.sesion.nav, ...(cambia ? ['administracion'] : [])] : [...S.sesion.nav, 'creditos', ...(cambia ? ['volver_caja'] : [])]; // Créditos vive en Administración, no en la venta
   $('#nav').innerHTML = items.map((v) => v === 'creditos'
     ? `<button type="button" data-proximamente="creditos" disabled title="Próximamente" aria-label="Créditos (próximamente)">${ico(NAV[v][1])}<span>${NAV[v][0]}</span></button>`
-    : `<button type="button" data-vista="${v}" title="${NAV[v][0]}" ${v === S.vista ? 'aria-current="page"' : ''}>${ico(NAV[v][1])}<span>${NAV[v][0]}</span></button>`).join('');
+    : `<button type="button" data-vista="${v}" title="${NAV[v][0]}" ${v === ({ descuentos: 'promociones', dolares: 'cortes' }[S.vista] ?? S.vista) ? 'aria-current="page"' : ''}>${ico(NAV[v][1])}<span>${NAV[v][0]}</span></button>`).join('');
   for (const b of $('#nav').querySelectorAll('button[data-vista]')) {
     b.addEventListener('click', () => {
       if (b.dataset.vista === 'administracion') return window.__POS_CAMBIAR_SESION__('admin');
@@ -1040,10 +1040,11 @@ function abrirRechazoBillete() {
 // ── Administración: cortes consolidados con pesos y dólares en columnas separadas ──
 async function vistaCortes() {
   const hoy = new Date(Date.now() - 7 * 3600e3).toISOString().slice(0, 10);
-  $('#vista').innerHTML = `<div class="titulo-vista">${ico('cash')}<h1>Cortes de caja</h1></div>
+  $('#vista').innerHTML = `<div class="titulo-vista">${ico('cash')}<h1>Cortes de caja</h1><button class="btn" id="btn-ir-dolares" type="button" style="margin-left:auto">${ico('dollar')}<span>Dólares recibidos</span></button></div>
     <form class="filtros panel" id="filtros-cortes"><label>Desde <input type="date" id="cor-desde" value="${hoy}"></label><label>Hasta <input type="date" id="cor-hasta" value="${hoy}"></label>
       <button class="btn btn-primario" type="submit" style="width:auto">${ico('search')}<span>Consultar</span></button></form>
     <div id="resultado-cortes"></div>`;
+  $('#btn-ir-dolares').addEventListener('click', () => ir('dolares'));
   const consultar = async () => {
     const { cortes } = await api('/api/admin/cortes', { desde: $('#cor-desde').value, hasta: $('#cor-hasta').value });
     const vacio = { fondo: 0, cobros: 0, cambio: 0, entradas: 0, devoluciones: 0, cancelaciones: 0, retiros: 0, esperado: 0, contado: null, diferencia: null };
@@ -1074,7 +1075,7 @@ async function exportarArchivo(ruta, archivo) {
 }
 async function vistaDolares() {
   const hoy = new Date(Date.now() - 7 * 3600e3).toISOString().slice(0, 10);
-  $('#vista').innerHTML = `<div class="titulo-vista">${ico('dollar')}<h1>Dólares recibidos</h1></div>
+  $('#vista').innerHTML = `<div class="titulo-vista">${ico('dollar')}<h1>Dólares recibidos</h1><button class="btn" id="btn-volver-cortes" type="button" style="margin-left:auto">${ico('undo')}<span>Volver a cortes</span></button></div>
     <form class="filtros panel" id="filtros-usd"><label>Desde <input type="date" id="usd-desde" value="${hoy}"></label><label>Hasta <input type="date" id="usd-hasta" value="${hoy}"></label>
       <button class="btn btn-primario" type="submit" style="width:auto">${ico('search')}<span>Consultar</span></button>
       <button class="btn" type="button" id="btn-exportar-dolares">${ico('download')}<span>Exportar a Excel</span></button><span id="estado-exportar-usd" role="status" aria-live="polite"></span></form>
@@ -1089,6 +1090,7 @@ async function vistaDolares() {
       ${r.porCaja.map((c) => `<tr><td>${esc(c.tienda)}</td><td>${c.caja}</td><td class="num">${c.cobros}</td><td class="num">${usd(c.usd)}</td><td class="num">${mxn(c.equivalente_historico)}</td></tr>`).join('')}
       <tr><th colspan="3" scope="row">Total</th><td class="num" id="total-usd"><b>${usd(r.usd)}</b></td><td class="num" id="total-equivalente"><b>${mxn(r.equivalente_historico)}</b></td></tr></tbody></table></div>`;
   };
+  $('#btn-volver-cortes').addEventListener('click', () => ir('cortes'));
   $('#filtros-usd').addEventListener('submit', async (ev) => { ev.preventDefault(); await consultar(); });
   $('#btn-exportar-dolares').addEventListener('click', async () => {
     const e = $('#estado-exportar-usd');
@@ -1104,7 +1106,7 @@ const pctBp = (bp) => `${(bp / 100).toFixed(2).replace(/\.00$/, '')} %`;
 const NOM_TIPO_DESC = { promo: 'Promoción', cupon: 'Cupón', manual: 'Manual (supervisor)' };
 async function vistaDescuentos() {
   const hoy = new Date(Date.now() - 7 * 3600e3).toISOString().slice(0, 10);
-  $('#vista').innerHTML = `<div class="titulo-vista">${ico('percent')}<h1>Descuentos y promociones</h1></div>
+  $('#vista').innerHTML = `<div class="titulo-vista">${ico('percent')}<h1>Reporte de promociones y descuentos</h1><button class="btn" id="btn-volver-promos" type="button" style="margin-left:auto">${ico('undo')}<span>Volver a promociones</span></button></div>
     <form class="filtros panel" id="filtros-desc"><label>Desde <input type="date" id="desc-desde" value="${hoy}"></label><label>Hasta <input type="date" id="desc-hasta" value="${hoy}"></label>
       <button class="btn btn-primario" type="submit" style="width:auto">${ico('search')}<span>Consultar</span></button>
       <button class="btn" type="button" id="btn-exportar-desc">${ico('download')}<span>Exportar a Excel</span></button><span id="estado-exportar-desc" role="status" aria-live="polite"></span></form>
@@ -1127,6 +1129,7 @@ async function vistaDescuentos() {
       <div class="panel" style="margin-top:12px"><h2 style="margin-top:0">Detalle por ticket</h2><div class="tabla-cont"><table id="tabla-desc-detalle"><thead><tr><th>Tienda</th><th>Caja</th><th>Folio</th><th>Fecha</th><th>Cajero</th><th>Tipo</th><th>Concepto</th><th>Autorizó</th><th class="num">Venta</th><th class="num">Descuento</th><th class="num">% venta</th><th>Estado</th></tr></thead><tbody>
         ${r.filas.map((f) => `<tr data-folio="${f.folio}" data-tipo="${f.tipo}"><td>${esc(f.tienda)}</td><td>${f.caja}</td><td>${String(f.folio).padStart(6, '0')}</td><td>${esc(f.fecha_local)} ${esc(f.hora)}</td><td>${esc(f.cajero)}</td><td>${NOM_TIPO_DESC[f.tipo]}</td><td>${esc(f.concepto)}</td><td>${esc(f.supervisor ?? '')}</td><td class="num">${mxn(f.importe_venta)}</td><td class="num">${mxn(f.monto)}</td><td class="num">${pctBp(f.pct_bp)}</td><td>${f.estado === 'cancelada' ? '<span class="insignia cancelada">cancelada</span>' : 'confirmada'}</td></tr>`).join('') || '<tr><td colspan="12" class="vacio">Sin descuentos en el periodo.</td></tr>'}</tbody></table></div></div>`;
   };
+  $('#btn-volver-promos').addEventListener('click', () => ir('promociones'));
   $('#filtros-desc').addEventListener('submit', async (ev) => { ev.preventDefault(); await consultar(); });
   $('#btn-exportar-desc').addEventListener('click', async () => {
     const e = $('#estado-exportar-desc');
@@ -1483,7 +1486,7 @@ async function vistaPromociones() {
   const [{ promociones, hoy, tiendas, articulos }, { supervisores }] = await Promise.all([api('/api/admin/promociones'), api('/api/admin/supervisores')]);
   S.promos = promociones; S.hoyPromo = hoy; S.tiendasInfo = tiendas; S.artInfo = { ...(S.artInfo ?? {}), ...articulos };
   $('#vista').innerHTML = `<div class="titulo-vista">${ico('percent')}<h1>Promociones y cupones</h1></div>
-    <section class="panel"><div class="filas" style="align-items:center"><button class="btn btn-primario" id="btn-nueva-promo" type="button" style="width:auto">${ico('plus')}<span>Nueva promoción o cupón</span></button></div>
+    <section class="panel"><div class="filas" style="align-items:center"><button class="btn btn-primario" id="btn-nueva-promo" type="button" style="width:auto">${ico('plus')}<span>Nueva promoción o cupón</span></button><button class="btn" id="btn-reporte-promos" type="button" style="margin-left:auto">${ico('chart')}<span>Reporte de promociones</span></button></div>
       <p class="nota">Cada promoción o cupón vale solo en la tienda (o tiendas) que elija. Toda promoción lleva fecha de inicio y de término, o queda <b>sin fecha límite</b> hasta que Administración la desactive. En cada compra aplica <b>una sola</b> promoción o cupón: la que más descuento le da al cliente. Las promociones se aplican solas al cobrar; los cupones se capturan o se escanean en la caja. Para promocionar un artículo concreto, búsquelo al crear la promoción o use «Crear promoción» en Inventario.</p>
       <div id="msg-promo" class="mensaje" role="status" aria-live="polite"></div>
       <div class="tabla-cont"><table id="tabla-promos"><thead><tr><th>Nombre</th><th>Tienda</th><th>Tipo</th><th>Regla</th><th>Vigencia</th><th>Estado</th><th class="num">Usos</th><th></th></tr></thead><tbody>
@@ -1498,6 +1501,7 @@ async function vistaPromociones() {
       <button class="btn btn-primario" id="btn-sup" type="submit" style="width:auto">${ico('plus')}<span>Agregar supervisor</span></button></form>
       <div id="msg-sup" class="mensaje" role="status" aria-live="polite"></div></section>`;
   $('#btn-nueva-promo').addEventListener('click', () => abrirPromo(null));
+  $('#btn-reporte-promos').addEventListener('click', () => ir('descuentos'));
   for (const tr of $('#tabla-promos').querySelectorAll('tr[data-promo]')) {
     const p = S.promos.find((x) => x.id === tr.dataset.promo);
     tr.querySelector('.p-editar').addEventListener('click', () => abrirPromo(p));

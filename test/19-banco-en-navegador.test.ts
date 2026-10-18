@@ -94,7 +94,7 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     await page.uncheck('#falla-hub');
     await page.selectOption('#sesion-prueba', 'admin');
     await page.waitForSelector('#filtros');
-    assert.deepEqual(await page.$$eval('#nav button', (b) => b.map((x) => x.textContent)), ['Reportes', 'Cortes', 'Dólares recibidos', 'Descuentos', 'Inventario', 'Almacén', 'Promociones', 'Tiendas', 'Departamentos', 'Tarjetas de regalo', 'Tipo de cambio', 'Créditos', 'Caja']);
+    assert.deepEqual(await page.$$eval('#nav button', (b) => b.map((x) => x.textContent)), ['Reportes', 'Cortes', 'Inventario', 'Almacén', 'Promociones', 'Tiendas', 'Departamentos', 'Tarjetas de regalo', 'Tipo de cambio', 'Créditos', 'Caja']);
     await page.click('#filtros button[type="submit"]');
     await page.waitForSelector('#tabla-reporte tbody tr');
     assert.equal(await page.locator('#tabla-reporte tbody tr').count(), 3, 'las 3 ventas, tras sincronizar');
@@ -449,12 +449,17 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     // reporte de descuentos: la venta aparece con el supervisor que la autorizó
     await page.click('#btn-nueva');
     await page.click('#nav button[data-vista="administracion"]');
-    await page.click('#nav button[data-vista="descuentos"]');
+    await page.click('#nav button[data-vista="promociones"]');
+    await page.click('#btn-reporte-promos');
     await page.waitForSelector('#tabla-desc-supervisor tr[data-supervisor]');
+    assert.equal(await page.getAttribute('#nav button[data-vista="promociones"]', 'aria-current'), 'page', 'el reporte cuelga de Promociones en el menú');
+    assert.equal(await page.locator('#nav button[data-vista="descuentos"]').count(), 0, 'ya no hay «Descuentos» aparte en el menú');
     assert.match((await page.textContent('#tabla-desc-supervisor tr[data-supervisor="Ana Supervisora"]'))!, /Ana Supervisora.*\$899\.00.*100 %/s);
     assert.equal(await page.textContent('#tabla-desc-resumen [data-campo="tickets"]'), '1 ticket(s)');
     assert.match((await page.textContent('#tabla-desc-detalle tr[data-tipo="manual"]'))!, /Descuento autorizado.*Ana Supervisora.*\$899\.00.*confirmada/s);
     await page.screenshot({ path: join(RAIZ, 'docs', 'capturas', '32-reporte-descuentos.png') });
+    await page.click('#btn-volver-promos');
+    await page.waitForSelector('#tabla-promos');
     assert.deepEqual(errores, []);
   });
   it('B6 promoción por tienda desde Inventario («Crear promoción»), paquete a precio fijo, nombre de tienda editable', async (t) => {
@@ -714,7 +719,8 @@ describe('[navegador real] Inventario real de DÚO en la página (solo con POS_I
     assert.equal(await page.locator('#btn-editar-tc').count(), 0, 'London Caja 2 no tiene permiso');
     await page.selectOption('#sesion-prueba', 'admin');
     await page.waitForSelector('#nav');
-    await page.click('#nav button[data-vista="dolares"]');
+    await page.click('#nav button[data-vista="cortes"]');
+    await page.click('#btn-ir-dolares');
     await page.fill('#usd-desde', new Date(Date.now() - 7 * 3600e3).toISOString().slice(0, 10));
     await page.click('#filtros-usd button[type="submit"]');
     await page.waitForSelector('#tabla-dolares tbody tr[data-folio]');
