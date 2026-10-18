@@ -437,7 +437,7 @@ Decisiones del propietario (punto 5): sin desglose de IVA en el ticket (el preci
 - **Usos de cupón entre tiendas**: el conteo se hace con las ventas que cada caja conoce; con tiendas desconectadas un cupón de uso limitado podría canjearse una vez más de lo permitido hasta que se sincronicen.
 - **Descuentos manuales**: solo los autoriza un **supervisor** tecleando su clave (4 a 8 dígitos), **sin tope (hasta 100 %)**, sobre una línea o sobre toda la venta, en % o en $. Queda anotado quién lo autorizó. Con 100 % la venta se registra sin cobro (folio normal, total $0). Los supervisores se administran en Promociones; la clave se guarda con sal y SHA-256 y nunca se muestra. Es un control de prototipo: sigue sin haber autenticación de usuarios ni bloqueo por intentos fallidos.
 - **Reporte de promociones y descuentos** (Administración → Promociones → botón «Reporte de promociones», con periodo y exportación a Excel): total descontado y tickets, separado en promociones, cupones y descuentos autorizados por supervisor; tabla **por supervisor** (descuentos, monto, mayor % de una venta, cuántos al 100 %), tabla por promoción o cupón y detalle por ticket (caja, folio, cajero, concepto, quién autorizó, importe de la venta, descuento y % de la venta). Las ventas canceladas aparecen marcadas y **no suman** en los totales. Un descuento de una venta anterior al registro de supervisores sale «sin registro de supervisor».
-- **Pendiente**: «Venta en espera» sigue «Próximamente».
+- «Venta en espera» ya funciona (sección 24).
 
 ## 20. Inventario: lista completa, edición e historial [P]
 
@@ -464,3 +464,11 @@ Reportes · Cortes (con el botón «Dólares recibidos») · Inventario · Almac
 - **Cómo se pide**: (1) botón **Ticket de regalo** bajo Cobrar, que se enciende antes de cobrar y hace que salga junto con el ticket de la venta (se apaga solo para la siguiente venta); (2) botón en el diálogo de la venta recién cobrada; (3) botón al ver una venta del historial. Se puede imprimir otra vez cuantas veces haga falta.
 - **Reglas**: solo de ventas de la propia caja; una venta cancelada no tiene ticket de regalo; las tarjetas de regalo no salen (una venta de solo tarjetas no tiene ticket de regalo); no abre el cajón y no cuenta como reimpresión del ticket de venta; queda en la bitácora de impresión como `regalo`.
 - **Sin validar**: la impresión (logo y código de barras) con una impresora térmica real.
+
+## 24. Venta en espera [P]
+
+- **Para qué**: guardar la venta en pantalla (el cliente fue por algo más) y atender a otro cliente. Botón **Venta en espera (n)** en la pantalla de venta; abre un diálogo con una nota opcional (nombre o referencia, hasta 80 caracteres) y la lista de ventas guardadas (hora, nota, primeros artículos, piezas y total).
+- **Reglas**: solo una venta con artículos y sin cobro con tarjeta pendiente; al guardarla se abre una venta nueva. Se guarda en la propia caja (sobrevive a un reinicio) y **no es compartida entre cajas**. **No reserva existencias**. Al retomarla los precios, promociones y cupón se **recalculan** y el tipo de cambio de un cobro en dólares se vuelve a fijar. Si al retomar hay una venta con artículos en pantalla, esa pasa a espera; si está vacía, se descarta sin constancia.
+- **Descartar** una venta guardada (con confirmación en dos pasos) deja la constancia de anulación (`sale.voided`, motivo «venta en espera descartada») con lo que tenía.
+- **Bitácora**: `cart.en_espera` y `cart.retomada` (solo auditoría; no mueven dinero ni inventario).
+- **Verificado**: pruebas del motor (VE1–VE4, ambos almacenes) y prueba en navegador (B9). Sin hardware involucrado.

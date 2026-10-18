@@ -316,7 +316,7 @@ describe('[navegador real — Chromium con Playwright, UI sobre SQLite]', { time
       assert.equal(await page.locator('#nav button svg').count(), tienda === 'DUO' ? 4 : 3, 'cada opción de navegación tiene su icono (la Caja 2 no tiene Tarjetas de regalo)');
       const sinIcono = await page.$$eval('button:not(.btn-icono):not([type=submit])', (bs) => bs.filter((b) => !b.querySelector('svg') && !/^[−+]$/.test(b.textContent!.trim())).map((b) => b.textContent!.trim()));
       assert.deepEqual(sinIcono, [], 'todo botón visible lleva icono');
-      for (const id of ['btn-nuevo-articulo', 'btn-editar-venta', 'btn-espera']) {
+      for (const id of ['btn-nuevo-articulo', 'btn-editar-venta']) {
         const b = page.locator(`#${id}`);
         if (await b.count()) { assert.equal(await b.isDisabled(), true, id); assert.equal(await b.getAttribute('title'), 'Próximamente'); }
       }

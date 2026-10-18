@@ -664,6 +664,60 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     assert.match((await page.textContent('#ticket-regalo-texto'))!, /JEANS LEVIS/);
     assert.deepEqual(errores, []);
   });
+
+  it('B9 venta en espera: se guarda con nota, se atiende a otro cliente y se retoma; la vacía no se guarda', async (t) => {
+    execFileSync(process.execPath, [join(RAIZ, 'scripts', 'construir-prueba.mjs')], { stdio: 'pipe' });
+    const browser = await chromium.launch({ executablePath: chromiumPath, args: ['--no-sandbox'] });
+    t.after(() => browser.close());
+    const page = await (await browser.newContext({ viewport: { width: 1440, height: 900 }, colorScheme: 'light' })).newPage();
+    const errores: string[] = [];
+    page.on('pageerror', (e) => errores.push(String(e)));
+    page.on('console', (m) => { if (m.type() === 'error') errores.push(m.text()); });
+    await page.goto(`file://${HTML}`);
+    await page.waitForSelector('[data-chip="tienda"]');
+    const escanear = async (c: string) => { await page.fill('#scan', c); await page.press('#scan', 'Enter'); };
+    assert.equal(await page.isDisabled('#btn-espera'), false);
+    // con la venta vacía no hay nada que guardar
+    await page.click('#btn-espera');
+    await page.waitForSelector('#dlg-espera[open]');
+    assert.equal(await page.isDisabled('#esp-guardar'), true);
+    assert.match((await page.textContent('#dlg-espera'))!, /No hay ventas en espera/);
+    await page.click('#esp-cerrar');
+    // cliente 1 se guarda en espera
+    await escanear('0002026090782');
+    await page.waitForSelector('#cuerpo tr[data-linea]');
+    await page.click('#btn-espera');
+    await page.fill('#esp-nota', 'Sra. Lupe');
+    await page.click('#esp-guardar');
+    await page.waitForFunction(() => /\(1\)/.test(document.querySelector('#txt-espera')?.textContent ?? ''));
+    assert.equal(await page.locator('#cuerpo tr[data-linea]').count(), 0, 'la pantalla queda limpia para el siguiente cliente');
+    // cliente 2 se cobra
+    await escanear('0002026090799');
+    await page.waitForSelector('#cuerpo tr[data-linea]');
+    await page.fill('#recibido', '1000');
+    await page.click('#btn-cobrar');
+    await page.waitForSelector('#dlg-ticket[open]');
+    await page.click('#btn-nueva');
+    await page.waitForFunction(() => /\(1\)/.test(document.querySelector('#txt-espera')?.textContent ?? ''));
+    // se retoma el cliente 1
+    await page.click('#btn-espera');
+    assert.match((await page.textContent('#dlg-espera'))!, /Sra\. Lupe/);
+    await page.screenshot({ path: join(RAIZ, 'docs', 'capturas', '37-venta-en-espera.png') });
+    await page.click('#dlg-espera .esp-retomar');
+    await page.waitForSelector('#cuerpo tr[data-linea]');
+    assert.equal(await page.locator('#cuerpo tr[data-linea]').count(), 1);
+    assert.equal((await page.textContent('#txt-espera'))!.trim(), 'Venta en espera');
+    // y se descarta una segunda con confirmación en dos pasos
+    await page.click('#btn-espera');
+    await page.click('#esp-guardar');
+    await page.waitForFunction(() => /\(1\)/.test(document.querySelector('#txt-espera')?.textContent ?? ''));
+    await page.click('#btn-espera');
+    await page.click('#dlg-espera .esp-descartar');
+    assert.match((await page.textContent('#dlg-espera .esp-descartar'))!, /Confirmar/);
+    await page.click('#dlg-espera .esp-descartar');
+    await page.waitForFunction(() => /No hay ventas en espera/.test(document.querySelector('#dlg-espera')?.textContent ?? ''));
+    assert.deepEqual(errores, []);
+  });
 });
 
 const REAL = process.env.POS_INVENTARIO_REAL;

@@ -530,6 +530,8 @@ interface Carrito {
   cupon?: string;
   /** Resultado del último cálculo de promociones y cupón (solo para mostrar). */
   descuentos?: { aplicadas: ResultadoDescuentos['aplicadas']; cupon: ResultadoDescuentos['cupon'] };
+  /** Venta en espera: el cliente se fue un momento y la caja atiende a otro. No reserva existencias; se recalcula al retomarla. */
+  espera?: { desde: string; nota: string; por: string };
 }
 
 export type EstadoFolios = { estado: 'activa' | 'recuperacion'; motivo: string | null; ultimo: number; techo: number | null };
@@ -847,6 +849,49 @@ export class Caja {
   }
   carritosAbiertos(): string[] {
     return this.carritoIds().filter((id) => this.cartGet(id).estado === 'abierto');
+  }
+  /** Ventas abiertas que NO están en espera (la venta "en pantalla" se elige solo entre estas). */
+  carritosActivos(): string[] {
+    return this.carritosAbiertos().filter((id) => !this.cartGet(id).espera);
+  }
+  /** Ventas en espera de esta caja, de la más antigua a la más reciente. */
+  ventasEnEspera() {
+    return this.carritosAbiertos().map((id) => this.cartGet(id)).filter((c) => c.espera).map((c) => ({
+      cart_id: c.id, desde: c.espera!.desde, nota: c.espera!.nota, por: c.espera!.por,
+      piezas: c.lineas.reduce((a, l) => a + l.qty, 0), total: c.lineas.reduce((a, l) => a + l.importe, 0),
+      articulos: c.lineas.slice(0, 3).map((l) => ({ qty: l.qty, descripcion: l.descripcion })),
+    }));
+  }
+  /** Pone la venta en espera (queda guardada, también tras un reinicio). Exige que tenga artículos y que no haya un cobro a medias. */
+  ponerEnEspera(cartId: string, nota = '', por = 'cajero') {
+    const c = this.cartGet(cartId);
+    this.exigirAbierto(c);
+    this.exigirSinCobroPendiente(c);
+    if (c.espera) return;
+    if (c.lineas.length === 0) throw new ErrorDominio('CARRITO_VACIO', 'una venta sin artículos no se pone en espera');
+    this.repo.tx(() => {
+      delete c.tasa; // el tipo de cambio se vuelve a fijar al retomar el cobro
+      c.espera = { desde: this.ctx.reloj.now(), nota: nota.trim().slice(0, 80), por };
+      this.repo.kvSet(`cart:${cartId}`, c);
+      this.emitir('cart.en_espera', { cart_id: cartId, tienda: this.tienda, caja: this.caja, nota: c.espera.nota, piezas: c.lineas.reduce((a, l) => a + l.qty, 0), total: c.lineas.reduce((a, l) => a + l.importe, 0), por });
+    });
+  }
+  /** Retoma una venta en espera: pasa a ser la venta en pantalla (la última de la lista). */
+  retomar(cartId: string, por = 'cajero') {
+    const c = this.cartGet(cartId);
+    this.exigirAbierto(c);
+    if (!c.espera) return;
+    this.repo.tx(() => {
+      delete c.espera;
+      this.repo.kvSet(`cart:${cartId}`, c);
+      this.repo.kvSet('carts', [...this.carritoIds().filter((x) => x !== cartId), cartId]);
+      this.emitir('cart.retomada', { cart_id: cartId, tienda: this.tienda, caja: this.caja, por });
+    });
+  }
+  /** Descarta sin registro una venta abierta vacía (sin artículos ni dinero): no es una anulación. */
+  descartarVacio(cartId: string) {
+    const c = this.cartGet(cartId);
+    if (c.estado === 'abierto' && !c.espera && c.lineas.length === 0 && !c.intent_id) this.repo.kvSet(`cart:${cartId}`, { ...c, estado: 'descartado' });
   }
   private carritoIds(): string[] {
     return this.repo.kvGet<string[]>('carts') ?? [];

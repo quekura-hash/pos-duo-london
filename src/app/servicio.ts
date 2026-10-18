@@ -148,8 +148,35 @@ export class ServicioCaja {
 
   /** Reutiliza la venta en curso (sobrevive a reinicios) o abre una nueva. */
   carritoActual(): string {
-    const abiertos = this.caja.carritosAbiertos();
+    const abiertos = this.caja.carritosActivos();
     return abiertos.length ? abiertos[abiertos.length - 1]! : this.caja.abrirCarrito();
+  }
+  ventasEnEspera() {
+    return this.caja.ventasEnEspera();
+  }
+  /** Guarda la venta en espera y abre una nueva para atender al siguiente cliente. */
+  ponerEnEspera(cartId: string, nota: string) {
+    this.caja.ponerEnEspera(cartId, nota, this.actor.usuario);
+    const cart = this.caja.abrirCarrito();
+    return { cart, carrito: this.vista(cart), espera: this.caja.ventasEnEspera() };
+  }
+  /** Retoma una venta en espera; la venta en pantalla pasa a espera si tiene artículos, o se descarta si está vacía. */
+  retomarVenta(cartEspera: string, cartActual?: string) {
+    if (cartActual && cartActual !== cartEspera) {
+      const actual = this.caja.carrito(cartActual);
+      if (actual.estado === 'abierto' && !actual.espera) {
+        if (actual.lineas.length) this.caja.ponerEnEspera(cartActual, '', this.actor.usuario);
+        else this.caja.descartarVacio(cartActual);
+      }
+    }
+    this.caja.retomar(cartEspera, this.actor.usuario);
+    return { cart: cartEspera, carrito: this.vista(cartEspera), espera: this.caja.ventasEnEspera() };
+  }
+  /** Descarta una venta en espera (queda la constancia de anulación con lo que tenía). */
+  descartarEnEspera(cartId: string) {
+    this.caja.retomar(cartId, this.actor.usuario);
+    this.caja.anularCarrito(cartId, 'venta en espera descartada', this.actor.usuario);
+    return { espera: this.caja.ventasEnEspera() };
   }
   nuevaVenta(): string {
     return this.caja.abrirCarrito();

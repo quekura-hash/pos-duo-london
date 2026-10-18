@@ -192,7 +192,7 @@ async function vistaVenta() {
         </section>
         <div class="acciones-inf" id="acciones-inf">
           <button class="btn" id="btn-buscar-ticket" type="button" title="Abre el historial de ventas de esta caja">${ico('search')}<span>Buscar ticket</span></button>
-          <button class="btn" id="btn-devolucion" type="button" title="Buscar la venta y devolver (solo en la caja donde se vendió)">${ico('undo')}<span>Cambio o devolución</span></button><button class="btn" id="btn-descuento" type="button" title="Descuento autorizado por un supervisor con su clave">${ico('percent')}<span>Aplicar descuento</span></button><button class="btn" id="btn-cupon" type="button" title="Capturar o escanear un cupón de descuento">${ico('gift')}<span>Cupón</span></button>${pronto('btn-espera', 'pause', 'Venta en espera')}
+          <button class="btn" id="btn-devolucion" type="button" title="Buscar la venta y devolver (solo en la caja donde se vendió)">${ico('undo')}<span>Cambio o devolución</span></button><button class="btn" id="btn-descuento" type="button" title="Descuento autorizado por un supervisor con su clave">${ico('percent')}<span>Aplicar descuento</span></button><button class="btn" id="btn-cupon" type="button" title="Capturar o escanear un cupón de descuento">${ico('gift')}<span>Cupón</span></button><button class="btn" id="btn-espera" type="button" title="Guardar esta venta y atender a otro cliente, o retomar una venta guardada">${ico('pause')}<span id="txt-espera">Venta en espera</span></button>
         </div>
       </div>
       <aside class="panel resumen" aria-label="Resumen y cobro">
@@ -221,6 +221,8 @@ async function vistaVenta() {
   $('#btn-regalo').addEventListener('click', () => { S.conRegalo = !S.conRegalo; $('#btn-regalo').setAttribute('aria-pressed', S.conRegalo ? 'true' : 'false'); msg(S.conRegalo ? 'Al cobrar se imprimirá también el ticket de regalo (sin precios).' : 'Sin ticket de regalo.', 'aviso'); });
   $('#btn-descuento').addEventListener('click', abrirDescuento);
   $('#btn-cupon').addEventListener('click', () => abrirCupon());
+  $('#btn-espera').addEventListener('click', () => abrirEspera());
+  actualizarEspera();
   $('#btn-cobrar').addEventListener('click', cobrar);
   $('#btn-quitar').addEventListener('click', () => S.sel && accionLinea(S.sel, 'quitar'));
   $('#btn-buscar-ticket').addEventListener('click', () => ir('ventas'));
@@ -1262,6 +1264,51 @@ function abrirDescuento() {
 }
 
 // ── recepción de mercancía del almacén (la tienda confirma al escanear por primera vez) ──
+/** Rótulo del botón con el número de ventas guardadas. */
+async function actualizarEspera() {
+  try {
+    const r = await api('/api/venta/espera');
+    S.espera = r.espera;
+    const t = $('#txt-espera');
+    if (t) t.textContent = r.espera.length ? `Venta en espera (${r.espera.length})` : 'Venta en espera';
+    return r.espera;
+  } catch { return S.espera ?? []; }
+}
+/** Ventas en espera: guardar la actual, retomar o descartar una guardada. */
+async function abrirEspera() {
+  const lista = await actualizarEspera();
+  const d = dialogo('dlg-espera');
+  d.setAttribute('aria-labelledby', 'esp-titulo');
+  const tieneArt = (S.carrito?.lineas?.length ?? 0) > 0;
+  const filas = lista.map((v) => `<tr data-cart="${esc(v.cart_id)}"><td>${esc(hora(v.desde))}</td><td>${esc(v.nota || '—')}<div class="nota">${v.articulos.map((a) => `${a.qty} ${esc(a.descripcion)}`).join(', ')}${v.piezas > v.articulos.reduce((n, a) => n + a.qty, 0) ? '…' : ''}</div></td><td class="num">${v.piezas}</td><td class="num">${mxn(v.total)}</td><td><button class="btn btn-primario esp-retomar" type="button">Retomar</button> <button class="btn esp-descartar" type="button">Descartar</button></td></tr>`).join('');
+  d.innerHTML = `<h2 id="esp-titulo" style="margin-top:0">Venta en espera</h2>
+    <div class="campo"><label for="esp-nota">Nota (nombre del cliente o referencia)</label><input id="esp-nota" class="texto" maxlength="80" placeholder="Opcional" ${tieneArt ? '' : 'disabled'}></div>
+    <button class="btn btn-primario" type="button" id="esp-guardar" ${tieneArt ? '' : 'disabled'}>${ico('pause')}<span>Poner esta venta en espera</span></button>
+    ${tieneArt ? '' : '<p class="nota">La venta en pantalla no tiene artículos: no hay nada que poner en espera.</p>'}
+    <h3>Ventas guardadas (${lista.length})</h3>
+    ${lista.length ? `<table class="tabla"><thead><tr><th>Hora</th><th>Detalle</th><th class="num">Piezas</th><th class="num">Total</th><th></th></tr></thead><tbody>${filas}</tbody></table><p class="nota">Al retomar, los precios y promociones se calculan de nuevo; las existencias no se reservan.</p>` : '<p class="nota">No hay ventas en espera.</p>'}
+    <div id="msg-espera" class="mensaje" role="status" aria-live="polite"></div>
+    <div class="filas"><button class="btn" type="button" id="esp-cerrar">Cerrar</button></div>`;
+  const error = (e) => { const m = $('#msg-espera'); m.className = 'mensaje error'; m.textContent = e.message; };
+  $('#esp-cerrar').addEventListener('click', () => d.close());
+  $('#esp-guardar').addEventListener('click', async () => {
+    try {
+      const r = await api('/api/venta/espera', { cart: S.cart, nota: $('#esp-nota').value });
+      S.cart = r.cart; S.carrito = r.carrito; S.sel = null; d.close(); await ir('venta'); msg('Venta guardada en espera.');
+    } catch (e) { error(e); }
+  });
+  d.querySelectorAll('.esp-retomar').forEach((b) => b.addEventListener('click', async () => {
+    try {
+      const r = await api('/api/venta/retomar', { cart: b.closest('tr').dataset.cart, actual: S.cart });
+      S.cart = r.cart; S.carrito = r.carrito; S.sel = null; d.close(); await ir('venta'); msg('Venta retomada.');
+    } catch (e) { error(e); }
+  }));
+  d.querySelectorAll('.esp-descartar').forEach((b) => b.addEventListener('click', async () => {
+    if (!b.dataset.seguro) { b.dataset.seguro = '1'; b.textContent = '¿Descartar? Confirmar'; return; }
+    try { await api('/api/venta/espera/descartar', { cart: b.closest('tr').dataset.cart }); await abrirEspera(); } catch (e) { error(e); }
+  }));
+  if (!d.open) d.showModal();
+}
 function dialogo(id) {
   let d = document.getElementById(id);
   if (!d) { d = document.createElement('dialog'); d.id = id; document.body.appendChild(d); }

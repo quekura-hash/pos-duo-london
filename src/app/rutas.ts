@@ -53,6 +53,10 @@ export async function atender(o: { cajero?: ServicioCaja; admin?: ServicioAdmin 
       case 'POST /api/efectivo/conteo-usd': return ok(exigirCajero().registrarConteoUsd(b.denominaciones ?? {}));
       case 'POST /api/efectivo/conteo': return ok(exigirCajero().registrarConteo(b.moneda === 'USD' ? 'USD' : 'MXN', b.denominaciones ?? {}));
       case 'POST /api/efectivo/billete-rechazado': return ok(exigirCajero().billeteRechazado(Number(b.denominacion), b.motivo, b.nota, b.cantidad === undefined ? 1 : Number(b.cantidad)));
+      case 'GET /api/venta/espera': return ok({ espera: exigirCajero().ventasEnEspera() });
+      case 'POST /api/venta/espera': return ok(exigirCajero().ponerEnEspera(b.cart, String(b.nota ?? '')));
+      case 'POST /api/venta/retomar': return ok(exigirCajero().retomarVenta(b.cart, b.actual ? String(b.actual) : undefined));
+      case 'POST /api/venta/espera/descartar': return ok(exigirCajero().descartarEnEspera(b.cart));
       case 'POST /api/venta/anular': return ok(exigirCajero().anularVenta(b.cart, String(b.motivo ?? 'anulada')));
       case 'POST /api/venta/cancelar': return ok(exigirCajero().cancelarVenta(b.sale_id, String(b.motivo ?? 'cancelada')));
       case 'POST /api/venta/cobrar-regalo': return ok(await exigirCajero().cobrarTarjetaRegalo(b.cart, String(b.codigo ?? ''), b.recibido === undefined || b.recibido === null ? undefined : Number(b.recibido), Number(b.usd ?? 0)));
