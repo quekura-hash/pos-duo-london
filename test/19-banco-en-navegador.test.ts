@@ -313,6 +313,36 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     await page.waitForFunction(() => /Archivo entregado|Descarga/.test(document.querySelector('#estado-exportar-ent')!.textContent!));
     await page.click('#btn-volver-alm');
     await page.waitForSelector('#btn-reporte-entregas');
+    // London recibe MENOS de lo entregado: «Otra cantidad» → faltante naranja en Almacén que se ubica y se corrige
+    await page.selectOption('#sesion-prueba', 'LON/1');
+    await page.waitForSelector('[data-chip="tienda"]');
+    await page.fill('#scan', '202610001');
+    await page.press('#scan', 'Enter');
+    await page.waitForSelector('#dlg-recepcion[open]');
+    await page.click('#rec-otra');
+    assert.equal(await page.isDisabled('#rec-otra-ok'), true);
+    await page.fill('#rec-qty', '12');
+    assert.equal(await page.isDisabled('#rec-otra-ok'), true, 'no puede ser igual o mayor a lo entregado');
+    await page.fill('#rec-qty', '9');
+    assert.match((await page.textContent('#rec-aviso'))!, /registran 3 faltante/);
+    await page.screenshot({ path: join(RAIZ, 'docs', 'capturas', '40-recepcion-otra-cantidad.png') });
+    await page.click('#rec-otra-ok');
+    await page.waitForFunction(() => /Se registró el faltante de 3/.test(document.querySelector('#mensaje')!.textContent!));
+    await page.click('#nav button[data-vista="administracion"]');
+    await page.click('#nav button[data-vista="almacen"]');
+    await page.waitForSelector('#tabla-faltantes tr.faltante-pendiente');
+    assert.equal((await page.textContent('#tabla-faltantes [data-col="sin-ubicar"]'))!.trim(), '3');
+    assert.match((await page.textContent('#n-faltantes'))!, /3 por ubicar/);
+    await page.fill('#tabla-faltantes input[data-destino="almacen"]', '1');
+    await page.fill('#tabla-faltantes input[data-destino="DUO"]', '1');
+    await page.fill('#tabla-faltantes input[data-destino="perdida"]', '5');
+    await page.click('#tabla-faltantes .btn-guardar-faltante');
+    await page.waitForFunction(() => /ubicaron 7/.test(document.querySelector('#msg-faltantes')!.textContent!));
+    await page.fill('#tabla-faltantes input[data-destino="perdida"]', '1');
+    await page.screenshot({ path: join(RAIZ, 'docs', 'capturas', '41-piezas-faltantes.png') });
+    await page.click('#tabla-faltantes .btn-guardar-faltante');
+    await page.waitForFunction(() => document.querySelectorAll('#tabla-faltantes tr.faltante-pendiente').length === 0);
+    assert.match((await page.textContent('#n-faltantes'))!, /0 por ubicar/);
     assert.deepEqual(errores, []);
   });
   it('B4 lo que se hace en la página (alta de almacén, departamento) se conserva al recargar', async (t) => {

@@ -487,5 +487,14 @@ Reportes · Cortes (con el botón «Dólares recibidos») · Inventario · Almac
 - **Dónde**: Administración → Almacén → botón **Reporte de entregas** (el menú sigue marcando Almacén). Filtros: desde/hasta (fecha local de la entrega; por omisión el mes en curso) y tienda. **Exportar a Excel** incluye el detalle y, debajo, la sección de diferencias.
 - **Contenido**: resumen por tienda (entregas, piezas, confirmadas, pendientes, piezas pendientes) y detalle de cada entrega: fecha y hora, tienda, artículo, piezas, estado (**Confirmada** con fecha y quién la confirmó, o **Pendiente** con los días de espera), si excedió lo registrado en el almacén, etiquetas y quién entregó.
 - **Diferencias** (estado actual, no dependen del periodo): **sin confirmar** (entrega de 3 o más días que la tienda no ha confirmado; los 3 días son una **alternativa de ensayo**, `DIAS_ENTREGA_SIN_CONFIRMAR`), **más de lo registrado** (entrega confirmada con «exceso» por el almacén) y **almacén negativo** (existencia del almacén menor que 0). Filtrando por tienda no aparece el almacén negativo.
-- **Límite actual**: la tienda confirma siempre la cantidad entregada completa, por eso aún no existe la diferencia «se entregaron X y se recibieron Y»; entrará con la corrección de entradas mal capturadas.
+- **Piezas faltantes** (sección 27) también aparecen como diferencia mientras tengan piezas sin ubicar.
 - **Verificado**: prueba del motor (RE1, ambos almacenes) y de navegador (continuación de B3: entrega, confirmación de una tienda, reporte y exportación).
+
+## 27. Piezas faltantes en la recepción [P]
+
+- **Tienda**: al confirmar una entrega, «Sí, recibí N» o **«Otra cantidad»** (entero de 0 a N−1). Solo entra a la existencia de la tienda lo que se recibió; `alm.recibida` guarda esa cantidad. Cantidades inválidas se rechazan sin confirmar nada.
+- **Almacén** (Administración): si hay faltantes aparece un bloque **naranja «Piezas faltantes»** con las piezas por ubicar. Cada renglón (artículo, tienda, entregadas, recibidas, faltan) tiene cantidades por destino: **encontradas en almacén**, **en DÚO**, **en London** y **perdidas**, y «Sin ubicar». **Guardar** registra el total por destino; se puede volver a guardar para corregir (el último valor reemplaza al anterior; guardar lo mismo no duplica). La suma no puede exceder lo que faltó. Un renglón totalmente ubicado deja de estar naranja y se oculta salvo «Mostrar también los ya ubicados».
+- **Efecto en existencias**: lo encontrado en el almacén suma a la existencia del almacén; lo encontrado en una tienda suma a la de esa tienda (op `alm.faltante`, se propaga a hubs y cajas); lo perdido solo queda registrado. Nada se borra: las correcciones son operaciones nuevas.
+- **Reporte de entregas**: el renglón muestra «Confirmada: recibió X de Y» y el faltante sin ubicar aparece en Diferencias; el Excel trae piezas entregadas y recibidas.
+- **No incluido**: aviso de faltantes en el menú lateral; confirmar de más de lo entregado (se rechaza).
+- **Verificado**: pruebas del motor (FA1–FA2, ambos almacenes) y de navegador (continuación de B3 con London recibiendo 9 de 12).

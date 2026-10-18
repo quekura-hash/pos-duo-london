@@ -4,6 +4,7 @@ import { fechaLocal } from './util.ts';
 
 // Proyecciones puras sobre la bitácora. El estado derivado nunca se sincroniza: se recalcula.
 
+import { resolucionesFaltantes } from './almacen.ts';
 export function catalogo(ops: Op[]): Map<string, Articulo> {
   const m = new Map<string, Articulo>();
   for (const o of ops) {
@@ -40,6 +41,8 @@ export function stock(ops: Op[], tienda: string): Map<string, number> {
       m.set(o.payload.item_id, (m.get(o.payload.item_id) ?? 0) + o.payload.delta);
     }
   }
+  // Piezas faltantes que Administración ubicó en esta tienda.
+  for (const r of resolucionesFaltantes(ops).values()) if (r.destino === tienda && r.qty > 0) m.set(r.item_id, (m.get(r.item_id) ?? 0) + r.qty);
   return m;
 }
 

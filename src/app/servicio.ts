@@ -1,5 +1,5 @@
 import { cortesPorCaja, descuentosPorCaja, dolaresPorCaja, reporteConsolidado, ventasPorCaja, type Filtro } from '../consultas.ts';
-import { DIAS_URGENTE, diasHasta, existenciaAlmacen, recepcionesPendientes, recordatoriosPiso, reporteEntregas, revisarAlta, type AltaManual } from '../almacen.ts';
+import { DIAS_URGENTE, diasHasta, existenciaAlmacen, faltantes, recepcionesPendientes, recordatoriosPiso, reporteEntregas, revisarAlta, type AltaManual } from '../almacen.ts';
 import { DEPARTAMENTOS_BASE, resolverDepartamento } from '../departamentos.ts';
 import { formatoTasa } from '../dinero.ts';
 import { ErrorDominio } from '../errores.ts';
@@ -220,8 +220,8 @@ export class ServicioCaja {
     const cat = catalogo(this.caja.ops());
     return this.caja.recepcionesPendientes().map((r) => ({ ...r, descripcion: cat.get(r.item_id)?.descripcion ?? '', marca: cat.get(r.item_id)?.marca ?? '', codigo: cat.get(r.item_id)?.codigo ?? '' }));
   }
-  confirmarRecepcion(entregaId: string) {
-    return this.caja.confirmarRecepcion(entregaId, this.actor.usuario);
+  confirmarRecepcion(entregaId: string, qty?: number) {
+    return this.caja.confirmarRecepcion(entregaId, this.actor.usuario, qty);
   }
   /**
    * Agregar desde un resultado de búsqueda. P-13 (decidido): un código duplicado no debería existir; si ocurre, el cajero
@@ -455,7 +455,7 @@ export class ServicioAdmin {
   readonly cajas: { tienda: string; caja: number }[];
   private inv?: FuenteInventario;
   private central?: { fijarTipoCambio(tasa: number, usuario: string, versionBase: number, confirmarVariacion?: boolean): import('../nodos.ts').ResultadoTipoCambio; asignarPermiso(usuario: string, permiso: string, valor: boolean, por: string): Op; guardarDepto(c: import('../departamentos.ts').CambioDepto, por: string): { ok: true; op: Op } | { ok: false; error: import('../departamentos.ts').ErrorDepto };
-    guardarDatosTienda: import('../nodos.ts').Central['guardarDatosTienda']; editarArticulo: import('../nodos.ts').Central['editarArticulo']; guardarPromocion: import('../nodos.ts').Central['guardarPromocion']; guardarSupervisor: import('../nodos.ts').Central['guardarSupervisor']; recordarSacarAPiso: import('../nodos.ts').Central['recordarSacarAPiso']; altaLote: import('../nodos.ts').Central['altaLote']; entregar: import('../nodos.ts').Central['entregar'] };
+    guardarDatosTienda: import('../nodos.ts').Central['guardarDatosTienda']; editarArticulo: import('../nodos.ts').Central['editarArticulo']; guardarPromocion: import('../nodos.ts').Central['guardarPromocion']; guardarSupervisor: import('../nodos.ts').Central['guardarSupervisor']; recordarSacarAPiso: import('../nodos.ts').Central['recordarSacarAPiso']; resolverFaltante: import('../nodos.ts').Central['resolverFaltante']; altaLote: import('../nodos.ts').Central['altaLote']; entregar: import('../nodos.ts').Central['entregar'] };
   constructor(o: { actor: Extract<Actor, { rol: 'admin' }>; fuente: () => Op[]; cajas: { tienda: string; caja: number }[]; inventario?: FuenteInventario; central?: ServicioAdmin['central'] }) {
     this.central = o.central;
     this.actor = o.actor;
@@ -657,7 +657,20 @@ export class ServicioAdmin {
       };
     }).sort((x, y) => Number(y.item_no ?? 0) - Number(x.item_no ?? 0));
     const hoy = fechaLocal(new Date().toISOString());
-    return { tiendas, hoy, items, avisos: this.avisosPiso(items, hoy) };
+    return { tiendas, hoy, items, avisos: this.avisosPiso(items, hoy), faltantes: this.faltantesVista(ops, cat) };
+  }
+  /** Piezas faltantes (la tienda recibió menos de lo entregado): primero las pendientes, luego las resueltas. */
+  private faltantesVista(ops: Op[], cat: ReturnType<typeof catalogo>) {
+    return faltantes(ops).map((f) => {
+      const a = cat.get(f.item_id);
+      return { ...f, item_no: a?.item_no ?? null, codigo: a?.codigo ?? '', descripcion: a?.descripcion ?? f.item_id, marca: a?.marca ?? '' };
+    }).sort((x, y) => Number(x.estado === 'resuelto') - Number(y.estado === 'resuelto') || y.reportada_en.localeCompare(x.reportada_en));
+  }
+  /** Ubica (o corrige) las piezas faltantes de una entrega: total por destino (almacen, perdida o tienda). */
+  resolverFaltante(entregaId: string, destinos: Record<string, number>) {
+    if (!this.central) throw new ErrorDominio('SIN_CENTRAL', 'esta sesión no tiene acceso al servicio central');
+    this.central.resolverFaltante(entregaId, destinos, this.actor.usuario);
+    return this.almacen();
   }
   /** Fechas de «sacar a piso» con artículos que aún tienen piezas en el almacén. Urgente: faltan 7 días o menos, o ya pasó. */
   private avisosPiso(items: { sacar_a_piso: string | null; existencia: number }[], hoy: string) {

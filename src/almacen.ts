@@ -10,12 +10,12 @@ export const TIENDAS_ENTREGA = ['DUO', 'LON'] as const;
 
 export interface EntradaAlmacen { entrada_id: string; item_id: string; qty: number; pedimento: string | null; lote_doc: string; fuente: string; ocurrio_en: string }
 export interface EntregaAlmacen { entrega_id: string; item_id: string; tienda: string; qty: number; etiqueta_precio: boolean; etiqueta_costura: boolean; exceso: boolean; ocurrio_en: string; por: string }
-export interface ExistenciaAlmacen { item_id: string; recibido: number; entregado: number; existencia: number; pedimentos: string[]; entregas: EntregaAlmacen[] }
+export interface ExistenciaAlmacen { item_id: string; recibido: number; entregado: number; /** Piezas faltantes que aparecieron en el almacén. */ recuperado: number; existencia: number; pedimentos: string[]; entregas: EntregaAlmacen[] }
 
 /** Existencia del almacén por artículo: lo recibido menos lo entregado a tiendas. Puede quedar negativa (se entrega con aviso). */
 export function existenciaAlmacen(ops: Op[]): Map<string, ExistenciaAlmacen> {
   const m = new Map<string, ExistenciaAlmacen>();
-  const de = (id: string) => { let x = m.get(id); if (!x) m.set(id, (x = { item_id: id, recibido: 0, entregado: 0, existencia: 0, pedimentos: [], entregas: [] })); return x; };
+  const de = (id: string) => { let x = m.get(id); if (!x) m.set(id, (x = { item_id: id, recibido: 0, entregado: 0, recuperado: 0, existencia: 0, pedimentos: [], entregas: [] })); return x; };
   for (const o of ops) {
     if (o.tipo === 'alm.entrada') {
       const x = de(o.payload.item_id);
@@ -27,8 +27,44 @@ export function existenciaAlmacen(ops: Op[]): Map<string, ExistenciaAlmacen> {
       x.entregas.push({ ...o.payload, ocurrio_en: o.ocurrio_en });
     }
   }
-  for (const x of m.values()) x.existencia = x.recibido - x.entregado;
+  for (const r of resolucionesFaltantes(ops).values()) if (r.destino === 'almacen' && r.qty > 0) de(r.item_id).recuperado += r.qty;
+  for (const x of m.values()) x.existencia = x.recibido - x.entregado + x.recuperado;
   return m;
+}
+
+// ── piezas faltantes: la tienda recibe menos de lo entregado y Administración las ubica o las da por perdidas ──
+export const DESTINOS_FALTANTE_ESPECIALES = ['almacen', 'perdida'] as const;
+export interface ResolucionFaltante { entrega_id: string; item_id: string; destino: string; qty: number }
+/** Cantidad vigente por (entrega, destino): el último registro gana, así una corrección reemplaza a la anterior. */
+export function resolucionesFaltantes(ops: Op[]): Map<string, ResolucionFaltante> {
+  const m = new Map<string, ResolucionFaltante>();
+  for (const o of ops) if (o.tipo === 'alm.faltante') m.set(`${o.payload.entrega_id}|${o.payload.destino}`, { entrega_id: o.payload.entrega_id, item_id: o.payload.item_id, destino: o.payload.destino, qty: o.payload.qty });
+  return m;
+}
+export interface Faltante {
+  entrega_id: string; item_id: string; tienda: string; entregadas: number; recibidas: number; faltan: number;
+  reportada_en: string; reportada_por: string;
+  /** Piezas ubicadas por destino: `almacen`, `perdida` o el código de una tienda. */
+  ubicadas: Record<string, number>;
+  pendiente: number; estado: 'pendiente' | 'resuelto';
+}
+/** Faltantes de todas las entregas confirmadas con menos piezas que las entregadas. */
+export function faltantes(ops: Op[]): Faltante[] {
+  const entregas = new Map<string, { item_id: string; tienda: string; qty: number }>();
+  for (const o of ops) if (o.tipo === 'alm.entrega') entregas.set(o.payload.entrega_id, { item_id: o.payload.item_id, tienda: o.payload.tienda, qty: o.payload.qty });
+  const res = resolucionesFaltantes(ops);
+  const l: Faltante[] = [];
+  for (const o of ops) {
+    if (o.tipo !== 'alm.recibida') continue;
+    const e = entregas.get(o.payload.entrega_id);
+    if (!e || o.payload.qty >= e.qty) continue;
+    const ubicadas: Record<string, number> = {};
+    let suma = 0;
+    for (const r of res.values()) if (r.entrega_id === o.payload.entrega_id && r.qty > 0) { ubicadas[r.destino] = r.qty; suma += r.qty; }
+    const faltan = e.qty - o.payload.qty;
+    l.push({ entrega_id: o.payload.entrega_id, item_id: e.item_id, tienda: e.tienda, entregadas: e.qty, recibidas: o.payload.qty, faltan, reportada_en: o.ocurrio_en, reportada_por: o.payload.cajero ?? '', ubicadas, pendiente: faltan - suma, estado: faltan - suma > 0 ? 'pendiente' : 'resuelto' });
+  }
+  return l;
 }
 
 /** Recordatorio interno del almacén: fecha (AAAA-MM-DD) en que hay que sacar el artículo a piso. El último registro gana; null lo quita. */
@@ -149,9 +185,9 @@ export const DIAS_ENTREGA_SIN_CONFIRMAR = 3;
 export interface FilaEntrega {
   entrega_id: string; fecha_local: string; hora: string; item_id: string; item_no: string | null; codigo: string; descripcion: string; marca: string; estilo: string; departamento: string;
   tienda: string; qty: number; estado: 'confirmada' | 'pendiente'; exceso: boolean; etiqueta_precio: boolean; etiqueta_costura: boolean; por: string;
-  recibida_local: string | null; recibida_por: string | null; dias_espera: number;
+  recibida_local: string | null; recibida_por: string | null; recibida_qty: number | null; dias_espera: number;
 }
-export type TipoDiferencia = 'sin_confirmar' | 'exceso' | 'almacen_negativo';
+export type TipoDiferencia = 'sin_confirmar' | 'faltante' | 'exceso' | 'almacen_negativo';
 export interface Diferencia { tipo: TipoDiferencia; item_id: string; item_no: string | null; codigo: string; descripcion: string; tienda: string | null; entrega_id: string | null; detalle: string; piezas: number }
 export interface ReporteEntregas {
   desde: string | null; hasta: string | null; hoy: string; dias_sin_confirmar: number;
@@ -181,7 +217,7 @@ export function reporteEntregas(ops: Op[], cat: Map<string, Articulo>, f: { desd
     todas.push({
       entrega_id: p.entrega_id, fecha_local: fecha, hora: hora(o.ocurrio_en), item_id: p.item_id, item_no: a?.item_no ?? null, codigo: a?.codigo ?? '', descripcion: a?.descripcion ?? p.item_id, marca: a?.marca ?? '', estilo: a?.estilo ?? '', departamento: a?.departamento ?? '',
       tienda: p.tienda, qty: p.qty, estado: r ? 'confirmada' : 'pendiente', exceso: !!p.exceso, etiqueta_precio: !!p.etiqueta_precio, etiqueta_costura: !!p.etiqueta_costura, por: p.por ?? '',
-      recibida_local: r ? `${fechaLocal(r.ocurrio_en)} ${hora(r.ocurrio_en)}` : null, recibida_por: r ? (r.payload.cajero ?? '') : null,
+      recibida_local: r ? `${fechaLocal(r.ocurrio_en)} ${hora(r.ocurrio_en)}` : null, recibida_por: r ? (r.payload.cajero ?? '') : null, recibida_qty: r ? r.payload.qty : null,
       dias_espera: dias(fecha, r ? fechaLocal(r.ocurrio_en) : hoy),
     });
   }
@@ -194,8 +230,13 @@ export function reporteEntregas(ops: Op[], cat: Map<string, Articulo>, f: { desd
   const diferencias: Diferencia[] = [];
   const dif = (tipo: TipoDiferencia, x: { item_id: string; item_no: string | null; codigo: string; descripcion: string }, tienda: string | null, entrega_id: string | null, detalle: string, piezas: number) =>
     diferencias.push({ tipo, item_id: x.item_id, item_no: x.item_no, codigo: x.codigo, descripcion: x.descripcion, tienda, entrega_id, detalle, piezas });
+  const pendientesFaltante = new Map(faltantes(ops).filter((q) => q.pendiente > 0).map((q) => [q.entrega_id, q.pendiente]));
   for (const x of deTienda) {
     if (x.estado === 'pendiente' && x.dias_espera >= DIAS_ENTREGA_SIN_CONFIRMAR) dif('sin_confirmar', x, x.tienda, x.entrega_id, `Entregada el ${x.fecha_local}; lleva ${x.dias_espera} días sin que la tienda la confirme`, x.qty);
+    if (x.recibida_qty !== null && x.recibida_qty < x.qty) {
+      const fa = pendientesFaltante.get(x.entrega_id);
+      if (fa) dif('faltante', x, x.tienda, x.entrega_id, `Se entregaron ${x.qty} y la tienda recibió ${x.recibida_qty}; faltan por ubicar ${fa}`, fa);
+    }
     if (x.exceso) dif('exceso', x, x.tienda, x.entrega_id, `Se entregaron ${x.qty} pieza(s) por encima de lo registrado en el almacén`, x.qty);
   }
   if (!f.tienda) for (const e of existenciaAlmacen(ops).values()) {

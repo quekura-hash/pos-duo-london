@@ -2,7 +2,7 @@ import type { BusquedaVentas, VentaLocalizada } from './consultas.ts';
 import { ErrorDominio } from './errores.ts';
 import { calcularDescuentos, normCodigo, repartir, validarPromocion, type ErrorPromo, type Promocion, type ResultadoDescuentos } from './promociones.ts';
 import { claveValida, hashClave, supervisorPorClave, type Supervisor } from './supervisores.ts';
-import { existenciaAlmacen, fechaValida, recepcionesPendientes, type AltaManual, type RecepcionPendiente } from './almacen.ts';
+import { DESTINOS_FALTANTE_ESPECIALES, existenciaAlmacen, faltantes, fechaValida, recepcionesPendientes, type Faltante, type AltaManual, type RecepcionPendiente } from './almacen.ts';
 import { slug, validarCambioDepto, type CambioDepto, type ErrorDepto } from './departamentos.ts';
 import { DENOMINACIONES_USD, esImporteEnBilletesUsd, superaUmbralTasa, totalDenominacionesMxn, totalDenominacionesUsd, usdAMxn, variacionTasaPb } from './dinero.ts';
 import { TASA_SIN_VERIFICAR_OMISION, type Politicas } from './politicas.ts';
@@ -89,7 +89,7 @@ interface Reserva {
 
 const BROADCAST_TIENDA = new Set(['alm.recibida', 'inv.movement', 'inv.conteo', 'inv.verificacion_pendiente', 'doc.perdida_posible', 'item.created', 'item.item_no_assigned', 'giftcard.emitida', 'giftcard.recarga', 'giftcard.uso', 'giftcard.reintegro']);
 // Lo que el central baja a hubs y cajas (catálogo y resoluciones administrativas).
-const CATALOGO = new Set(['item.created', 'item.item_no_assigned', 'item.codigo_corregido', 'doc.perdida_resuelta', 'giftcard.emitida', 'giftcard.recarga', 'giftcard.uso', 'giftcard.reintegro', 'config.tipo_cambio', 'permiso.asignado', 'depto.alta', 'depto.editado', 'alm.entrega', 'promo.guardada', 'supervisor.guardado', 'config.negocio', 'item.editado']);
+const CATALOGO = new Set(['item.created', 'item.item_no_assigned', 'item.codigo_corregido', 'doc.perdida_resuelta', 'giftcard.emitida', 'giftcard.recarga', 'giftcard.uso', 'giftcard.reintegro', 'config.tipo_cambio', 'permiso.asignado', 'depto.alta', 'depto.editado', 'alm.entrega', 'alm.faltante', 'promo.guardada', 'supervisor.guardado', 'config.negocio', 'item.editado']);
 
 // ───────────────────────────── Hub ─────────────────────────────
 
@@ -485,7 +485,7 @@ export class Central {
     if (!tiendas.length || tiendas.some(([, q]) => !Number.isInteger(q) || q < 0)) return { ok: false, motivo: 'cantidad_invalida' };
     if (tiendas.some(([t]) => !this.ctx.tiendas.includes(t))) return { ok: false, motivo: 'tienda_invalida' };
     if (!d.etiqueta_precio || !d.etiqueta_costura) return { ok: false, motivo: 'etiquetas_pendientes' };
-    const disponible = existenciaAlmacen(this.repo.opsDeTipos(['alm.entrada', 'alm.entrega'])).get(d.item_id)?.existencia ?? 0;
+    const disponible = existenciaAlmacen(this.repo.opsDeTipos(['alm.entrada', 'alm.entrega', 'alm.faltante'])).get(d.item_id)?.existencia ?? 0;
     // Reintento de una entrega ya registrada (misma referencia): se confirma sin moverla otra vez ni pedir confirmación.
     if (d.ref && tiendas.every(([t]) => this.repo.tieneOp(`alm.entrega:${d.ref}:${t}`))) return { ok: true, existencia_almacen: disponible, ops: [] };
     const pedido = tiendas.reduce((a, [, q]) => a + q, 0);
@@ -499,6 +499,30 @@ export class Central {
       if (op) ops.push(op);
     }
     return { ok: true, existencia_almacen: disponible - (ops.length ? pedido : 0), ops };
+  }
+
+  /**
+   * Ubica las piezas faltantes de una entrega: `destinos` es el TOTAL por destino (`almacen`, `perdida` o una tienda). Guardar de nuevo
+   * corrige lo anterior (el último valor reemplaza). La suma no puede exceder lo que faltó. Las piezas ubicadas en el almacén o en una
+   * tienda se suman a su existencia; las perdidas solo quedan registradas.
+   */
+  resolverFaltante(entregaId: string, destinos: Record<string, number>, por: string): Faltante {
+    const ops = this.repo.ops();
+    const f = faltantes(ops).find((x) => x.entrega_id === entregaId);
+    if (!f) throw new ErrorDominio('FALTANTE_INEXISTENTE', 'esa entrega no tiene piezas faltantes');
+    const validos = new Set<string>([...DESTINOS_FALTANTE_ESPECIALES, ...this.ctx.tiendas]);
+    for (const [d, q] of Object.entries(destinos)) {
+      if (!validos.has(d)) throw new ErrorDominio('DESTINO_INVALIDO', `destino desconocido: ${d}`);
+      if (!Number.isInteger(q) || q < 0) throw new ErrorDominio('CANTIDAD_INVALIDA', 'las cantidades deben ser enteros de 0 o más');
+    }
+    const nuevo = { ...f.ubicadas, ...destinos };
+    const total = Object.values(nuevo).reduce((a, q) => a + q, 0);
+    if (total > f.faltan) throw new ErrorDominio('EXCEDE_FALTANTE', `se ubicaron ${total} pieza(s) y solo faltaron ${f.faltan}`);
+    for (const [d, q] of Object.entries(destinos)) {
+      if ((f.ubicadas[d] ?? 0) === q) continue;
+      this.emitirAdmin('alm.faltante', { entrega_id: entregaId, item_id: f.item_id, destino: d, qty: q, por }, `alm.faltante:${uuid()}`);
+    }
+    return faltantes(this.repo.ops()).find((x) => x.entrega_id === entregaId)!;
   }
 
   anclas(tienda: string, caja: number): Anclas {
@@ -757,15 +781,20 @@ export class Caja {
     const l = recepcionesPendientes(this.repo.opsDeTipos(['alm.entrega', 'alm.recibida']), this.tienda);
     return itemId ? l.filter((x) => x.item_id === itemId) : l;
   }
-  /** La tienda confirma que recibió las piezas: entra la existencia (movimiento `entrada_almacen`) y queda la recepción. Idempotente entre cajas. */
-  confirmarRecepcion(entregaId: string, cajero: string): { item_id: string; qty: number } {
+  /**
+   * La tienda confirma la recepción: entra a su existencia lo que realmente recibió (`qty`, por omisión todo lo entregado). Si recibió
+   * menos, la recepción queda con esa cantidad y Administración ve un faltante que debe ubicar. Idempotente entre cajas.
+   */
+  confirmarRecepcion(entregaId: string, cajero: string, qty?: number): { item_id: string; qty: number; entregadas: number; faltan: number } {
     const p = this.recepcionesPendientes().find((x) => x.entrega_id === entregaId);
     if (!p) throw new ErrorDominio('RECEPCION_INEXISTENTE', 'esa entrega no existe o ya fue confirmada');
+    const recibidas = qty === undefined ? p.qty : qty;
+    if (!Number.isInteger(recibidas) || recibidas < 0 || recibidas > p.qty) throw new ErrorDominio('CANTIDAD_INVALIDA', `la cantidad recibida debe ser un entero de 0 a ${p.qty}`);
     this.repo.tx(() => {
-      this.emitir('alm.recibida', { entrega_id: entregaId, item_id: p.item_id, tienda: this.tienda, caja: this.caja, qty: p.qty, cajero }, `alm.recibida:${entregaId}`);
-      this.emitir('inv.movement', { item_id: p.item_id, tienda: this.tienda, delta: p.qty, tipo: 'entrada_almacen', doc: `entrega:${entregaId}`, caja: this.caja }, `mov:alm:${entregaId}`);
+      this.emitir('alm.recibida', { entrega_id: entregaId, item_id: p.item_id, tienda: this.tienda, caja: this.caja, qty: recibidas, cajero }, `alm.recibida:${entregaId}`);
+      if (recibidas > 0) this.emitir('inv.movement', { item_id: p.item_id, tienda: this.tienda, delta: recibidas, tipo: 'entrada_almacen', doc: `entrega:${entregaId}`, caja: this.caja }, `mov:alm:${entregaId}`);
     });
-    return { item_id: p.item_id, qty: p.qty };
+    return { item_id: p.item_id, qty: recibidas, entregadas: p.qty, faltan: p.qty - recibidas };
   }
   atestarItemNoLocal(siguiente: number) {
     this.repo.tx(() => {

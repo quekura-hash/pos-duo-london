@@ -23,7 +23,13 @@ export class Indice {
   porAlterno = new Map<string, Articulo[]>();
   porItemNo = new Map<string, Articulo[]>();
   private texto = new Map<string, string>();
+  private mover(tienda: string, itemId: string, delta: number) {
+    let t = this.stock.get(tienda);
+    if (!t) this.stock.set(tienda, (t = new Map()));
+    t.set(itemId, (t.get(itemId) ?? 0) + delta);
+  }
   private stock = new Map<string, Map<string, number>>();
+  private faltantesTienda = new Map<string, { tienda: string; item_id: string; qty: number }>();
   private marcas = new Map<string, string[]>(); // tienda -> ids de inv.verificacion_pendiente
   private cubiertas = new Map<string, Set<string>>(); // `${tienda}|${item}` -> ids cubiertos por un conteo
   private perdidas = new Map<string, PerdidaDocumental>();
@@ -42,7 +48,7 @@ export class Indice {
   private reiniciar() {
     this.seq = 0;
     this.cat = new Map(); this.porCodigo = new Map(); this.porAlterno = new Map(); this.porItemNo = new Map(); this.texto = new Map();
-    this.stock = new Map(); this.marcas = new Map(); this.cubiertas = new Map(); this.perdidas = new Map(); this.tarjetas = new Map(); this.tipos = new Map(); this.permisos = new Map(); this.deptos = copiarBase(); this.promos = new Map(); this.supervisoresMap = new Map(); this.datosTienda = new Map();
+    this.stock = new Map(); this.faltantesTienda = new Map(); this.marcas = new Map(); this.cubiertas = new Map(); this.perdidas = new Map(); this.tarjetas = new Map(); this.tipos = new Map(); this.permisos = new Map(); this.deptos = copiarBase(); this.promos = new Map(); this.supervisoresMap = new Map(); this.datosTienda = new Map();
   }
 
   actualizar() {
@@ -116,6 +122,17 @@ export class Indice {
         let t = this.stock.get(p.tienda);
         if (!t) this.stock.set(p.tienda, (t = new Map()));
         t.set(p.item_id, (t.get(p.item_id) ?? 0) + p.delta);
+        break;
+      }
+      case 'alm.faltante': {
+        // Piezas faltantes ubicadas en una tienda: entran a su existencia; una corrección reemplaza a la anterior.
+        const k = `${p.entrega_id}|${p.destino}`;
+        const antes = this.faltantesTienda.get(k);
+        if (antes) this.mover(antes.tienda, antes.item_id, -antes.qty);
+        if (p.destino !== 'almacen' && p.destino !== 'perdida' && p.qty > 0) {
+          this.mover(p.destino, p.item_id, p.qty);
+          this.faltantesTienda.set(k, { tienda: p.destino, item_id: p.item_id, qty: p.qty });
+        } else this.faltantesTienda.delete(k);
         break;
       }
       case 'inv.verificacion_pendiente': {

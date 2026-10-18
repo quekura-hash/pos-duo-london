@@ -3,21 +3,21 @@
   --fondo: #f1f4f7; --superficie: #ffffff; --superficie-2: #eaf0f4; --borde: #d3dbe3; --texto: #14202e; --texto-2: #5a6878;
   --marino: #0d2238; --marino-2: #16314e; --marino-texto: #e9f0f7; --marino-texto-2: #9fb3c8;
   --acento: #0e6b75; --acento-texto: #ffffff; --acento-suave: #e0f2f3; --ok: #1d7a46; --ok-fondo: #e3f4ea; --error: #b3261e; --error-fondo: #fbe9e7;
-  --aviso: #8a5a00; --aviso-fondo: #fff4d6; --sombra: 0 1px 2px rgba(13,34,56,.08);
+  --aviso: #8a5a00; --aviso-fondo: #fff4d6; --naranja: #c2570c; --naranja-fondo: #ffe6cf; --sombra: 0 1px 2px rgba(13,34,56,.08);
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     --morado: #b79cf0; --morado-fondo: #2a2144; --morado-texto: #d9c9ff;
     --fondo: #0f141a; --superficie: #19212a; --superficie-2: #212b36; --borde: #323d4a; --texto: #e8edf2; --texto-2: #9aa8b8;
     --acento: #3db4be; --acento-texto: #06161a; --acento-suave: #12373c; --ok: #5fcf8e; --ok-fondo: #14301f; --error: #ff8a80; --error-fondo: #3a1b18;
-    --aviso: #f0c35c; --aviso-fondo: #3a2f12; --sombra: none; color-scheme: dark;
+    --aviso: #f0c35c; --aviso-fondo: #3a2f12; --naranja: #f4a259; --naranja-fondo: #402410; --sombra: none; color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
   --morado: #b79cf0; --morado-fondo: #2a2144; --morado-texto: #d9c9ff;
   --fondo: #0f141a; --superficie: #19212a; --superficie-2: #212b36; --borde: #323d4a; --texto: #e8edf2; --texto-2: #9aa8b8;
   --acento: #3db4be; --acento-texto: #06161a; --acento-suave: #12373c; --ok: #5fcf8e; --ok-fondo: #14301f; --error: #ff8a80; --error-fondo: #3a1b18;
-  --aviso: #f0c35c; --aviso-fondo: #3a2f12; --sombra: none; color-scheme: dark;
+  --aviso: #f0c35c; --aviso-fondo: #3a2f12; --naranja: #f4a259; --naranja-fondo: #402410; --sombra: none; color-scheme: dark;
 }
 * { box-sizing: border-box; }
 html, body { height: 100%; }
@@ -173,3 +173,10 @@ tr.piso-roja td:first-child { box-shadow: inset 5px 0 0 var(--error); } tr.piso-
 
 #btn-regalo[aria-pressed="true"], #btn-regalo[aria-pressed="true"]:hover:not(:disabled) { background: var(--acento); color: var(--acento-texto); border-color: var(--acento); }
 #dlg-regalo { max-width: min(460px, 94vw); }
+
+/* piezas faltantes del almacén */
+.faltantes { border-left: 6px solid var(--naranja); }
+.faltantes h2 { color: var(--naranja); margin-top: 0; }
+tr.faltante-pendiente { background: var(--naranja-fondo); } tr.faltante-pendiente td:first-child { box-shadow: inset 5px 0 0 var(--naranja); }
+.faltantes input[type=number] { width: 64px; padding: 4px; border: 1px solid var(--borde); border-radius: 6px; background: var(--superficie); text-align: right; }
+.insignia.naranja { background: var(--naranja); color: #fff; }

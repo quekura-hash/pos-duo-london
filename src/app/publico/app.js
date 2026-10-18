@@ -1170,7 +1170,7 @@ async function vistaDolares() {
 // ── Reporte de promociones y descuentos autorizados por supervisor ──
 const pctBp = (bp) => `${(bp / 100).toFixed(2).replace(/\.00$/, '')} %`;
 const NOM_TIPO_DESC = { promo: 'Promoción', cupon: 'Cupón', manual: 'Manual (supervisor)' };
-const NOM_DIF = { sin_confirmar: 'Sin confirmar', exceso: 'Más de lo registrado', almacen_negativo: 'Almacén negativo' };
+const NOM_DIF = { sin_confirmar: 'Sin confirmar', faltante: 'Piezas faltantes', exceso: 'Más de lo registrado', almacen_negativo: 'Almacén negativo' };
 async function vistaEntregas() {
   const hoy = new Date(Date.now() - 7 * 3600e3).toISOString().slice(0, 10);
   const mes = `${hoy.slice(0, 8)}01`;
@@ -1192,7 +1192,7 @@ async function vistaEntregas() {
       ${r.porTienda.map((t) => `<tr data-tienda="${esc(t.tienda)}"><td>${esc(TIENDAS_ALM[t.tienda] ?? t.tienda)}</td><td class="num">${t.entregas}</td><td class="num">${t.piezas}</td><td class="num">${t.confirmadas}</td><td class="num">${t.pendientes}</td><td class="num">${t.piezas_pendientes}</td></tr>`).join('') || '<tr><td colspan="6" class="vacio">Sin entregas en el periodo.</td></tr>'}</tbody>
       <tfoot><tr><th>Total</th><td class="num" data-campo="entregas">${R.entregas}</td><td class="num" data-campo="piezas">${R.piezas}</td><td class="num">${R.confirmadas}</td><td class="num" data-campo="pendientes">${R.pendientes}</td><td class="num">${R.piezas_pendientes}</td></tr></tfoot></table></div>
       <div class="panel" style="margin-top:12px"><h2 style="margin-top:0">Detalle de entregas</h2><div class="tabla-cont"><table id="tabla-ent-detalle"><thead><tr><th>Fecha</th><th>Tienda</th><th>Item #</th><th>Código</th><th>Artículo</th><th class="num">Piezas</th><th>Estado</th><th>Confirmada</th><th>Entregó</th></tr></thead><tbody>
-      ${r.filas.map((f) => `<tr data-entrega="${esc(f.entrega_id)}" data-estado="${f.estado}"><td>${esc(f.fecha_local)} ${esc(f.hora)}</td><td>${esc(TIENDAS_ALM[f.tienda] ?? f.tienda)}</td><td>${esc(f.item_no ?? '—')}</td><td>${esc(f.codigo)}</td><td>${esc(f.descripcion)} ${esc(f.marca)}${f.exceso ? ' <span class="insignia cancelada">excede almacén</span>' : ''}</td><td class="num">${f.qty}</td><td>${f.estado === 'confirmada' ? 'Confirmada' : `<b>Pendiente</b> (${f.dias_espera} d)`}</td><td>${esc(f.recibida_local ?? '—')}${f.recibida_por ? ` · ${esc(f.recibida_por)}` : ''}</td><td>${esc(f.por)}</td></tr>`).join('') || '<tr><td colspan="9" class="vacio">Sin entregas en el periodo.</td></tr>'}</tbody></table></div></div>`;
+      ${r.filas.map((f) => `<tr data-entrega="${esc(f.entrega_id)}" data-estado="${f.estado}"><td>${esc(f.fecha_local)} ${esc(f.hora)}</td><td>${esc(TIENDAS_ALM[f.tienda] ?? f.tienda)}</td><td>${esc(f.item_no ?? '—')}</td><td>${esc(f.codigo)}</td><td>${esc(f.descripcion)} ${esc(f.marca)}${f.exceso ? ' <span class="insignia cancelada">excede almacén</span>' : ''}</td><td class="num">${f.qty}</td><td>${f.estado === 'confirmada' ? (f.recibida_qty < f.qty ? `Confirmada: recibió ${f.recibida_qty} de ${f.qty}` : 'Confirmada') : `<b>Pendiente</b> (${f.dias_espera} d)`}</td><td>${esc(f.recibida_local ?? '—')}${f.recibida_por ? ` · ${esc(f.recibida_por)}` : ''}</td><td>${esc(f.por)}</td></tr>`).join('') || '<tr><td colspan="9" class="vacio">Sin entregas en el periodo.</td></tr>'}</tbody></table></div></div>`;
   };
   $('#btn-volver-alm').addEventListener('click', () => ir('almacen'));
   $('#filtros-ent').addEventListener('submit', async (ev) => { ev.preventDefault(); await consultar(); });
@@ -1386,16 +1386,33 @@ async function ofrecerRecepciones(lista, linea) {
     d.innerHTML = `<h2 id="rec-titulo" style="margin-top:0">Mercancía nueva del almacén</h2>
       <p><b>${esc(linea.descripcion)} ${esc(linea.marca)}</b></p>
       <p id="rec-pregunta" style="font-size:18px">¿Confirmas que recibiste <b>${rec.qty} pieza${rec.qty === 1 ? '' : 's'}</b>?</p>
-      <p class="nota">Al confirmar, esas piezas entran a la existencia de esta tienda. Si no coincide la cuenta, elige «Ahora no» y avisa a Administración.</p>
-      <div class="filas"><button class="btn" type="button" id="rec-no">Ahora no</button><button class="btn btn-primario" type="button" id="rec-si" style="width:auto;flex:1">${ico('check')}<span>Sí, recibí ${rec.qty}</span></button></div>`;
+      <p class="nota">Al confirmar, esas piezas entran a la existencia de esta tienda. Si la cuenta no coincide, elige «Otra cantidad» y captura las que sí llegaron: las faltantes quedan registradas para Administración.</p>
+      <div id="rec-otra-bloque" hidden><div class="campo"><label for="rec-qty">Piezas que sí recibí (de ${rec.qty})</label><input id="rec-qty" type="number" min="0" max="${rec.qty - 1}" step="1" inputmode="numeric"></div>
+        <div id="rec-aviso" class="mensaje aviso" role="status" aria-live="polite"></div>
+        <div class="filas"><button class="btn" type="button" id="rec-otra-cancelar">Volver</button><button class="btn btn-primario" type="button" id="rec-otra-ok" disabled style="width:auto;flex:1">${ico('check')}<span>Confirmar esta cantidad</span></button></div></div>
+      <div class="filas" id="rec-botones"><button class="btn" type="button" id="rec-no">Ahora no</button><button class="btn" type="button" id="rec-otra">${ico('pencil')}<span>Otra cantidad</span></button><button class="btn btn-primario" type="button" id="rec-si" style="width:auto;flex:1">${ico('check')}<span>Sí, recibí ${rec.qty}</span></button></div>`;
     d.setAttribute('aria-labelledby', 'rec-titulo');
     await new Promise((fin) => {
       $('#rec-no').addEventListener('click', () => { d.close(); fin(); });
-      $('#rec-si').addEventListener('click', async () => {
-        try { await api('/api/recepciones/confirmar', { entrega_id: rec.entrega_id }); d.close(); const v = await api('/api/venta/actual', {}); S.carrito = v.carrito; pintarCarrito(); msg(`Recepción confirmada: ${rec.qty} pieza(s) de ${linea.descripcion} entraron a la existencia de la tienda.`); }
-        catch (e) { d.close(); msg(e.message, 'error'); }
+      const confirmar = async (qty) => {
+        try {
+          const r = await api('/api/recepciones/confirmar', { entrega_id: rec.entrega_id, ...(qty === undefined ? {} : { qty }) });
+          d.close(); const v = await api('/api/venta/actual', {}); S.carrito = v.carrito; pintarCarrito();
+          msg(r.faltan > 0 ? `Recepción confirmada: ${r.qty} pieza(s) de ${linea.descripcion} entraron a la existencia. Se registró el faltante de ${r.faltan} pieza(s) para Administración.` : `Recepción confirmada: ${r.qty} pieza(s) de ${linea.descripcion} entraron a la existencia de la tienda.`);
+        } catch (e) { d.close(); msg(e.message, 'error'); }
         fin();
+      };
+      $('#rec-si').addEventListener('click', () => confirmar());
+      $('#rec-otra').addEventListener('click', () => { $('#rec-botones').hidden = true; $('#rec-otra-bloque').hidden = false; $('#rec-qty').focus(); });
+      $('#rec-otra-cancelar').addEventListener('click', () => { $('#rec-otra-bloque').hidden = true; $('#rec-botones').hidden = false; });
+      $('#rec-qty').addEventListener('input', () => {
+        const v = $('#rec-qty').value.trim();
+        const n = Number(v);
+        const ok = v !== '' && Number.isInteger(n) && n >= 0 && n < rec.qty;
+        $('#rec-otra-ok').disabled = !ok;
+        $('#rec-aviso').textContent = ok ? `Entran ${n} pieza(s) a la existencia y se registran ${rec.qty - n} faltante(s).` : '';
       });
+      $('#rec-otra-ok').addEventListener('click', () => confirmar(Number($('#rec-qty').value)));
       d.showModal();
     });
   }
@@ -1418,13 +1435,52 @@ async function vistaAlmacen() {
       <label><input type="checkbox" id="alm-solo" ${S.alm.solo ? 'checked' : ''}> Solo con piezas en el almacén o por confirmar</label></div>
       <p class="nota">Las piezas llegan aquí sin etiquetar y sin existencia en tienda. Confirme las etiquetas, anote cuántas va a cada tienda y entregue: la tienda confirma la recepción al escanear el artículo por primera vez.</p>
       <div id="msg-alm" class="mensaje" role="status" aria-live="polite"></div></section>
+    <section class="panel faltantes" id="panel-faltantes" style="margin-top:12px" hidden></section>
     <section class="panel" style="margin-top:12px"><div class="tabla-cont"><table id="tabla-almacen"><thead><tr><th>Item #</th><th>Código</th><th>Descripción</th><th>Estilo</th><th>Lote</th><th>Pedimento</th><th>Departamento</th><th class="num">Almacén</th><th>Etiqueta precio</th><th>Etiqueta costura</th>${j.tiendas.map((t) => `<th>${esc(TIENDAS_ALM[t] ?? t)}</th>`).join('')}<th>Por confirmar</th><th>Sacar a piso</th><th></th></tr></thead><tbody id="alm-cuerpo"></tbody></table></div><p class="nota" id="alm-pie"></p></section>`;
   $('#btn-alta-lote').addEventListener('click', abrirAltaLote);
   $('#btn-alta-manual').addEventListener('click', abrirAltaManual);
   $('#btn-reporte-entregas').addEventListener('click', () => ir('entregas'));
+  S.alm.faltantes = j.faltantes;
+  pintarFaltantes();
   $('#alm-q').addEventListener('input', (ev) => { S.alm.q = ev.target.value; pintarAlmacen(); });
   $('#alm-solo').addEventListener('change', (ev) => { S.alm.solo = ev.target.checked; pintarAlmacen(); });
   pintarAlmacen();
+}
+/** Piezas faltantes: la tienda recibió menos de lo entregado. Cada renglón se actualiza o corrige con lo que se fue encontrando. */
+function pintarFaltantes() {
+  const el = $('#panel-faltantes');
+  if (!el) return;
+  const todos = S.alm.faltantes ?? [];
+  const pend = todos.filter((f) => f.estado === 'pendiente');
+  const ver = todos.filter((f) => f.estado === 'pendiente' || S.alm.verResueltos);
+  el.hidden = todos.length === 0;
+  if (!todos.length) return;
+  const dest = ['almacen', ...S.alm.tiendas, 'perdida'];
+  const NOM = { almacen: 'Encontradas en almacén', perdida: 'Perdidas' };
+  const nombreDest = (d) => NOM[d] ?? `En ${TIENDAS_ALM[d] ?? d}`;
+  el.innerHTML = `<h2>Piezas faltantes <span class="insignia naranja" id="n-faltantes">${pend.reduce((n, f) => n + f.pendiente, 0)} por ubicar</span></h2>
+    <p class="nota">La tienda recibió menos piezas de las entregadas. Anote dónde aparecieron o si se dieron por perdidas; puede corregirlo cuantas veces haga falta. Las piezas encontradas en el almacén o en una tienda se suman a su existencia.</p>
+    <label><input type="checkbox" id="fal-resueltos" ${S.alm.verResueltos ? 'checked' : ''}> Mostrar también los ya ubicados (${todos.length - pend.length})</label>
+    <div class="tabla-cont"><table id="tabla-faltantes"><thead><tr><th>Artículo</th><th>Tienda</th><th class="num">Entregadas</th><th class="num">Recibidas</th><th class="num">Faltan</th>${dest.map((d) => `<th>${esc(nombreDest(d))}</th>`).join('')}<th class="num">Sin ubicar</th><th></th></tr></thead><tbody>
+    ${ver.map((f) => `<tr data-entrega="${esc(f.entrega_id)}" class="${f.estado === 'pendiente' ? 'faltante-pendiente' : ''}"><td>${esc(f.item_no ?? '—')} ${esc(f.descripcion)} ${esc(f.marca)}<div class="nota">${esc(f.codigo)}</div></td><td>${esc(TIENDAS_ALM[f.tienda] ?? f.tienda)}</td><td class="num">${f.entregadas}</td><td class="num">${f.recibidas}</td><td class="num">${f.faltan}</td>
+      ${dest.map((d) => `<td><input type="number" min="0" step="1" data-destino="${esc(d)}" value="${f.ubicadas[d] ?? 0}" aria-label="${esc(nombreDest(d))}"></td>`).join('')}
+      <td class="num" data-col="sin-ubicar"><b>${f.pendiente}</b></td><td><button class="btn btn-guardar-faltante" type="button">${ico('check')}<span>Guardar</span></button></td></tr>`).join('') || '<tr><td colspan="20" class="vacio">Todo está ubicado.</td></tr>'}</tbody></table></div>
+    <div id="msg-faltantes" class="mensaje" role="status" aria-live="polite"></div>`;
+  $('#fal-resueltos').addEventListener('change', (ev) => { S.alm.verResueltos = ev.target.checked; pintarFaltantes(); });
+  for (const tr of el.querySelectorAll('tr[data-entrega]')) {
+    const f = todos.find((x) => x.entrega_id === tr.dataset.entrega);
+    const suma = () => [...tr.querySelectorAll('input[data-destino]')].reduce((n, i) => n + (Number(i.value) || 0), 0);
+    tr.addEventListener('input', () => { tr.querySelector('[data-col="sin-ubicar"]').innerHTML = `<b>${f.faltan - suma()}</b>`; });
+    tr.querySelector('.btn-guardar-faltante').addEventListener('click', async () => {
+      const m = $('#msg-faltantes');
+      const destinos = Object.fromEntries([...tr.querySelectorAll('input[data-destino]')].map((i) => [i.dataset.destino, Number(i.value) || 0]));
+      try {
+        const r = await api('/api/admin/almacen/faltante', { entrega_id: f.entrega_id, destinos });
+        S.alm.faltantes = r.faltantes; S.alm.items = r.items; pintarFaltantes(); pintarAlmacen(); pintarAvisoPiso(r.avisos);
+        const n = $('#msg-faltantes'); n.className = 'mensaje ok'; n.textContent = 'Faltante actualizado.';
+      } catch (e) { m.className = 'mensaje error'; m.textContent = e.message; }
+    });
+  }
 }
 function pintarAlmacen() {
   const a = S.alm;
