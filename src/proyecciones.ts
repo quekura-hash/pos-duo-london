@@ -18,6 +18,11 @@ export function catalogo(ops: Op[]): Map<string, Articulo> {
       const a = m.get(o.payload.item_id);
       if (a && a.item_no == null) a.item_no = o.payload.item_no;
     }
+    // Ediciones del catálogo hechas en Administración (marca, descripción, estilo, lote, departamento, precio).
+    if (o.tipo === 'item.editado') {
+      const a = m.get(o.payload.item_id);
+      if (a) for (const [campo, c] of Object.entries(o.payload.cambios as Record<string, { despues: unknown }>)) (a as any)[campo] = c.despues;
+    }
     // Resoluciones administrativas de códigos duplicados (con auditoría en el payload).
     if (o.tipo === 'item.codigo_corregido') {
       const a = m.get(o.payload.item_id);
@@ -339,4 +344,62 @@ export function nombresTienda(ops: Op[]): Map<string, string> {
   const m = new Map<string, string>();
   for (const o of ops) if (o.tipo === 'config.negocio') m.set(o.payload.tienda, o.payload.nombre);
   return m;
+}
+
+export const CAMPOS_EDITABLES = ['marca', 'descripcion', 'estilo', 'lote', 'departamento', 'precio'] as const;
+export type CampoEditable = (typeof CAMPOS_EDITABLES)[number];
+
+export interface EventoArticulo {
+  ocurrio_en: string;
+  tipo: 'alta' | 'cambio' | 'almacen_entrada' | 'almacen_entrega' | 'recepcion' | 'venta' | 'venta_cancelada' | 'devolucion' | 'conteo';
+  /** Magnitudes en crudo; el texto lo arma quien lo muestra. */
+  datos: Record<string, unknown>;
+  por: string;
+}
+/** Historia de un artículo: alta, cambios del catálogo, movimientos del almacén, ventas, cancelaciones, devoluciones y conteos. Más reciente primero. */
+export function historialArticulo(ops: Op[], itemId: string): EventoArticulo[] {
+  const ev: EventoArticulo[] = [];
+  const ventasDe = new Map<string, { tienda: string; caja: number; folio: number; lineas: { item_id: string; qty: number; importe: number }[] }>();
+  for (const o of ops) {
+    const p = o.payload;
+    switch (o.tipo) {
+      case 'item.created':
+        if (p.item_id === itemId) ev.push({ ocurrio_en: o.ocurrio_en, tipo: 'alta', datos: { origen: p.origen, precio: p.precio, codigo: p.codigo }, por: String(p.origen ?? '') });
+        break;
+      case 'item.editado':
+        if (p.item_id === itemId) ev.push({ ocurrio_en: o.ocurrio_en, tipo: 'cambio', datos: { cambios: p.cambios }, por: p.por ?? '' });
+        break;
+      case 'alm.entrada':
+        if (p.item_id === itemId) ev.push({ ocurrio_en: o.ocurrio_en, tipo: 'almacen_entrada', datos: { qty: p.qty, pedimento: p.pedimento, fuente: p.fuente }, por: p.por ?? '' });
+        break;
+      case 'alm.entrega':
+        if (p.item_id === itemId) ev.push({ ocurrio_en: o.ocurrio_en, tipo: 'almacen_entrega', datos: { qty: p.qty, tienda: p.tienda, exceso: !!p.exceso }, por: p.por ?? '' });
+        break;
+      case 'alm.recibida':
+        if (p.item_id === itemId) ev.push({ ocurrio_en: o.ocurrio_en, tipo: 'recepcion', datos: { qty: p.qty, tienda: p.tienda, caja: p.caja }, por: p.cajero ?? '' });
+        break;
+      case 'sale.confirmed': {
+        const ls = (p.lineas as { item_id: string; qty: number; importe: number }[]).filter((l) => l.item_id === itemId);
+        ventasDe.set(p.sale_id, { tienda: p.tienda, caja: p.caja, folio: p.folio, lineas: p.lineas });
+        if (ls.length) ev.push({ ocurrio_en: o.ocurrio_en, tipo: 'venta', datos: { qty: ls.reduce((a, l) => a + l.qty, 0), importe: ls.reduce((a, l) => a + l.importe, 0), tienda: p.tienda, caja: p.caja, folio: p.folio }, por: p.cajero ?? '' });
+        break;
+      }
+      case 'sale.cancelled': {
+        const v = ventasDe.get(p.sale_id);
+        const ls = v?.lineas.filter((l) => l.item_id === itemId) ?? [];
+        if (v && ls.length) ev.push({ ocurrio_en: o.ocurrio_en, tipo: 'venta_cancelada', datos: { qty: ls.reduce((a, l) => a + l.qty, 0), tienda: v.tienda, caja: v.caja, folio: v.folio, motivo: p.motivo }, por: '' });
+        break;
+      }
+      case 'return.registered': {
+        const ls = (p.lineas as { item_id: string; qty: number; importe: number }[]).filter((l) => l.item_id === itemId);
+        if (ls.length) ev.push({ ocurrio_en: o.ocurrio_en, tipo: 'devolucion', datos: { qty: ls.reduce((a, l) => a + l.qty, 0), importe: ls.reduce((a, l) => a + l.importe, 0), tienda: p.tienda, caja: p.caja, folio: p.folio, motivo: p.motivo }, por: p.cajero ?? '' });
+        break;
+      }
+      case 'inv.movement':
+        if (p.item_id === itemId && p.tipo === 'conteo') ev.push({ ocurrio_en: o.ocurrio_en, tipo: 'conteo', datos: { delta: p.delta, tienda: p.tienda }, por: '' });
+        break;
+    }
+  }
+  // más reciente primero; a igual hora, el que ocurrió después en la bitácora
+  return ev.map((e, i) => ({ e, i })).sort((a, b) => b.e.ocurrio_en.localeCompare(a.e.ocurrio_en) || b.i - a.i).map((x) => x.e);
 }

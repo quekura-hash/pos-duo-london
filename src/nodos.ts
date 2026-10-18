@@ -8,7 +8,7 @@ import { DENOMINACIONES_USD, esImporteEnBilletesUsd, superaUmbralTasa, totalDeno
 import { TASA_SIN_VERIFICAR_OMISION, type Politicas } from './politicas.ts';
 import { Indice } from './indice.ts';
 import { localizarVentas } from './consultas.ts';
-import { departamentos, promocionesDe, supervisoresDe, efectivoDeVenta, movimientosCaja, tipoCambioVigente, catalogo, devoluciones, devueltoPorLinea, existenciaVerificada, intentos, perdidasDocumentales, stock, ventas, type Devolucion, type ExistenciaVerificada, type Intento, type PerdidaDocumental, type TarjetaRegalo, type TipoCambio } from './proyecciones.ts';
+import { CAMPOS_EDITABLES, type CampoEditable, departamentos, promocionesDe, supervisoresDe, efectivoDeVenta, movimientosCaja, tipoCambioVigente, catalogo, devoluciones, devueltoPorLinea, existenciaVerificada, intentos, perdidasDocumentales, stock, ventas, type Devolucion, type ExistenciaVerificada, type Intento, type PerdidaDocumental, type TarjetaRegalo, type TipoCambio } from './proyecciones.ts';
 import type { Repo } from './repo.ts';
 import { validarOpEntrante } from './reglas.ts';
 import type { Articulo, CajaCfg, Linea, Op, Pago, Venta } from './tipos.ts';
@@ -89,7 +89,7 @@ interface Reserva {
 
 const BROADCAST_TIENDA = new Set(['alm.recibida', 'inv.movement', 'inv.conteo', 'inv.verificacion_pendiente', 'doc.perdida_posible', 'item.created', 'item.item_no_assigned', 'giftcard.emitida', 'giftcard.recarga', 'giftcard.uso', 'giftcard.reintegro']);
 // Lo que el central baja a hubs y cajas (catálogo y resoluciones administrativas).
-const CATALOGO = new Set(['item.created', 'item.item_no_assigned', 'item.codigo_corregido', 'doc.perdida_resuelta', 'giftcard.emitida', 'giftcard.recarga', 'giftcard.uso', 'giftcard.reintegro', 'config.tipo_cambio', 'permiso.asignado', 'depto.alta', 'depto.editado', 'alm.entrega', 'promo.guardada', 'supervisor.guardado', 'config.negocio']);
+const CATALOGO = new Set(['item.created', 'item.item_no_assigned', 'item.codigo_corregido', 'doc.perdida_resuelta', 'giftcard.emitida', 'giftcard.recarga', 'giftcard.uso', 'giftcard.reintegro', 'config.tipo_cambio', 'permiso.asignado', 'depto.alta', 'depto.editado', 'alm.entrega', 'promo.guardada', 'supervisor.guardado', 'config.negocio', 'item.editado']);
 
 // ───────────────────────────── Hub ─────────────────────────────
 
@@ -347,6 +347,33 @@ export class Central {
     if (c.activo !== undefined && c.activo !== actual.activo) payload.activo = c.activo;
     if (c.alias) payload.alias = c.alias.map((a) => a.trim()).filter(Boolean);
     return { ok: true, op: this.emitirAdmin('depto.editado', payload) };
+  }
+
+  /**
+   * Edición de un artículo del catálogo desde Administración (marca, descripción, estilo, lote, departamento y precio). Queda
+   * registrada con el valor anterior y el nuevo (historial) y llega a todas las cajas. El código no se edita aquí. Un cambio de
+   * precio vale para las ventas siguientes: lo ya vendido conserva su precio.
+   */
+  editarArticulo(itemId: string, nuevos: Partial<Record<CampoEditable, string | number>>, por: string): Articulo {
+    const actual = catalogo(this.repo.ops()).get(itemId);
+    if (!actual) throw new ErrorDominio('ARTICULO_INEXISTENTE', itemId);
+    const activos = departamentos(this.repo.ops()).filter((d) => d.activo).map((d) => d.nombre);
+    const cambios: Record<string, { antes: unknown; despues: unknown }> = {};
+    for (const campo of CAMPOS_EDITABLES) {
+      if (!(campo in nuevos)) continue;
+      const v = nuevos[campo];
+      if (campo === 'precio') {
+        if (typeof v !== 'number' || !Number.isInteger(v) || v < 0) throw new ErrorDominio('PRECIO_INVALIDO', 'el precio debe ser un importe en pesos de 0 en adelante');
+        if (v !== actual.precio) cambios.precio = { antes: actual.precio, despues: v };
+        continue;
+      }
+      const t = String(v ?? '').trim().replace(/\s+/g, ' ');
+      if (campo === 'departamento' && t !== actual.departamento && !activos.includes(t)) throw new ErrorDominio('DEPARTAMENTO_INVALIDO', `el departamento «${t}» no existe o está desactivado`);
+      if (t !== (actual as any)[campo]) cambios[campo] = { antes: (actual as any)[campo], despues: t };
+    }
+    if (!Object.keys(cambios).length) return actual;
+    this.emitirAdmin('item.editado', { item_id: itemId, cambios, por });
+    return { ...actual, ...Object.fromEntries(Object.entries(cambios).map(([k, c]) => [k, c.despues])) } as Articulo;
   }
 
   /** Nombre comercial de una tienda (sale en el ticket, la pantalla y las imágenes de cupón). Se propaga a todas las cajas. */

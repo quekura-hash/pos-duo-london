@@ -6,9 +6,9 @@ import { ErrorDominio } from '../errores.ts';
 import type { Impresora } from '../impresion.ts';
 import type { Caja } from '../nodos.ts';
 import { estadoPromo, type Promocion } from '../promociones.ts';
-import { catalogo, nombresTienda, departamentos as proyDepartamentos, promocionesDe, supervisoresDe, permisos as proyPermisos, tarjetasRegalo, tiposDeCambio, tipoCambioVigente, ventas, type TipoCambio } from '../proyecciones.ts';
+import { CAMPOS_EDITABLES, catalogo, historialArticulo, nombresTienda, departamentos as proyDepartamentos, promocionesDe, supervisoresDe, permisos as proyPermisos, tarjetasRegalo, tiposDeCambio, tipoCambioVigente, ventas, type TipoCambio } from '../proyecciones.ts';
 import { hojaDescuentos, hojaDolares, hojaInventario, leerInventario, PERFIL_CONFIRMADO, type Hoja } from '../inventario.ts';
-import { codigoTicket, construirTicket, NEGOCIOS, renderTextoEscPos, renderTicketDevolucionTexto, renderTicketEscPos, renderTicketTexto, type NegocioCfg } from '../ticket.ts';
+import { codigoTicket, construirTicket, formatoMXN, NEGOCIOS, renderTextoEscPos, renderTicketDevolucionTexto, renderTicketEscPos, renderTicketTexto, type NegocioCfg } from '../ticket.ts';
 import type { Actor, Articulo, Linea, Op, Venta } from '../tipos.ts';
 import { fechaLocal } from '../util.ts';
 
@@ -400,7 +400,7 @@ export class ServicioAdmin {
   readonly cajas: { tienda: string; caja: number }[];
   private inv?: FuenteInventario;
   private central?: { fijarTipoCambio(tasa: number, usuario: string, versionBase: number, confirmarVariacion?: boolean): import('../nodos.ts').ResultadoTipoCambio; asignarPermiso(usuario: string, permiso: string, valor: boolean, por: string): Op; guardarDepto(c: import('../departamentos.ts').CambioDepto, por: string): { ok: true; op: Op } | { ok: false; error: import('../departamentos.ts').ErrorDepto };
-    guardarNombreTienda: import('../nodos.ts').Central['guardarNombreTienda']; guardarPromocion: import('../nodos.ts').Central['guardarPromocion']; guardarSupervisor: import('../nodos.ts').Central['guardarSupervisor']; recordarSacarAPiso: import('../nodos.ts').Central['recordarSacarAPiso']; altaLote: import('../nodos.ts').Central['altaLote']; entregar: import('../nodos.ts').Central['entregar'] };
+    guardarNombreTienda: import('../nodos.ts').Central['guardarNombreTienda']; editarArticulo: import('../nodos.ts').Central['editarArticulo']; guardarPromocion: import('../nodos.ts').Central['guardarPromocion']; guardarSupervisor: import('../nodos.ts').Central['guardarSupervisor']; recordarSacarAPiso: import('../nodos.ts').Central['recordarSacarAPiso']; altaLote: import('../nodos.ts').Central['altaLote']; entregar: import('../nodos.ts').Central['entregar'] };
   constructor(o: { actor: Extract<Actor, { rol: 'admin' }>; fuente: () => Op[]; cajas: { tienda: string; caja: number }[]; inventario?: FuenteInventario; central?: ServicioAdmin['central'] }) {
     this.central = o.central;
     this.actor = o.actor;
@@ -478,19 +478,66 @@ export class ServicioAdmin {
     if (!r.ok) throw new ErrorDominio('TIENDA_INVALIDA', r.mensaje);
     return { tiendas: this.tiendasInfo() };
   }
-  /** Búsqueda de artículos para armar promociones (por código, Item #, descripción, marca, estilo…). */
-  buscarArticulos(texto: string, limite = 30) {
+  /**
+   * Lista y búsqueda de artículos (Inventario y selector de promociones). Sin texto devuelve TODO el catálogo (con `todos`),
+   * ordenado por Item #, en páginas: `desde` y `limite`. Cada artículo trae su existencia por tienda y en el almacén.
+   */
+  buscarArticulos(texto: string, limite = 30, desde = 0, todos = false) {
     const sin = (x: string) => x.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
     const palabras = sin(String(texto ?? '')).split(/\s+/).filter(Boolean);
-    if (!palabras.length) return { articulos: [] as ReturnType<ServicioAdmin['vistaArticulo']>[], total: 0 };
-    const hallados = [...catalogo(this.fuente()).values()].filter((a) => {
-      const t = sin(`${a.codigo} ${a.item_no ?? ''} ${a.descripcion} ${a.marca} ${a.estilo} ${a.departamento}`);
-      return palabras.every((w) => t.includes(w));
-    });
-    return { articulos: hallados.slice(0, limite).map((a) => this.vistaArticulo(a)), total: hallados.length };
+    const vacio = { articulos: [] as ReturnType<ServicioAdmin['vistaArticulo']>[], total: 0 };
+    if (!palabras.length && !todos) return vacio;
+    const ops = this.fuente();
+    const orden = (a: Articulo) => (a.item_no !== null && /^\d+$/.test(a.item_no) ? Number(a.item_no) : Number.MAX_SAFE_INTEGER);
+    const hallados = [...catalogo(ops).values()]
+      .filter((a) => !palabras.length || palabras.every((w) => sin(`${a.codigo} ${a.item_no ?? ''} ${a.descripcion} ${a.marca} ${a.estilo} ${a.lote} ${a.departamento}`).includes(w)))
+      .sort((x, y) => orden(x) - orden(y) || x.item_id.localeCompare(y.item_id));
+    const ex = existenciaAlmacen(ops);
+    return { articulos: hallados.slice(Math.max(0, desde), Math.max(0, desde) + limite).map((a) => this.vistaArticulo(a, ex.get(a.item_id)?.existencia ?? 0)), total: hallados.length, tiendas: this.tiendas() };
   }
-  private vistaArticulo(a: Articulo) {
-    return { item_id: a.item_id, item_no: a.item_no, codigo: a.codigo, descripcion: a.descripcion, marca: a.marca, estilo: a.estilo, departamento: a.departamento, precio: a.precio };
+  private vistaArticulo(a: Articulo, almacen?: number) {
+    const existencias: Record<string, number> = {};
+    if (this.inv) for (const t of this.inv.tiendas) existencias[t] = this.inv.saldo(t, a.item_id);
+    return {
+      item_id: a.item_id, item_no: a.item_no, codigo: a.codigo, descripcion: a.descripcion, marca: a.marca, estilo: a.estilo, lote: a.lote, departamento: a.departamento,
+      precio: a.precio, existencias, almacen: almacen ?? 0,
+    };
+  }
+  /** Edita un artículo del catálogo (marca, descripción, estilo, lote, departamento, precio en pesos). */
+  editarArticulo(itemId: string, cambios: Record<string, unknown>) {
+    if (!this.central) throw new ErrorDominio('SIN_CENTRAL', 'esta sesión no tiene acceso al servicio central');
+    const lim: Record<string, string | number> = {};
+    for (const k of CAMPOS_EDITABLES) if (k in cambios) lim[k] = k === 'precio' ? Number(cambios[k]) : String(cambios[k] ?? '');
+    const a = this.central.editarArticulo(itemId, lim, this.actor.usuario);
+    return { articulo: this.vistaArticulo(a, existenciaAlmacen(this.fuente()).get(itemId)?.existencia ?? 0) };
+  }
+  /** Qué le ha pasado a un artículo: alta, cambios, almacén, ventas, cancelaciones, devoluciones y conteos. */
+  historialArticulo(itemId: string) {
+    const ops = this.fuente();
+    const a = catalogo(ops).get(itemId);
+    if (!a) throw new ErrorDominio('ARTICULO_INEXISTENTE', itemId);
+    const nombres = nombresTienda(ops);
+    const t = (c: string) => nombres.get(c) ?? NEGOCIOS[c]?.nombre ?? c;
+    const NOM: Record<string, string> = { descripcion: 'Descripción', marca: 'Marca', estilo: 'Estilo', lote: 'Lote', departamento: 'Departamento', precio: 'Precio' };
+    const val = (campo: string, v: unknown) => (campo === 'precio' ? formatoMXN(Number(v)) : `«${String(v ?? '')}»`);
+    const pza = (n: number) => `${n} pieza${n === 1 ? '' : 's'}`;
+    const eventos = historialArticulo(ops, itemId).map((e) => {
+      const d = e.datos as any;
+      let evento = '', detalle = '';
+      switch (e.tipo) {
+        case 'alta': evento = 'Alta en el catálogo'; detalle = `Origen: ${d.origen ?? '—'} · código ${d.codigo || '(sin código)'} · precio ${formatoMXN(d.precio ?? 0)}`; break;
+        case 'cambio': evento = 'Cambio en el catálogo'; detalle = Object.entries(d.cambios as Record<string, { antes: unknown; despues: unknown }>).map(([k, c]) => `${NOM[k] ?? k}: ${val(k, c.antes)} → ${val(k, c.despues)}`).join(' · '); break;
+        case 'almacen_entrada': evento = 'Entrada al almacén'; detalle = `${pza(d.qty)}${d.pedimento ? ` · pedimento ${d.pedimento}` : ''} · ${String(d.fuente ?? '')}`; break;
+        case 'almacen_entrega': evento = 'Entrega a tienda'; detalle = `${pza(d.qty)} para ${t(d.tienda)}${d.exceso ? ' · más de lo registrado en el almacén' : ''}`; break;
+        case 'recepcion': evento = 'Recepción confirmada'; detalle = `${pza(d.qty)} en ${t(d.tienda)} (caja ${d.caja})`; break;
+        case 'venta': evento = 'Venta'; detalle = `${pza(d.qty)} por ${formatoMXN(d.importe)} · ${t(d.tienda)} caja ${d.caja}, folio ${String(d.folio).padStart(6, '0')}`; break;
+        case 'venta_cancelada': evento = 'Venta cancelada'; detalle = `${pza(d.qty)} · ${t(d.tienda)} caja ${d.caja}, folio ${String(d.folio).padStart(6, '0')}${d.motivo ? ` · ${d.motivo}` : ''}`; break;
+        case 'devolucion': evento = 'Devolución'; detalle = `${pza(d.qty)} por ${formatoMXN(d.importe)} · ${t(d.tienda)} caja ${d.caja}, folio ${String(d.folio).padStart(6, '0')}${d.motivo ? ` · ${d.motivo}` : ''}`; break;
+        case 'conteo': evento = 'Conteo físico'; detalle = `Ajuste de ${d.delta > 0 ? '+' : ''}${d.delta} en ${t(d.tienda)}`; break;
+      }
+      return { ocurrio_en: e.ocurrio_en, tipo: e.tipo, evento, detalle, por: e.por };
+    });
+    return { articulo: { item_id: a.item_id, item_no: a.item_no, codigo: a.codigo, descripcion: a.descripcion, marca: a.marca }, eventos };
   }
 
   // ── promociones, cupones y supervisores ──

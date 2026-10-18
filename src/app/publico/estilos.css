@@ -163,3 +163,6 @@ tr.piso-roja td:first-child { box-shadow: inset 5px 0 0 var(--error); } tr.piso-
 .lista-promos li.aviso-promo { color: var(--aviso); } .lista-promos li b { font-variant-numeric: tabular-nums; }
 #dlg-promo, #dlg-cupon-img { max-width: min(680px, 96vw); width: 96vw; max-height: 92vh; overflow: auto; } #dlg-promo label { display: block; margin: 4px 0; } #dlg-promo .campo label { margin-bottom: 4px; }
 #dlg-descuento fieldset label, #dlg-promo fieldset label { display: block; }
+.ico-izq { transform: rotate(180deg); }
+#dlg-articulo { max-width: min(860px, 96vw); width: 96vw; max-height: 92vh; overflow: auto; }
+#tabla-inv-lista tbody tr:hover { background: var(--acento-suave); }

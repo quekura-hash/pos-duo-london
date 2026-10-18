@@ -480,11 +480,13 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     await page.click('#tabla-tiendas tr[data-tienda="DUO"] .t-guardar');
     await page.waitForFunction(() => /falta el nombre/.test(document.querySelector('#msg-tiendas')!.textContent!));
 
-    // Inventario → buscar el artículo → «Crear promoción» con el artículo ya elegido
+    // Inventario → buscar el artículo → clic en la fila abre su edición → «Crear promoción» con ese artículo ya elegido
     await page.click('#nav button[data-vista="inventario"]');
     await page.fill('#inv-q', 'mascada');
-    await page.waitForSelector('#tabla-inv-buscar tr[data-item] .inv-promo');
-    await page.click('#tabla-inv-buscar tr[data-item] .inv-promo');
+    await page.waitForFunction(() => document.querySelectorAll('#tabla-inv-lista tbody tr[data-item]').length === 1);
+    await page.click('#tabla-inv-lista tr[data-item]');
+    await page.waitForSelector('#form-articulo');
+    await page.click('#art-promo');
     await page.waitForSelector('#form-promo');
     assert.match((await page.textContent('#pr-items'))!, /MASCADA/);
     await page.selectOption('#pr-tipo', 'paquete');
@@ -526,6 +528,71 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     for (let i = 0; i < 4; i++) { await escanear('7501234567890'); await page.waitForTimeout(150); }
     await page.waitForFunction(() => document.querySelector('#total')!.textContent === '$480.00');
     assert.equal(await page.locator('#promos-aplicadas li').count(), 0, 'la promoción de DÚO no aplica en London');
+    assert.deepEqual(errores, []);
+  });
+  it('B7 Inventario: lista completa de 50 en 50, clic en un artículo para editarlo, ver su historial y crearle una promoción', async (t) => {
+    execFileSync(process.execPath, [join(RAIZ, 'scripts', 'construir-prueba.mjs')], { stdio: 'pipe' });
+    const dir = mkdtempSync(join(tmpdir(), 'pos-inv120-'));
+    const archivo = join(dir, 'inventario120.xlsx');
+    writeFileSync(archivo, await xlsxDeFilas(Array.from({ length: 120 }, (_, i) => [i + 1, 'MARCA', `ARTICULO ${i + 1}`, null, null, null, 100 + i, 0, `70000${String(i + 1).padStart(3, '0')}`, 'DAMA', null, 'Yes', null, null])));
+    const browser = await chromium.launch({ executablePath: chromiumPath, args: ['--no-sandbox'] });
+    t.after(async () => { await browser.close(); rmSync(dir, { recursive: true, force: true }); });
+    const page = await (await browser.newContext({ viewport: { width: 1440, height: 900 }, colorScheme: 'light' })).newPage();
+    const errores: string[] = [];
+    page.on('pageerror', (e) => errores.push(String(e)));
+    page.on('console', (m) => { if (m.type() === 'error') errores.push(m.text()); });
+    await page.goto(`file://${HTML}`);
+    await page.waitForSelector('[data-chip="tienda"]');
+    await page.setInputFiles('#archivo-inventario', archivo);
+    await page.waitForSelector('#dlg-importar[open]');
+    await page.click('#imp-cargar');
+    await page.waitForFunction(() => /Inventario cargado: inventario120\.xlsx · 120 artículos/.test(document.querySelector('#estado-inv')!.textContent!));
+    await page.click('#nav button[data-vista="administracion"]');
+    await page.click('#nav button[data-vista="inventario"]');
+    await page.waitForSelector('#tabla-inv-lista tr[data-item]');
+
+    // lista completa en páginas de 50
+    assert.equal(await page.locator('#tabla-inv-lista tbody tr[data-item]').count(), 50);
+    assert.equal(await page.textContent('#inv-pag-info'), 'Artículos 1–50 de 120 · página 1 de 3');
+    assert.equal(await page.isDisabled('#inv-ant'), true);
+    await page.click('#inv-sig');
+    await page.waitForFunction(() => /Artículos 51–100 de 120/.test(document.querySelector('#inv-pag-info')!.textContent!));
+    await page.click('#inv-sig');
+    await page.waitForFunction(() => /Artículos 101–120 de 120 · página 3 de 3/.test(document.querySelector('#inv-pag-info')!.textContent!));
+    assert.equal(await page.locator('#tabla-inv-lista tbody tr[data-item]').count(), 20);
+    assert.equal(await page.isDisabled('#inv-sig'), true);
+
+    // buscar y entrar a la edición con un clic
+    await page.fill('#inv-q', 'articulo 77');
+    await page.waitForFunction(() => document.querySelectorAll('#tabla-inv-lista tbody tr[data-item]').length === 1);
+    await page.click('#tabla-inv-lista tr[data-item]');
+    await page.waitForSelector('#form-articulo');
+    assert.equal(await page.inputValue('#art-descripcion'), 'ARTICULO 77');
+    assert.equal(await page.inputValue('#art-precio'), '176'); // $100 + 76
+    await page.fill('#art-precio', '199.50');
+    await page.fill('#art-marca', 'ACME');
+    await page.click('#art-guardar');
+    await page.waitForFunction(() => /guardado/.test(document.querySelector('#inv-msg')!.textContent!));
+    assert.match((await page.textContent('#tabla-inv-lista tr[data-item]'))!, /ACME.*\$199\.50/);
+
+    // historial y crear promoción desde el mismo artículo
+    await page.click('#tabla-inv-lista tr[data-item]');
+    await page.waitForSelector('#form-articulo');
+    await page.click('#art-historial');
+    await page.waitForSelector('#tabla-art-historial tbody tr');
+    const eventos = await page.$$eval('#tabla-art-historial tbody tr', (r) => r.map((x) => x.textContent));
+    assert.match(eventos[0]!, /Cambio en el catálogo.*Marca: «MARCA» → «ACME».*Precio: \$176\.00 → \$199\.50.*Administración/);
+    assert.match(eventos.at(-1)!, /Alta en el catálogo/);
+    await page.screenshot({ path: join(RAIZ, 'docs', 'capturas', '33-articulo-historial.png') });
+    await page.click('#art-promo');
+    await page.waitForSelector('#form-promo');
+    assert.match((await page.textContent('#pr-items'))!, /ARTICULO 77 ACME/, 'el artículo ya queda elegido en la promoción');
+    // por cada $X de compra no necesita artículos
+    await page.selectOption('#pr-tipo', 'por_cada');
+    assert.equal(await page.isVisible('#pr-buscar'), false);
+    assert.match((await page.textContent('#form-promo'))!, /no necesita elegir artículos/);
+    await page.selectOption('#pr-tipo', 'paquete');
+    assert.match((await page.textContent('#pr-items'))!, /ARTICULO 77 ACME/);
     assert.deepEqual(errores, []);
   });
 });

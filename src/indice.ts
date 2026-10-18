@@ -93,6 +93,14 @@ export class Indice {
         this.texto.set(a.item_id, this.textoDe(a));
         break;
       }
+      case 'item.editado': {
+        const a = this.cat.get(p.item_id);
+        if (a) {
+          for (const [campo, c] of Object.entries(p.cambios as Record<string, { despues: unknown }>)) (a as any)[campo] = c.despues;
+          this.texto.set(a.item_id, this.textoDe(a));
+        }
+        break;
+      }
       case 'item.item_no_assigned': {
         const a = this.cat.get(p.item_id);
         if (a && a.item_no == null) { a.item_no = p.item_no; this.poner(this.porItemNo, a.item_no, a); }

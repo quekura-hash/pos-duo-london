@@ -692,6 +692,7 @@ async function vistaInventario() {
   const j = await api('/api/admin/inventario');
   const r = j.resumen;
   const tiendas = Object.entries(r.por_tienda);
+  S.inv = { q: S.inv?.q ?? '', pag: 0, por: 50, total: 0, tiendas: [], articulos: [] };
   $('#vista').innerHTML = `
     <div class="titulo-vista">${ico('box')}<h1>Inventario</h1></div>
     <div class="panel">
@@ -709,29 +710,81 @@ async function vistaInventario() {
           ${tiendas.map(([t, x]) => `<tr data-tienda="${esc(t)}"><td>${esc(t)}</td><td class="num">${x.piezas}</td><td class="num">${x.articulos_con_existencia}</td><td class="num">${x.no_verificados}</td></tr>`).join('')}</tbody></table>
       </div>
       <p class="nota">La existencia es la que conoce el central (lo ya sincronizado). Las cantidades de prueba están marcadas como tales en los movimientos.</p>
-      <h2>Buscar artículo</h2>
-      <div class="filas" style="align-items:center"><input id="inv-q" class="texto" placeholder="Código, Item #, descripción, marca…" style="padding:6px 8px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie);min-width:300px"><span class="nota">Elija un artículo para crearle una promoción.</span></div>
+      <h2>Todos los artículos</h2>
+      <div class="filas" style="align-items:center"><input id="inv-q" class="texto" placeholder="Buscar por código, Item #, descripción, marca, estilo…" value="${esc(S.inv.q)}" style="padding:6px 8px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie);min-width:320px"><span class="nota">Haga clic en un artículo para editarlo, ver su historial o crearle una promoción.</span></div>
+      <div id="inv-msg" class="mensaje" role="status" aria-live="polite"></div>
       <div id="inv-res" class="tabla-cont"></div>
-      <h2>Vista previa (primeros 20 artículos)</h2>
-      <div class="tabla-cont"><table id="tabla-inv-previa"><thead><tr>${j.hoja.encabezados.map((h) => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>
-        ${j.hoja.filas.map((f) => `<tr>${f.map((v) => `<td>${esc(v)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>
+      <div class="filas" id="inv-pag" style="align-items:center;margin-top:8px"></div>
     </div>`;
   let tmp;
-  $('#inv-q').addEventListener('input', () => {
-    clearTimeout(tmp);
-    tmp = setTimeout(async () => {
-      const t = $('#inv-q').value.trim();
-      if (!t) { $('#inv-res').innerHTML = ''; return; }
-      const r = await api(`/api/admin/articulos?q=${encodeURIComponent(t)}`);
-      $('#inv-res').innerHTML = `<table id="tabla-inv-buscar"><thead><tr><th>Item #</th><th>Código</th><th>Descripción</th><th>Marca</th><th>Estilo</th><th>Departamento</th><th class="num">Precio</th><th></th></tr></thead><tbody>${r.articulos.map((a) => `<tr data-item="${esc(a.item_id)}"><td>${esc(a.item_no ?? '')}</td><td>${esc(a.codigo)}</td><td>${esc(a.descripcion)}</td><td>${esc(a.marca)}</td><td>${esc(a.estilo)}</td><td>${esc(a.departamento)}</td><td class="num">${mxn(a.precio)}</td><td><button class="btn inv-promo" type="button">${ico('percent')}<span>Crear promoción</span></button></td></tr>`).join('') || '<tr><td colspan="8" class="vacio">Sin resultados.</td></tr>'}</tbody></table>${r.total > r.articulos.length ? `<p class="nota">${r.total} resultados; se muestran ${r.articulos.length}. Escriba más para acotar.</p>` : ''}`;
-      for (const b of $('#inv-res').querySelectorAll('.inv-promo')) b.addEventListener('click', async () => { S.hoyPromo = S.hoyPromo ?? new Date().toISOString().slice(0, 10); abrirPromo(null, { item: r.articulos.find((x) => x.item_id === b.closest('tr').dataset.item) }); });
-    }, 250);
-  });
+  $('#inv-q').addEventListener('input', () => { clearTimeout(tmp); tmp = setTimeout(() => { S.inv.q = $('#inv-q').value.trim(); S.inv.pag = 0; cargarListaInventario(); }, 250); });
   $('#btn-exportar').addEventListener('click', async () => {
     const e = $('#estado-exportar');
     e.textContent = 'Preparando el archivo…';
     try { e.textContent = await exportarInventario(); } catch (err) { e.textContent = `No se pudo exportar: ${err.message}`; }
   });
+  await cargarListaInventario();
+}
+async function cargarListaInventario() {
+  const I = S.inv;
+  const r = await api(`/api/admin/articulos?todos=1&limite=${I.por}&desde=${I.pag * I.por}&q=${encodeURIComponent(I.q)}`);
+  Object.assign(I, { total: r.total, tiendas: r.tiendas ?? [], articulos: r.articulos });
+  const paginas = Math.max(1, Math.ceil(r.total / I.por));
+  $('#inv-res').innerHTML = `<table id="tabla-inv-lista"><thead><tr><th>Item #</th><th>Código</th><th>Descripción</th><th>Marca</th><th>Estilo</th><th>Lote</th><th>Departamento</th><th class="num">Precio</th>${I.tiendas.map((t) => `<th class="num">${esc(t)}</th>`).join('')}<th class="num">Almacén</th></tr></thead><tbody>
+    ${r.articulos.map((a) => `<tr data-item="${esc(a.item_id)}" tabindex="0" style="cursor:pointer"><td>${esc(a.item_no ?? '')}</td><td>${esc(a.codigo)}</td><td>${esc(a.descripcion)}</td><td>${esc(a.marca)}</td><td>${esc(a.estilo)}</td><td>${esc(a.lote)}</td><td>${esc(a.departamento)}</td><td class="num">${mxn(a.precio)}</td>${I.tiendas.map((t) => `<td class="num">${a.existencias[t] ?? 0}</td>`).join('')}<td class="num">${a.almacen}</td></tr>`).join('') || `<tr><td colspan="${9 + I.tiendas.length}" class="vacio">Ningún artículo coincide.</td></tr>`}</tbody></table>`;
+  for (const tr of $('#inv-res').querySelectorAll('tr[data-item]')) {
+    const abrir = () => abrirArticulo(I.articulos.find((x) => x.item_id === tr.dataset.item));
+    tr.addEventListener('click', abrir);
+    tr.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') abrir(); });
+  }
+  const desde = r.total ? I.pag * I.por + 1 : 0, hasta = Math.min(r.total, (I.pag + 1) * I.por);
+  $('#inv-pag').innerHTML = `<button class="btn" id="inv-ant" type="button" ${I.pag === 0 ? 'disabled' : ''}>${ico('chevron', 'ico-izq')}<span>Anterior</span></button><span id="inv-pag-info">Artículos ${desde}–${hasta} de ${r.total} · página ${I.pag + 1} de ${paginas}</span><button class="btn" id="inv-sig" type="button" ${I.pag + 1 >= paginas ? 'disabled' : ''}><span>Siguiente</span>${ico('chevron')}</button>`;
+  $('#inv-ant').addEventListener('click', () => { I.pag--; cargarListaInventario(); });
+  $('#inv-sig').addEventListener('click', () => { I.pag++; cargarListaInventario(); });
+}
+/** Edición de un artículo: se abre editable, con Historial y Crear promoción. */
+async function abrirArticulo(a) {
+  const { departamentos } = await api('/api/admin/departamentos');
+  const d = dialogo('dlg-articulo');
+  d.setAttribute('aria-labelledby', 'art-titulo');
+  const deptos = departamentos.filter((x) => x.activo).map((x) => x.nombre);
+  if (!deptos.includes(a.departamento)) deptos.unshift(a.departamento);
+  const campo = (id, rotulo, valor, extra = '') => `<div class="campo"><label for="${id}">${rotulo}</label><input id="${id}" class="texto" value="${esc(valor ?? '')}" ${extra}></div>`;
+  d.innerHTML = `<h2 id="art-titulo" style="margin-top:0">Artículo ${esc(a.item_no ?? '(sin Item #)')}</h2>
+    <p class="nota" style="margin-top:0">Código <b>${esc(a.codigo || '(sin código)')}</b> · ${Object.entries(a.existencias).map(([t, n]) => `${esc(t)}: ${n}`).join(' · ')} · Almacén: ${a.almacen}</p>
+    <form id="form-articulo" autocomplete="off">
+      ${campo('art-descripcion', 'Descripción', a.descripcion)}${campo('art-marca', 'Marca', a.marca)}${campo('art-estilo', 'Estilo', a.estilo)}${campo('art-lote', 'Lote', a.lote)}
+      <div class="campo"><label for="art-depto">Departamento</label><select id="art-depto" style="width:100%;padding:10px;border:2px solid var(--borde);border-radius:10px;background:var(--superficie)">${deptos.map((n) => `<option ${n === a.departamento ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></div>
+      ${campo('art-precio', 'Precio de venta (MXN)', centavosAPesos(a.precio), 'inputmode="decimal"')}
+      <p class="nota">Un cambio de precio vale para las ventas siguientes; lo ya vendido conserva el suyo. Queda registrado en el historial.</p>
+      <div id="msg-art" class="mensaje" role="status" aria-live="polite"></div>
+      <div class="filas"><button class="btn" type="button" id="art-cerrar">Cerrar</button><button class="btn" type="button" id="art-historial">${ico('clock')}<span>Historial</span></button><button class="btn" type="button" id="art-promo">${ico('percent')}<span>Crear promoción</span></button><button class="btn btn-primario" type="submit" id="art-guardar" style="width:auto;flex:1">${ico('check')}<span>Guardar cambios</span></button></div>
+    </form>
+    <div id="art-hist" class="tabla-cont" hidden></div>`;
+  $('#art-cerrar').addEventListener('click', () => d.close());
+  $('#art-promo').addEventListener('click', async () => { d.close(); S.hoyPromo = S.hoyPromo ?? new Date().toISOString().slice(0, 10); await abrirPromo(null, { item: a }); });
+  $('#art-historial').addEventListener('click', async () => {
+    const h = $('#art-hist');
+    if (!h.hidden) { h.hidden = true; return; }
+    try {
+      const r = await api(`/api/admin/articulo/historial?item_id=${encodeURIComponent(a.item_id)}`);
+      h.innerHTML = `<h3>Historial</h3><table id="tabla-art-historial"><thead><tr><th>Fecha y hora</th><th>Evento</th><th>Detalle</th><th>Quién</th></tr></thead><tbody>${r.eventos.map((e) => `<tr data-tipo="${esc(e.tipo)}"><td>${esc(fechaHora(e.ocurrio_en))}</td><td>${esc(e.evento)}</td><td class="desc">${esc(e.detalle)}</td><td>${esc(e.por)}</td></tr>`).join('') || '<tr><td colspan="4" class="vacio">Sin movimientos.</td></tr>'}</tbody></table>`;
+      h.hidden = false;
+    } catch (e) { const m = $('#msg-art'); m.className = 'mensaje error'; m.textContent = e.message; }
+  });
+  $('#form-articulo').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const m = $('#msg-art');
+    const precio = parseMXN($('#art-precio').value);
+    if (precio === null) { m.className = 'mensaje error'; m.textContent = 'Escriba el precio en pesos (por ejemplo 899 o 899.50).'; return; }
+    try {
+      const r = await api('/api/admin/articulos', { item_id: a.item_id, cambios: { descripcion: $('#art-descripcion').value, marca: $('#art-marca').value, estilo: $('#art-estilo').value, lote: $('#art-lote').value, departamento: $('#art-depto').value, precio } });
+      d.close();
+      await cargarListaInventario();
+      const mm = $('#inv-msg'); mm.className = 'mensaje ok'; mm.textContent = `Artículo ${r.articulo.item_no ?? ''} guardado.`;
+    } catch (e) { m.className = 'mensaje error'; m.textContent = e.message; }
+  });
+  d.showModal();
 }
 
 // ── Tarjetas de regalo ──
@@ -1499,8 +1552,8 @@ async function abrirPromo(p, preset) {
       <div data-tipo="nxm paquete">
         <div class="filas" data-tipo="nxm"><div class="campo" style="flex:1"><label for="pr-lleva">Lleva (piezas)</label><input id="pr-lleva" type="number" min="2" class="texto" value="${q.lleva ?? 2}"></div><div class="campo" style="flex:1"><label for="pr-paga">Paga (piezas)</label><input id="pr-paga" type="number" min="1" class="texto" value="${q.paga ?? 1}"></div></div>
         <div class="filas" data-tipo="paquete"><div class="campo" style="flex:1"><label for="pr-lleva2">Lleva (piezas)</label><input id="pr-lleva2" type="number" min="2" class="texto" value="${q.lleva ?? 4}"></div><div class="campo" style="flex:1"><label for="pr-precio">Paga en total ($)</label><input id="pr-precio" class="texto" inputmode="decimal" value="${centavosAPesos(q.precio ?? 18500)}"></div></div>
-        <p class="nota" data-tipo="nxm">De cada grupo, las piezas más baratas salen gratis.</p>
-        <p class="nota" data-tipo="paquete">Cada grupo completo se cobra al precio del paquete; 5 piezas de un paquete de 4 son un paquete más una suelta a precio normal.</p>
+        <p class="nota" data-tipo="nxm">De cada grupo, las piezas más baratas salen gratis. Este tipo necesita al menos un artículo elegido (o un departamento o palabras de la descripción).</p>
+        <p class="nota" data-tipo="paquete">Cada grupo completo se cobra al precio del paquete; 5 piezas de un paquete de 4 son un paquete más una suelta a precio normal. Este tipo necesita elegir uno o varios artículos.</p>
         <div class="campo"><label for="pr-buscar">Artículos de la promoción: busque por código, Item #, descripción o marca</label><input id="pr-buscar" class="texto" placeholder="Ej. accesorio popular"></div>
         <div id="pr-resultados" class="tabla-cont" style="max-height:20vh;overflow:auto"></div>
         <div id="pr-items" class="filas" style="gap:6px;margin:6px 0"></div>
@@ -1511,7 +1564,7 @@ async function abrirPromo(p, preset) {
       </div>
       <div data-tipo="por_cada">
         <div class="filas"><div class="campo" style="flex:1"><label for="pr-cada">Por cada ($ de compra)</label><input id="pr-cada" class="texto" value="${centavosAPesos(q.cada ?? 100000)}" inputmode="decimal"></div><div class="campo" style="flex:1"><label for="pr-descuenta">Descuento ($)</label><input id="pr-descuenta" class="texto" value="${centavosAPesos(q.descuenta ?? 10000)}" inputmode="decimal"></div></div>
-        <p class="nota">Escalones completos: por cada $1,000 de compra, $100 menos; con $2,500 son $200 menos.</p>
+        <p class="nota">Escalones completos: por cada $1,000 de compra, $100 menos; con $2,500 son $200 menos. <b>Este tipo no necesita elegir artículos</b>: aplica a toda la compra.</p>
       </div>
       <div data-tipo="cupon">
         <div class="filas"><div class="campo" style="flex:2"><label for="pr-codigo">Código</label><input id="pr-codigo" class="texto" value="${esc(q.codigo ?? '')}" placeholder="VERANO20"></div>
@@ -1520,6 +1573,7 @@ async function abrirPromo(p, preset) {
         ${campo('pr-cup-valor', 'Valor del descuento', esPct ? (q.pct ?? 10) : centavosAPesos(q.monto), 'inputmode="decimal"')}
         ${campo('pr-minimo', 'Compra mínima ($, vacío = sin mínimo; el mínimo se cumple con esa cantidad o más)', q.minimo ? centavosAPesos(q.minimo) : '', 'inputmode="decimal"')}
         ${campo('pr-usos', 'Usos máximos (vacío = sin límite; 1 = un solo uso)', q.usos_max ?? '', 'inputmode="numeric"')}
+        <p class="nota">Un cupón no necesita elegir artículos: descuenta sobre toda la compra.</p>
       </div>
       <div data-tipo="nxm paquete por_cada"><label style="margin-top:8px"><input type="checkbox" id="pr-acumulable" ${q.acumulable === false ? '' : 'checked'}> <b>Acumulable</b>: se repite por cada grupo completo (8 piezas de un paquete de 4 = 2 paquetes; $2,650 con «por cada $500, $50» = $250 de descuento). Sin marcar, aplica una sola vez por compra.</label></div>
       <p class="nota">En cada compra aplica una sola promoción o cupón (la que más descuento dé); no se combinan entre sí.</p>
