@@ -1,6 +1,9 @@
 // Tipos compartidos. Importes siempre en centavos enteros (MXN).
 
 /** `efectivo_usd` = efectivo recibido en dólares (y, si hay, pesos): liquida un solo importe en MXN y guarda el detalle físico. */
+/** Almacén virtual del catálogo inicial: su existencia se descuenta directamente al vender en cualquier tienda o caja. */
+export const LIMBO = 'LIMBO';
+export const NOMBRE_LIMBO = 'El Limbo';
 export type Metodo = 'efectivo' | 'efectivo_usd' | 'tarjeta' | 'tarjeta_regalo';
 
 export interface Op {
@@ -61,6 +64,8 @@ export interface Linea {
   ambiguo?: { codigo: string; candidatos: string[] };
   /** Renglón de venta o recarga de una tarjeta de regalo: no es mercancía (sin inventario ni existencia). */
   tarjeta_regalo?: { codigo: string; tipo: 'alta' | 'recarga' };
+  /** Piezas de este renglón que salieron de El Limbo al vender (el resto salió de la existencia de la tienda). */
+  de_limbo?: number;
 }
 
 export interface Venta {

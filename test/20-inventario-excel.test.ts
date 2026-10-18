@@ -187,7 +187,8 @@ describe('[memoria — inventario en Excel] Lectura, reporte, carga al sistema y
     assert.equal(ws.getCell(r3, 9).value, 404.1);
     assert.equal(ws.getCell(r3, 13).value, 6, 'existencia DÚO: 10 − 4');
     assert.equal(ws.getCell(r3, 14).value, 3, 'existencia London');
-    assert.equal(ws.getCell(r3, 15).value, 'Sí', 'verificada');
+    assert.equal(ws.getCell(r3, 15).value, 0, 'existencia El Limbo (sin catálogo inicial: 0)');
+    assert.equal(ws.getCell(r3, 16).value, 'Sí', 'verificada');
     const r700 = fila(700);
     const celdaEstilo = ws.getCell(r700, 5);
     assert.equal(celdaEstilo.value, '=SUM(1,2)', 'no se evalúa como fórmula');

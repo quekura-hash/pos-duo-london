@@ -280,7 +280,7 @@ describe('[navegador real — Chromium con Playwright, UI sobre SQLite]', { time
     await page.waitForSelector('#tabla-inv-resumen');
     assert.equal(await page.textContent('#tabla-inv-resumen [data-campo="articulos"]'), '4');
     assert.equal(await page.textContent('#tabla-inv-resumen [data-campo="sin_codigo"]'), '0');
-    assert.deepEqual(await page.$$eval('#tabla-inv-tiendas tbody tr', (r) => r.map((x) => [...x.querySelectorAll('td')].map((c) => c.textContent))), [['DUO', '57', '4', '0'], ['LON', '53', '2', '0']]);
+    assert.deepEqual(await page.$$eval('#tabla-inv-tiendas tbody tr', (r) => r.map((x) => [...x.querySelectorAll('td')].map((c) => c.textContent))), [['DUO', '57', '4', '0'], ['LON', '53', '2', '0'], ['El Limbo', '0', '0', '0']]);
     assert.equal(await page.locator('#tabla-inv-lista tbody tr[data-item]').count(), 4, 'la lista completa del inventario');
     await page.screenshot({ path: join(CAPTURAS, '09-inventario-administracion.png') });
     const [descarga] = await Promise.all([page.waitForEvent('download'), page.click('#btn-exportar')]);

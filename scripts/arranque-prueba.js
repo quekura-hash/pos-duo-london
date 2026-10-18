@@ -73,27 +73,32 @@
       '<h3>Hallazgos del archivo</h3><div class="tabla-cont anomalias"><table id="imp-anomalias"><thead><tr><th>Tipo</th><th>Gravedad</th><th class="num">Filas</th><th>Ejemplo</th></tr></thead><tbody>' +
       r.porTipo.map(function (t) { return '<tr data-tipo="' + t.tipo + '"><td>' + esc(NOM_ANOM[t.tipo] || t.tipo) + '</td><td>' + ROT[t.severidad] + '</td><td class="num">' + t.cantidad + '</td><td>fila ' + t.ejemplos[0].fila + ': ' + esc(t.ejemplos[0].detalle) + '</td></tr>'; }).join('') + '</tbody></table></div>' +
       '<p><small>Nada se descarta ni se corrige: las filas con hallazgos se cargan tal cual y quedan señaladas. Los artículos con precio no vendible no se pueden agregar a una venta.</small></p>' +
-      '<fieldset><legend>Existencia de PRUEBA (el archivo no trae cantidades)</legend>' +
-      '<label>Piezas por artículo en DÚO <input type="number" id="imp-duo" min="0" max="999" value="' + estado.duo + '"></label>' +
-      '<label>Piezas por artículo en London <input type="number" id="imp-lon" min="0" max="999" value="' + estado.lon + '"></label>' +
-      '<small>Se registran como movimientos marcados «existencia_prueba», solo para artículos con precio vendible.</small></fieldset>' +
+      '<fieldset><legend>Existencia (el archivo no trae cantidades)</legend>' +
+      '<label><input type="radio" name="imp-modo" id="imp-modo-limbo" value="limbo"' + (estado.modo === 'limbo' ? ' checked' : '') + '> <strong>Catálogo inicial en «El Limbo»</strong><br><small>Todas las tiendas y cajas venden estas piezas y se descuentan de El Limbo, un almacén virtual con todo etiquetado (precio y costura). Si no hay cantidad registrada queda en 0 y el saldo baja con las ventas hasta que se cuente.</small></label>' +
+      '<label style="margin-left:24px">Piezas por artículo en El Limbo <input type="number" id="imp-limbo" min="0" max="999" value="' + estado.limbo + '"' + (estado.modo === 'limbo' ? '' : ' disabled') + '></label>' +
+      '<label><input type="radio" name="imp-modo" id="imp-modo-prueba" value="prueba"' + (estado.modo === 'prueba' ? ' checked' : '') + '> <strong>Existencia de PRUEBA por tienda</strong></label>' +
+      '<label style="margin-left:24px">Piezas por artículo en DÚO <input type="number" id="imp-duo" min="0" max="999" value="' + estado.duo + '"' + (estado.modo === 'prueba' ? '' : ' disabled') + '></label>' +
+      '<label style="margin-left:24px">Piezas por artículo en London <input type="number" id="imp-lon" min="0" max="999" value="' + estado.lon + '"' + (estado.modo === 'prueba' ? '' : ' disabled') + '></label>' +
+      '<small>La existencia de prueba se registra como movimientos marcados «existencia_prueba». Ambas opciones solo cubren artículos con precio vendible.</small></fieldset>' +
       '<div class="filas"><button class="btn" type="button" id="imp-cancelar">Cancelar</button><button class="btn btn-primario" type="button" id="imp-cargar" style="width:auto;flex:1"' + (r.errores.length ? ' disabled' : '') + '>Cargar ' + e.filas + ' artículos al sistema</button></div>';
     var h = $('#imp-hoja'); if (h) h.addEventListener('change', function (ev) { estado.hoja = Number(ev.target.value); pintarImportacion(); });
-    Array.prototype.forEach.call(d.querySelectorAll('input[name="imp-perfil"]'), function (x) { x.addEventListener('change', function (ev) { estado.perfil = Number(ev.target.value); estado.duo = Number($('#imp-duo').value) || 0; estado.lon = Number($('#imp-lon').value) || 0; pintarImportacion(); }); });
+    function leerExistencia() { estado.duo = Number($('#imp-duo').value) || 0; estado.lon = Number($('#imp-lon').value) || 0; estado.limbo = Number($('#imp-limbo').value) || 0; }
+    Array.prototype.forEach.call(d.querySelectorAll('input[name="imp-perfil"]'), function (x) { x.addEventListener('change', function (ev) { estado.perfil = Number(ev.target.value); leerExistencia(); pintarImportacion(); }); });
+    Array.prototype.forEach.call(d.querySelectorAll('input[name="imp-modo"]'), function (x) { x.addEventListener('change', function (ev) { leerExistencia(); estado.modo = ev.target.value; pintarImportacion(); }); });
     Array.prototype.forEach.call(d.querySelectorAll('.sel-depto'), function (x) { x.addEventListener('change', function (ev) { estado.decisiones[ev.target.getAttribute('data-clave')] = ev.target.value; }); });
     $('#imp-regla-env').addEventListener('change', function (ev) { estado.regla = ev.target.checked; });
     $('#imp-cancelar').addEventListener('click', function () { d.close(); });
-    $('#imp-cargar').addEventListener('click', function () { estado.duo = Number($('#imp-duo').value) || 0; estado.lon = Number($('#imp-lon').value) || 0; cargar(true); });
+    $('#imp-cargar').addEventListener('click', function () { leerExistencia(); cargar(true); });
   }
   function cargar(guardarArchivo, estadoGuardado) {
     var r = lectura();
     var dep = PosBanco.aplicarDepartamentos(r.articulos, PosBanco.DEPARTAMENTOS_BASE, { decisiones: estado.decisiones, reglaEnvolturas: estado.regla });
-    var o = PosBanco.aOperacionesInventario(dep.articulos, { ahora: new Date().toISOString(), idImportacion: 'imp1', existenciaPrueba: { DUO: estado.duo, LON: estado.lon } });
-    var muestra = dep.articulos.filter(function (a) { return a.codigo && a.precio > 0; }).slice(0, 8).map(function (a) { return { codigo: a.codigo, item_no: a.item_no, descripcion: a.descripcion || '(sin descripción)', marca: a.marca, precio: a.precio, existencia: estado.duo + ' / ' + estado.lon }; });
-    var texto = 'Inventario cargado: ' + estado.nombre + ' · ' + r.estadisticas.filas + ' artículos · mapeo «' + PosBanco.PERFILES[estado.perfil].id + '» · existencia de prueba DÚO ' + estado.duo + ', London ' + estado.lon;
+    var o = PosBanco.aOperacionesInventario(dep.articulos, { ahora: new Date().toISOString(), idImportacion: 'imp1', existenciaPrueba: estado.modo === 'prueba' ? { DUO: estado.duo, LON: estado.lon } : {}, limbo: estado.modo === 'limbo' ? { piezas: estado.limbo } : undefined });
+    var muestra = dep.articulos.filter(function (a) { return a.codigo && a.precio > 0; }).slice(0, 8).map(function (a) { return { codigo: a.codigo, item_no: a.item_no, descripcion: a.descripcion || '(sin descripción)', marca: a.marca, precio: a.precio, existencia: estado.modo === 'limbo' ? 'El Limbo ' + estado.limbo : estado.duo + ' / ' + estado.lon }; });
+    var texto = 'Inventario cargado: ' + estado.nombre + ' · ' + r.estadisticas.filas + ' artículos · mapeo «' + PosBanco.PERFILES[estado.perfil].id + '» · ' + (estado.modo === 'limbo' ? 'catálogo inicial en El Limbo (' + estado.limbo + ' pza por artículo)' : 'existencia de prueba DÚO ' + estado.duo + ', London ' + estado.lon);
     if (guardarArchivo) borrar('estado'); // inventario nuevo = base nueva: lo guardado era de la base anterior
     ctl.cargarInventario(o.ops, texto, muestra, estadoGuardado);
-    if (guardarArchivo) guardar('inventario', { nombre: estado.nombre, bytes: estado.bytes, hoja: estado.hoja, perfil: estado.perfil, duo: estado.duo, lon: estado.lon, decisiones: estado.decisiones, regla: estado.regla });
+    if (guardarArchivo) guardar('inventario', { nombre: estado.nombre, bytes: estado.bytes, hoja: estado.hoja, perfil: estado.perfil, modo: estado.modo, limbo: estado.limbo, duo: estado.duo, lon: estado.lon, decisiones: estado.decisiones, regla: estado.regla });
     var d = $('#dlg-importar'); if (d.open) d.close();
     $('#sesion-prueba').value = ctl.sesion;
   }
@@ -102,7 +107,7 @@
     return archivo.arrayBuffer().then(function (buf) {
       var bytes = new Uint8Array(buf);
       return PosBanco.leerXlsx(window.ExcelJS, bytes).then(function (hojas) {
-        estado = { nombre: archivo.name, bytes: bytes, hojas: hojas, hoja: 0, perfil: 0, duo: 10, lon: 0, decisiones: {}, regla: true };
+        estado = { nombre: archivo.name, bytes: bytes, hojas: hojas, hoja: 0, perfil: 0, modo: 'limbo', limbo: 0, duo: 10, lon: 0, decisiones: {}, regla: true };
         pintarImportacion();
         $('#dlg-importar').showModal();
         aplicar();
@@ -173,7 +178,7 @@
     }
     $('#estado-inv').textContent = 'Cargando el inventario guardado en este navegador…';
     return PosBanco.leerXlsx(window.ExcelJS, g.bytes).then(function (hojas) {
-      estado = { nombre: g.nombre, bytes: g.bytes, hojas: hojas, hoja: g.hoja, perfil: g.perfil, duo: g.duo, lon: g.lon, decisiones: g.decisiones || {}, regla: g.regla !== false };
+      estado = { nombre: g.nombre, bytes: g.bytes, hojas: hojas, hoja: g.hoja, perfil: g.perfil, modo: g.modo || 'prueba', limbo: g.limbo || 0, duo: g.duo, lon: g.lon, decisiones: g.decisiones || {}, regla: g.regla !== false };
       cargar(false, est && est.conInventario ? est : undefined);
     });
   }).catch(function () { aplicar(); }).then(function () { ultimaVersion = -1; listo = true; });

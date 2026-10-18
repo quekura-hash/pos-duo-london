@@ -498,3 +498,14 @@ Reportes · Cortes (con el botón «Dólares recibidos») · Inventario · Almac
 - **Reporte de entregas**: el renglón muestra «Confirmada: recibió X de Y» y el faltante sin ubicar aparece en Diferencias; el Excel trae piezas entregadas y recibidas.
 - **No incluido**: aviso de faltantes en el menú lateral; confirmar de más de lo entregado (se rechaza).
 - **Verificado**: pruebas del motor (FA1–FA2, ambos almacenes) y de navegador (continuación de B3 con London recibiendo 9 de 12).
+
+## 28. Catálogo inicial y «El Limbo» [P]
+
+- **Qué es**: El Limbo es un almacén virtual (`LIMBO`) donde vive la existencia del **catálogo inicial** (20,000+ artículos ya etiquetados con precio y costura). Todas las tiendas y cajas pueden vender esos artículos y **lo vendido se descuenta de El Limbo**, no de la tienda.
+- **Carga**: al importar el archivo, la opción por omisión es «Catálogo inicial en El Limbo». El archivo no trae cantidades y no se inventan: se captura «piezas por artículo en El Limbo» (0 por omisión) y se registra un movimiento `limbo_inicial` por artículo con precio vendible. La otra opción sigue siendo la existencia de prueba por tienda.
+- **Regla de venta** (por renglón de un artículo del catálogo inicial): primero lo que haya en El Limbo, luego la existencia propia de la tienda, y lo que sobre vuelve a El Limbo y lo deja **negativo** (= vendido sin existencia registrada; P-02 permite vender sin existencia y se concilia después). Un artículo fuera del catálogo inicial descuenta de la tienda como siempre. El renglón de la venta guarda `de_limbo` (cuántas piezas salieron de ahí).
+- **Compartido entre tiendas**: los movimientos de El Limbo viajan caja → hub → central → los demás hubs y cajas, así que todas ven el mismo saldo cuando hay conexión. Con una tienda sin conexión puede venderse la misma pieza en dos tiendas y el saldo queda más bajo al sincronizar (misma conciliación posterior que P-02).
+- **Cancelar una venta** regresa a El Limbo las piezas que salieron de ahí. Una **devolución** de mercancía entra a la existencia de la tienda donde se devolvió (la pieza está físicamente ahí).
+- **Dónde se ve**: chip «El Limbo: N» en la venta (solo artículos del catálogo inicial), columna «El Limbo» en Administración → Inventario y en la edición del artículo, resumen del inventario y columna «Existencia El Limbo» en el Excel. Un saldo negativo de El Limbo no se reporta como incidencia por artículo.
+- **Pendiente**: contar y fijar la existencia real de El Limbo (conteo físico), y cargar el archivo real de 20,000+ artículos (los datos reales no van al repositorio).
+- **Verificado**: pruebas del motor (LI1–LI4, ambos almacenes) y de navegador (B11: importación, venta en DÚO y London, columna en Inventario). Sin archivo real.

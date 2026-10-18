@@ -406,7 +406,7 @@ function pintarCarrito() {
     $('#detalle-sub').textContent = `Departamento: ${l.departamento}`;
     $('#detalle').innerHTML = `<div><dt>Departamento</dt><dd>${esc(l.departamento)}</dd></div><div><dt>Item #</dt><dd>${esc(l.item_no ?? 'pendiente')}</dd></div><div><dt>Código</dt><dd>${esc(l.codigo)}</dd></div><div><dt>Marca</dt><dd>${esc(l.marca)}</dd></div><div><dt>Estilo</dt><dd>${esc(l.estilo)}</dd></div><div><dt>Lote</dt><dd>${esc(l.lote)}</dd></div>`;
     const ex = c.existencias?.[l.item_id];
-    $('#existencias').innerHTML = `<span class="chip-stock propia" data-existencia="tienda">${ico('store')}Esta tienda: ${ex ? `${ex.saldo}${ex.verificada ? '' : ' (sin verificar)'}` : 'sin dato'}</span><span class="chip-stock" data-existencia="otras" title="La existencia de otras tiendas y del almacén se muestra en una etapa posterior">${ico('box')}Otras tiendas y almacén: sin dato</span>`;
+    $('#existencias').innerHTML = `<span class="chip-stock propia" data-existencia="tienda">${ico('store')}Esta tienda: ${ex ? `${ex.saldo}${ex.verificada ? '' : ' (sin verificar)'}` : 'sin dato'}</span>${ex && ex.limbo !== null ? `<span class="chip-stock" data-existencia="limbo" title="Catálogo inicial: se vende en cualquier tienda y caja y se descuenta de El Limbo">${ico('box')}El Limbo: ${ex.limbo}</span>` : ''}<span class="chip-stock" data-existencia="otras" title="La existencia de otras tiendas y del almacén se muestra en una etapa posterior">${ico('box')}Otras tiendas y almacén: sin dato</span>`;
   }
   recalcular();
 }
@@ -773,7 +773,7 @@ async function vistaInventario() {
           <tr><th scope="row">Sin código (no se escanean)</th><td class="num" data-campo="sin_codigo">${r.sin_codigo}</td></tr>
           <tr><th scope="row">Con precio no vendible (0 o negativo)</th><td class="num" data-campo="precio_no_vendible">${r.precio_no_vendible}</td></tr></tbody></table>
         <table id="tabla-inv-tiendas"><thead><tr><th>Tienda</th><th class="num">Piezas</th><th class="num">Artículos con existencia</th><th class="num">Sin verificar</th></tr></thead><tbody>
-          ${tiendas.map(([t, x]) => `<tr data-tienda="${esc(t)}"><td>${esc(t)}</td><td class="num">${x.piezas}</td><td class="num">${x.articulos_con_existencia}</td><td class="num">${x.no_verificados}</td></tr>`).join('')}</tbody></table>
+          ${tiendas.map(([t, x]) => `<tr data-tienda="${esc(t)}"><td>${esc(t === 'LIMBO' ? 'El Limbo' : t)}</td><td class="num">${x.piezas}</td><td class="num">${x.articulos_con_existencia}</td><td class="num">${x.no_verificados}</td></tr>`).join('')}</tbody></table>
       </div>
       <p class="nota">La existencia es la que conoce el central (lo ya sincronizado). Las cantidades de prueba están marcadas como tales en los movimientos.</p>
       <h2>Todos los artículos</h2>
@@ -796,8 +796,8 @@ async function cargarListaInventario() {
   const r = await api(`/api/admin/articulos?todos=1&limite=${I.por}&desde=${I.pag * I.por}&q=${encodeURIComponent(I.q)}`);
   Object.assign(I, { total: r.total, tiendas: r.tiendas ?? [], articulos: r.articulos });
   const paginas = Math.max(1, Math.ceil(r.total / I.por));
-  $('#inv-res').innerHTML = `<table id="tabla-inv-lista"><thead><tr><th>Item #</th><th>Código</th><th>Descripción</th><th>Marca</th><th>Estilo</th><th>Lote</th><th>Departamento</th><th class="num">Precio</th>${I.tiendas.map((t) => `<th class="num">${esc(t)}</th>`).join('')}<th class="num">Almacén</th></tr></thead><tbody>
-    ${r.articulos.map((a) => `<tr data-item="${esc(a.item_id)}" tabindex="0" style="cursor:pointer"><td>${esc(a.item_no ?? '')}</td><td>${esc(a.codigo)}</td><td>${esc(a.descripcion)}</td><td>${esc(a.marca)}</td><td>${esc(a.estilo)}</td><td>${esc(a.lote)}</td><td>${esc(a.departamento)}</td><td class="num">${mxn(a.precio)}</td>${I.tiendas.map((t) => `<td class="num">${a.existencias[t] ?? 0}</td>`).join('')}<td class="num">${a.almacen}</td></tr>`).join('') || `<tr><td colspan="${9 + I.tiendas.length}" class="vacio">Ningún artículo coincide.</td></tr>`}</tbody></table>`;
+  $('#inv-res').innerHTML = `<table id="tabla-inv-lista"><thead><tr><th>Item #</th><th>Código</th><th>Descripción</th><th>Marca</th><th>Estilo</th><th>Lote</th><th>Departamento</th><th class="num">Precio</th>${I.tiendas.map((t) => `<th class="num">${esc(t)}</th>`).join('')}<th class="num">Almacén</th><th class="num">El Limbo</th></tr></thead><tbody>
+    ${r.articulos.map((a) => `<tr data-item="${esc(a.item_id)}" tabindex="0" style="cursor:pointer"><td>${esc(a.item_no ?? '')}</td><td>${esc(a.codigo)}</td><td>${esc(a.descripcion)}</td><td>${esc(a.marca)}</td><td>${esc(a.estilo)}</td><td>${esc(a.lote)}</td><td>${esc(a.departamento)}</td><td class="num">${mxn(a.precio)}</td>${I.tiendas.map((t) => `<td class="num">${a.existencias[t] ?? 0}</td>`).join('')}<td class="num">${a.almacen}</td><td class="num" data-col="limbo">${a.limbo}</td></tr>`).join('') || `<tr><td colspan="${10 + I.tiendas.length}" class="vacio">Ningún artículo coincide.</td></tr>`}</tbody></table>`;
   for (const tr of $('#inv-res').querySelectorAll('tr[data-item]')) {
     const abrir = () => abrirArticulo(I.articulos.find((x) => x.item_id === tr.dataset.item));
     tr.addEventListener('click', abrir);
@@ -817,7 +817,7 @@ async function abrirArticulo(a) {
   if (!deptos.includes(a.departamento)) deptos.unshift(a.departamento);
   const campo = (id, rotulo, valor, extra = '') => `<div class="campo"><label for="${id}">${rotulo}</label><input id="${id}" class="texto" value="${esc(valor ?? '')}" ${extra}></div>`;
   d.innerHTML = `<h2 id="art-titulo" style="margin-top:0">Artículo ${esc(a.item_no ?? '(sin Item #)')}</h2>
-    <p class="nota" style="margin-top:0">Código <b>${esc(a.codigo || '(sin código)')}</b> · ${Object.entries(a.existencias).map(([t, n]) => `${esc(t)}: ${n}`).join(' · ')} · Almacén: ${a.almacen}</p>
+    <p class="nota" style="margin-top:0">Código <b>${esc(a.codigo || '(sin código)')}</b> · ${Object.entries(a.existencias).map(([t, n]) => `${esc(t)}: ${n}`).join(' · ')} · Almacén: ${a.almacen} · El Limbo: ${a.limbo}</p>
     <form id="form-articulo" autocomplete="off">
       ${campo('art-descripcion', 'Descripción', a.descripcion)}${campo('art-marca', 'Marca', a.marca)}${campo('art-estilo', 'Estilo', a.estilo)}${campo('art-lote', 'Lote', a.lote)}
       <div class="campo"><label for="art-depto">Departamento</label><select id="art-depto" style="width:100%;padding:10px;border:2px solid var(--borde);border-radius:10px;background:var(--superficie)">${deptos.map((n) => `<option ${n === a.departamento ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></div>

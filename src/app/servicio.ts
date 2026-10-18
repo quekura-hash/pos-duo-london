@@ -10,7 +10,7 @@ import { CAMPOS_EDITABLES, catalogo, historialArticulo, nombresTienda, datosTien
 import { hojaDescuentos, hojaEntregas, hojaDolares, hojaInventario, leerInventario, PERFIL_CONFIRMADO, type Hoja } from '../inventario.ts';
 import { LOGOS_TICKET } from '../logos-ticket.ts';
 import { aplicarDatosTienda, codigoTicket, construirTicket, construirTicketRegalo, formatoMXN, NEGOCIOS, renderTextoEscPos, renderTicketDevolucionTexto, renderTicketEscPos, renderTicketTexto, type NegocioCfg } from '../ticket.ts';
-import type { Actor, Articulo, Linea, Op, Venta } from '../tipos.ts';
+import { LIMBO, type Actor, type Articulo, type Linea, type Op, type Venta } from '../tipos.ts';
 import { fechaLocal } from '../util.ts';
 
 export interface Conexion {
@@ -35,7 +35,7 @@ export interface VistaCarrito {
   promos: { promo_id: string; nombre: string; tipo: string; monto: number }[];
   cupon: { codigo: string; nombre: string; monto: number; aplicado: boolean; motivo?: string } | null;
   /** Existencia de ESTA tienda por artículo de la venta (para el panel de detalle). */
-  existencias: Record<string, { saldo: number; verificada: boolean }>;
+  existencias: Record<string, { saldo: number; verificada: boolean; limbo: number | null }>;
   /** Tasa bloqueada de este cobro (si ya se empezó a recibir dólares) y si hay una más reciente. */
   tasa: { version: number; tasa: number; texto: string; hay_nueva: boolean } | null;
 }
@@ -190,7 +190,7 @@ export class ServicioCaja {
       total: c.lineas.reduce((a, l) => a + l.importe, 0),
       promos: c.descuentos?.aplicadas ?? [], cupon: c.descuentos?.cupon ?? null,
       tasa: c.tasa ? { version: c.tasa.version, tasa: c.tasa.tasa, texto: formatoTasa(c.tasa.tasa), hay_nueva: (this.caja.tipoCambio()?.version ?? 0) > c.tasa.version } : null,
-      existencias: Object.fromEntries(c.lineas.map((l) => { const e = this.caja.existenciaVerificada(l.item_id); return [l.item_id, { saldo: e.saldo, verificada: e.verificada }]; })),
+      existencias: Object.fromEntries(c.lineas.map((l) => { const e = this.caja.existenciaVerificada(l.item_id); return [l.item_id, { saldo: e.saldo, verificada: e.verificada, limbo: this.caja.saldoLimbo(l.item_id) }]; })),
     };
   }
 
@@ -468,8 +468,9 @@ export class ServicioAdmin {
     if (this.actor.rol !== 'admin') throw new ErrorDominio('PROHIBIDO', 'el inventario consolidado es solo de Administración');
     if (!this.inv) throw new ErrorDominio('SIN_INVENTARIO', 'esta sesión no tiene fuente de inventario');
     const arts = this.inv.articulos();
-    const hoja = hojaInventario(arts, { tiendas: this.inv.tiendas, saldo: this.inv.saldo, verificada: this.inv.verificada });
-    const porTienda = Object.fromEntries(this.inv.tiendas.map((t) => {
+    const ubicaciones = [...this.inv.tiendas, LIMBO]; // El Limbo es una existencia más, compartida por todas las tiendas
+    const hoja = hojaInventario(arts, { tiendas: ubicaciones, saldo: this.inv.saldo, verificada: this.inv.verificada });
+    const porTienda = Object.fromEntries(ubicaciones.map((t) => {
       let piezas = 0, conExistencia = 0, noVerificados = 0;
       for (const a of arts) { const q = this.inv!.saldo(t, a.item_id); piezas += q; if (q > 0) conExistencia++; if (!this.inv!.verificada(t, a.item_id)) noVerificados++; }
       return [t, { piezas, articulos_con_existencia: conExistencia, no_verificados: noVerificados }];
@@ -569,7 +570,7 @@ export class ServicioAdmin {
     if (this.inv) for (const t of this.inv.tiendas) existencias[t] = this.inv.saldo(t, a.item_id);
     return {
       item_id: a.item_id, item_no: a.item_no, codigo: a.codigo, descripcion: a.descripcion, marca: a.marca, estilo: a.estilo, lote: a.lote, departamento: a.departamento,
-      precio: a.precio, existencias, almacen: almacen ?? 0,
+      precio: a.precio, existencias, almacen: almacen ?? 0, limbo: this.inv ? this.inv.saldo(LIMBO, a.item_id) : 0,
     };
   }
   /** Edita un artículo del catálogo (marca, descripción, estilo, lote, departamento, precio en pesos). */

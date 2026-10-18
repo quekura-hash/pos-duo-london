@@ -142,6 +142,7 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     assert.equal(await page.inputValue('#imp-deptos tr[data-clave="perfumes"] select'), 'Cosméticos y perfumes');
     await page.selectOption('#imp-deptos tr[data-clave="women s"] select', 'Dama');
     assert.equal(await page.isChecked('#imp-regla-env'), true);
+    await page.check('#imp-modo-prueba');
     await page.fill('#imp-duo', '10');
     await page.click('#imp-cargar');
     await page.waitForFunction(() => /Inventario cargado: inventario_prueba\.xlsx · 13 artículos/.test(document.querySelector('#estado-inv')!.textContent!));
@@ -814,6 +815,57 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     assert.match(tk, /Aut\. 998877/);
     assert.deepEqual(errores, []);
   });
+
+  it('B11 catálogo inicial en El Limbo: se vende en cualquier tienda y caja y el saldo baja en un solo lugar', async (t) => {
+    execFileSync(process.execPath, [join(RAIZ, 'scripts', 'construir-prueba.mjs')], { stdio: 'pipe' });
+    const dir = mkdtempSync(join(tmpdir(), 'pos-limbo-'));
+    const archivo = join(dir, 'catalogo-inicial.xlsx');
+    writeFileSync(archivo, await xlsxDeFilas(Array.from({ length: 30 }, (_, i) => [i + 1, 'MARCA', `ARTICULO ${i + 1}`, null, null, null, 100 + i, 0, `70000${String(i + 1).padStart(3, '0')}`, 'DAMA', null, 'Yes', null, null])));
+    const browser = await chromium.launch({ executablePath: chromiumPath, args: ['--no-sandbox'] });
+    t.after(async () => { await browser.close(); rmSync(dir, { recursive: true, force: true }); });
+    const page = await (await browser.newContext({ viewport: { width: 1440, height: 900 }, colorScheme: 'light' })).newPage();
+    const errores: string[] = [];
+    page.on('pageerror', (e) => errores.push(String(e)));
+    page.on('console', (m) => { if (m.type() === 'error') errores.push(m.text()); });
+    await page.goto(`file://${HTML}`);
+    await page.waitForSelector('[data-chip="tienda"]');
+    await page.setInputFiles('#archivo-inventario', archivo);
+    await page.waitForSelector('#dlg-importar[open]');
+    assert.equal(await page.isChecked('#imp-modo-limbo'), true, 'el catálogo inicial en El Limbo es la opción por omisión');
+    await page.fill('#imp-limbo', '5');
+    await page.screenshot({ path: join(RAIZ, 'docs', 'capturas', '42-importar-el-limbo.png') });
+    await page.click('#imp-cargar');
+    await page.waitForFunction(() => /catálogo inicial en El Limbo \(5 pza/.test(document.querySelector('#estado-inv')!.textContent!));
+    // DÚO Caja 1 vende una pieza: El Limbo baja de 5 a 4 y la tienda no tiene existencia propia
+    await page.fill('#scan', '70000001'); await page.press('#scan', 'Enter');
+    await page.waitForSelector('#cuerpo tr[data-linea]');
+    assert.match((await page.textContent('[data-existencia="limbo"]'))!, /El Limbo: 5/);
+    assert.match((await page.textContent('[data-existencia="tienda"]'))!, /Esta tienda: 0/);
+    await page.fill('#recibido', '1000');
+    await page.click('#btn-cobrar');
+    await page.waitForSelector('#dlg-ticket[open]');
+    await page.click('#btn-nueva');
+    // London Caja 1 ve el mismo saldo y vende otra: queda en 3
+    await page.selectOption('#sesion-prueba', 'LON/1');
+    await page.waitForSelector('[data-chip="tienda"]');
+    await page.fill('#scan', '70000001'); await page.press('#scan', 'Enter');
+    await page.waitForSelector('#cuerpo tr[data-linea]');
+    assert.match((await page.textContent('[data-existencia="limbo"]'))!, /El Limbo: 4/);
+    await page.fill('#recibido', '1000');
+    await page.click('#btn-cobrar');
+    await page.waitForSelector('#dlg-ticket[open]');
+    await page.click('#btn-nueva');
+    // Administración: columna El Limbo
+    await page.selectOption('#sesion-prueba', 'admin');
+    await page.click('#nav button[data-vista="inventario"]');
+    await page.waitForSelector('#tabla-inv-lista tr[data-item]');
+    await page.fill('#inv-q', '70000001');
+    await page.waitForFunction(() => document.querySelectorAll('#tabla-inv-lista tbody tr[data-item]').length === 1);
+    assert.equal(await page.textContent('#tabla-inv-lista tr[data-item] [data-col="limbo"]'), '3');
+    assert.equal(await page.textContent('#tabla-inv-tiendas tr[data-tienda="LIMBO"] td'), 'El Limbo');
+    await page.screenshot({ path: join(RAIZ, 'docs', 'capturas', '43-inventario-el-limbo.png') });
+    assert.deepEqual(errores, []);
+  });
 });
 
 const REAL = process.env.POS_INVENTARIO_REAL;
@@ -835,6 +887,7 @@ describe('[navegador real] Inventario real de DÚO en la página (solo con POS_I
     assert.match((await page.textContent('#imp-resumen'))!, /21220 artículos · con código 20565 · sin código 655 · sin descripción 8810 · sin marca 0 · precio no vendible 187/);
     await page.screenshot({ path: join(RAIZ, 'dist', 'captura-inventario-real.png') });
     t0 = Date.now();
+    await page.check('#imp-modo-prueba');
     await page.fill('#imp-duo', '10');
     await page.click('#imp-cargar');
     await page.waitForFunction(() => /Inventario cargado: .* 21220 artículos/.test(document.querySelector('#estado-inv')!.textContent!), null, { timeout: 120000 });

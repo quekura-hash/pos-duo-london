@@ -11,7 +11,7 @@ import { localizarVentas } from './consultas.ts';
 import { CAMPOS_EDITABLES, CAMPOS_TIENDA, type CampoEditable, departamentos, promocionesDe, supervisoresDe, efectivoDeVenta, movimientosCaja, tipoCambioVigente, catalogo, devoluciones, devueltoPorLinea, existenciaVerificada, intentos, perdidasDocumentales, stock, ventas, type Devolucion, type ExistenciaVerificada, type Intento, type PerdidaDocumental, type TarjetaRegalo, type TipoCambio } from './proyecciones.ts';
 import type { Repo } from './repo.ts';
 import { validarOpEntrante } from './reglas.ts';
-import type { Articulo, CajaCfg, Linea, Op, Pago, Venta } from './tipos.ts';
+import { LIMBO, type Articulo, type CajaCfg, type Linea, type Op, type Pago, type Venta } from './tipos.ts';
 import { crearOp, fechaLocal, uuid } from './util.ts';
 
 export interface Ctx {
@@ -87,6 +87,8 @@ interface Reserva {
   resultado: ResultadoReserva;
 }
 
+/** Lo que se vende de El Limbo descuenta una existencia compartida: todas las tiendas y cajas deben enterarse. */
+const esMovimientoLimbo = (op: Op) => op.tipo === 'inv.movement' && op.payload.tienda === LIMBO;
 const BROADCAST_TIENDA = new Set(['alm.recibida', 'inv.movement', 'inv.conteo', 'inv.verificacion_pendiente', 'doc.perdida_posible', 'item.created', 'item.item_no_assigned', 'giftcard.emitida', 'giftcard.recarga', 'giftcard.uso', 'giftcard.reintegro']);
 // Lo que el central baja a hubs y cajas (catálogo y resoluciones administrativas).
 const CATALOGO = new Set(['item.created', 'item.item_no_assigned', 'item.codigo_corregido', 'doc.perdida_resuelta', 'giftcard.emitida', 'giftcard.recarga', 'giftcard.uso', 'giftcard.reintegro', 'config.tipo_cambio', 'permiso.asignado', 'depto.alta', 'depto.editado', 'alm.entrega', 'alm.faltante', 'promo.guardada', 'supervisor.guardado', 'config.negocio', 'item.editado']);
@@ -130,7 +132,7 @@ export class Hub {
         if (BROADCAST_TIENDA.has(op.tipo)) {
           for (const n of this.cajasDeTienda()) if (`caja:${this.tienda}/${n}` !== desde) this.repo.encolar(op.op_id, `caja:${this.tienda}/${n}`);
         }
-      } else if (desde === 'central' && CATALOGO.has(op.tipo)) {
+      } else if (desde === 'central' && (CATALOGO.has(op.tipo) || esMovimientoLimbo(op))) {
         for (const n of this.cajasDeTienda()) this.repo.encolar(op.op_id, `caja:${this.tienda}/${n}`);
       }
     });
@@ -160,7 +162,7 @@ export class Hub {
     const faltantes: string[] = [];
     for (const [item, q] of pedido) {
       const apartado = abiertas.reduce((a, r) => a + r.lineas.filter((l) => l.item_id === item).reduce((b, l) => b + l.qty, 0), 0);
-      if (this.idx.saldo(this.tienda, item) - apartado < q) faltantes.push(item);
+      if (this.idx.disponible(this.tienda, item) - apartado < q) faltantes.push(item);
     }
     // Dinero: una tarjeta de regalo nunca se sobregira (no depende de P-02, que es solo de existencias).
     const sinSaldo: string[] = [];
@@ -284,6 +286,7 @@ export class Central {
       if (op.tipo.startsWith('giftcard.') && (this.ctx.politicas.P23_tarjeta_regalo_entre_tiendas ?? 'solo_tienda_emisora') === 'compartida') {
         for (const t of this.ctx.tiendas) if (`hub:${t}` !== desde) this.repo.encolar(op.op_id, `hub:${t}`);
       }
+      if (esMovimientoLimbo(op)) for (const t of this.ctx.tiendas) if (`hub:${t}` !== desde) this.repo.encolar(op.op_id, `hub:${t}`);
       if (op.tipo === 'item.created') {
         if (this.ctx.catalogoCompartido) for (const t of this.ctx.tiendas) if (`hub:${t}` !== desde) this.repo.encolar(op.op_id, `hub:${t}`);
         if (this.ctx.politicas.P07_item_no === 'a_central' && op.payload.item_no == null) {
@@ -824,6 +827,29 @@ export class Caja {
   existenciaVerificada(itemId: string): ExistenciaVerificada {
     return { saldo: this.idx.saldo(this.tienda, itemId), ...this.idx.verificada(this.tienda, itemId) };
   }
+  /** Existencia de El Limbo del artículo, o null si no pertenece al catálogo inicial. */
+  saldoLimbo(itemId: string): number | null {
+    return this.idx.esDeLimbo(itemId) ? this.idx.saldo(LIMBO, itemId) : null;
+  }
+  /** Cuántas piezas de cada renglón salen de El Limbo: lo que haya ahí, luego la existencia de la tienda, y lo que sobre vuelve a El Limbo (queda negativo, sin existencia registrada). */
+  private repartoLimbo(lineas: Linea[]): Map<string, number> {
+    const libreLimbo = new Map<string, number>();
+    const libreTienda = new Map<string, number>();
+    const out = new Map<string, number>();
+    for (const l of lineas) {
+      if (l.tarjeta_regalo || !this.idx.esDeLimbo(l.item_id)) continue;
+      let enLimbo = libreLimbo.get(l.item_id) ?? Math.max(0, this.idx.saldo(LIMBO, l.item_id));
+      let enTienda = libreTienda.get(l.item_id) ?? Math.max(0, this.idx.saldo(this.tienda, l.item_id));
+      const deLimbo = Math.min(l.qty, enLimbo);
+      enLimbo -= deLimbo;
+      const deTienda = Math.min(l.qty - deLimbo, enTienda);
+      enTienda -= deTienda;
+      libreLimbo.set(l.item_id, enLimbo);
+      libreTienda.set(l.item_id, enTienda);
+      out.set(l.linea_id, l.qty - deTienda);
+    }
+    return out;
+  }
   articulosNoVerificados(): string[] {
     return this.idx.noVerificados(this.tienda);
   }
@@ -1275,7 +1301,7 @@ export class Caja {
     if (this.ctx.politicas.P02_existencia_insuficiente !== 'bloquear') return;
     const pedido = new Map<string, number>();
     for (const l of c.lineas) if (!l.tarjeta_regalo) pedido.set(l.item_id, (pedido.get(l.item_id) ?? 0) + l.qty);
-    const faltan = [...pedido].filter(([item, q]) => this.idx.saldo(this.tienda, item) < q).map(([item]) => item);
+    const faltan = [...pedido].filter(([item, q]) => this.idx.disponible(this.tienda, item) < q).map(([item]) => item);
     if (faltan.length) throw new ErrorDominio('SIN_EXISTENCIA', `existencia insuficiente de ${this.nombresDe(faltan)}`, { faltantes: faltan });
   }
 
@@ -1401,8 +1427,10 @@ export class Caja {
     return this.repo.tx(() => {
       const folio = this.siguienteFolio();
       this.ctx.fallo?.('tras_folio');
+      const limbo = this.repartoLimbo(c.lineas);
+      const lineas = c.lineas.map((l) => (limbo.get(l.linea_id) ? { ...l, de_limbo: limbo.get(l.linea_id) } : l));
       const op = this.emitir('sale.confirmed', {
-        sale_id: c.id, tienda: this.tienda, caja: this.caja, folio, cajero, lineas: c.lineas, total, pagos,
+        sale_id: c.id, tienda: this.tienda, caja: this.caja, folio, cajero, lineas, total, pagos,
       }, `sale:${c.id}`);
       this.ctx.fallo?.('tras_venta');
       for (const p of pagos) {
@@ -1415,7 +1443,9 @@ export class Caja {
             { codigo: l.tarjeta_regalo.codigo, monto: l.importe, tienda: this.tienda, caja: this.caja, cajero, sale_id: c.id, folio, medio: 'efectivo' }, `gc:${c.id}:${l.linea_id}`);
           continue;
         }
-        this.emitir('inv.movement', { item_id: l.item_id, tienda: this.tienda, delta: -l.qty, tipo: 'venta', doc: c.id, caja: this.caja }, `mov:${c.id}:${l.linea_id}`);
+        const deLimbo = limbo.get(l.linea_id) ?? 0;
+        if (deLimbo > 0) this.emitir('inv.movement', { item_id: l.item_id, tienda: LIMBO, delta: -deLimbo, tipo: 'venta', doc: c.id, caja: this.caja, origen_tienda: this.tienda }, `mov:${c.id}:${l.linea_id}:limbo`);
+        if (l.qty - deLimbo > 0) this.emitir('inv.movement', { item_id: l.item_id, tienda: this.tienda, delta: -(l.qty - deLimbo), tipo: 'venta', doc: c.id, caja: this.caja }, `mov:${c.id}:${l.linea_id}`);
       }
       this.ctx.fallo?.('tras_movimientos');
       this.repo.kvSet(`cart:${c.id}`, { ...c, estado: 'confirmado' });
@@ -1440,7 +1470,11 @@ export class Caja {
       for (const p of v.pagos) {
         if (p.metodo === 'tarjeta_regalo') this.emitir('giftcard.reintegro', { codigo: p.tarjeta, monto: p.monto, sale_id: saleId, tienda: this.tienda, caja: this.caja, motivo: 'cancelacion' }, `gcre:${saleId}:${p.tarjeta}`);
       }
-      for (const l of v.lineas) this.emitir('inv.movement', { item_id: l.item_id, tienda: this.tienda, delta: l.qty, tipo: 'cancelacion', doc: saleId, caja: this.caja }, `mov:cancel:${saleId}:${l.linea_id}`);
+      for (const l of v.lineas) {
+        const deLimbo = l.de_limbo ?? 0;
+        if (deLimbo > 0) this.emitir('inv.movement', { item_id: l.item_id, tienda: LIMBO, delta: deLimbo, tipo: 'cancelacion', doc: saleId, caja: this.caja, origen_tienda: this.tienda }, `mov:cancel:${saleId}:${l.linea_id}:limbo`);
+        if (l.qty - deLimbo > 0) this.emitir('inv.movement', { item_id: l.item_id, tienda: this.tienda, delta: l.qty - deLimbo, tipo: 'cancelacion', doc: saleId, caja: this.caja }, `mov:cancel:${saleId}:${l.linea_id}`);
+      }
     });
     return ventas(this.opsVentas()).get(saleId)!;
   }

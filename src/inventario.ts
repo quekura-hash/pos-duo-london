@@ -1,6 +1,6 @@
 import { DEPARTAMENTOS_BASE, esEnvoltura, revisarDepartamentos, type Departamento, type GrupoDepto } from './departamentos.ts';
 import { formatoTasa } from './dinero.ts';
-import type { Articulo, Op } from './tipos.ts';
+import { LIMBO, type Articulo, type Op } from './tipos.ts';
 import { aCentavos, aMXN } from './util.ts';
 
 // Importación y exportación de INVENTARIO en tablas (Excel). Este módulo es puro: trabaja con filas ya leídas.
@@ -217,6 +217,12 @@ export interface OpcionesCarga {
   existenciaPrueba?: Record<string, number>;
   /** Solo si el archivo trae una columna de existencia: la ubicación la elige quien importa; nunca se infiere. */
   ubicacionExistencia?: string;
+  /**
+   * Catálogo inicial: la existencia vive en El Limbo (un almacén virtual con todo etiquetado) y se descuenta al vender en cualquier tienda o caja.
+   * `piezas` es la existencia registrada por artículo (0 si el archivo no trae cantidades: no se inventan; el saldo queda negativo con las ventas
+   * hasta que se cuente). Solo para artículos con precio vendible.
+   */
+  limbo?: { piezas: number };
 }
 
 /** Convierte lo leído en operaciones de catálogo y movimientos trazables. */
@@ -235,6 +241,12 @@ export function aOperacionesInventario(articulos: ArticuloImportado[], o: Opcion
       ops.push({
         op_id: `mov:imp:${item_id}`, tipo: 'inv.movement', tienda: o.ubicacionExistencia, caja: null, origen: `importacion:${o.idImportacion}`, ocurrio_en: o.ahora,
         payload: { item_id, tienda: o.ubicacionExistencia, delta: existencia, tipo: 'existencia_inicial', doc: `importacion:${o.idImportacion}` },
+      });
+    }
+    if (o.limbo && a.precio > 0) {
+      ops.push({
+        op_id: `mov:limbo:${item_id}`, tipo: 'inv.movement', tienda: LIMBO, caja: null, origen: `importacion:${o.idImportacion}`, ocurrio_en: o.ahora,
+        payload: { item_id, tienda: LIMBO, delta: o.limbo.piezas, tipo: 'limbo_inicial', doc: `importacion:${o.idImportacion}` },
       });
     }
     for (const [tienda, q] of Object.entries(o.existenciaPrueba ?? {})) {
@@ -260,7 +272,7 @@ export interface Hoja {
   formatoCols?: Record<number, string>;
 }
 
-export const NOMBRE_TIENDA: Record<string, string> = { DUO: 'DÚO', LON: 'London' };
+export const NOMBRE_TIENDA: Record<string, string> = { DUO: 'DÚO', LON: 'London', LIMBO: 'El Limbo' };
 
 /**
  * Inventario para Excel. Los encabezados "Marca" y "Descripción" se leen igual con cualquier perfil, así que un archivo

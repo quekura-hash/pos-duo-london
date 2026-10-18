@@ -68,7 +68,8 @@ export function detectar(ops: Op[]): Incidencia[] {
   }
 
   // existencia negativa por tienda
-  const tiendas = new Set(ops.filter((o) => o.tipo === 'inv.movement').map((o) => o.payload.tienda as string));
+  // El Limbo negativo es lo vendido del catálogo inicial sin existencia registrada: se ve en Inventario, no es una incidencia por artículo.
+  const tiendas = new Set(ops.filter((o) => o.tipo === 'inv.movement' && o.payload.tienda !== 'LIMBO').map((o) => o.payload.tienda as string));
   for (const t of tiendas) {
     for (const [item, saldo] of stock(ops, t)) if (saldo < 0) out.push({ tipo: 'stock_negativo', tienda: t, item_id: item, saldo });
   }

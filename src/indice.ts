@@ -4,7 +4,7 @@ import { aplicarPermiso, aplicarTarjeta, type PerdidaDocumental, type TarjetaReg
 import type { Repo } from './repo.ts';
 import type { Promocion } from './promociones.ts';
 import type { Supervisor } from './supervisores.ts';
-import type { Articulo } from './tipos.ts';
+import { LIMBO, type Articulo } from './tipos.ts';
 
 const sinAcentos = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 
@@ -29,6 +29,7 @@ export class Indice {
     t.set(itemId, (t.get(itemId) ?? 0) + delta);
   }
   private stock = new Map<string, Map<string, number>>();
+  private enLimbo = new Set<string>();
   private faltantesTienda = new Map<string, { tienda: string; item_id: string; qty: number }>();
   private marcas = new Map<string, string[]>(); // tienda -> ids de inv.verificacion_pendiente
   private cubiertas = new Map<string, Set<string>>(); // `${tienda}|${item}` -> ids cubiertos por un conteo
@@ -48,7 +49,7 @@ export class Indice {
   private reiniciar() {
     this.seq = 0;
     this.cat = new Map(); this.porCodigo = new Map(); this.porAlterno = new Map(); this.porItemNo = new Map(); this.texto = new Map();
-    this.stock = new Map(); this.faltantesTienda = new Map(); this.marcas = new Map(); this.cubiertas = new Map(); this.perdidas = new Map(); this.tarjetas = new Map(); this.tipos = new Map(); this.permisos = new Map(); this.deptos = copiarBase(); this.promos = new Map(); this.supervisoresMap = new Map(); this.datosTienda = new Map();
+    this.stock = new Map(); this.enLimbo = new Set(); this.faltantesTienda = new Map(); this.marcas = new Map(); this.cubiertas = new Map(); this.perdidas = new Map(); this.tarjetas = new Map(); this.tipos = new Map(); this.permisos = new Map(); this.deptos = copiarBase(); this.promos = new Map(); this.supervisoresMap = new Map(); this.datosTienda = new Map();
   }
 
   actualizar() {
@@ -119,6 +120,7 @@ export class Indice {
         break;
       }
       case 'inv.movement': {
+        if (p.tienda === LIMBO) this.enLimbo.add(p.item_id);
         let t = this.stock.get(p.tienda);
         if (!t) this.stock.set(p.tienda, (t = new Map()));
         t.set(p.item_id, (t.get(p.item_id) ?? 0) + p.delta);
@@ -188,6 +190,15 @@ export class Indice {
       if (lista.length < limite) lista.push(this.cat.get(id)!);
     }
     return { resultados: lista.slice(0, limite), total };
+  }
+  /** ¿El artículo pertenece al catálogo inicial (tiene movimientos en El Limbo)? Sus ventas se descuentan de ahí. */
+  esDeLimbo(itemId: string): boolean {
+    this.actualizar();
+    return this.enLimbo.has(itemId);
+  }
+  /** Existencia con la que cuenta una tienda para vender: la propia más la de El Limbo si el artículo es del catálogo inicial. */
+  disponible(tienda: string, itemId: string): number {
+    return this.saldo(tienda, itemId) + (this.esDeLimbo(itemId) ? this.saldo(LIMBO, itemId) : 0);
   }
   saldo(tienda: string, itemId: string): number {
     this.actualizar();
