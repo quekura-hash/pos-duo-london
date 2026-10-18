@@ -67,6 +67,9 @@ porAlmacen('Retiro de efectivo de la caja', (alm) => {
     assert.equal(ctx.m.caja('DUO', 1).corteEnVivo(r.retiro.fecha).retiros, 850000);
     const r2 = await s.svc.registrarRetiro({ retiro_id: 'r2', mxn: { [mil]: 1 }, usd: {} }).catch((e) => e);
     assert.equal(r2.codigo, 'RETIRO_INSUFICIENTE');
+    // el folio del retiro es independiente del de las ventas: ni consume ni salta folios de venta
+    const v1 = await vender(s, 1);
+    assert.equal(v1.venta.folio, 2, 'la venta anterior fue el folio 1 y el retiro no tomó ninguno');
     const re = await s.svc.reimprimirRetiro('r1');
     assert.match(re.ticket_texto, /REIMPRESIÓN 1/);
     assert.equal(s.svc.estadoRetiro().retiros.length, 1);
