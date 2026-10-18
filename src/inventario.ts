@@ -305,3 +305,16 @@ export function hojaDescuentos(r: import('./consultas.ts').ReporteDescuentos): H
   filas.push([], ['TOTAL (sin cancelados)', '', '', '', '', '', '', '', '', '', aMXN(r.resumen.monto), '', '']);
   return { nombre: 'Descuentos', encabezados, filas, textoCols: [3, 4, 6, 7, 8, 9, 10, 11] };
 }
+
+/** Entregas del almacén a tiendas listas para Excel. Las diferencias van en una segunda sección debajo del detalle. */
+export function hojaEntregas(r: import('./almacen.ts').ReporteEntregas): Hoja {
+  const encabezados = ['Fecha', 'Hora', 'Tienda', 'Item #', 'Código', 'Descripción', 'Marca', 'Estilo', 'Departamento', 'Piezas', 'Estado', 'Confirmada', 'Confirmó', 'Días de espera', 'Más de lo registrado', 'Etiqueta precio', 'Etiqueta costura', 'Entregó'];
+  const filas: Hoja['filas'] = r.filas.map((f) => [f.fecha_local, f.hora, f.tienda, f.item_no ?? '', f.codigo, f.descripcion, f.marca, f.estilo, f.departamento, f.qty, f.estado === 'confirmada' ? 'Confirmada' : 'Pendiente', f.recibida_local ?? '', f.recibida_por ?? '', f.dias_espera, f.exceso ? 'Sí' : '', f.etiqueta_precio ? 'Sí' : 'No', f.etiqueta_costura ? 'Sí' : 'No', f.por]);
+  filas.push([], ['TOTAL', '', '', '', '', '', '', '', '', r.resumen.piezas, `${r.resumen.pendientes} pendiente(s)`]);
+  if (r.diferencias.length) {
+    const nombre = { sin_confirmar: 'Sin confirmar', exceso: 'Más de lo registrado', almacen_negativo: 'Almacén negativo' } as const;
+    filas.push([], ['DIFERENCIAS'], ['Tipo', 'Tienda', 'Item #', 'Código', 'Descripción', 'Piezas', 'Detalle']);
+    for (const d of r.diferencias) filas.push([nombre[d.tipo], d.tienda ?? '', d.item_no ?? '', d.codigo, d.descripcion, d.piezas, d.detalle]);
+  }
+  return { nombre: 'Entregas de almacén', encabezados, filas, textoCols: [0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 11, 12, 14, 15, 16, 17] };
+}

@@ -117,6 +117,11 @@ export async function atender(o: { cajero?: ServicioCaja; admin?: ServicioAdmin 
         id: b.id === undefined ? undefined : String(b.id), nombre: b.nombre === undefined ? undefined : String(b.nombre),
         activo: b.activo === undefined ? undefined : !!b.activo, alias: Array.isArray(b.alias) ? b.alias.map(String) : undefined,
       }));
+      case 'GET /api/admin/entregas': {
+        const A4 = exigirAdmin();
+        const f = { desde: q.get('desde') || undefined, hasta: q.get('hasta') || undefined, tienda: q.get('tienda') || undefined };
+        return ok({ reporte: A4.entregasAlmacen(f), ...(q.get('completo') === '1' ? { hoja: A4.hojaEntregas(f) } : {}) });
+      }
       case 'GET /api/admin/descuentos': {
         const A3 = exigirAdmin();
         const f = { cajas: cajasParam(q.get('cajas')), desde: q.get('desde') || undefined, hasta: q.get('hasta') || undefined };

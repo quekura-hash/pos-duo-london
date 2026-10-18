@@ -1,5 +1,5 @@
 import { cortesPorCaja, descuentosPorCaja, dolaresPorCaja, reporteConsolidado, ventasPorCaja, type Filtro } from '../consultas.ts';
-import { DIAS_URGENTE, diasHasta, existenciaAlmacen, recepcionesPendientes, recordatoriosPiso, revisarAlta, type AltaManual } from '../almacen.ts';
+import { DIAS_URGENTE, diasHasta, existenciaAlmacen, recepcionesPendientes, recordatoriosPiso, reporteEntregas, revisarAlta, type AltaManual } from '../almacen.ts';
 import { DEPARTAMENTOS_BASE, resolverDepartamento } from '../departamentos.ts';
 import { formatoTasa } from '../dinero.ts';
 import { ErrorDominio } from '../errores.ts';
@@ -7,7 +7,7 @@ import type { Impresora } from '../impresion.ts';
 import type { Caja } from '../nodos.ts';
 import { estadoPromo, type Promocion } from '../promociones.ts';
 import { CAMPOS_EDITABLES, catalogo, historialArticulo, nombresTienda, datosTiendas, departamentos as proyDepartamentos, promocionesDe, supervisoresDe, permisos as proyPermisos, tarjetasRegalo, tiposDeCambio, tipoCambioVigente, ventas, type TipoCambio } from '../proyecciones.ts';
-import { hojaDescuentos, hojaDolares, hojaInventario, leerInventario, PERFIL_CONFIRMADO, type Hoja } from '../inventario.ts';
+import { hojaDescuentos, hojaEntregas, hojaDolares, hojaInventario, leerInventario, PERFIL_CONFIRMADO, type Hoja } from '../inventario.ts';
 import { LOGOS_TICKET } from '../logos-ticket.ts';
 import { aplicarDatosTienda, codigoTicket, construirTicket, construirTicketRegalo, formatoMXN, NEGOCIOS, renderTextoEscPos, renderTicketDevolucionTexto, renderTicketEscPos, renderTicketTexto, type NegocioCfg } from '../ticket.ts';
 import type { Actor, Articulo, Linea, Op, Venta } from '../tipos.ts';
@@ -664,6 +664,14 @@ export class ServicioAdmin {
     const por = new Map<string, number>();
     for (const i of items) if (i.sacar_a_piso && i.existencia > 0) por.set(i.sacar_a_piso, (por.get(i.sacar_a_piso) ?? 0) + 1);
     return [...por].sort((a, b) => a[0].localeCompare(b[0])).map(([fecha, articulos]) => ({ fecha, articulos, dias: diasHasta(hoy, fecha), urgente: diasHasta(hoy, fecha) <= DIAS_URGENTE }));
+  }
+  /** Entregas del almacén a las tiendas (por periodo y tienda) con su recepción y las diferencias detectadas. */
+  entregasAlmacen(f: { desde?: string; hasta?: string; tienda?: string } = {}) {
+    const ops = this.fuente();
+    return reporteEntregas(ops, catalogo(ops), f, fechaLocal(new Date().toISOString()));
+  }
+  hojaEntregas(f: { desde?: string; hasta?: string; tienda?: string } = {}): Hoja {
+    return hojaEntregas(this.entregasAlmacen(f));
   }
   /** Recordatorio interno: fecha en que se debe sacar el artículo a piso. */
   fijarSacarAPiso(itemId: string, fecha: string | null) {

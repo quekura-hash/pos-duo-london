@@ -481,3 +481,11 @@ Reportes · Cortes (con el botón «Dólares recibidos») · Inventario · Almac
 - **Ticket**: renglón «Aut. XXXX  MARCA ****1234» bajo el pago con tarjeta. El corte ya separa tarjeta de efectivo.
 - **Pendiente**: integración real con la terminal (modelo y protocolo por definir) y, con ella, el flujo de intento/conciliación para cobros dudosos que ya existe en el motor.
 - **Verificado**: pruebas del motor (TM1–TM3, ambos almacenes) y de navegador (B10). Sin terminal real.
+
+## 26. Reporte de entregas y diferencias de almacén [P]
+
+- **Dónde**: Administración → Almacén → botón **Reporte de entregas** (el menú sigue marcando Almacén). Filtros: desde/hasta (fecha local de la entrega; por omisión el mes en curso) y tienda. **Exportar a Excel** incluye el detalle y, debajo, la sección de diferencias.
+- **Contenido**: resumen por tienda (entregas, piezas, confirmadas, pendientes, piezas pendientes) y detalle de cada entrega: fecha y hora, tienda, artículo, piezas, estado (**Confirmada** con fecha y quién la confirmó, o **Pendiente** con los días de espera), si excedió lo registrado en el almacén, etiquetas y quién entregó.
+- **Diferencias** (estado actual, no dependen del periodo): **sin confirmar** (entrega de 3 o más días que la tienda no ha confirmado; los 3 días son una **alternativa de ensayo**, `DIAS_ENTREGA_SIN_CONFIRMAR`), **más de lo registrado** (entrega confirmada con «exceso» por el almacén) y **almacén negativo** (existencia del almacén menor que 0). Filtrando por tienda no aparece el almacén negativo.
+- **Límite actual**: la tienda confirma siempre la cantidad entregada completa, por eso aún no existe la diferencia «se entregaron X y se recibieron Y»; entrará con la corrección de entradas mal capturadas.
+- **Verificado**: prueba del motor (RE1, ambos almacenes) y de navegador (continuación de B3: entrega, confirmación de una tienda, reporte y exportación).

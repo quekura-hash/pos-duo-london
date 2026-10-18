@@ -296,6 +296,23 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     await page.press('#scan', 'Enter');
     await page.waitForTimeout(300);
     assert.equal(await page.locator('#dlg-recepcion[open]').count(), 0, 'ya confirmada: no vuelve a preguntar');
+    // reporte de entregas: DÚO confirmó, London sigue pendiente
+    await page.click('#nav button[data-vista="administracion"]');
+    await page.waitForSelector('#nav button[data-vista="almacen"]');
+    await page.click('#nav button[data-vista="almacen"]');
+    await page.click('#btn-reporte-entregas');
+    await page.waitForSelector('#filtros-ent');
+    await page.fill('#ent-desde', '2000-01-01');
+    await page.fill('#ent-hasta', '2099-12-31');
+    await page.click('#filtros-ent button[type=submit]');
+    await page.waitForFunction(() => document.querySelectorAll('#tabla-ent-detalle tr[data-entrega]').length === 2);
+    assert.deepEqual(await page.$$eval('#tabla-ent-detalle tr[data-entrega]', (r) => r.map((x) => (x as HTMLElement).dataset.estado).sort()), ['confirmada', 'pendiente']);
+    assert.equal(await page.textContent('#tabla-ent-resumen [data-campo="piezas"]'), '24');
+    await page.screenshot({ path: join(RAIZ, 'docs', 'capturas', '39-reporte-entregas.png') });
+    await page.click('#btn-exportar-ent');
+    await page.waitForFunction(() => /Archivo entregado|Descarga/.test(document.querySelector('#estado-exportar-ent')!.textContent!));
+    await page.click('#btn-volver-alm');
+    await page.waitForSelector('#btn-reporte-entregas');
     assert.deepEqual(errores, []);
   });
   it('B4 lo que se hace en la página (alta de almacén, departamento) se conserva al recargar', async (t) => {

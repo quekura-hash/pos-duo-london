@@ -4,6 +4,7 @@
 import { aplicarDepartamentos, normalizarDepto, type Departamento } from './departamentos.ts';
 import type { ResultadoInventario } from './inventario.ts';
 import type { Articulo, Op } from './tipos.ts';
+import { fechaLocal } from './util.ts';
 
 export const TIENDAS_ENTREGA = ['DUO', 'LON'] as const;
 
@@ -140,3 +141,70 @@ export function revisarAlta(
 
 /** Datos de un alta manual (una fila a la vez). */
 export interface AltaManual { cantidad: number; codigo: string; marca: string; descripcion: string; estilo: string; lote: string; precio: number; departamento: string; pedimento?: string }
+
+// ── reporte de entregas y diferencias ──
+/** Días sin confirmar a partir de los cuales una entrega se marca como diferencia. ALTERNATIVA DE ENSAYO: pendiente de definir con el dueño. */
+export const DIAS_ENTREGA_SIN_CONFIRMAR = 3;
+
+export interface FilaEntrega {
+  entrega_id: string; fecha_local: string; hora: string; item_id: string; item_no: string | null; codigo: string; descripcion: string; marca: string; estilo: string; departamento: string;
+  tienda: string; qty: number; estado: 'confirmada' | 'pendiente'; exceso: boolean; etiqueta_precio: boolean; etiqueta_costura: boolean; por: string;
+  recibida_local: string | null; recibida_por: string | null; dias_espera: number;
+}
+export type TipoDiferencia = 'sin_confirmar' | 'exceso' | 'almacen_negativo';
+export interface Diferencia { tipo: TipoDiferencia; item_id: string; item_no: string | null; codigo: string; descripcion: string; tienda: string | null; entrega_id: string | null; detalle: string; piezas: number }
+export interface ReporteEntregas {
+  desde: string | null; hasta: string | null; hoy: string; dias_sin_confirmar: number;
+  filas: FilaEntrega[];
+  resumen: { entregas: number; piezas: number; confirmadas: number; pendientes: number; piezas_pendientes: number; con_exceso: number };
+  porTienda: { tienda: string; entregas: number; piezas: number; confirmadas: number; pendientes: number; piezas_pendientes: number }[];
+  diferencias: Diferencia[];
+}
+
+/**
+ * Entregas del almacén a las tiendas en un periodo (por la fecha local de la entrega) con su estado de recepción, y las diferencias detectadas:
+ * entregas sin confirmar de más de `DIAS_ENTREGA_SIN_CONFIRMAR` días, entregas que excedieron lo
+ * registrado en el almacén y artículos con existencia negativa en el almacén. Las diferencias son del estado actual (no dependen del periodo).
+ */
+export function reporteEntregas(ops: Op[], cat: Map<string, Articulo>, f: { desde?: string; hasta?: string; tienda?: string }, hoy: string): ReporteEntregas {
+  const recibidas = new Map<string, Op>();
+  for (const o of ops) if (o.tipo === 'alm.recibida') recibidas.set(o.payload.entrega_id, o);
+  const dias = (a: string, b: string) => Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86400000);
+  const hora = (iso: string) => new Date(Date.parse(iso) - 7 * 3600_000).toISOString().slice(11, 16);
+  const todas: FilaEntrega[] = [];
+  for (const o of ops) {
+    if (o.tipo !== 'alm.entrega') continue;
+    const p = o.payload;
+    const a = cat.get(p.item_id);
+    const r = recibidas.get(p.entrega_id);
+    const fecha = fechaLocal(o.ocurrio_en);
+    todas.push({
+      entrega_id: p.entrega_id, fecha_local: fecha, hora: hora(o.ocurrio_en), item_id: p.item_id, item_no: a?.item_no ?? null, codigo: a?.codigo ?? '', descripcion: a?.descripcion ?? p.item_id, marca: a?.marca ?? '', estilo: a?.estilo ?? '', departamento: a?.departamento ?? '',
+      tienda: p.tienda, qty: p.qty, estado: r ? 'confirmada' : 'pendiente', exceso: !!p.exceso, etiqueta_precio: !!p.etiqueta_precio, etiqueta_costura: !!p.etiqueta_costura, por: p.por ?? '',
+      recibida_local: r ? `${fechaLocal(r.ocurrio_en)} ${hora(r.ocurrio_en)}` : null, recibida_por: r ? (r.payload.cajero ?? '') : null,
+      dias_espera: dias(fecha, r ? fechaLocal(r.ocurrio_en) : hoy),
+    });
+  }
+  const deTienda = todas.filter((x) => !f.tienda || x.tienda === f.tienda);
+  const filas = deTienda.filter((x) => (!f.desde || x.fecha_local >= f.desde) && (!f.hasta || x.fecha_local <= f.hasta))
+    .sort((a, b) => (b.fecha_local + b.hora).localeCompare(a.fecha_local + a.hora));
+  const suma = (l: FilaEntrega[]) => l.reduce((n, x) => n + x.qty, 0);
+  const pend = (l: FilaEntrega[]) => l.filter((x) => x.estado === 'pendiente');
+  const tiendas = [...new Set(filas.map((x) => x.tienda))].sort();
+  const diferencias: Diferencia[] = [];
+  const dif = (tipo: TipoDiferencia, x: { item_id: string; item_no: string | null; codigo: string; descripcion: string }, tienda: string | null, entrega_id: string | null, detalle: string, piezas: number) =>
+    diferencias.push({ tipo, item_id: x.item_id, item_no: x.item_no, codigo: x.codigo, descripcion: x.descripcion, tienda, entrega_id, detalle, piezas });
+  for (const x of deTienda) {
+    if (x.estado === 'pendiente' && x.dias_espera >= DIAS_ENTREGA_SIN_CONFIRMAR) dif('sin_confirmar', x, x.tienda, x.entrega_id, `Entregada el ${x.fecha_local}; lleva ${x.dias_espera} días sin que la tienda la confirme`, x.qty);
+    if (x.exceso) dif('exceso', x, x.tienda, x.entrega_id, `Se entregaron ${x.qty} pieza(s) por encima de lo registrado en el almacén`, x.qty);
+  }
+  if (!f.tienda) for (const e of existenciaAlmacen(ops).values()) {
+    const a = cat.get(e.item_id);
+    if (e.existencia < 0) dif('almacen_negativo', { item_id: e.item_id, item_no: a?.item_no ?? null, codigo: a?.codigo ?? '', descripcion: a?.descripcion ?? e.item_id }, null, null, `Existencia en almacén: ${e.existencia} (recibido ${e.recibido}, entregado ${e.entregado})`, -e.existencia);
+  }
+  return {
+    desde: f.desde ?? null, hasta: f.hasta ?? null, hoy, dias_sin_confirmar: DIAS_ENTREGA_SIN_CONFIRMAR, filas, diferencias,
+    resumen: { entregas: filas.length, piezas: suma(filas), confirmadas: filas.filter((x) => x.estado === 'confirmada').length, pendientes: pend(filas).length, piezas_pendientes: suma(pend(filas)), con_exceso: filas.filter((x) => x.exceso).length },
+    porTienda: tiendas.map((t) => { const l = filas.filter((x) => x.tienda === t); return { tienda: t, entregas: l.length, piezas: suma(l), confirmadas: l.length - pend(l).length, pendientes: pend(l).length, piezas_pendientes: suma(pend(l)) }; }),
+  };
+}

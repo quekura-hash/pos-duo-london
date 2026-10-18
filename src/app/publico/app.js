@@ -130,7 +130,7 @@ const folioTexto = () => (S.ultimoFolio ? `Folio ${String(S.ultimoFolio).padStar
 // ── navegación ──
 const NAV = {
   venta: ['Venta', 'cart'], ventas: ['Historial', 'clock'], creditos: ['Créditos', 'card'], corte: ['Corte de caja', 'chart'],
-  tarjetas: ['Tarjetas de regalo', 'gift'], reportes: ['Reportes', 'chart'], cortes: ['Cortes', 'cash'], dolares: ['Dólares recibidos', 'dollar'], descuentos: ['Descuentos', 'percent'], inventario: ['Inventario', 'box'], departamentos: ['Departamentos', 'box'], almacen: ['Almacén', 'warehouse'], promociones: ['Promociones', 'percent'], tiendas: ['Tiendas', 'store'], configuracion: ['Configuración', 'gear'], administracion: ['Administración', 'gear'], volver_caja: ['Caja', 'caja'], tipo_cambio: ['Tipo de cambio', 'refresh'],
+  tarjetas: ['Tarjetas de regalo', 'gift'], reportes: ['Reportes', 'chart'], cortes: ['Cortes', 'cash'], dolares: ['Dólares recibidos', 'dollar'], descuentos: ['Descuentos', 'percent'], entregas: ['Entregas de almacén', 'warehouse'], inventario: ['Inventario', 'box'], departamentos: ['Departamentos', 'box'], almacen: ['Almacén', 'warehouse'], promociones: ['Promociones', 'percent'], tiendas: ['Tiendas', 'store'], configuracion: ['Configuración', 'gear'], administracion: ['Administración', 'gear'], volver_caja: ['Caja', 'caja'], tipo_cambio: ['Tipo de cambio', 'refresh'],
 };
 function pintarNav() {
   // En la página de prueba (una sola ventana) se puede pasar de la caja a Administración y volver; en la app real cada sesión es la suya.
@@ -138,7 +138,7 @@ function pintarNav() {
   const items = S.sesion.rol === 'cajero' ? [...S.sesion.nav, ...(cambia ? ['administracion'] : [])] : [...S.sesion.nav, 'creditos', ...(cambia ? ['volver_caja'] : [])]; // Créditos vive en Administración, no en la venta
   $('#nav').innerHTML = items.map((v) => v === 'creditos'
     ? `<button type="button" data-proximamente="creditos" disabled title="Próximamente" aria-label="Créditos (próximamente)">${ico(NAV[v][1])}<span>${NAV[v][0]}</span></button>`
-    : `<button type="button" data-vista="${v}" title="${NAV[v][0]}" ${v === ({ descuentos: 'promociones', dolares: 'cortes' }[S.vista] ?? S.vista) ? 'aria-current="page"' : ''}>${ico(NAV[v][1])}<span>${NAV[v][0]}</span></button>`).join('');
+    : `<button type="button" data-vista="${v}" title="${NAV[v][0]}" ${v === ({ descuentos: 'promociones', dolares: 'cortes', entregas: 'almacen' }[S.vista] ?? S.vista) ? 'aria-current="page"' : ''}>${ico(NAV[v][1])}<span>${NAV[v][0]}</span></button>`).join('');
   for (const b of $('#nav').querySelectorAll('button[data-vista]')) {
     b.addEventListener('click', () => {
       if (b.dataset.vista === 'administracion') return window.__POS_CAMBIAR_SESION__('admin');
@@ -151,7 +151,7 @@ async function ir(v) {
   S.vista = v;
   pintarNav();
   await pintarEncabezado();
-  await ({ venta: vistaVenta, corte: vistaCorte, ventas: vistaVentas, reportes: vistaReportes, inventario: vistaInventario, almacen: vistaAlmacen, promociones: vistaPromociones, configuracion: vistaConfiguracion, tiendas: vistaTiendas, departamentos: vistaDepartamentos, tarjetas: vistaTarjetas, devolucion: vistaDevolucion, dolares: vistaDolares, descuentos: vistaDescuentos, tipo_cambio: vistaTipoCambio, cortes: vistaCortes })[v]();
+  await ({ venta: vistaVenta, corte: vistaCorte, ventas: vistaVentas, reportes: vistaReportes, inventario: vistaInventario, almacen: vistaAlmacen, promociones: vistaPromociones, configuracion: vistaConfiguracion, tiendas: vistaTiendas, departamentos: vistaDepartamentos, tarjetas: vistaTarjetas, devolucion: vistaDevolucion, dolares: vistaDolares, descuentos: vistaDescuentos, entregas: vistaEntregas, tipo_cambio: vistaTipoCambio, cortes: vistaCortes })[v]();
   if (v !== 'almacen') await avisosPisoInicial();
 }
 
@@ -1170,6 +1170,39 @@ async function vistaDolares() {
 // ── Reporte de promociones y descuentos autorizados por supervisor ──
 const pctBp = (bp) => `${(bp / 100).toFixed(2).replace(/\.00$/, '')} %`;
 const NOM_TIPO_DESC = { promo: 'Promoción', cupon: 'Cupón', manual: 'Manual (supervisor)' };
+const NOM_DIF = { sin_confirmar: 'Sin confirmar', exceso: 'Más de lo registrado', almacen_negativo: 'Almacén negativo' };
+async function vistaEntregas() {
+  const hoy = new Date(Date.now() - 7 * 3600e3).toISOString().slice(0, 10);
+  const mes = `${hoy.slice(0, 8)}01`;
+  const info = await api('/api/admin/almacen');
+  $('#vista').innerHTML = `<div class="titulo-vista">${ico('warehouse')}<h1>Entregas y diferencias de almacén</h1><button class="btn" id="btn-volver-alm" type="button" style="margin-left:auto">${ico('undo')}<span>Volver a almacén</span></button></div>
+    <form class="filtros panel" id="filtros-ent"><label>Desde <input type="date" id="ent-desde" value="${mes}"></label><label>Hasta <input type="date" id="ent-hasta" value="${hoy}"></label>
+      <label>Tienda <select id="ent-tienda"><option value="">Todas</option>${info.tiendas.map((t) => `<option value="${esc(t)}">${esc(TIENDAS_ALM[t] ?? t)}</option>`).join('')}</select></label>
+      <button class="btn btn-primario" type="submit" style="width:auto">${ico('search')}<span>Consultar</span></button>
+      <button class="btn" type="button" id="btn-exportar-ent">${ico('download')}<span>Exportar a Excel</span></button><span id="estado-exportar-ent" role="status" aria-live="polite"></span></form>
+    <div id="resultado-ent"></div>`;
+  const filtro = () => `desde=${$('#ent-desde').value}&hasta=${$('#ent-hasta').value}&tienda=${encodeURIComponent($('#ent-tienda').value)}`;
+  const consultar = async () => {
+    const { reporte: r } = await api(`/api/admin/entregas?${filtro()}`);
+    const R = r.resumen;
+    $('#resultado-ent').innerHTML = `<div class="panel" id="panel-dif"><h2 style="margin-top:0">Diferencias <span class="nota">(estado actual; una entrega sin confirmar se marca a partir de ${r.dias_sin_confirmar} días)</span></h2>
+      <table id="tabla-ent-dif"><thead><tr><th>Tipo</th><th>Tienda</th><th>Item #</th><th>Artículo</th><th class="num">Piezas</th><th>Detalle</th></tr></thead><tbody>
+      ${r.diferencias.map((d) => `<tr data-tipo="${d.tipo}"><td><span class="insignia cancelada">${NOM_DIF[d.tipo]}</span></td><td>${esc(TIENDAS_ALM[d.tienda] ?? d.tienda ?? '—')}</td><td>${esc(d.item_no ?? '—')}</td><td>${esc(d.descripcion)}</td><td class="num">${d.piezas}</td><td>${esc(d.detalle)}</td></tr>`).join('') || '<tr><td colspan="6" class="vacio">Sin diferencias.</td></tr>'}</tbody></table></div>
+      <div class="panel" style="margin-top:12px"><table id="tabla-ent-resumen"><thead><tr><th>Tienda</th><th class="num">Entregas</th><th class="num">Piezas</th><th class="num">Confirmadas</th><th class="num">Pendientes</th><th class="num">Piezas pendientes</th></tr></thead><tbody>
+      ${r.porTienda.map((t) => `<tr data-tienda="${esc(t.tienda)}"><td>${esc(TIENDAS_ALM[t.tienda] ?? t.tienda)}</td><td class="num">${t.entregas}</td><td class="num">${t.piezas}</td><td class="num">${t.confirmadas}</td><td class="num">${t.pendientes}</td><td class="num">${t.piezas_pendientes}</td></tr>`).join('') || '<tr><td colspan="6" class="vacio">Sin entregas en el periodo.</td></tr>'}</tbody>
+      <tfoot><tr><th>Total</th><td class="num" data-campo="entregas">${R.entregas}</td><td class="num" data-campo="piezas">${R.piezas}</td><td class="num">${R.confirmadas}</td><td class="num" data-campo="pendientes">${R.pendientes}</td><td class="num">${R.piezas_pendientes}</td></tr></tfoot></table></div>
+      <div class="panel" style="margin-top:12px"><h2 style="margin-top:0">Detalle de entregas</h2><div class="tabla-cont"><table id="tabla-ent-detalle"><thead><tr><th>Fecha</th><th>Tienda</th><th>Item #</th><th>Código</th><th>Artículo</th><th class="num">Piezas</th><th>Estado</th><th>Confirmada</th><th>Entregó</th></tr></thead><tbody>
+      ${r.filas.map((f) => `<tr data-entrega="${esc(f.entrega_id)}" data-estado="${f.estado}"><td>${esc(f.fecha_local)} ${esc(f.hora)}</td><td>${esc(TIENDAS_ALM[f.tienda] ?? f.tienda)}</td><td>${esc(f.item_no ?? '—')}</td><td>${esc(f.codigo)}</td><td>${esc(f.descripcion)} ${esc(f.marca)}${f.exceso ? ' <span class="insignia cancelada">excede almacén</span>' : ''}</td><td class="num">${f.qty}</td><td>${f.estado === 'confirmada' ? 'Confirmada' : `<b>Pendiente</b> (${f.dias_espera} d)`}</td><td>${esc(f.recibida_local ?? '—')}${f.recibida_por ? ` · ${esc(f.recibida_por)}` : ''}</td><td>${esc(f.por)}</td></tr>`).join('') || '<tr><td colspan="9" class="vacio">Sin entregas en el periodo.</td></tr>'}</tbody></table></div></div>`;
+  };
+  $('#btn-volver-alm').addEventListener('click', () => ir('almacen'));
+  $('#filtros-ent').addEventListener('submit', async (ev) => { ev.preventDefault(); await consultar(); });
+  $('#btn-exportar-ent').addEventListener('click', async () => {
+    const e = $('#estado-exportar-ent');
+    e.textContent = 'Preparando el archivo…';
+    try { e.textContent = await exportarArchivo(`/api/admin/entregas.xlsx?${filtro()}`, 'entregas-almacen.xlsx'); } catch (err) { e.textContent = `No se pudo exportar: ${err.message}`; }
+  });
+  await consultar();
+}
 async function vistaDescuentos() {
   const hoy = new Date(Date.now() - 7 * 3600e3).toISOString().slice(0, 10);
   $('#vista').innerHTML = `<div class="titulo-vista">${ico('percent')}<h1>Reporte de promociones y descuentos</h1><button class="btn" id="btn-volver-promos" type="button" style="margin-left:auto">${ico('undo')}<span>Volver a promociones</span></button></div>
@@ -1380,6 +1413,7 @@ async function vistaAlmacen() {
     <section class="panel"><div class="filas" style="align-items:center">
       <button class="btn btn-primario" id="btn-alta-lote" type="button" style="width:auto">${ico('upload')}<span>Alta Lote de inventario</span></button>
       <button class="btn" id="btn-alta-manual" type="button">${ico('plus')}<span>Alta manual</span></button>
+      <button class="btn" id="btn-reporte-entregas" type="button">${ico('chart')}<span>Reporte de entregas</span></button>
       <label style="margin-left:auto">${ico('search')} <input class="texto" id="alm-q" placeholder="Buscar por código, Item #, texto…" value="${esc(S.alm.q)}" style="padding:6px 8px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie)"></label>
       <label><input type="checkbox" id="alm-solo" ${S.alm.solo ? 'checked' : ''}> Solo con piezas en el almacén o por confirmar</label></div>
       <p class="nota">Las piezas llegan aquí sin etiquetar y sin existencia en tienda. Confirme las etiquetas, anote cuántas va a cada tienda y entregue: la tienda confirma la recepción al escanear el artículo por primera vez.</p>
@@ -1387,6 +1421,7 @@ async function vistaAlmacen() {
     <section class="panel" style="margin-top:12px"><div class="tabla-cont"><table id="tabla-almacen"><thead><tr><th>Item #</th><th>Código</th><th>Descripción</th><th>Estilo</th><th>Lote</th><th>Pedimento</th><th>Departamento</th><th class="num">Almacén</th><th>Etiqueta precio</th><th>Etiqueta costura</th>${j.tiendas.map((t) => `<th>${esc(TIENDAS_ALM[t] ?? t)}</th>`).join('')}<th>Por confirmar</th><th>Sacar a piso</th><th></th></tr></thead><tbody id="alm-cuerpo"></tbody></table></div><p class="nota" id="alm-pie"></p></section>`;
   $('#btn-alta-lote').addEventListener('click', abrirAltaLote);
   $('#btn-alta-manual').addEventListener('click', abrirAltaManual);
+  $('#btn-reporte-entregas').addEventListener('click', () => ir('entregas'));
   $('#alm-q').addEventListener('input', (ev) => { S.alm.q = ev.target.value; pintarAlmacen(); });
   $('#alm-solo').addEventListener('change', (ev) => { S.alm.solo = ev.target.checked; pintarAlmacen(); });
   pintarAlmacen();
