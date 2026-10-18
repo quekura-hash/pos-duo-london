@@ -36,7 +36,7 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     await page.click('#btn-cobrar');
     await page.waitForSelector('#dlg-ticket[open]');
     assert.match((await page.textContent('#resumen-venta'))!, /Folio 000001 · ticket D1-000001 · cambio \$81\.00/);
-    assert.match((await page.textContent('#ticket-texto'))!, /Item #: 1001 +Código: 0002026090782/);
+    assert.match((await page.textContent('#ticket-texto'))!, /^#1001 0002026090782 +/m);
     assert.doesNotMatch((await page.textContent('#ticket-texto'))!, /iva|tax|impuesto|%/i);
     await page.click('#btn-nueva');
 
@@ -165,7 +165,7 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     await page.click('#btn-exacto');
     await page.click('#btn-cobrar');
     await page.waitForSelector('#dlg-ticket[open]');
-    assert.match((await page.textContent('#ticket-texto'))!, /Item #: 1 +Código: 0021001403065/);
+    assert.match((await page.textContent('#ticket-texto'))!, /^#1 0021001403065 +/m);
     await page.click('#btn-nueva');
 
     // Administración: inventario y exportación

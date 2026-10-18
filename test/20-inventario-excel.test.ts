@@ -159,7 +159,7 @@ describe('[memoria — inventario en Excel] Lectura, reporte, carga al sistema y
     const r = await b.svc.cobrarEfectivo(cart2, 20000);
     const l = r.venta.lineas[0]!;
     assert.deepEqual([l.item_no, l.codigo, l.marca, l.descripcion, l.estilo, l.lote], ['1', '0021001403065', 'BLUSA', 'blusa seksy', '', '']);
-    assert.match(r.ticket_texto, /Item #: 1 +Código: 0021001403065/);
+    assert.match(r.ticket_texto, /^#1 0021001403065 +/m);
     assert.equal(l.importe, 16900);
   });
 

@@ -94,7 +94,7 @@ describe('[navegador real — Chromium con Playwright, UI sobre SQLite]', { time
     assert.match((await page.textContent('#resumen-venta'))!, /Folio 000001 · ticket D1-000001 · cambio \$62\.00/);
     assert.match((await page.textContent('#estado-impresion'))!, /Ticket enviado a la impresora/);
     const ticket = (await page.textContent('#ticket-texto'))!;
-    assert.match(ticket, /Item #: 1001 +Código: 0002026090782/);
+    assert.match(ticket, /^#1001 0002026090782 +/m);
     assert.match(ticket, /^\d+ JEANS LEVIS 726-$/m);
     assert.doesNotMatch(ticket, /Marca:|Estilo:|Lote/);
     assert.match(ticket, /TOTAL +\$2,038\.00/);
@@ -348,7 +348,7 @@ describe('[navegador real — Chromium con Playwright, UI sobre SQLite]', { time
     await page.click('#btn-alta');
     await page.waitForSelector('#dlg-ticket[open]');
     assert.match((await page.textContent('#resumen-alta'))!, /TR-0001.*saldo \$200\.00.*folio 000001.*cambio \$0\.00/);
-    assert.match((await page.textContent('#ticket-texto'))!, /Folio: 000001[\s\S]*Tarjeta de regalo TR-0001[\s\S]*Código: TR-0001[\s\S]*TOTAL +\$200\.00[\s\S]*Efectivo MXN +\$200\.00/);
+    assert.match((await page.textContent('#ticket-texto'))!, /Folio: 000001[\s\S]*Tarjeta de regalo TR-0001\s+TR-0001 +\$200\.00[\s\S]*TOTAL +\$200\.00[\s\S]*Efectivo MXN +\$200\.00/);
     await page.screenshot({ path: join(CAPTURAS, '11-alta-tarjeta-regalo.png') });
     await page.click('#btn-cerrar');
     await page.waitForSelector('#tabla-tarjetas tr[data-tarjeta="TR-0001"]');

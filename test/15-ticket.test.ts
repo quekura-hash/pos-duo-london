@@ -23,10 +23,11 @@ describe('[memoria — lógica pura] Ticket: contenido, MXN, sin impuestos, ESC/
   it('K2 cada artículo sale como «cantidad descripción marca estilo», con su Item # y código; sin rótulos ni lote', () => {
     const txt = renderTicketTexto(construirTicket(venta));
     assert.match(txt, /^\d+ JEANS LEVIS 726-$/m);
-    assert.match(txt, /Item #: 1001 +Código: 0002026090782/);
+    assert.match(txt, /^#1001 0002026090782 +.*\$\d/m);
     assert.match(txt, /^\d+ \S.* NUEVA B-77$/m);
-    assert.match(txt, /Item #: pendiente +Código: 7500000000123/, 'un Item # aún no asignado se muestra como pendiente, nunca inventado');
-    assert.doesNotMatch(txt, /Marca:|Estilo:|Lote|20260913|20261016/, 'ya no salen los rótulos ni el lote');
+    assert.match(txt, /^7500000000123 +.*\$\d/m, 'un Item # aún no asignado no se inventa: solo sale el código');
+    assert.doesNotMatch(txt, /#null|#undefined|pendiente/);
+    assert.doesNotMatch(txt, /Marca:|Estilo:|Lote|Item #|Código:|20260913|20261016/, 'ya no salen los rótulos ni el lote');
   });
 
   it('K2b un renglón largo se parte entre palabras y los siguientes quedan sangrados bajo la descripción', () => {
@@ -34,7 +35,7 @@ describe('[memoria — lógica pura] Ticket: contenido, MXN, sin impuestos, ESC/
     const txt = renderTicketTexto(construirTicket(v2));
     assert.match(txt, /^12 VESTIDO LARGO DE NOCHE BORDADO CON$/m);
     assert.match(txt, /^ {3}LENTEJUELA EFENTUS A-12$/m, 'sangría de la cantidad («12 »)');
-    assert.match(txt, /^Item #: 1003 {2}Código: 7501234567890$/m);
+    assert.match(txt, /^#1003 7501234567890/m);
     assert.ok(txt.split('\n').every((x) => x.length <= 42), 'nada pasa del ancho del papel');
   });
 

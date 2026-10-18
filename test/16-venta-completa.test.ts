@@ -59,7 +59,7 @@ porAlmacen('Primera operación completa: escanear → cobrar → guardar → inv
     const archivos = readdirSync(impresora.dir).sort();
     assert.deepEqual(archivos, ['001-D1-000001.bin', '001-D1-000001.txt']);
     const txt = readFileSync(join(impresora.dir, archivos[1]!), 'utf8');
-    assert.match(txt, /Item #: 1001 +Código: 0002026090782/);
+    assert.match(txt, /^#1001 0002026090782 +/m);
     assert.match(txt, /^\d+ JEANS LEVIS 726-$/m);
     assert.doesNotMatch(txt, /Marca:|Estilo:|Lote/);
     assert.match(txt, /TOTAL +\$2,158\.00/);

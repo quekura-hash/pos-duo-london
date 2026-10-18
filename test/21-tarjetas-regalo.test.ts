@@ -31,9 +31,8 @@ porAlmacen('Tarjetas de regalo: alta, cobro, cancelación, arbitraje y conflicto
     assert.deepEqual([corte.tickets, corte.ventas, corte.ventas_mercancia, corte.tarjetas_regalo_vendidas, corte.ventas_netas, corte.cobros_efectivo, corte.efectivo_esperado, corte.folio_final],
       [1, 50000, 0, 50000, 0, 50000, 50000, 1]);
     const txt = renderTicketTexto(construirTicket(r.venta));
-    assert.match(txt, /Tarjeta de regalo TR-0001\n[^\n]*Código: TR-0001/);
+    assert.match(txt, /Tarjeta de regalo TR-0001\nTR-0001 +\$500\.00/);
     assert.match(txt, /^1 Tarjeta de regalo TR-0001$/m);
-    assert.match(txt, /^ +\$500\.00$/m);
     assert.match(txt, /Vigencia: 12 meses/);
     assert.doesNotMatch(txt, /Item #|Marca|iva|tax|impuesto|%/i);
     assert.throws(() => c.altaTarjetaRegalo({ codigo: 'TR-0001', monto: 100 }), { codigo: 'TARJETA_EXISTE' });
