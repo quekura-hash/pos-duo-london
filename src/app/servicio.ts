@@ -5,7 +5,8 @@ import { formatoTasa } from '../dinero.ts';
 import { ErrorDominio } from '../errores.ts';
 import type { Impresora } from '../impresion.ts';
 import type { Caja } from '../nodos.ts';
-import { catalogo, departamentos as proyDepartamentos, permisos as proyPermisos, tarjetasRegalo, tiposDeCambio, tipoCambioVigente, ventas, type TipoCambio } from '../proyecciones.ts';
+import { estadoPromo, type Promocion } from '../promociones.ts';
+import { catalogo, departamentos as proyDepartamentos, promocionesDe, supervisoresDe, permisos as proyPermisos, tarjetasRegalo, tiposDeCambio, tipoCambioVigente, ventas, type TipoCambio } from '../proyecciones.ts';
 import { hojaDolares, hojaInventario, leerInventario, PERFIL_CONFIRMADO, type Hoja } from '../inventario.ts';
 import { codigoTicket, construirTicket, NEGOCIOS, renderTextoEscPos, renderTicketDevolucionTexto, renderTicketEscPos, renderTicketTexto, type NegocioCfg } from '../ticket.ts';
 import type { Actor, Articulo, Linea, Op, Venta } from '../tipos.ts';
@@ -29,6 +30,9 @@ export interface VistaCarrito {
   ventas_brutas: number;
   descuentos: number;
   total: number;
+  /** Promociones aplicadas y estado del cupón de esta venta. */
+  promos: { promo_id: string; nombre: string; tipo: string; monto: number }[];
+  cupon: { codigo: string; nombre: string; monto: number; aplicado: boolean; motivo?: string } | null;
   /** Existencia de ESTA tienda por artículo de la venta (para el panel de detalle). */
   existencias: Record<string, { saldo: number; verificada: boolean }>;
   /** Tasa bloqueada de este cobro (si ya se empezó a recibir dólares) y si hay una más reciente. */
@@ -150,11 +154,29 @@ export class ServicioCaja {
       ventas_brutas: c.lineas.reduce((a, l) => a + l.qty * l.precio_unit, 0),
       descuentos: c.lineas.reduce((a, l) => a + l.descuento, 0),
       total: c.lineas.reduce((a, l) => a + l.importe, 0),
+      promos: c.descuentos?.aplicadas ?? [], cupon: c.descuentos?.cupon ?? null,
       tasa: c.tasa ? { version: c.tasa.version, tasa: c.tasa.tasa, texto: formatoTasa(c.tasa.tasa), hay_nueva: (this.caja.tipoCambio()?.version ?? 0) > c.tasa.version } : null,
       existencias: Object.fromEntries(c.lineas.map((l) => { const e = this.caja.existenciaVerificada(l.item_id); return [l.item_id, { saldo: e.saldo, verificada: e.verificada }]; })),
     };
   }
 
+  aplicarCupon(cartId: string, codigo: string) {
+    const cupon = this.caja.aplicarCupon(cartId, codigo);
+    return { cupon, carrito: this.vista(cartId) };
+  }
+  quitarCupon(cartId: string) {
+    this.caja.quitarCupon(cartId);
+    return { carrito: this.vista(cartId) };
+  }
+  /** Descuento manual: lo autoriza un supervisor con su clave. */
+  aplicarDescuento(cartId: string, d: { linea_id?: string | null; tipo: 'pct' | 'monto'; valor: number }, clave: string) {
+    const r = this.caja.aplicarDescuentoManual(cartId, d, clave);
+    return { ...r, carrito: this.vista(cartId) };
+  }
+  quitarDescuento(cartId: string, lineaId?: string | null) {
+    this.caja.quitarDescuentoManual(cartId, lineaId);
+    return { carrito: this.vista(cartId) };
+  }
   escanear(cartId: string, codigo: string) {
     const r = this.caja.escanear(cartId, codigo);
     return { ...r, ...('linea' in r ? { recepcion: this.caja.recepcionesPendientes(r.linea.item_id) } : {}), carrito: this.vista(cartId) };
@@ -372,7 +394,7 @@ export class ServicioAdmin {
   readonly cajas: { tienda: string; caja: number }[];
   private inv?: FuenteInventario;
   private central?: { fijarTipoCambio(tasa: number, usuario: string, versionBase: number, confirmarVariacion?: boolean): import('../nodos.ts').ResultadoTipoCambio; asignarPermiso(usuario: string, permiso: string, valor: boolean, por: string): Op; guardarDepto(c: import('../departamentos.ts').CambioDepto, por: string): { ok: true; op: Op } | { ok: false; error: import('../departamentos.ts').ErrorDepto };
-    recordarSacarAPiso: import('../nodos.ts').Central['recordarSacarAPiso']; altaLote: import('../nodos.ts').Central['altaLote']; entregar: import('../nodos.ts').Central['entregar'] };
+    guardarPromocion: import('../nodos.ts').Central['guardarPromocion']; guardarSupervisor: import('../nodos.ts').Central['guardarSupervisor']; recordarSacarAPiso: import('../nodos.ts').Central['recordarSacarAPiso']; altaLote: import('../nodos.ts').Central['altaLote']; entregar: import('../nodos.ts').Central['entregar'] };
   constructor(o: { actor: Extract<Actor, { rol: 'admin' }>; fuente: () => Op[]; cajas: { tienda: string; caja: number }[]; inventario?: FuenteInventario; central?: ServicioAdmin['central'] }) {
     this.central = o.central;
     this.actor = o.actor;
@@ -439,6 +461,30 @@ export class ServicioAdmin {
     if (!r.ok) throw new ErrorDominio(r.error.codigo === 'NO_EXISTE' ? 'NO_ENCONTRADO' : 'DEPARTAMENTO_INVALIDO', r.error.mensaje, { motivo: r.error.codigo });
     return this.departamentos();
   }
+  // ── promociones, cupones y supervisores ──
+  promociones() {
+    const ops = this.fuente();
+    const hoy = fechaLocal(new Date().toISOString());
+    const usos = new Map<string, number>();
+    for (const v of ventas(ops).values()) if (v.estado === 'confirmada') for (const id of new Set(v.lineas.flatMap((l) => (l.descuento_detalle ?? []).filter((d) => d.tipo !== 'manual').map((d) => d.ref)))) usos.set(id, (usos.get(id) ?? 0) + 1);
+    return { hoy, promociones: promocionesDe(ops).map((p) => ({ ...p, estado: estadoPromo(p, hoy), usos: usos.get(p.id) ?? 0 })) };
+  }
+  guardarPromocion(p: Promocion) {
+    if (!this.central) throw new ErrorDominio('SIN_CENTRAL', 'esta sesión no tiene acceso al servicio central');
+    const r = this.central.guardarPromocion(p, this.actor.usuario);
+    if (!r.ok) throw new ErrorDominio(r.error.codigo === 'NO_EXISTE' ? 'NO_ENCONTRADO' : 'PROMOCION_INVALIDA', r.error.mensaje, { motivo: r.error.codigo });
+    return { ...this.promociones(), guardada: r.promo };
+  }
+  supervisores() {
+    return { supervisores: supervisoresDe(this.fuente()).map(({ id, nombre, activo }) => ({ id, nombre, activo })) };
+  }
+  guardarSupervisor(d: { id?: string; nombre?: string; clave?: string; activo?: boolean }) {
+    if (!this.central) throw new ErrorDominio('SIN_CENTRAL', 'esta sesión no tiene acceso al servicio central');
+    const r = this.central.guardarSupervisor(d, this.actor.usuario);
+    if (!r.ok) throw new ErrorDominio(r.error.codigo === 'NO_EXISTE' ? 'NO_ENCONTRADO' : 'SUPERVISOR_INVALIDO', r.error.mensaje, { motivo: r.error.codigo });
+    return this.supervisores();
+  }
+
   // ── almacén ──
   private tiendas() { return [...new Set(this.cajas.map((c) => c.tienda))]; }
   /** Existencia del almacén por artículo, lo pendiente de confirmar por cada tienda y las entregas recientes. */

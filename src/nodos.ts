@@ -1,12 +1,14 @@
 import type { BusquedaVentas, VentaLocalizada } from './consultas.ts';
 import { ErrorDominio } from './errores.ts';
+import { calcularDescuentos, normCodigo, repartir, validarPromocion, type ErrorPromo, type Promocion, type ResultadoDescuentos } from './promociones.ts';
+import { claveValida, hashClave, supervisorPorClave, type Supervisor } from './supervisores.ts';
 import { existenciaAlmacen, fechaValida, recepcionesPendientes, type AltaManual, type RecepcionPendiente } from './almacen.ts';
 import { slug, validarCambioDepto, type CambioDepto, type ErrorDepto } from './departamentos.ts';
 import { DENOMINACIONES_USD, esImporteEnBilletesUsd, superaUmbralTasa, totalDenominacionesMxn, totalDenominacionesUsd, usdAMxn, variacionTasaPb } from './dinero.ts';
 import { TASA_SIN_VERIFICAR_OMISION, type Politicas } from './politicas.ts';
 import { Indice } from './indice.ts';
 import { localizarVentas } from './consultas.ts';
-import { departamentos, efectivoDeVenta, movimientosCaja, tipoCambioVigente, catalogo, devoluciones, devueltoPorLinea, existenciaVerificada, intentos, perdidasDocumentales, stock, ventas, type Devolucion, type ExistenciaVerificada, type Intento, type PerdidaDocumental, type TarjetaRegalo, type TipoCambio } from './proyecciones.ts';
+import { departamentos, promocionesDe, supervisoresDe, efectivoDeVenta, movimientosCaja, tipoCambioVigente, catalogo, devoluciones, devueltoPorLinea, existenciaVerificada, intentos, perdidasDocumentales, stock, ventas, type Devolucion, type ExistenciaVerificada, type Intento, type PerdidaDocumental, type TarjetaRegalo, type TipoCambio } from './proyecciones.ts';
 import type { Repo } from './repo.ts';
 import { validarOpEntrante } from './reglas.ts';
 import type { Articulo, CajaCfg, Linea, Op, Pago, Venta } from './tipos.ts';
@@ -87,7 +89,7 @@ interface Reserva {
 
 const BROADCAST_TIENDA = new Set(['alm.recibida', 'inv.movement', 'inv.conteo', 'inv.verificacion_pendiente', 'doc.perdida_posible', 'item.created', 'item.item_no_assigned', 'giftcard.emitida', 'giftcard.recarga', 'giftcard.uso', 'giftcard.reintegro']);
 // Lo que el central baja a hubs y cajas (catálogo y resoluciones administrativas).
-const CATALOGO = new Set(['item.created', 'item.item_no_assigned', 'item.codigo_corregido', 'doc.perdida_resuelta', 'giftcard.emitida', 'giftcard.recarga', 'giftcard.uso', 'giftcard.reintegro', 'config.tipo_cambio', 'permiso.asignado', 'depto.alta', 'depto.editado', 'alm.entrega']);
+const CATALOGO = new Set(['item.created', 'item.item_no_assigned', 'item.codigo_corregido', 'doc.perdida_resuelta', 'giftcard.emitida', 'giftcard.recarga', 'giftcard.uso', 'giftcard.reintegro', 'config.tipo_cambio', 'permiso.asignado', 'depto.alta', 'depto.editado', 'alm.entrega', 'promo.guardada', 'supervisor.guardado']);
 
 // ───────────────────────────── Hub ─────────────────────────────
 
@@ -347,6 +349,38 @@ export class Central {
     return { ok: true, op: this.emitirAdmin('depto.editado', payload) };
   }
 
+  /** Alta o edición de una promoción o cupón (con `id` es edición). Se propaga a todas las cajas. */
+  guardarPromocion(p: Promocion, por: string): { ok: true; promo: Promocion } | { ok: false; error: ErrorPromo } {
+    const otras = promocionesDe(this.repo.ops());
+    if (p.id && !otras.some((o) => o.id === p.id)) return { ok: false, error: { codigo: 'NO_EXISTE', mensaje: 'la promoción no existe' } };
+    const id = p.id || `promo-${uuid().slice(0, 8)}`;
+    const r = validarPromocion({ ...p, id }, otras);
+    if (!r.ok) return r;
+    this.emitirAdmin('promo.guardada', { ...r.promo, por });
+    return r;
+  }
+  /** Alta o edición de un supervisor que autoriza descuentos con clave numérica. La clave se guarda con sal y hash. */
+  guardarSupervisor(d: { id?: string; nombre?: string; clave?: string; activo?: boolean }, por: string): { ok: true; supervisor: Omit<Supervisor, 'sal' | 'hash'> } | { ok: false; error: { codigo: 'DATOS_INVALIDOS' | 'CLAVE_REPETIDA' | 'NO_EXISTE'; mensaje: string } } {
+    const lista = supervisoresDe(this.repo.ops());
+    const actual = d.id ? lista.find((s) => s.id === d.id) : undefined;
+    if (d.id && !actual) return { ok: false, error: { codigo: 'NO_EXISTE', mensaje: 'el supervisor no existe' } };
+    const nombre = (d.nombre ?? actual?.nombre ?? '').trim().replace(/\s+/g, ' ');
+    if (!nombre) return { ok: false, error: { codigo: 'DATOS_INVALIDOS', mensaje: 'falta el nombre del supervisor' } };
+    if (!actual && !claveValida(d.clave)) return { ok: false, error: { codigo: 'DATOS_INVALIDOS', mensaje: 'la clave lleva de 4 a 8 dígitos' } };
+    if (d.clave !== undefined && d.clave !== '' && !claveValida(d.clave)) return { ok: false, error: { codigo: 'DATOS_INVALIDOS', mensaje: 'la clave lleva de 4 a 8 dígitos' } };
+    const activo = d.activo ?? actual?.activo ?? true;
+    let sal = actual?.sal ?? uuid(), hash = actual?.hash ?? '';
+    if (d.clave) {
+      sal = uuid();
+      hash = hashClave(sal, d.clave);
+      const otro = supervisorPorClave(lista.filter((s) => s.id !== actual?.id), d.clave);
+      if (otro && activo) return { ok: false, error: { codigo: 'CLAVE_REPETIDA', mensaje: 'esa clave ya la usa otro supervisor' } };
+    }
+    const id = actual?.id ?? `sup-${uuid().slice(0, 8)}`;
+    this.emitirAdmin('supervisor.guardado', { id, nombre, activo, sal, hash, por });
+    return { ok: true, supervisor: { id, nombre, activo } };
+  }
+
   /** Recordatorio interno de almacén: fecha para sacar el artículo a piso (null la quita). Solo del central, no viaja a las tiendas. */
   recordarSacarAPiso(itemId: string, fecha: string | null, por: string): Op | null {
     if (!catalogo(this.repo.ops()).has(itemId)) throw new ErrorDominio('ARTICULO_INEXISTENTE', itemId);
@@ -445,6 +479,10 @@ interface Carrito {
   intent_id?: string;
   /** Tipo de cambio con que se inició el cobro en dólares: el cobro lo conserva aunque cambie el global. */
   tasa?: { version: number; tasa: number; bloqueada_en: string };
+  /** Código de cupón capturado en esta venta (se vuelve a validar cada vez que cambia el carrito). */
+  cupon?: string;
+  /** Resultado del último cálculo de promociones y cupón (solo para mostrar). */
+  descuentos?: { aplicadas: ResultadoDescuentos['aplicadas']; cupon: ResultadoDescuentos['cupon'] };
 }
 
 export type EstadoFolios = { estado: 'activa' | 'recuperacion'; motivo: string | null; ultimo: number; techo: number | null };
@@ -726,7 +764,28 @@ export class Caja {
   private cartGet(id: string): Carrito {
     const c = this.repo.kvGet<Carrito>(`cart:${id}`);
     if (!c) throw new ErrorDominio('CARRITO_INEXISTENTE', id);
+    if (c.estado === 'abierto') this.recalcular(c);
     return c;
+  }
+  /**
+   * Promociones, cupón y descuentos manuales del carrito. Se recalcula en cada lectura de un carrito abierto: así una promoción
+   * nueva (o vencida) y un cambio de cantidades se reflejan en el total que se cobra, y nunca queda un descuento viejo.
+   */
+  private recalcular(c: Carrito): void {
+    const promos = this.idx.promociones();
+    const conDetalle = c.lineas.some((l) => l.descuento_detalle !== undefined);
+    if (!promos.length && !c.cupon && !conDetalle) { delete c.descuentos; return; }
+    const hoy = fechaLocal(this.ctx.reloj.now());
+    const usos = (codigo: string) => {
+      const p = promos.find((x) => x.tipo === 'cupon' && x.codigo === codigo);
+      if (!p) return 0;
+      let n = 0;
+      for (const v of ventas(this.opsVentas()).values()) if (v.estado === 'confirmada' && v.lineas.some((l) => l.descuento_detalle?.some((d) => d.tipo === 'cupon' && d.ref === p.id))) n++;
+      return n;
+    };
+    const r = calcularDescuentos(c.lineas, promos, c.cupon ?? null, hoy, usos);
+    c.lineas = r.lineas;
+    c.descuentos = { aplicadas: r.aplicadas, cupon: r.cupon };
   }
   abrirCarrito(): string {
     const id = uuid();
@@ -788,8 +847,9 @@ export class Caja {
     if (!l) throw new ErrorDominio('LINEA_INEXISTENTE', lineaId);
     l.qty = qty;
     l.importe = qty * l.precio_unit - l.descuento;
+    this.recalcular(c);
     this.repo.kvSet(`cart:${cartId}`, c);
-    return l;
+    return c.lineas.find((x) => x.linea_id === lineaId)!;
   }
   quitarLinea(cartId: string, lineaId: string): void {
     const c = this.cartGet(cartId);
@@ -797,6 +857,69 @@ export class Caja {
     this.exigirSinCobroPendiente(c);
     if (!c.lineas.some((x) => x.linea_id === lineaId)) throw new ErrorDominio('LINEA_INEXISTENTE', lineaId);
     c.lineas = c.lineas.filter((x) => x.linea_id !== lineaId);
+    this.recalcular(c);
+    this.repo.kvSet(`cart:${cartId}`, c);
+  }
+
+  // ── cupón y descuentos autorizados ──
+  /** Captura (o reemplaza) el cupón de la venta. Si no se puede aplicar, avisa por qué y el carrito queda sin cupón. */
+  aplicarCupon(cartId: string, codigo: string): NonNullable<ResultadoDescuentos['cupon']> {
+    const c = this.cartGet(cartId);
+    this.exigirAbierto(c);
+    this.exigirSinCobroPendiente(c);
+    const cod = normCodigo(codigo);
+    if (!cod) throw new ErrorDominio('DATOS_REQUERIDOS', 'falta el código del cupón');
+    c.cupon = cod;
+    this.recalcular(c);
+    const r = c.descuentos?.cupon ?? { codigo: cod, nombre: cod, monto: 0, aplicado: false, motivo: 'el cupón no existe' };
+    if (!r.aplicado) { delete c.cupon; this.recalcular(c); throw new ErrorDominio('CUPON_NO_APLICA', r.motivo ?? 'el cupón no se puede aplicar', { codigo: cod }); }
+    this.repo.kvSet(`cart:${cartId}`, c);
+    return r;
+  }
+  quitarCupon(cartId: string): void {
+    const c = this.cartGet(cartId);
+    this.exigirAbierto(c);
+    this.exigirSinCobroPendiente(c);
+    delete c.cupon;
+    this.recalcular(c);
+    this.repo.kvSet(`cart:${cartId}`, c);
+  }
+  /**
+   * Descuento manual autorizado por un supervisor con su clave (sin tope: hasta 100 %). `linea_id` = una línea; sin él, toda la venta
+   * (repartido proporcionalmente). Reemplaza el descuento manual anterior de esas líneas. Queda anotado quién lo autorizó.
+   */
+  aplicarDescuentoManual(cartId: string, d: { linea_id?: string | null; tipo: 'pct' | 'monto'; valor: number }, clave: string): { supervisor: string } {
+    const c = this.cartGet(cartId);
+    this.exigirAbierto(c);
+    this.exigirSinCobroPendiente(c);
+    const sup = supervisorPorClave(this.idx.supervisores(), String(clave ?? ''));
+    if (!sup) throw new ErrorDominio('CLAVE_INVALIDA', 'la clave del supervisor no es válida');
+    const objetivo = d.linea_id ? c.lineas.filter((l) => l.linea_id === d.linea_id && !l.tarjeta_regalo) : c.lineas.filter((l) => !l.tarjeta_regalo);
+    if (!objetivo.length) throw new ErrorDominio('LINEA_INEXISTENTE', d.linea_id ? 'la línea no existe o es una tarjeta de regalo' : 'no hay mercancía a la que aplicar el descuento');
+    if (!Number.isInteger(d.valor) || d.valor <= 0) throw new ErrorDominio('DESCUENTO_INVALIDO', 'el descuento debe ser mayor que 0');
+    if (d.tipo === 'pct' && d.valor > 100) throw new ErrorDominio('DESCUENTO_INVALIDO', 'el porcentaje no puede pasar de 100');
+    const lista = objetivo.map((l) => l.qty * l.precio_unit);
+    const totalLista = lista.reduce((a, b) => a + b, 0);
+    const monto = d.tipo === 'pct' ? Math.floor((totalLista * d.valor + 50) / 100) : d.valor;
+    if (monto > totalLista) throw new ErrorDominio('DESCUENTO_INVALIDO', 'el descuento no puede pasar del importe');
+    const partes = repartir(monto, lista);
+    objetivo.forEach((l, i) => {
+      const resto = (l.descuento_detalle ?? (l.descuento > 0 ? [{ tipo: 'manual' as const, ref: '', nombre: 'Descuento', monto: l.descuento }] : [])).filter((x) => x.tipo !== 'manual');
+      l.descuento_detalle = [...resto, ...(partes[i]! > 0 ? [{ tipo: 'manual' as const, ref: sup.id, nombre: `Descuento autorizado por ${sup.nombre}`, monto: partes[i]! }] : [])];
+    });
+    this.recalcular(c);
+    this.repo.kvSet(`cart:${cartId}`, c);
+    return { supervisor: sup.nombre };
+  }
+  quitarDescuentoManual(cartId: string, lineaId?: string | null): void {
+    const c = this.cartGet(cartId);
+    this.exigirAbierto(c);
+    this.exigirSinCobroPendiente(c);
+    for (const l of c.lineas) {
+      if (lineaId && l.linea_id !== lineaId) continue;
+      l.descuento_detalle = (l.descuento_detalle ?? []).filter((x) => x.tipo !== 'manual');
+    }
+    this.recalcular(c);
     this.repo.kvSet(`cart:${cartId}`, c);
   }
   /** Búsqueda por código exacto, Item # exacto, código alterno o texto en marca, descripción, estilo, lote y departamento. */
@@ -834,10 +957,11 @@ export class Caja {
     // Elección provisional ante un código duplicado: se marca para que Administración la revise.
     if (candidatos.length > 1) linea.ambiguo = { codigo: art.codigo, candidatos };
     c.lineas.push(linea);
+    this.recalcular(c);
     this.repo.tx(() => {
       this.repo.kvSet(`cart:${cartId}`, c);
     });
-    return linea;
+    return c.lineas.find((x) => x.linea_id === linea.linea_id)!;
   }
 
   // ── cobro en efectivo / mixto ──
@@ -1040,6 +1164,7 @@ export class Caja {
     if (previa) return ventas([previa]).get(cartId)!;
     const c = this.cartGet(cartId);
     const total = c.lineas.reduce((a, l) => a + l.importe, 0);
+    if (total === 0 && c.lineas.length) return this.cobrar(cartId, [], cajero); // descuento del 100 %: venta registrada sin cobro
     if (!Number.isInteger(recibido) || recibido < total) {
       throw new ErrorDominio('EFECTIVO_INSUFICIENTE', `el efectivo recibido no cubre el total`, { recibido, total });
     }

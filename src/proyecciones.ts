@@ -321,3 +321,15 @@ export function departamentos(ops: Op[]): Departamento[] {
   for (const o of ops) aplicarOpDepto(l, o);
   return l;
 }
+
+/** Promociones y cupones: el último `promo.guardada` de cada id. */
+export function promocionesDe(ops: Op[]): import('./promociones.ts').Promocion[] {
+  const m = new Map<string, import('./promociones.ts').Promocion>();
+  for (const o of ops) if (o.tipo === 'promo.guardada') m.set(o.payload.id, o.payload);
+  return [...m.values()];
+}
+export function supervisoresDe(ops: Op[]): import('./supervisores.ts').Supervisor[] {
+  const m = new Map<string, import('./supervisores.ts').Supervisor>();
+  for (const o of ops) if (o.tipo === 'supervisor.guardado') m.set(o.payload.id, o.payload);
+  return [...m.values()];
+}

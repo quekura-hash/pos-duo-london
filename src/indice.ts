@@ -1,6 +1,8 @@
 import { aplicarOpDepto, copiarBase, type Departamento } from './departamentos.ts';
 import { aplicarPermiso, aplicarTarjeta, type PerdidaDocumental, type TarjetaRegalo, type TipoCambio } from './proyecciones.ts';
 import type { Repo } from './repo.ts';
+import type { Promocion } from './promociones.ts';
+import type { Supervisor } from './supervisores.ts';
 import type { Articulo } from './tipos.ts';
 
 const sinAcentos = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
@@ -28,6 +30,8 @@ export class Indice {
   private tipos = new Map<number, TipoCambio>();
   private permisos = new Map<string, Set<string>>();
   private deptos: Departamento[] = copiarBase();
+  private promos = new Map<string, Promocion>();
+  private supervisoresMap = new Map<string, Supervisor>();
 
   constructor(repo: Repo) {
     this.repo = repo;
@@ -36,7 +40,7 @@ export class Indice {
   private reiniciar() {
     this.seq = 0;
     this.cat = new Map(); this.porCodigo = new Map(); this.porAlterno = new Map(); this.porItemNo = new Map(); this.texto = new Map();
-    this.stock = new Map(); this.marcas = new Map(); this.cubiertas = new Map(); this.perdidas = new Map(); this.tarjetas = new Map(); this.tipos = new Map(); this.permisos = new Map(); this.deptos = copiarBase();
+    this.stock = new Map(); this.marcas = new Map(); this.cubiertas = new Map(); this.perdidas = new Map(); this.tarjetas = new Map(); this.tipos = new Map(); this.permisos = new Map(); this.deptos = copiarBase(); this.promos = new Map(); this.supervisoresMap = new Map();
   }
 
   actualizar() {
@@ -70,6 +74,8 @@ export class Indice {
     const p = o.payload;
     if (o.tipo.startsWith('giftcard.')) aplicarTarjeta(this.tarjetas, o);
     if (o.tipo === 'permiso.asignado') aplicarPermiso(this.permisos, o);
+    if (o.tipo === 'promo.guardada') this.promos.set(p.id, p as Promocion);
+    if (o.tipo === 'supervisor.guardado') this.supervisoresMap.set(p.id, p as Supervisor);
     if (o.tipo.startsWith('depto.')) {
       const cambio = aplicarOpDepto(this.deptos, o);
       if (cambio) for (const a of this.cat.values()) if (a.departamento === cambio.de) { a.departamento = cambio.a; this.texto.set(a.item_id, this.textoDe(a)); }
@@ -179,6 +185,15 @@ export class Indice {
   todas(): PerdidaDocumental[] {
     this.actualizar();
     return [...this.perdidas.values()];
+  }
+  /** Promociones y cupones configurados en Administración (el último guardado de cada una). */
+  promociones(): Promocion[] {
+    this.actualizar();
+    return [...this.promos.values()];
+  }
+  supervisores(): Supervisor[] {
+    this.actualizar();
+    return [...this.supervisoresMap.values()];
   }
   departamentos(): Departamento[] {
     this.actualizar();

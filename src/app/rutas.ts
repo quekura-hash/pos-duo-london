@@ -1,7 +1,7 @@
 import { ErrorDominio } from '../errores.ts';
 import type { ServicioAdmin, ServicioCaja } from './servicio.ts';
 
-const STATUS: Record<string, number> = { PROHIBIDO: 403, ARTICULO_INEXISTENTE: 404, CARRITO_INEXISTENTE: 404, LINEA_INEXISTENTE: 404, NO_ENCONTRADO: 404 };
+const STATUS: Record<string, number> = { PROHIBIDO: 403, ARTICULO_INEXISTENTE: 404, CARRITO_INEXISTENTE: 404, LINEA_INEXISTENTE: 404, NO_ENCONTRADO: 404, CLAVE_INVALIDA: 403 };
 
 export interface Respuesta {
   status: number;
@@ -32,13 +32,17 @@ export async function atender(o: { cajero?: ServicioCaja; admin?: ServicioAdmin 
       case 'GET /api/sesion':
         return ok(C
           ? { rol: 'cajero', usuario: C.actor.usuario, tienda: C.caja.tienda, caja: C.caja.caja, nav: ['venta', 'ventas', 'corte', ...(C.caja.cfg.metodos.includes('tarjeta_regalo') ? ['tarjetas'] : [])] }
-          : { rol: 'admin', usuario: A!.actor.usuario, cajas: A!.cajas, nav: ['reportes', 'cortes', 'dolares', 'inventario', 'almacen', 'departamentos', 'tarjetas', 'tipo_cambio'] });
+          : { rol: 'admin', usuario: A!.actor.usuario, cajas: A!.cajas, nav: ['reportes', 'cortes', 'dolares', 'inventario', 'almacen', 'promociones', 'departamentos', 'tarjetas', 'tipo_cambio'] });
       // ── cajero ──
       case 'GET /api/estado': return ok({ estado: exigirCajero().estado() });
       case 'POST /api/venta/actual': { const c = exigirCajero(); const cart = c.carritoActual(); return ok({ cart, carrito: c.vista(cart) }); }
       case 'POST /api/venta/nueva': { const c = exigirCajero(); const cart = c.nuevaVenta(); return ok({ cart, carrito: c.vista(cart) }); }
       case 'POST /api/venta/escanear': return ok(exigirCajero().escanear(b.cart, String(b.codigo ?? '')));
       case 'POST /api/venta/agregar': return ok(exigirCajero().agregarArticulo(b.cart, b.item_id));
+      case 'POST /api/venta/cupon': return ok(exigirCajero().aplicarCupon(b.cart, String(b.codigo ?? '')));
+      case 'POST /api/venta/cupon/quitar': return ok(exigirCajero().quitarCupon(b.cart));
+      case 'POST /api/venta/descuento': return ok(exigirCajero().aplicarDescuento(b.cart, { linea_id: b.linea_id ?? null, tipo: b.tipo === 'monto' ? 'monto' : 'pct', valor: Number(b.valor) }, String(b.clave ?? '')));
+      case 'POST /api/venta/descuento/quitar': return ok(exigirCajero().quitarDescuento(b.cart, b.linea_id ?? null));
       case 'POST /api/venta/cantidad': return ok({ carrito: exigirCajero().cambiarCantidad(b.cart, b.linea_id, Number(b.qty)) });
       case 'POST /api/venta/quitar': return ok({ carrito: exigirCajero().quitarLinea(b.cart, b.linea_id) });
       case 'POST /api/venta/cobrar-efectivo': return ok(await exigirCajero().cobrarEfectivo(b.cart, Number(b.recibido ?? 0), Number(b.usd ?? 0)));
@@ -85,6 +89,10 @@ export async function atender(o: { cajero?: ServicioCaja; admin?: ServicioAdmin 
       case 'GET /api/admin/tipo-cambio': return ok(exigirAdmin().tipoCambio());
       case 'POST /api/admin/tipo-cambio': return ok(exigirAdmin().fijarTipoCambio(Number(b.tasa), !!b.confirmar));
       case 'POST /api/admin/permisos': return ok(exigirAdmin().asignarPermisoTipoCambio(String(b.usuario ?? ''), !!b.editar_tipo_cambio));
+      case 'GET /api/admin/promociones': return ok(exigirAdmin().promociones());
+      case 'POST /api/admin/promociones': return ok(exigirAdmin().guardarPromocion(b as any));
+      case 'GET /api/admin/supervisores': return ok(exigirAdmin().supervisores());
+      case 'POST /api/admin/supervisores': return ok(exigirAdmin().guardarSupervisor({ id: b.id, nombre: b.nombre, clave: b.clave === undefined ? undefined : String(b.clave), activo: b.activo === undefined ? undefined : !!b.activo }));
       case 'GET /api/admin/almacen': return ok(exigirAdmin().almacen());
       case 'POST /api/admin/almacen/revisar': return ok(exigirAdmin().revisarAltaLote(b.filas, { decisiones: b.decisiones, regla: b.regla }));
       case 'POST /api/admin/almacen/alta': return ok(exigirAdmin().altaLote({ lote_id: String(b.lote_id ?? ''), nombre: b.nombre, filas: b.filas, decisiones: b.decisiones, regla: b.regla, pedimento_lote: b.pedimento_lote }));

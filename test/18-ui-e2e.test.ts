@@ -200,7 +200,7 @@ describe('[navegador real — Chromium con Playwright, UI sobre SQLite]', { time
     ctx.m.pump();
     const { page, errores } = await pagina(browser, adm.url);
     await page.waitForSelector('#filtros');
-    assert.deepEqual(await page.$$eval('#nav button', (b) => b.map((x) => x.textContent)), ['Reportes', 'Cortes', 'Dólares recibidos', 'Inventario', 'Almacén', 'Departamentos', 'Tarjetas de regalo', 'Tipo de cambio', 'Créditos']);
+    assert.deepEqual(await page.$$eval('#nav button', (b) => b.map((x) => x.textContent)), ['Reportes', 'Cortes', 'Dólares recibidos', 'Inventario', 'Almacén', 'Promociones', 'Departamentos', 'Tarjetas de regalo', 'Tipo de cambio', 'Créditos']);
     await page.fill('#desde', '2026-10-01');
     await page.fill('#hasta', '2026-10-01');
     await page.click('#filtros button[type="submit"]');
@@ -314,7 +314,7 @@ describe('[navegador real — Chromium con Playwright, UI sobre SQLite]', { time
       assert.equal(await page.locator('#nav button svg').count(), tienda === 'DUO' ? 4 : 3, 'cada opción de navegación tiene su icono (la Caja 2 no tiene Tarjetas de regalo)');
       const sinIcono = await page.$$eval('button:not(.btn-icono):not([type=submit])', (bs) => bs.filter((b) => !b.querySelector('svg') && !/^[−+]$/.test(b.textContent!.trim())).map((b) => b.textContent!.trim()));
       assert.deepEqual(sinIcono, [], 'todo botón visible lleva icono');
-      for (const id of ['btn-nuevo-articulo', 'btn-editar-venta', 'btn-descuento', 'btn-espera', 'btn-regalo']) {
+      for (const id of ['btn-nuevo-articulo', 'btn-editar-venta', 'btn-espera', 'btn-regalo']) {
         const b = page.locator(`#${id}`);
         if (await b.count()) { assert.equal(await b.isDisabled(), true, id); assert.equal(await b.getAttribute('title'), 'Próximamente'); }
       }

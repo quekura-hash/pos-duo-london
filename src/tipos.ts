@@ -55,6 +55,8 @@ export interface Linea {
   precio_unit: number;
   descuento: number;
   importe: number;
+  /** De dónde sale `descuento`: manual (autorizado por un supervisor), promoción o cupón. `descuento` es la suma. */
+  descuento_detalle?: { tipo: 'manual' | 'promo' | 'cupon'; ref: string; nombre: string; monto: number }[];
   /** Vendida mientras su código estaba duplicado: la elección fue provisional y queda para revisión administrativa. */
   ambiguo?: { codigo: string; candidatos: string[] };
   /** Renglón de venta o recarga de una tarjeta de regalo: no es mercancía (sin inventario ni existencia). */

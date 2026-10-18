@@ -94,7 +94,7 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     await page.uncheck('#falla-hub');
     await page.selectOption('#sesion-prueba', 'admin');
     await page.waitForSelector('#filtros');
-    assert.deepEqual(await page.$$eval('#nav button', (b) => b.map((x) => x.textContent)), ['Reportes', 'Cortes', 'Dólares recibidos', 'Inventario', 'Almacén', 'Departamentos', 'Tarjetas de regalo', 'Tipo de cambio', 'Créditos', 'Caja']);
+    assert.deepEqual(await page.$$eval('#nav button', (b) => b.map((x) => x.textContent)), ['Reportes', 'Cortes', 'Dólares recibidos', 'Inventario', 'Almacén', 'Promociones', 'Departamentos', 'Tarjetas de regalo', 'Tipo de cambio', 'Créditos', 'Caja']);
     await page.click('#filtros button[type="submit"]');
     await page.waitForSelector('#tabla-reporte tbody tr');
     assert.equal(await page.locator('#tabla-reporte tbody tr').count(), 3, 'las 3 ventas, tras sincronizar');
@@ -337,6 +337,105 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     await page.click('#nav button[data-vista="almacen"]');
     await page.waitForSelector('#alm-cuerpo');
     assert.equal(await page.locator('#alm-cuerpo tr[data-codigo="PERSIST-1"]').count(), 0);
+    assert.deepEqual(errores, []);
+  });
+  it('B5 promociones, cupón con QR, supervisor y descuento con clave en la página', async (t) => {
+    execFileSync(process.execPath, [join(RAIZ, 'scripts', 'construir-prueba.mjs')], { stdio: 'pipe' });
+    const browser = await chromium.launch({ executablePath: chromiumPath, args: ['--no-sandbox'] });
+    t.after(() => browser.close());
+    const page = await (await browser.newContext({ viewport: { width: 1440, height: 900 }, colorScheme: 'light', acceptDownloads: true })).newPage();
+    const errores: string[] = [];
+    page.on('pageerror', (e) => errores.push(String(e)));
+    page.on('console', (m) => { if (m.type() === 'error') errores.push(m.text()); });
+    await page.goto(`file://${HTML}`);
+    await page.waitForSelector('[data-chip="tienda"]');
+
+    // Administración: supervisor, promoción 2x1 y cupón
+    await page.click('#nav button[data-vista="administracion"]');
+    await page.click('#nav button[data-vista="promociones"]');
+    await page.waitForSelector('#form-sup');
+    await page.fill('#sup-nombre', 'Ana Supervisora');
+    await page.fill('#sup-clave', '12');
+    await page.click('#btn-sup');
+    await page.waitForFunction(() => /4 a 8 d/.test(document.querySelector('#msg-sup')!.textContent!));
+    await page.fill('#sup-clave', '4321');
+    await page.click('#btn-sup');
+    await page.waitForSelector('#tabla-supervisores tr[data-sup]');
+
+    await page.click('#btn-nueva-promo');
+    await page.fill('#pr-nombre', '2x1 en jeans');
+    await page.fill('#pr-palabras', 'jeans');
+    await page.click('#pr-guardar');
+    await page.waitForSelector('#tabla-promos tr[data-promo]');
+    assert.match((await page.textContent('#tabla-promos tr[data-promo]'))!, /Lleva 2, paga 1.*jeans.*sin fecha límite.*Activa/);
+
+    await page.click('#btn-nueva-promo');
+    await page.selectOption('#pr-tipo', 'cupon');
+    await page.fill('#pr-nombre', 'Verano 20');
+    await page.fill('#pr-codigo', 'verano20');
+    await page.fill('#pr-cup-valor', '20');
+    await page.fill('#pr-minimo', '500');
+    await page.uncheck('#pr-sin-fin');
+    await page.fill('#pr-fin', new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10));
+    await page.click('#pr-guardar');
+    await page.waitForSelector('#tabla-promos tr[data-promo] .p-qr');
+    assert.match((await page.textContent('#tabla-promos'))!, /Código VERANO20: 20 % de descuento en compras desde \$500\.00/);
+
+    // imagen del cupón con QR: se descarga un PNG real
+    await page.click('#tabla-promos .p-qr');
+    await page.waitForSelector('#img-cupon');
+    assert.deepEqual(await page.$eval('#img-cupon', (c) => [(c as HTMLCanvasElement).width, (c as HTMLCanvasElement).height]), [1080, 1350]);
+    assert.equal(await page.$eval('#img-cupon', (c) => (c as HTMLCanvasElement).getContext('2d')!.getImageData(540, 900, 1, 1).data[0] !== undefined), true);
+    const [descarga] = await Promise.all([page.waitForEvent('download'), page.click('#img-png')]);
+    const ruta = await descarga.path();
+    const png = readFileSync(ruta!);
+    assert.equal(descarga.suggestedFilename(), 'cupon-VERANO20.png');
+    assert.deepEqual([...png.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10], 'es un PNG');
+    assert.ok(png.length > 10_000);
+    await page.screenshot({ path: join(RAIZ, 'docs', 'capturas', '28-cupon-qr.png') });
+    await page.click('#img-cerrar');
+    await page.screenshot({ path: join(RAIZ, 'docs', 'capturas', '29-promociones-admin.png') });
+
+    // Caja: la promoción se aplica sola; el cupón se escanea; el descuento pide la clave del supervisor
+    await page.click('#nav button[data-vista="volver_caja"]');
+    await page.waitForSelector('[data-chip="tienda"]');
+    const escanear = async (c: string) => { await page.fill('#scan', c); await page.press('#scan', 'Enter'); };
+    await escanear('0002026090782');
+    await page.waitForSelector('#cuerpo tr[data-linea]');
+    await escanear('0002026090799');
+    await page.waitForFunction(() => document.querySelector('#total')!.textContent === '$899.00');
+    assert.match((await page.textContent('#promos-aplicadas'))!, /2x1 en jeans.*-\$899\.00/);
+    await escanear('CUPON:VERANO20');
+    await page.waitForFunction(() => document.querySelector('#total')!.textContent === '$719.20');
+    assert.match((await page.textContent('#promos-aplicadas'))!, /Cupón VERANO20.*-\$179\.80/);
+    await page.click('#btn-quitar-cupon');
+    await page.waitForFunction(() => document.querySelector('#total')!.textContent === '$899.00');
+    await page.click('#btn-cupon');
+    await page.fill('#cup-codigo', 'NOEXISTE');
+    await page.click('#cup-aplicar');
+    await page.waitForFunction(() => /no existe/.test(document.querySelector('#msg-cupon')!.textContent!));
+    await page.fill('#cup-codigo', 'verano20');
+    await page.click('#cup-aplicar');
+    await page.waitForFunction(() => document.querySelector('#total')!.textContent === '$719.20');
+    await page.screenshot({ path: join(RAIZ, 'docs', 'capturas', '30-venta-promos-cupon.png') });
+
+    await page.click('#btn-descuento');
+    await page.waitForSelector('#form-descuento');
+    await page.check('input[name="desc-alcance"][value="venta"]');
+    await page.fill('#desc-valor', '100');
+    await page.fill('#desc-clave', '0000');
+    await page.click('#desc-aplicar');
+    await page.waitForFunction(() => /clave del supervisor no es válida/.test(document.querySelector('#msg-desc')!.textContent!));
+    await page.fill('#desc-clave', '4321');
+    await page.click('#desc-aplicar');
+    await page.waitForFunction(() => document.querySelector('#total')!.textContent === '$0.00');
+    assert.match((await page.textContent('#promos-aplicadas'))!, /Descuento autorizado por Ana Supervisora/);
+    await page.waitForSelector('#btn-cobrar:not([disabled])');
+    await page.click('#btn-cobrar');
+    await page.waitForSelector('#dlg-ticket[open]');
+    const ticket = (await page.textContent('#ticket-texto'))!;
+    assert.match(ticket, /Descuento autorizado por Ana +-\$899\.00\s+Supervisora/);
+    assert.match(ticket, /TOTAL +\$0\.00/);
     assert.deepEqual(errores, []);
   });
 });

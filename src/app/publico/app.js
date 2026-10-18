@@ -126,7 +126,7 @@ const folioTexto = () => (S.ultimoFolio ? `Folio ${String(S.ultimoFolio).padStar
 // ── navegación ──
 const NAV = {
   venta: ['Venta', 'cart'], ventas: ['Historial', 'clock'], creditos: ['Créditos', 'card'], corte: ['Corte de caja', 'chart'],
-  tarjetas: ['Tarjetas de regalo', 'gift'], reportes: ['Reportes', 'chart'], cortes: ['Cortes', 'cash'], dolares: ['Dólares recibidos', 'dollar'], inventario: ['Inventario', 'box'], departamentos: ['Departamentos', 'box'], almacen: ['Almacén', 'warehouse'], administracion: ['Administración', 'gear'], volver_caja: ['Caja', 'caja'], tipo_cambio: ['Tipo de cambio', 'refresh'],
+  tarjetas: ['Tarjetas de regalo', 'gift'], reportes: ['Reportes', 'chart'], cortes: ['Cortes', 'cash'], dolares: ['Dólares recibidos', 'dollar'], inventario: ['Inventario', 'box'], departamentos: ['Departamentos', 'box'], almacen: ['Almacén', 'warehouse'], promociones: ['Promociones', 'percent'], administracion: ['Administración', 'gear'], volver_caja: ['Caja', 'caja'], tipo_cambio: ['Tipo de cambio', 'refresh'],
 };
 function pintarNav() {
   // En la página de prueba (una sola ventana) se puede pasar de la caja a Administración y volver; en la app real cada sesión es la suya.
@@ -147,7 +147,7 @@ async function ir(v) {
   S.vista = v;
   pintarNav();
   await pintarEncabezado();
-  await ({ venta: vistaVenta, corte: vistaCorte, ventas: vistaVentas, reportes: vistaReportes, inventario: vistaInventario, almacen: vistaAlmacen, departamentos: vistaDepartamentos, tarjetas: vistaTarjetas, devolucion: vistaDevolucion, dolares: vistaDolares, tipo_cambio: vistaTipoCambio, cortes: vistaCortes })[v]();
+  await ({ venta: vistaVenta, corte: vistaCorte, ventas: vistaVentas, reportes: vistaReportes, inventario: vistaInventario, almacen: vistaAlmacen, promociones: vistaPromociones, departamentos: vistaDepartamentos, tarjetas: vistaTarjetas, devolucion: vistaDevolucion, dolares: vistaDolares, tipo_cambio: vistaTipoCambio, cortes: vistaCortes })[v]();
   if (v !== 'almacen') await avisosPisoInicial();
 }
 
@@ -188,7 +188,7 @@ async function vistaVenta() {
         </section>
         <div class="acciones-inf" id="acciones-inf">
           <button class="btn" id="btn-buscar-ticket" type="button" title="Abre el historial de ventas de esta caja">${ico('search')}<span>Buscar ticket</span></button>
-          <button class="btn" id="btn-devolucion" type="button" title="Buscar la venta y devolver (solo en la caja donde se vendió)">${ico('undo')}<span>Cambio o devolución</span></button>${pronto('btn-descuento', 'percent', 'Aplicar descuento')}${pronto('btn-espera', 'pause', 'Venta en espera')}
+          <button class="btn" id="btn-devolucion" type="button" title="Buscar la venta y devolver (solo en la caja donde se vendió)">${ico('undo')}<span>Cambio o devolución</span></button><button class="btn" id="btn-descuento" type="button" title="Descuento autorizado por un supervisor con su clave">${ico('percent')}<span>Aplicar descuento</span></button><button class="btn" id="btn-cupon" type="button" title="Capturar o escanear un cupón de descuento">${ico('gift')}<span>Cupón</span></button>${pronto('btn-espera', 'pause', 'Venta en espera')}
         </div>
       </div>
       <aside class="panel resumen" aria-label="Resumen y cobro">
@@ -198,6 +198,7 @@ async function vistaVenta() {
           <dt>Importe</dt><dd id="brutas">$0.00</dd>
           <dt>Descuentos</dt><dd id="descuentos">$0.00</dd>
         </dl>
+        <div id="promos-aplicadas" aria-live="polite"></div>
         <div class="total"><span>TOTAL</span><b id="total">$0.00</b></div>
         <div class="mxn">MXN</div>
         <strong>Forma de pago</strong>
@@ -213,6 +214,8 @@ async function vistaVenta() {
       </aside>
     </div>`;
   $('#escaneo').addEventListener('submit', async (ev) => { ev.preventDefault(); await escanear(); });
+  $('#btn-descuento').addEventListener('click', abrirDescuento);
+  $('#btn-cupon').addEventListener('click', () => abrirCupon());
   $('#btn-cobrar').addEventListener('click', cobrar);
   $('#btn-quitar').addEventListener('click', () => S.sel && accionLinea(S.sel, 'quitar'));
   $('#btn-buscar-ticket').addEventListener('click', () => ir('ventas'));
@@ -341,6 +344,7 @@ function pintarCarrito() {
   $('#piezas').textContent = c.piezas;
   $('#brutas').textContent = mxn(c.ventas_brutas);
   $('#descuentos').textContent = c.descuentos ? `-${mxn(c.descuentos)}` : mxn(0);
+  pintarPromos();
   $('#total').textContent = mxn(c.total);
   const cuerpo = $('#cuerpo');
   if (!c.lineas.length) {
@@ -422,12 +426,12 @@ function recalcular() {
     pintarCambio(resto, c);
   } else {
     const c = calcEfectivo(total);
-    ok = hay && c.ok;
+    ok = hay && (total === 0 || c.ok); // descuento del 100 %: se registra la venta sin cobrar nada
     pintarCambio(total, c);
     if ($('#btn-exacto')) $('#btn-exacto').disabled = !hay;
   }
   $('#btn-cobrar').disabled = !ok;
-  $('#txt-cobrar').textContent = `COBRAR ${mxn(total)}`;
+  $('#txt-cobrar').textContent = hay && total === 0 && S.forma !== 'regalo' ? 'REGISTRAR VENTA SIN COBRO' : `COBRAR ${mxn(total)}`;
 }
 
 async function escanear() {
@@ -436,6 +440,8 @@ async function escanear() {
   if (!texto.trim()) return;
   inp.value = '';
   $('#resultados').innerHTML = '';
+  const qr = /^cupon:\s*(.+)$/i.exec(texto.trim()); // el QR de un cupón trae «CUPON:CÓDIGO»
+  if (qr) { await aplicarCuponCodigo(qr[1]); inp.focus(); return; }
   try {
     const r = await api('/api/venta/escanear', { cart: S.cart, codigo: texto });
     S.carrito = r.carrito;
@@ -1025,6 +1031,98 @@ async function vistaDolares() {
   await consultar();
 }
 
+
+// ── promociones, cupón y descuentos autorizados (venta) ──
+function pintarPromos() {
+  const el = $('#promos-aplicadas');
+  if (!el || !S.carrito) return;
+  const c = S.carrito;
+  const li = [];
+  for (const p of c.promos ?? []) li.push(`<li data-promo="${esc(p.promo_id)}"><span>${esc(p.nombre)}</span><b>-${mxn(p.monto)}</b></li>`);
+  if (c.cupon?.aplicado) li.push(`<li data-cupon="${esc(c.cupon.codigo)}"><span>Cupón ${esc(c.cupon.codigo)} <button class="btn btn-icono" id="btn-quitar-cupon" type="button" title="Quitar cupón" aria-label="Quitar cupón">${ico('x')}</button></span><b>-${mxn(c.cupon.monto)}</b></li>`);
+  else if (c.cupon) li.push(`<li class="aviso-promo" data-cupon-aviso="${esc(c.cupon.codigo)}"><span>Cupón ${esc(c.cupon.codigo)}: ${esc(c.cupon.motivo ?? 'no aplica')}</span></li>`);
+  const manual = {};
+  for (const l of c.lineas) for (const d of l.descuento_detalle ?? []) if (d.tipo === 'manual') manual[d.nombre] = (manual[d.nombre] ?? 0) + d.monto;
+  for (const [n, m] of Object.entries(manual)) li.push(`<li data-manual><span>${esc(n)}</span><b>-${mxn(m)}</b></li>`);
+  el.innerHTML = li.length ? `<ul class="lista-promos">${li.join('')}</ul>` : '';
+  const q = $('#btn-quitar-cupon');
+  if (q) q.addEventListener('click', async () => { try { const r = await api('/api/venta/cupon/quitar', { cart: S.cart }); S.carrito = r.carrito; pintarCarrito(); msg('Cupón quitado.'); } catch (e) { msg(e.message, 'error'); } });
+}
+async function aplicarCuponCodigo(codigo) {
+  try {
+    const r = await api('/api/venta/cupon', { cart: S.cart, codigo });
+    S.carrito = r.carrito; pintarCarrito();
+    msg(`Cupón ${r.cupon.codigo} aplicado: -${mxn(r.cupon.monto)}.`);
+    return true;
+  } catch (e) { msg(e.message, 'error'); return false; }
+}
+function abrirCupon() {
+  const d = dialogo('dlg-cupon');
+  d.setAttribute('aria-labelledby', 'cup-titulo');
+  d.innerHTML = `<h2 id="cup-titulo" style="margin-top:0">Cupón de descuento</h2>
+    <form id="form-cupon" autocomplete="off"><div class="campo"><label for="cup-codigo">Código del cupón</label><input id="cup-codigo" class="texto" placeholder="Escriba el código o escanee el QR"></div>
+    <p class="nota">También puede escanear el QR del cupón con el campo de búsqueda de la venta.</p>
+    <div id="msg-cupon" class="mensaje" role="status" aria-live="polite"></div>
+    <div class="filas"><button class="btn" type="button" id="cup-cerrar">Cancelar</button><button class="btn btn-primario" type="submit" id="cup-aplicar" style="width:auto;flex:1">${ico('check')}<span>Aplicar cupón</span></button></div></form>`;
+  $('#cup-cerrar').addEventListener('click', () => d.close());
+  $('#form-cupon').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const raw = $('#cup-codigo').value.trim().replace(/^cupon:\s*/i, '');
+    if (!raw) return;
+    try {
+      const r = await api('/api/venta/cupon', { cart: S.cart, codigo: raw });
+      S.carrito = r.carrito; pintarCarrito(); d.close(); msg(`Cupón ${r.cupon.codigo} aplicado: -${mxn(r.cupon.monto)}.`);
+    } catch (e) { const m = $('#msg-cupon'); m.className = 'mensaje error'; m.textContent = e.message; }
+  });
+  d.showModal();
+  $('#cup-codigo').focus();
+}
+function abrirDescuento() {
+  if (!S.carrito.lineas.length) return msg('Agregue artículos a la venta antes de aplicar un descuento.', 'aviso');
+  const d = dialogo('dlg-descuento');
+  const sel = S.sel ? S.carrito.lineas.find((l) => l.linea_id === S.sel && !l.tarjeta_regalo) : null;
+  const hayManual = S.carrito.lineas.some((l) => (l.descuento_detalle ?? []).some((x) => x.tipo === 'manual'));
+  d.setAttribute('aria-labelledby', 'desc-titulo');
+  d.innerHTML = `<h2 id="desc-titulo" style="margin-top:0">Aplicar descuento</h2>
+    <p class="nota">Lo autoriza un supervisor con su clave. Queda anotado en la venta y en el ticket.</p>
+    <form id="form-descuento" autocomplete="off">
+      <fieldset style="border:1px solid var(--borde);border-radius:8px;margin:8px 0"><legend>Aplicar a</legend>
+        <label style="display:block"><input type="radio" name="desc-alcance" value="linea" ${sel ? 'checked' : 'disabled'}> Solo el artículo seleccionado${sel ? `: ${esc(sel.descripcion)} ${esc(sel.marca)}` : ' (seleccione uno en la lista)'}</label>
+        <label style="display:block"><input type="radio" name="desc-alcance" value="venta" ${sel ? '' : 'checked'}> Toda la venta</label></fieldset>
+      <fieldset style="border:1px solid var(--borde);border-radius:8px;margin:8px 0"><legend>Tipo de descuento</legend>
+        <label style="display:inline-block;margin-right:16px"><input type="radio" name="desc-tipo" value="pct" checked> Porcentaje (%)</label>
+        <label style="display:inline-block"><input type="radio" name="desc-tipo" value="monto"> Monto ($)</label></fieldset>
+      <div class="campo"><label for="desc-valor">Valor</label><input id="desc-valor" inputmode="decimal" placeholder="10"></div>
+      <div class="campo"><label for="desc-clave">Clave del supervisor</label><input id="desc-clave" type="password" inputmode="numeric" autocomplete="off" placeholder="••••"></div>
+      <div id="msg-desc" class="mensaje" role="status" aria-live="polite"></div>
+      <div class="filas"><button class="btn" type="button" id="desc-cerrar">Cancelar</button>${hayManual ? `<button class="btn btn-peligro" type="button" id="desc-quitar">Quitar descuentos</button>` : ''}<button class="btn btn-primario" type="submit" id="desc-aplicar" style="width:auto;flex:1">${ico('check')}<span>Autorizar y aplicar</span></button></div>
+    </form>`;
+  $('#desc-cerrar').addEventListener('click', () => d.close());
+  const q = $('#desc-quitar');
+  if (q) q.addEventListener('click', async () => {
+    const alcance = d.querySelector('input[name="desc-alcance"]:checked').value;
+    try { const r = await api('/api/venta/descuento/quitar', { cart: S.cart, linea_id: alcance === 'linea' ? sel.linea_id : null }); S.carrito = r.carrito; pintarCarrito(); d.close(); msg('Descuento quitado.'); }
+    catch (e) { const m = $('#msg-desc'); m.className = 'mensaje error'; m.textContent = e.message; }
+  });
+  $('#form-descuento').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const m = $('#msg-desc');
+    const tipo = d.querySelector('input[name="desc-tipo"]:checked').value;
+    const alcance = d.querySelector('input[name="desc-alcance"]:checked').value;
+    const crudo = $('#desc-valor').value.trim();
+    let valor = null;
+    if (tipo === 'pct') valor = /^\d{1,3}$/.test(crudo) ? Number(crudo) : null;
+    else valor = parseMXN(crudo);
+    if (!valor) { m.className = 'mensaje error'; m.textContent = tipo === 'pct' ? 'Escriba un porcentaje entero de 1 a 100.' : 'Escriba el monto del descuento en pesos.'; return; }
+    try {
+      const r = await api('/api/venta/descuento', { cart: S.cart, linea_id: alcance === 'linea' ? sel.linea_id : null, tipo, valor, clave: $('#desc-clave').value });
+      S.carrito = r.carrito; pintarCarrito(); d.close(); msg(`Descuento autorizado por ${r.supervisor}.`);
+    } catch (e) { m.className = 'mensaje error'; m.textContent = e.message; $('#desc-clave').value = ''; }
+  });
+  d.showModal();
+  $('#desc-valor').focus();
+}
+
 // ── recepción de mercancía del almacén (la tienda confirma al escanear por primera vez) ──
 function dialogo(id) {
   let d = document.getElementById(id);
@@ -1258,6 +1356,235 @@ async function abrirAltaManual() {
   });
   d.showModal();
 }
+
+// ── Promociones y cupones (Administración) ──
+const centavosAPesos = (c) => (c / 100).toFixed(2).replace(/\.00$/, '');
+function reglaTexto(p) {
+  if (p.tipo === 'nxm') {
+    const a = p.alcance ?? {};
+    const donde = [a.departamentos?.length ? `departamentos: ${a.departamentos.join(', ')}` : '', a.palabras?.length ? `descripción con: ${a.palabras.join(', ')}` : '', a.item_ids?.length ? `${a.item_ids.length} artículo(s) elegido(s)` : ''].filter(Boolean).join(' · ');
+    return `Lleva ${p.lleva}, paga ${p.paga} (${donde})`;
+  }
+  if (p.tipo === 'por_cada') return `Por cada ${mxn(p.cada)} de compra, ${mxn(p.descuenta)} de descuento`;
+  const q = p.pct !== undefined ? `${p.pct} %` : mxn(p.monto);
+  return `Código ${p.codigo}: ${q} de descuento${p.minimo ? ` en compras desde ${mxn(p.minimo)}` : ''}${p.usos_max ? ` · máx. ${p.usos_max} uso(s)` : ''}${p.combinable === false ? ' · no se combina con promociones' : ''}`;
+}
+const NOM_TIPO = { nxm: 'Lleva X, paga Y', por_cada: 'Por cada $X de compra', cupon: 'Cupón' };
+const NOM_ESTADO_PROMO = { activa: 'Activa', programada: 'Programada', vencida: 'Vencida', inactiva: 'Desactivada' };
+const vigenciaTexto = (p) => (p.inicio || p.fin ? `${p.inicio ? `Desde el ${fechaPiso(p.inicio)}` : 'Desde ya'} · ${p.fin ? `hasta el ${fechaPiso(p.fin)}` : 'sin fecha límite'}` : 'Sin fecha límite');
+async function vistaPromociones() {
+  const [{ promociones, hoy }, { supervisores }] = await Promise.all([api('/api/admin/promociones'), api('/api/admin/supervisores')]);
+  S.promos = promociones; S.hoyPromo = hoy;
+  $('#vista').innerHTML = `<div class="titulo-vista">${ico('percent')}<h1>Promociones y cupones</h1></div>
+    <section class="panel"><div class="filas" style="align-items:center"><button class="btn btn-primario" id="btn-nueva-promo" type="button" style="width:auto">${ico('plus')}<span>Nueva promoción o cupón</span></button></div>
+      <p class="nota">Toda promoción lleva fecha de inicio y de término, o queda <b>sin fecha límite</b> hasta que Administración la desactive. Se aplican solas al cobrar; los cupones se capturan o se escanean en la caja.</p>
+      <div id="msg-promo" class="mensaje" role="status" aria-live="polite"></div>
+      <div class="tabla-cont"><table id="tabla-promos"><thead><tr><th>Nombre</th><th>Tipo</th><th>Regla</th><th>Vigencia</th><th>Estado</th><th class="num">Usos</th><th></th></tr></thead><tbody>
+      ${promociones.map((p) => `<tr data-promo="${esc(p.id)}" data-estado="${p.estado}"><td>${esc(p.nombre)}</td><td>${NOM_TIPO[p.tipo]}</td><td class="desc">${esc(reglaTexto(p))}</td><td>${esc(vigenciaTexto(p))}</td><td><span class="insignia ${p.estado === 'activa' ? '' : 'cancelada'}">${NOM_ESTADO_PROMO[p.estado]}</span></td><td class="num">${p.usos}</td>
+        <td class="filas" style="flex-wrap:nowrap"><button class="btn p-editar" type="button">${ico('pencil')}<span>Editar</span></button><button class="btn p-activa" type="button">${p.activa ? 'Desactivar' : 'Activar'}</button>${p.tipo === 'cupon' ? `<button class="btn p-qr" type="button">${ico('download')}<span>Imagen QR</span></button>` : ''}</td></tr>`).join('') || '<tr><td colspan="7" class="vacio">Aún no hay promociones ni cupones.</td></tr>'}</tbody></table></div></section>
+    <section class="panel" style="margin-top:12px"><h2 style="margin-top:0">Supervisores que autorizan descuentos</h2>
+      <p class="nota">Solo un supervisor puede autorizar un descuento en la caja, tecleando su clave (4 a 8 dígitos). El descuento puede llegar hasta el 100 %. La clave no se puede volver a ver: si se olvida, se cambia.</p>
+      <div class="tabla-cont"><table id="tabla-supervisores"><thead><tr><th>Nombre</th><th>Estado</th><th>Nueva clave</th><th></th></tr></thead><tbody>
+      ${supervisores.map((x) => `<tr data-sup="${esc(x.id)}"><td>${esc(x.nombre)}</td><td>${x.activo ? 'Activo' : 'Desactivado'}</td><td><input type="password" inputmode="numeric" class="s-clave" placeholder="dejar vacío = no cambiar" aria-label="Nueva clave de ${esc(x.nombre)}" style="padding:4px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie)"></td>
+        <td class="filas" style="flex-wrap:nowrap"><button class="btn s-guardar" type="button">${ico('check')}<span>Cambiar clave</span></button><button class="btn s-activo" type="button">${x.activo ? 'Desactivar' : 'Activar'}</button></td></tr>`).join('') || '<tr><td colspan="4" class="vacio">Aún no hay supervisores: sin uno nadie puede autorizar descuentos.</td></tr>'}</tbody></table></div>
+      <form id="form-sup" autocomplete="off" class="filas" style="align-items:end;margin-top:10px"><div class="campo" style="margin:0"><label for="sup-nombre">Nombre</label><input id="sup-nombre" class="texto"></div><div class="campo" style="margin:0"><label for="sup-clave">Clave (4 a 8 dígitos)</label><input id="sup-clave" type="password" inputmode="numeric" class="texto"></div>
+      <button class="btn btn-primario" id="btn-sup" type="submit" style="width:auto">${ico('plus')}<span>Agregar supervisor</span></button></form>
+      <div id="msg-sup" class="mensaje" role="status" aria-live="polite"></div></section>`;
+  $('#btn-nueva-promo').addEventListener('click', () => abrirPromo(null));
+  for (const tr of $('#tabla-promos').querySelectorAll('tr[data-promo]')) {
+    const p = S.promos.find((x) => x.id === tr.dataset.promo);
+    tr.querySelector('.p-editar').addEventListener('click', () => abrirPromo(p));
+    tr.querySelector('.p-activa').addEventListener('click', async () => {
+      try { await api('/api/admin/promociones', { ...p, activa: !p.activa }); await vistaPromociones(); }
+      catch (e) { const m = $('#msg-promo'); m.className = 'mensaje error'; m.textContent = e.message; }
+    });
+    const q = tr.querySelector('.p-qr'); if (q) q.addEventListener('click', () => abrirImagenCupon(p));
+  }
+  const supMsg = (t, tipo = 'error') => { const m = $('#msg-sup'); m.className = `mensaje ${tipo}`; m.textContent = t; };
+  $('#form-sup').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    try { await api('/api/admin/supervisores', { nombre: $('#sup-nombre').value, clave: $('#sup-clave').value }); await vistaPromociones(); supMsg('Supervisor agregado.', 'ok'); } catch (e) { supMsg(e.message); }
+  });
+  for (const tr of $('#tabla-supervisores').querySelectorAll('tr[data-sup]')) {
+    const id = tr.dataset.sup;
+    const activo = tr.children[1].textContent === 'Activo';
+    tr.querySelector('.s-guardar').addEventListener('click', async () => {
+      const clave = tr.querySelector('.s-clave').value;
+      if (!clave) return supMsg('Escriba la nueva clave.');
+      try { await api('/api/admin/supervisores', { id, clave }); await vistaPromociones(); supMsg('Clave cambiada.', 'ok'); } catch (e) { supMsg(e.message); }
+    });
+    tr.querySelector('.s-activo').addEventListener('click', async () => {
+      try { await api('/api/admin/supervisores', { id, activo: !activo }); await vistaPromociones(); } catch (e) { supMsg(e.message); }
+    });
+  }
+}
+async function abrirPromo(p) {
+  const { departamentos } = await api('/api/admin/departamentos');
+  const d = dialogo('dlg-promo');
+  const nueva = !p;
+  const q = p ?? { tipo: 'nxm', nombre: '', activa: true, inicio: S.hoyPromo, fin: null, lleva: 2, paga: 1, alcance: { departamentos: [], palabras: [], item_ids: [] }, cada: 100000, descuenta: 10000, codigo: '', pct: 10, minimo: 0, usos_max: null, combinable: true };
+  const esPct = q.monto === undefined;
+  d.setAttribute('aria-labelledby', 'promo-titulo');
+  const campo = (id, rotulo, valor, extra = '') => `<div class="campo"><label for="${id}">${rotulo}</label><input id="${id}" class="texto" value="${esc(valor ?? '')}" ${extra}></div>`;
+  d.innerHTML = `<h2 id="promo-titulo" style="margin-top:0">${nueva ? 'Nueva promoción o cupón' : 'Editar promoción'}</h2>
+    <form id="form-promo" autocomplete="off">
+      <div class="campo"><label for="pr-tipo">Tipo</label><select id="pr-tipo" ${nueva ? '' : 'disabled'} style="width:100%;padding:10px;border:2px solid var(--borde);border-radius:10px;background:var(--superficie)">
+        <option value="nxm" ${q.tipo === 'nxm' ? 'selected' : ''}>Lleva X piezas y paga Y (2x1, 3x2…) en mercancía seleccionada</option>
+        <option value="por_cada" ${q.tipo === 'por_cada' ? 'selected' : ''}>Por cada $X de compra, $Y de descuento</option>
+        <option value="cupon" ${q.tipo === 'cupon' ? 'selected' : ''}>Cupón de descuento (% o $) con código y QR</option></select></div>
+      ${campo('pr-nombre', 'Nombre (aparece en el ticket)', q.nombre)}
+      <div class="filas"><div class="campo" style="flex:1"><label for="pr-inicio">Inicia</label><input id="pr-inicio" type="date" value="${esc(q.inicio ?? '')}" class="texto"></div>
+        <div class="campo" style="flex:1"><label for="pr-fin">Termina</label><input id="pr-fin" type="date" value="${esc(q.fin ?? '')}" class="texto" ${q.fin ? '' : 'disabled'}></div></div>
+      <label><input type="checkbox" id="pr-sin-fin" ${q.fin ? '' : 'checked'}> Sin fecha límite (vale hasta que Administración la desactive)</label>
+      <div data-tipo="nxm">
+        <div class="filas"><div class="campo" style="flex:1"><label for="pr-lleva">Lleva (piezas)</label><input id="pr-lleva" type="number" min="2" class="texto" value="${q.lleva ?? 2}"></div><div class="campo" style="flex:1"><label for="pr-paga">Paga (piezas)</label><input id="pr-paga" type="number" min="1" class="texto" value="${q.paga ?? 1}"></div></div>
+        <p class="nota">De cada grupo, las piezas más baratas salen gratis. Aplica a la mercancía que cumpla lo que elija aquí (departamento o palabras de la descripción).</p>
+        <fieldset style="border:1px solid var(--borde);border-radius:8px"><legend>Departamentos</legend>${departamentos.filter((x) => x.activo).map((x) => `<label style="display:inline-block;margin-right:12px"><input type="checkbox" class="pr-dep" value="${esc(x.nombre)}" ${(q.alcance?.departamentos ?? []).includes(x.nombre) ? 'checked' : ''}> ${esc(x.nombre)}</label>`).join('')}</fieldset>
+        ${campo('pr-palabras', 'Palabras de la descripción (separadas por comas): blusa, pantalón, falda…', (q.alcance?.palabras ?? []).join(', '))}
+        <p class="nota">Si pone departamento y palabras, deben cumplirse las dos.</p>
+      </div>
+      <div data-tipo="por_cada">
+        <div class="filas"><div class="campo" style="flex:1"><label for="pr-cada">Por cada ($ de compra)</label><input id="pr-cada" class="texto" value="${centavosAPesos(q.cada ?? 100000)}" inputmode="decimal"></div><div class="campo" style="flex:1"><label for="pr-descuenta">Descuento ($)</label><input id="pr-descuenta" class="texto" value="${centavosAPesos(q.descuenta ?? 10000)}" inputmode="decimal"></div></div>
+        <p class="nota">Escalones completos: por cada $1,000 de compra, $100 menos; con $2,500 son $200 menos.</p>
+      </div>
+      <div data-tipo="cupon">
+        <div class="filas"><div class="campo" style="flex:2"><label for="pr-codigo">Código</label><input id="pr-codigo" class="texto" value="${esc(q.codigo ?? '')}" placeholder="VERANO20"></div>
+          <div class="campo" style="flex:1"><label>&nbsp;</label><button class="btn" type="button" id="pr-generar">Generar código</button></div></div>
+        <div class="filas"><label><input type="radio" name="pr-cup-tipo" value="pct" ${esPct ? 'checked' : ''}> Porcentaje (%)</label><label><input type="radio" name="pr-cup-tipo" value="monto" ${esPct ? '' : 'checked'}> Monto fijo ($)</label></div>
+        ${campo('pr-cup-valor', 'Valor del descuento', esPct ? (q.pct ?? 10) : centavosAPesos(q.monto), 'inputmode="decimal"')}
+        ${campo('pr-minimo', 'Compra mínima ($, vacío = sin mínimo; el mínimo se cumple con esa cantidad o más)', q.minimo ? centavosAPesos(q.minimo) : '', 'inputmode="decimal"')}
+        ${campo('pr-usos', 'Usos máximos (vacío = sin límite; 1 = un solo uso)', q.usos_max ?? '', 'inputmode="numeric"')}
+        <label><input type="checkbox" id="pr-combinable" ${q.combinable === false ? '' : 'checked'}> Se puede combinar con las promociones de la venta</label>
+      </div>
+      <label style="margin-top:8px"><input type="checkbox" id="pr-activa" ${q.activa ? 'checked' : ''}> Activa</label>
+      <div id="msg-pr" class="mensaje" role="status" aria-live="polite"></div>
+      <div class="filas"><button class="btn" type="button" id="pr-cerrar">Cancelar</button><button class="btn btn-primario" type="submit" id="pr-guardar" style="width:auto;flex:1">${ico('check')}<span>Guardar</span></button></div>
+    </form>`;
+  const mostrar = () => { const t = $('#pr-tipo').value; for (const b of d.querySelectorAll('[data-tipo]')) b.hidden = b.dataset.tipo !== t; };
+  mostrar();
+  $('#pr-tipo').addEventListener('change', mostrar);
+  $('#pr-sin-fin').addEventListener('change', (ev) => { $('#pr-fin').disabled = ev.target.checked; if (ev.target.checked) $('#pr-fin').value = ''; });
+  $('#pr-generar').addEventListener('click', () => { const A = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let c = ''; for (let i = 0; i < 8; i++) c += A[Math.floor(Math.random() * A.length)]; $('#pr-codigo').value = c; });
+  $('#pr-cerrar').addEventListener('click', () => d.close());
+  $('#form-promo').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const m = $('#msg-pr');
+    const err = (t) => { m.className = 'mensaje error'; m.textContent = t; };
+    const t = $('#pr-tipo').value;
+    const body = { id: p?.id ?? '', tipo: t, nombre: $('#pr-nombre').value, activa: $('#pr-activa').checked, inicio: $('#pr-inicio').value || null, fin: $('#pr-sin-fin').checked ? null : ($('#pr-fin').value || null) };
+    if (!$('#pr-sin-fin').checked && !body.fin) return err('Elija la fecha de término o marque «Sin fecha límite».');
+    if (t === 'nxm') {
+      body.lleva = Number($('#pr-lleva').value); body.paga = Number($('#pr-paga').value);
+      body.alcance = { departamentos: [...d.querySelectorAll('.pr-dep:checked')].map((x) => x.value), palabras: $('#pr-palabras').value.split(',').map((x) => x.trim()).filter(Boolean), item_ids: p?.alcance?.item_ids ?? [] };
+    } else if (t === 'por_cada') {
+      body.cada = parseMXN($('#pr-cada').value); body.descuenta = parseMXN($('#pr-descuenta').value);
+      if (!body.cada || !body.descuenta) return err('Escriba los dos montos en pesos.');
+    } else {
+      body.codigo = $('#pr-codigo').value;
+      const tipo = d.querySelector('input[name="pr-cup-tipo"]:checked').value;
+      if (tipo === 'pct') body.pct = Number($('#pr-cup-valor').value); else { body.monto = parseMXN($('#pr-cup-valor').value); if (!body.monto) return err('Escriba el monto en pesos.'); }
+      body.minimo = $('#pr-minimo').value.trim() ? parseMXN($('#pr-minimo').value) : 0;
+      if (body.minimo === null) return err('La compra mínima no es válida.');
+      body.usos_max = $('#pr-usos').value.trim() ? Number($('#pr-usos').value) : null;
+      body.combinable = $('#pr-combinable').checked;
+    }
+    try { await api('/api/admin/promociones', body); d.close(); await vistaPromociones(); const mm = $('#msg-promo'); mm.className = 'mensaje ok'; mm.textContent = 'Guardado.'; }
+    catch (e) { err(e.message); }
+  });
+  d.showModal();
+}
+
+// ── imagen del cupón con QR (para WhatsApp, redes o correo) ──
+function qrMatriz(texto) {
+  const q = window.qrcode(0, 'M');
+  q.addData(texto); q.make();
+  const n = q.getModuleCount();
+  return { n, oscuro: (r, c) => q.isDark(r, c) };
+}
+function dibujarQR(ctx, texto, x, y, lado) {
+  const { n, oscuro } = qrMatriz(texto);
+  const m = 4; // zona tranquila de 4 módulos
+  const celda = Math.floor(lado / (n + 2 * m));
+  const real = celda * (n + 2 * m);
+  const ox = x + Math.floor((lado - real) / 2), oy = y + Math.floor((lado - real) / 2);
+  ctx.fillStyle = '#fff'; ctx.fillRect(ox, oy, real, real);
+  ctx.fillStyle = '#000';
+  for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) if (oscuro(r, c)) ctx.fillRect(ox + (c + m) * celda, oy + (r + m) * celda, celda, celda);
+}
+const cuponTitulo = (p) => (p.pct !== undefined ? `${p.pct}% DE DESCUENTO` : `${mxn(p.monto).replace(/\.00$/, '')} DE DESCUENTO`);
+function cuponCondiciones(p) {
+  const l = [];
+  l.push(p.minimo ? `En compras desde ${mxn(p.minimo).replace(/\.00$/, '')}` : 'En cualquier compra');
+  l.push(p.inicio || p.fin ? `Vigencia: ${p.inicio ? fechaPiso(p.inicio) : 'hoy'} al ${p.fin ? fechaPiso(p.fin) : 'nuevo aviso'}` : 'Vigencia: hasta nuevo aviso');
+  if (p.usos_max) l.push(p.usos_max === 1 ? 'Un solo uso' : `Máximo ${p.usos_max} usos`);
+  if (p.combinable === false) l.push('No se combina con otras promociones');
+  return l;
+}
+/** Dibuja la tarjeta del cupón (1080×1350, vertical, buena para WhatsApp e Instagram). */
+function tarjetaCupon(p) {
+  const W = 1080, H = 1350;
+  const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+  const x = cv.getContext('2d');
+  x.fillStyle = '#0d2238'; x.fillRect(0, 0, W, H);
+  x.fillStyle = '#16314e'; x.fillRect(40, 40, W - 80, H - 80);
+  x.strokeStyle = '#2dd4bf'; x.lineWidth = 6; x.setLineDash([22, 14]); x.strokeRect(70, 70, W - 140, H - 140); x.setLineDash([]);
+  x.textAlign = 'center'; x.fillStyle = '#9fb3c8'; x.font = '600 40px system-ui, sans-serif';
+  x.fillText('DÚO NY  ·  LONDON LOVE', W / 2, 170);
+  x.fillStyle = '#5eead4'; x.font = '700 56px system-ui, sans-serif'; x.fillText('CUPÓN', W / 2, 270);
+  x.fillStyle = '#ffffff'; x.font = '800 104px system-ui, sans-serif';
+  const partes = cuponTitulo(p).split(' DE ');
+  x.fillText(partes[0], W / 2, 420); x.font = '700 60px system-ui, sans-serif'; x.fillText(`DE ${partes[1]}`, W / 2, 495);
+  x.fillStyle = '#e9f0f7'; x.font = '500 40px system-ui, sans-serif';
+  x.fillText(p.nombre.length > 34 ? `${p.nombre.slice(0, 33)}…` : p.nombre, W / 2, 570);
+  dibujarQR(x, `CUPON:${p.codigo}`, 290, 610, 500);
+  x.fillStyle = '#ffffff'; x.font = '700 72px ui-monospace, Menlo, Consolas, monospace'; x.fillText(p.codigo, W / 2, 1170);
+  x.fillStyle = '#9fb3c8'; x.font = '500 34px system-ui, sans-serif';
+  cuponCondiciones(p).slice(0, 3).forEach((t, i) => x.fillText(t, W / 2, 1220 + i * 40));
+  x.fillStyle = '#5eead4'; x.font = '600 30px system-ui, sans-serif'; x.fillText('Presenta este cupón en caja', W / 2, 1330 - 0);
+  return cv;
+}
+function qrSolo(p) {
+  const cv = document.createElement('canvas'); cv.width = 800; cv.height = 800;
+  dibujarQR(cv.getContext('2d'), `CUPON:${p.codigo}`, 0, 0, 800);
+  return cv;
+}
+const canvasBytes = (cv) => new Promise((res, rej) => cv.toBlob((b) => (b ? b.arrayBuffer().then((a) => res(new Uint8Array(a))) : rej(new Error('no se pudo crear la imagen'))), 'image/png'));
+async function entregarArchivo(nombre, bytes, mime) {
+  const dl = window.claude && window.claude.use ? await window.claude.use('downloads') : null;
+  if (dl) {
+    try { await dl.save({ filename: nombre, data: bytes }); return `Archivo entregado: ${nombre}`; }
+    catch (e) { if (e && e.code === 'declined') return 'Descarga cancelada.'; throw e; }
+  }
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([bytes], { type: mime })); a.download = nombre; document.body.appendChild(a); a.click(); a.remove();
+  return `Descarga iniciada: ${nombre}`;
+}
+function textoCupon(p) {
+  return `🎁 ${p.nombre}\n${cuponTitulo(p)}\n${cuponCondiciones(p).join('\n')}\nCódigo: ${p.codigo}\nPresenta este cupón (o su QR) en caja.`;
+}
+function abrirImagenCupon(p) {
+  const d = dialogo('dlg-cupon-img');
+  d.setAttribute('aria-labelledby', 'img-titulo');
+  d.innerHTML = `<h2 id="img-titulo" style="margin-top:0">Imagen del cupón ${esc(p.codigo)}</h2>
+    <div style="text-align:center"><canvas id="img-cupon" style="max-width:100%;max-height:52vh;border-radius:12px"></canvas></div>
+    <label style="display:block;margin-top:8px">Texto para acompañar el mensaje (WhatsApp, correo, redes)<textarea id="img-texto" readonly rows="6" style="width:100%;padding:8px;border:1px solid var(--borde);border-radius:8px;background:var(--superficie);color:var(--texto)">${esc(textoCupon(p))}</textarea></label>
+    <p class="nota">El QR contiene <code>CUPON:${esc(p.codigo)}</code>. Para leerlo en caja hace falta un lector de códigos 2D (un láser de barras normal no lo lee): si no, el cajero escribe el código.</p>
+    <div id="msg-img" class="mensaje" role="status" aria-live="polite"></div>
+    <div class="filas"><button class="btn" type="button" id="img-cerrar">Cerrar</button><button class="btn" type="button" id="img-copiar">Copiar texto</button><button class="btn" type="button" id="img-qr">${ico('download')}<span>Solo el QR (PNG)</span></button><button class="btn btn-primario" type="button" id="img-png" style="width:auto;flex:1">${ico('download')}<span>Descargar imagen (PNG)</span></button></div>`;
+  const cv = tarjetaCupon(p);
+  const vista = $('#img-cupon'); vista.width = cv.width; vista.height = cv.height; vista.getContext('2d').drawImage(cv, 0, 0);
+  const m = $('#msg-img');
+  const hecho = (t) => { m.className = 'mensaje ok'; m.textContent = t; };
+  const falla = (e) => { m.className = 'mensaje error'; m.textContent = e.message; };
+  $('#img-cerrar').addEventListener('click', () => d.close());
+  $('#img-png').addEventListener('click', async () => { try { hecho(await entregarArchivo(`cupon-${p.codigo}.png`, await canvasBytes(cv), 'image/png')); } catch (e) { falla(e); } });
+  $('#img-qr').addEventListener('click', async () => { try { hecho(await entregarArchivo(`qr-${p.codigo}.png`, await canvasBytes(qrSolo(p)), 'image/png')); } catch (e) { falla(e); } });
+  $('#img-copiar').addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText($('#img-texto').value); hecho('Texto copiado.'); } catch { $('#img-texto').select(); hecho('Seleccionado: use Ctrl+C para copiarlo.'); }
+  });
+  d.showModal();
+}
+
 async function vistaDepartamentos() {
   const { departamentos: lista } = await api('/api/admin/departamentos');
   $('#vista').innerHTML = `<div class="titulo-vista">${ico('box')}<h1>Departamentos</h1></div>

@@ -23,6 +23,7 @@ const logo = (n) => 'data:image/png;base64,' + readFileSync(join(raiz, 'src/app/
 const logos = JSON.stringify({ DUO: logo('logo-duo.png'), LON: logo('logo-london.png') });
 const css = readFileSync(join(raiz, 'src/app/publico/estilos.css'), 'utf8');
 const app = readFileSync(join(raiz, 'src/app/publico/app.js'), 'utf8').replace(/<\/script/gi, '<\\/script');
+const qr = readFileSync(join(raiz, 'src/app/publico/qr.js'), 'utf8').replace(/<\/script/gi, '<\\/script');
 
 const estiloBanco = `
 .banco { position: sticky; top: 0; z-index: 5; background: var(--aviso-fondo); color: var(--texto); border-bottom: 1px solid var(--borde); padding: 8px 16px; display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; font-size: 13px; }
@@ -70,6 +71,9 @@ ${estiloBanco}
 </style>
 ${marcado}
 <script>window.__POS_MANUAL__ = true; window.__POS_LOGOS__ = ${logos};</script>
+<script>
+${qr}
+</script>
 <script>
 ${app}
 </script>

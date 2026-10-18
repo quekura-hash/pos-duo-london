@@ -57,6 +57,8 @@ export interface LineaTicket {
   precio_unit: number;
   descuento: number;
   importe: number;
+  /** Origen del descuento (promoción, cupón o descuento autorizado). */
+  descuentos?: { tipo: 'manual' | 'promo' | 'cupon'; nombre: string; monto: number }[];
   /** Venta o recarga de tarjeta de regalo: no lleva Item #, marca, estilo ni lote. */
   tarjeta_regalo?: boolean;
 }
@@ -85,7 +87,7 @@ export function construirTicket(v: Venta, cfg: NegocioCfg = NEGOCIOS[v.tienda]!,
     fecha: `${d}/${mo}/${y}`, hora: local.slice(11, 16), folio: v.folio, codigo_ticket: codigoTicket(v.tienda, v.caja, v.folio, negocios),
     lineas: v.lineas.map((l) => ({
       item_no: l.item_no, codigo: l.codigo, descripcion: l.descripcion, marca: l.marca, estilo: l.estilo, lote: l.lote,
-      qty: l.qty, precio_unit: l.precio_unit, descuento: l.descuento, importe: l.importe, tarjeta_regalo: l.tarjeta_regalo ? true : undefined,
+      qty: l.qty, precio_unit: l.precio_unit, descuento: l.descuento, importe: l.importe, descuentos: l.descuento_detalle?.map((d) => ({ tipo: d.tipo, nombre: d.nombre, monto: d.monto })), tarjeta_regalo: l.tarjeta_regalo ? true : undefined,
     })),
     total: v.total,
     pagos: v.pagos.map((p) => ({ etiqueta: p.metodo === 'efectivo' ? 'Efectivo MXN' : p.metodo === 'efectivo_usd' ? 'Efectivo (dólares)' : p.metodo === 'tarjeta_regalo' ? 'Tarjeta de regalo' : 'Tarjeta', monto: p.monto, recibido: p.recibido, cambio: p.cambio, tarjeta: p.tarjeta, saldo_despues: p.saldo_despues, dolares: p.metodo === 'efectivo_usd' ? { usd: p.usd!, tasa: p.tasa!, version: p.tasa_version!, equivalente: p.equivalente!, pesos: p.pesos_recibidos!, cambio: p.cambio_mxn! } : undefined })),
@@ -137,7 +139,15 @@ export function renderTicketTexto(t: Ticket): string {
       L.push(...empaquetar([`Marca: ${l.marca}`, `Estilo: ${l.estilo}`, `Lote: ${l.lote}`], c));
     }
     L.push(dos(`${l.qty} x ${formatoMXN(l.precio_unit)}`, formatoMXN(l.qty * l.precio_unit), c));
-    if (l.descuento > 0) L.push(dos('Descuento', `-${formatoMXN(l.descuento)}`, c));
+    if (l.descuento > 0) {
+      if (l.descuentos?.length) {
+        for (const d of l.descuentos) {
+          const rot = d.tipo === 'cupon' ? `Cupón ${d.nombre}` : d.tipo === 'promo' ? d.nombre : d.nombre;
+          const [a, ...resto] = envolver(rot, Math.max(10, c - formatoMXN(d.monto).length - 2));
+          L.push(dos(a ?? '', `-${formatoMXN(d.monto)}`, c), ...resto);
+        }
+      } else L.push(dos('Descuento', `-${formatoMXN(l.descuento)}`, c));
+    }
   }
   L.push(regla, dos('TOTAL', formatoMXN(t.total), c));
   for (const p of t.pagos) {

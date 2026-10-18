@@ -157,3 +157,9 @@ tr.piso-roja td:first-child { box-shadow: inset 5px 0 0 var(--error); } tr.piso-
 .aviso-piso.roja { color: var(--error); background: var(--error-fondo); border-color: var(--error); }
 .aviso-piso + .prueba { margin-top: 8px; }
 @media (max-width: 1280px) { .aviso-piso { display: none; } }
+
+.lista-promos { list-style: none; margin: 6px 0 10px; padding: 0; font-size: 13px; }
+.lista-promos li { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 3px 0; color: var(--ok); }
+.lista-promos li.aviso-promo { color: var(--aviso); } .lista-promos li b { font-variant-numeric: tabular-nums; }
+#dlg-promo, #dlg-cupon-img { max-width: min(680px, 96vw); width: 96vw; max-height: 92vh; overflow: auto; } #dlg-promo label { display: block; margin: 4px 0; } #dlg-promo .campo label { margin-bottom: 4px; }
+#dlg-descuento fieldset label, #dlg-promo fieldset label { display: block; }
