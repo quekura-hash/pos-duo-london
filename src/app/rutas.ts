@@ -32,7 +32,7 @@ export async function atender(o: { cajero?: ServicioCaja; admin?: ServicioAdmin 
       case 'GET /api/sesion':
         return ok(C
           ? { rol: 'cajero', usuario: C.actor.usuario, tienda: C.caja.tienda, caja: C.caja.caja, nav: ['venta', 'ventas', 'corte', ...(C.caja.cfg.metodos.includes('tarjeta_regalo') ? ['tarjetas'] : [])] }
-          : { rol: 'admin', usuario: A!.actor.usuario, cajas: A!.cajas, nav: ['reportes', 'cortes', 'dolares', 'inventario', 'departamentos', 'tarjetas', 'tipo_cambio'] });
+          : { rol: 'admin', usuario: A!.actor.usuario, cajas: A!.cajas, nav: ['reportes', 'cortes', 'dolares', 'inventario', 'almacen', 'departamentos', 'tarjetas', 'tipo_cambio'] });
       // ── cajero ──
       case 'GET /api/estado': return ok({ estado: exigirCajero().estado() });
       case 'POST /api/venta/actual': { const c = exigirCajero(); const cart = c.carritoActual(); return ok({ cart, carrito: c.vista(cart) }); }
@@ -85,6 +85,13 @@ export async function atender(o: { cajero?: ServicioCaja; admin?: ServicioAdmin 
       case 'GET /api/admin/tipo-cambio': return ok(exigirAdmin().tipoCambio());
       case 'POST /api/admin/tipo-cambio': return ok(exigirAdmin().fijarTipoCambio(Number(b.tasa), !!b.confirmar));
       case 'POST /api/admin/permisos': return ok(exigirAdmin().asignarPermisoTipoCambio(String(b.usuario ?? ''), !!b.editar_tipo_cambio));
+      case 'GET /api/admin/almacen': return ok(exigirAdmin().almacen());
+      case 'POST /api/admin/almacen/revisar': return ok(exigirAdmin().revisarAltaLote(b.filas, { decisiones: b.decisiones, regla: b.regla }));
+      case 'POST /api/admin/almacen/alta': return ok(exigirAdmin().altaLote({ lote_id: String(b.lote_id ?? ''), nombre: b.nombre, filas: b.filas, decisiones: b.decisiones, regla: b.regla, pedimento_lote: b.pedimento_lote }));
+      case 'POST /api/admin/almacen/manual': return ok(exigirAdmin().altaManual(b));
+      case 'POST /api/admin/almacen/entregar': return ok(exigirAdmin().entregarAlmacen({ item_id: String(b.item_id ?? ''), destinos: b.destinos ?? {}, etiqueta_precio: !!b.etiqueta_precio, etiqueta_costura: !!b.etiqueta_costura, confirmar_exceso: !!b.confirmar_exceso, ref: b.ref }));
+      case 'GET /api/recepciones': return ok({ recepciones: exigirCajero().recepcionesPendientes() });
+      case 'POST /api/recepciones/confirmar': return ok(exigirCajero().confirmarRecepcion(String(b.entrega_id ?? '')));
       case 'GET /api/admin/departamentos': return ok(exigirAdmin().departamentos());
       case 'POST /api/admin/departamentos': return ok(exigirAdmin().guardarDepartamento({
         id: b.id === undefined ? undefined : String(b.id), nombre: b.nombre === undefined ? undefined : String(b.nombre),

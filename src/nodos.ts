@@ -1,5 +1,6 @@
 import type { BusquedaVentas, VentaLocalizada } from './consultas.ts';
 import { ErrorDominio } from './errores.ts';
+import { existenciaAlmacen, recepcionesPendientes, type AltaManual, type RecepcionPendiente } from './almacen.ts';
 import { slug, validarCambioDepto, type CambioDepto, type ErrorDepto } from './departamentos.ts';
 import { DENOMINACIONES_USD, esImporteEnBilletesUsd, superaUmbralTasa, totalDenominacionesMxn, totalDenominacionesUsd, usdAMxn, variacionTasaPb } from './dinero.ts';
 import { TASA_SIN_VERIFICAR_OMISION, type Politicas } from './politicas.ts';
@@ -84,9 +85,9 @@ interface Reserva {
   resultado: ResultadoReserva;
 }
 
-const BROADCAST_TIENDA = new Set(['inv.movement', 'inv.conteo', 'inv.verificacion_pendiente', 'doc.perdida_posible', 'item.created', 'item.item_no_assigned', 'giftcard.emitida', 'giftcard.recarga', 'giftcard.uso', 'giftcard.reintegro']);
+const BROADCAST_TIENDA = new Set(['alm.recibida', 'inv.movement', 'inv.conteo', 'inv.verificacion_pendiente', 'doc.perdida_posible', 'item.created', 'item.item_no_assigned', 'giftcard.emitida', 'giftcard.recarga', 'giftcard.uso', 'giftcard.reintegro']);
 // Lo que el central baja a hubs y cajas (catálogo y resoluciones administrativas).
-const CATALOGO = new Set(['item.created', 'item.item_no_assigned', 'item.codigo_corregido', 'doc.perdida_resuelta', 'giftcard.emitida', 'giftcard.recarga', 'giftcard.uso', 'giftcard.reintegro', 'config.tipo_cambio', 'permiso.asignado', 'depto.alta', 'depto.editado']);
+const CATALOGO = new Set(['item.created', 'item.item_no_assigned', 'item.codigo_corregido', 'doc.perdida_resuelta', 'giftcard.emitida', 'giftcard.recarga', 'giftcard.uso', 'giftcard.reintegro', 'config.tipo_cambio', 'permiso.asignado', 'depto.alta', 'depto.editado', 'alm.entrega']);
 
 // ───────────────────────────── Hub ─────────────────────────────
 
@@ -346,6 +347,73 @@ export class Central {
     return { ok: true, op: this.emitirAdmin('depto.editado', payload) };
   }
 
+  /** Emite una operación del central solo si no existe (los reintentos de una alta o entrega no duplican nada). */
+  private emitirUna(tipo: string, payload: unknown, opId: string, relevar = true): Op | null {
+    if (this.repo.tieneOp(opId)) return null;
+    if (relevar) return this.emitirAdmin(tipo, payload, opId);
+    const op = crearOp(tipo, null, null, this.id, this.ctx.reloj.now(), payload, opId);
+    this.repo.tx(() => { this.repo.appendOp(op); });
+    return op;
+  }
+
+  /**
+   * Alta de un lote en el almacén. Cada fila es un artículo NUEVO (otro código, lote y pedimento) o suma piezas a uno existente
+   * (`item_id`). El `lote_id` hace que reintentar el mismo envío no duplique artículos ni piezas. Las piezas entran al almacén,
+   * sin etiquetar y sin existencia en ninguna tienda.
+   */
+  altaLote(d: { lote_id: string; fuente: string; por: string; filas: (AltaManual & { fila: number; item_id?: string })[] }): { nuevos: number; sumados: number; piezas: number } {
+    let siguiente = this.maxItemNoNumerico() + 1;
+    let nuevos = 0, sumados = 0, piezas = 0;
+    let cat: Map<string, Articulo> | undefined;
+    for (const f of d.filas) {
+      if (!Number.isInteger(f.cantidad) || f.cantidad <= 0) throw new ErrorDominio('CANTIDAD_INVALIDA', `fila ${f.fila}: la cantidad debe ser un entero mayor que 0`);
+      let itemId = f.item_id;
+      if (itemId) {
+        if (!(cat ??= catalogo(this.repo.ops())).has(itemId)) throw new ErrorDominio('ARTICULO_INEXISTENTE', itemId);
+        sumados++;
+      } else {
+        itemId = `alm-${d.lote_id}-f${f.fila}`;
+        const art: Articulo = {
+          item_id: itemId, codigo: f.codigo, item_no: String(siguiente), marca: f.marca, descripcion: f.descripcion, estilo: f.estilo, lote: f.lote,
+          departamento: f.departamento, precio: f.precio, origen: `almacen:${d.lote_id}`,
+        };
+        if (this.emitirUna('item.created', art, `item:${itemId}`)) siguiente++;
+        nuevos++;
+      }
+      this.emitirUna('alm.entrada', { entrada_id: `${d.lote_id}-f${f.fila}`, item_id: itemId, qty: f.cantidad, pedimento: f.pedimento?.trim() || null, lote_doc: d.lote_id, fuente: d.fuente, por: d.por }, `alm.entrada:${d.lote_id}-f${f.fila}`, false);
+      piezas += f.cantidad;
+    }
+    return { nuevos, sumados, piezas };
+  }
+
+  /**
+   * Entrega de piezas del almacén a una o varias tiendas. Exige confirmar que el artículo ya lleva sus etiquetas de precio y de
+   * costura. Entregar más de lo registrado en el almacén requiere confirmación explícita (queda marcado `exceso`).
+   * La tienda no recibe existencia hasta que su personal confirma la recepción al escanear el artículo.
+   */
+  entregar(d: { item_id: string; destinos: Record<string, number>; etiqueta_precio: boolean; etiqueta_costura: boolean; confirmar_exceso?: boolean; ref?: string; por: string }):
+    { ok: true; existencia_almacen: number; ops: Op[] } | { ok: false; motivo: 'articulo_inexistente' | 'cantidad_invalida' | 'etiquetas_pendientes' | 'tienda_invalida' | 'excede'; disponible?: number; pedido?: number } {
+    if (!catalogo(this.repo.ops()).has(d.item_id)) return { ok: false, motivo: 'articulo_inexistente' };
+    const tiendas = Object.entries(d.destinos).filter(([, q]) => q !== 0);
+    if (!tiendas.length || tiendas.some(([, q]) => !Number.isInteger(q) || q < 0)) return { ok: false, motivo: 'cantidad_invalida' };
+    if (tiendas.some(([t]) => !this.ctx.tiendas.includes(t))) return { ok: false, motivo: 'tienda_invalida' };
+    if (!d.etiqueta_precio || !d.etiqueta_costura) return { ok: false, motivo: 'etiquetas_pendientes' };
+    const disponible = existenciaAlmacen(this.repo.opsDeTipos(['alm.entrada', 'alm.entrega'])).get(d.item_id)?.existencia ?? 0;
+    // Reintento de una entrega ya registrada (misma referencia): se confirma sin moverla otra vez ni pedir confirmación.
+    if (d.ref && tiendas.every(([t]) => this.repo.tieneOp(`alm.entrega:${d.ref}:${t}`))) return { ok: true, existencia_almacen: disponible, ops: [] };
+    const pedido = tiendas.reduce((a, [, q]) => a + q, 0);
+    const exceso = pedido > disponible;
+    if (exceso && !d.confirmar_exceso) return { ok: false, motivo: 'excede', disponible, pedido };
+    const base = d.ref ?? uuid();
+    const ops: Op[] = [];
+    for (const [tienda, qty] of tiendas) {
+      const entrega_id = `${base}:${tienda}`;
+      const op = this.emitirUna('alm.entrega', { entrega_id, item_id: d.item_id, tienda, qty, etiqueta_precio: true, etiqueta_costura: true, exceso, por: d.por }, `alm.entrega:${entrega_id}`);
+      if (op) ops.push(op);
+    }
+    return { ok: true, existencia_almacen: disponible - (ops.length ? pedido : 0), ops };
+  }
+
   anclas(tienda: string, caja: number): Anclas {
     let ceiling: number | null = null;
     let hwm = 0;
@@ -590,6 +658,21 @@ export class Caja {
       }
     });
     return art;
+  }
+  /** Entregas del almacén a esta tienda que nadie ha confirmado todavía. */
+  recepcionesPendientes(itemId?: string): RecepcionPendiente[] {
+    const l = recepcionesPendientes(this.repo.opsDeTipos(['alm.entrega', 'alm.recibida']), this.tienda);
+    return itemId ? l.filter((x) => x.item_id === itemId) : l;
+  }
+  /** La tienda confirma que recibió las piezas: entra la existencia (movimiento `entrada_almacen`) y queda la recepción. Idempotente entre cajas. */
+  confirmarRecepcion(entregaId: string, cajero: string): { item_id: string; qty: number } {
+    const p = this.recepcionesPendientes().find((x) => x.entrega_id === entregaId);
+    if (!p) throw new ErrorDominio('RECEPCION_INEXISTENTE', 'esa entrega no existe o ya fue confirmada');
+    this.repo.tx(() => {
+      this.emitir('alm.recibida', { entrega_id: entregaId, item_id: p.item_id, tienda: this.tienda, caja: this.caja, qty: p.qty, cajero }, `alm.recibida:${entregaId}`);
+      this.emitir('inv.movement', { item_id: p.item_id, tienda: this.tienda, delta: p.qty, tipo: 'entrada_almacen', doc: `entrega:${entregaId}`, caja: this.caja }, `mov:alm:${entregaId}`);
+    });
+    return { item_id: p.item_id, qty: p.qty };
   }
   atestarItemNoLocal(siguiente: number) {
     this.repo.tx(() => {

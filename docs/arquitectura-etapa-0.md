@@ -211,7 +211,7 @@ actualizado?
 | P-07 | Estrategia de Item # para altas nuevas (a, b o c) |
 | P-08 | Series para devoluciones/abonos y momento exacto de asignación del folio |
 | P-09 | Hub en Caja 1 o equipo dedicado |
-| P-10 | Catálogos de DÚO y London: ¿comparten Item # y códigos? |
+| P-10 | Flujo de almacén y confirmación al primer escaneo: construido (sección 18) |
 | P-11 | Excel reales (catálogo, existencias, ventas) |
 | P-14 | Vender con existencia marcada no verificada: `permitir_con_aviso` o `bloquear_articulo_no_verificado` (alternativas de ensayo) |
 | P-15 | Procedimiento para reconstruir ventas y pagos a partir de tickets/comprobantes tras una pérdida documental |
@@ -337,7 +337,7 @@ Respuestas dadas por el propietario. «Hecho» = ya está en el código y probad
 | P-07 | Item # de altas sin internet: lo asigna el central al sincronizar (opción a) | Hecho |
 | P-08 | Devoluciones y cambios llevan folio **de la misma serie que las ventas** de la caja | Hecho para devoluciones (el «cambio» es devolver y vender) |
 | P-09 | El hub vive en la computadora de la Caja 1 | Decidido (sin cambio de código) |
-| P-10 | Catálogo compartido. Inventario compartido con **flujo de almacén**: la mercancía se da de alta primero en Almacén; al salir se registra la distribución por tienda (ej. 24 piezas = 12 DÚO + 12 London); cada tienda confirma al escanear por primera vez («¿confirmas 12 piezas?»). Resultado: Almacén 0, DÚO 12, London 12 | Falta (entradas a almacén, salidas por tienda y confirmación al primer escaneo) |
+| P-10 | Flujo de almacén y confirmación al primer escaneo: construido (sección 18) |
 | P-11 | Entregará existencias y ventas. Un artículo con cantidad 0 se debe poder seguir vendiendo | Hecho para la venta en 0 (ver P-02); archivos pendientes de recibir |
 | P-12 | Tarjeta con cobro pendiente: permitir con aviso | Hecho |
 | P-13 | No debería haber códigos duplicados (se resuelven por Administración); si aun así ocurre, **el cajero decide** y la venta queda marcada para revisión. Aclarado 17-oct: sustituye a la instrucción del 14-oct | Hecho |
@@ -359,7 +359,7 @@ Respuestas dadas por el propietario. «Hecho» = ya está en el código y probad
 
 ### Pendiente de construir
 
-P-06 (pantalla de folio), P-10 (flujo de almacén y confirmación al primer escaneo), P-15 (respaldos cifrados a Drive), P-17 (cupones como descuento), crédito (P-04, P-05) y los archivos de Excel (P-11, P-16, P-20).
+P-06 (pantalla de folio), P-15 (respaldos cifrados a Drive), P-17 (cupones como descuento), crédito (P-04, P-05) y los archivos de Excel (P-11, P-16, P-20).
 
 ## 16. Dólares estadounidenses en efectivo [P]
 
@@ -402,4 +402,14 @@ P-06 (pantalla de folio), P-10 (flujo de almacén y confirmación al primer esca
 - **Administración** (vista «Departamentos»): alta, renombre, alias y activar/desactivar. Se guardan como operaciones `depto.alta` / `depto.editado` en el central y viajan a todas las tiendas como el tipo de cambio. Renombrar actualiza los artículos que ya usan el nombre; los nombres y alias no se pueden repetir; «Sin clasificar» no se desactiva.
 - **Al importar**: los textos de departamento del archivo se agrupan y cada uno se clasifica como reconocido, otra forma de escribirlo (alias, p. ej. «mujer plus» → Dama Plus), ya no se vende (Zapatos, Niños: pasan a Sin clasificar), parecido a uno existente (sugerencia, p. ej. «Damma plus») o desconocido (Sin clasificar). La tabla del diálogo deja elegir el destino de cada uno antes de cargar; nada se pierde ni se inventa.
 - **Regla de envolturas**: los artículos cuya descripción es bolsa o caja de regalo se mandan a «Envolturas y Bolsas de regalo»; se puede apagar en el diálogo. Las tarjetas de regalo no entran.
-- Pendiente: usar este mismo catálogo en el alta por lote del Almacén y en el alta manual.
+- El alta por lote y el alta manual del Almacén usan este mismo catálogo (sección 18).
+
+## 18. Almacén [P]
+
+- **Acceso**: la sesión de Administración tiene la pantalla «Almacén». En la página de prueba, el menú lateral de la caja trae el botón «Administración» y el de Administración trae «Caja» para volver a la misma caja. En la app real cada sesión es aparte; **falta definir usuarios y contraseñas** (hoy no hay autenticación).
+- **Alta Lote de inventario**: se arrastra o se busca el .xlsx (CANTIDAD, DESCRIPCION, ESTILO, MARCA, CODIGO, PRECIO, LOTE, DEPARTAMENTO y, si aplica, PEDIMENTO). Antes de guardar se revisa: filas inválidas (cantidad, código o precio) no se dan de alta; un código que ya existe suma piezas a ese artículo; un estilo y marca ya existentes con otro código se avisan y se da de alta uno nuevo; los departamentos se confirman con la lógica de la sección 17; si falta la columna de pedimento se puede anotar uno para todo el lote. Reenviar el mismo lote no duplica nada.
+- **Alta manual**: una fila a la vez, con el departamento del catálogo; si el código existe se suman piezas.
+- **Qué entra**: artículos nuevos con Item # asignado por el central y piezas al almacén (`alm.entrada`), **sin existencia en tiendas y sin etiquetas**. Cada llegada es un registro propio (otro UPC, lote y pedimento).
+- **Entrega a tiendas**: por artículo, se confirman las etiquetas de precio y de costura (escribir una cantidad las marca solas; sin ambas no se entrega) y se anotan las piezas para Tienda DÚO y Tienda London. Entregar más de lo registrado avisa y pide confirmación; queda marcado como exceso y el almacén queda en negativo. Reintentar con la misma referencia no duplica.
+- **Recepción**: la tienda no recibe existencia hasta que su personal confirma. Al escanear por primera vez el artículo, la caja pregunta «¿Confirmas que recibiste N piezas?»; al aceptar entra el movimiento `entrada_almacen`. Ejemplo: Almacén 24 → entrega 12 y 12 → Almacén 0 / DÚO 12 / London 12. Si no confirman, la entrega sigue pendiente y visible en Administración.
+- **Pendiente**: reporte de entregas y diferencias, corrección de una entrada capturada mal, y el inventario inicial del catálogo sin existencias.

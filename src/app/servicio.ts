@@ -1,10 +1,12 @@
 import { cortesPorCaja, dolaresPorCaja, reporteConsolidado, ventasPorCaja, type Filtro } from '../consultas.ts';
+import { existenciaAlmacen, recepcionesPendientes, revisarAlta, type AltaManual } from '../almacen.ts';
+import { DEPARTAMENTOS_BASE, resolverDepartamento } from '../departamentos.ts';
 import { formatoTasa } from '../dinero.ts';
 import { ErrorDominio } from '../errores.ts';
 import type { Impresora } from '../impresion.ts';
 import type { Caja } from '../nodos.ts';
 import { catalogo, departamentos as proyDepartamentos, permisos as proyPermisos, tarjetasRegalo, tiposDeCambio, tipoCambioVigente, ventas, type TipoCambio } from '../proyecciones.ts';
-import { hojaDolares, hojaInventario, type Hoja } from '../inventario.ts';
+import { hojaDolares, hojaInventario, leerInventario, PERFIL_CONFIRMADO, type Hoja } from '../inventario.ts';
 import { codigoTicket, construirTicket, NEGOCIOS, renderTextoEscPos, renderTicketDevolucionTexto, renderTicketEscPos, renderTicketTexto, type NegocioCfg } from '../ticket.ts';
 import type { Actor, Articulo, Linea, Op, Venta } from '../tipos.ts';
 import { fechaLocal } from '../util.ts';
@@ -154,7 +156,16 @@ export class ServicioCaja {
   }
 
   escanear(cartId: string, codigo: string) {
-    return { ...this.caja.escanear(cartId, codigo), carrito: this.vista(cartId) };
+    const r = this.caja.escanear(cartId, codigo);
+    return { ...r, ...('linea' in r ? { recepcion: this.caja.recepcionesPendientes(r.linea.item_id) } : {}), carrito: this.vista(cartId) };
+  }
+  /** Entregas del almacén a esta tienda sin confirmar (el cajero las confirma al escanear el artículo). */
+  recepcionesPendientes() {
+    const cat = catalogo(this.caja.ops());
+    return this.caja.recepcionesPendientes().map((r) => ({ ...r, descripcion: cat.get(r.item_id)?.descripcion ?? '', marca: cat.get(r.item_id)?.marca ?? '', codigo: cat.get(r.item_id)?.codigo ?? '' }));
+  }
+  confirmarRecepcion(entregaId: string) {
+    return this.caja.confirmarRecepcion(entregaId, this.actor.usuario);
   }
   /**
    * Agregar desde un resultado de búsqueda. P-13 (decidido): un código duplicado no debería existir; si ocurre, el cajero
@@ -163,7 +174,8 @@ export class ServicioCaja {
   agregarArticulo(cartId: string, itemId: string) {
     const art = this.caja.idx.articulo(itemId);
     if (!art) throw new ErrorDominio('ARTICULO_INEXISTENTE', itemId);
-    return { ...this.caja.agregarPorId(cartId, itemId), carrito: this.vista(cartId) };
+    const r = this.caja.agregarPorId(cartId, itemId);
+    return { ...r, recepcion: this.caja.recepcionesPendientes(itemId), carrito: this.vista(cartId) };
   }
   async sincronizar() {
     await this.conexion.sincronizar?.();
@@ -359,7 +371,8 @@ export class ServicioAdmin {
   private fuente: () => Op[];
   readonly cajas: { tienda: string; caja: number }[];
   private inv?: FuenteInventario;
-  private central?: { fijarTipoCambio(tasa: number, usuario: string, versionBase: number, confirmarVariacion?: boolean): import('../nodos.ts').ResultadoTipoCambio; asignarPermiso(usuario: string, permiso: string, valor: boolean, por: string): Op; guardarDepto(c: import('../departamentos.ts').CambioDepto, por: string): { ok: true; op: Op } | { ok: false; error: import('../departamentos.ts').ErrorDepto } };
+  private central?: { fijarTipoCambio(tasa: number, usuario: string, versionBase: number, confirmarVariacion?: boolean): import('../nodos.ts').ResultadoTipoCambio; asignarPermiso(usuario: string, permiso: string, valor: boolean, por: string): Op; guardarDepto(c: import('../departamentos.ts').CambioDepto, por: string): { ok: true; op: Op } | { ok: false; error: import('../departamentos.ts').ErrorDepto };
+    altaLote: import('../nodos.ts').Central['altaLote']; entregar: import('../nodos.ts').Central['entregar'] };
   constructor(o: { actor: Extract<Actor, { rol: 'admin' }>; fuente: () => Op[]; cajas: { tienda: string; caja: number }[]; inventario?: FuenteInventario; central?: ServicioAdmin['central'] }) {
     this.central = o.central;
     this.actor = o.actor;
@@ -425,6 +438,83 @@ export class ServicioAdmin {
     const r = this.central.guardarDepto(c, this.actor.usuario);
     if (!r.ok) throw new ErrorDominio(r.error.codigo === 'NO_EXISTE' ? 'NO_ENCONTRADO' : 'DEPARTAMENTO_INVALIDO', r.error.mensaje, { motivo: r.error.codigo });
     return this.departamentos();
+  }
+  // ── almacén ──
+  private tiendas() { return [...new Set(this.cajas.map((c) => c.tienda))]; }
+  /** Existencia del almacén por artículo, lo pendiente de confirmar por cada tienda y las entregas recientes. */
+  almacen() {
+    const ops = this.fuente();
+    const cat = catalogo(ops);
+    const ex = existenciaAlmacen(ops);
+    const tiendas = this.tiendas();
+    const pend = new Map<string, Record<string, number>>();
+    for (const t of tiendas) for (const r of recepcionesPendientes(ops, t)) { const x = pend.get(r.item_id) ?? {}; x[t] = (x[t] ?? 0) + r.qty; pend.set(r.item_id, x); }
+    const items = [...ex.values()].filter((e) => cat.has(e.item_id)).map((e) => {
+      const a = cat.get(e.item_id)!;
+      return {
+        item_id: a.item_id, item_no: a.item_no, codigo: a.codigo, marca: a.marca, descripcion: a.descripcion, estilo: a.estilo, lote: a.lote, departamento: a.departamento, precio: a.precio,
+        pedimentos: e.pedimentos, recibido: e.recibido, entregado: e.entregado, existencia: e.existencia, pendiente_por_tienda: pend.get(a.item_id) ?? {},
+      };
+    }).sort((x, y) => Number(y.item_no ?? 0) - Number(x.item_no ?? 0));
+    return { tiendas, items };
+  }
+  private deptosActivos() { return proyDepartamentos(this.fuente()); }
+  /** Lee y revisa un archivo de alta SIN guardar nada: columnas, departamentos a confirmar, artículos que ya existen. */
+  revisarAltaLote(filas: unknown[][], o: { decisiones?: Record<string, string>; regla?: boolean } = {}) {
+    if (!Array.isArray(filas)) throw new ErrorDominio('DATOS_REQUERIDOS', 'falta el contenido del archivo');
+    const deptos = this.deptosActivos();
+    const lectura = leerInventario(filas, PERFIL_CONFIRMADO, deptos);
+    const revision = revisarAlta(lectura, [...catalogo(this.fuente()).values()], deptos, { decisiones: o.decisiones, reglaEnvolturas: o.regla !== false });
+    return {
+      revision, departamentos: lectura.departamentos, envolturas: lectura.envolturas, destinos: deptos.filter((d) => d.activo).map((d) => d.nombre),
+      columnas: { usadas: lectura.columnas.usadas, ignoradas: lectura.columnas.ignoradas },
+    };
+  }
+  /** Da de alta el lote revisado: artículos nuevos y/o piezas a existentes, todo al almacén. */
+  altaLote(d: { lote_id: string; nombre?: string; filas: unknown[][]; decisiones?: Record<string, string>; regla?: boolean; pedimento_lote?: string }) {
+    if (!this.central) throw new ErrorDominio('SIN_CENTRAL', 'esta sesión no tiene acceso al servicio central');
+    if (!String(d.lote_id ?? '').trim()) throw new ErrorDominio('DATOS_REQUERIDOS', 'falta el identificador del lote');
+    const r = this.revisarAltaLote(d.filas, { decisiones: d.decisiones, regla: d.regla });
+    if (r.revision.errores.length) throw new ErrorDominio('ARCHIVO_INVALIDO', r.revision.errores.join('; '));
+    const validas = r.revision.filas.filter((f) => f.estado !== 'invalido');
+    if (!validas.length) throw new ErrorDominio('ARCHIVO_INVALIDO', 'el archivo no tiene filas válidas para dar de alta');
+    const res = this.central.altaLote({
+      lote_id: d.lote_id, fuente: `archivo:${d.nombre ?? 'sin nombre'}`, por: this.actor.usuario,
+      filas: validas.map((f) => ({
+        fila: f.fila, cantidad: f.cantidad, codigo: f.codigo, marca: f.marca, descripcion: f.descripcion, estilo: f.estilo, lote: f.lote, precio: f.precio,
+        departamento: f.departamento, pedimento: f.pedimento || d.pedimento_lote || undefined, item_id: f.existente?.item_id,
+      })),
+    });
+    return { ...res, omitidas: r.revision.resumen.invalidos, almacen: this.almacen() };
+  }
+  /** Alta manual de un artículo (o suma de piezas si el código ya existe). */
+  altaManual(d: AltaManual & { lote_id?: string }) {
+    if (!this.central) throw new ErrorDominio('SIN_CENTRAL', 'esta sesión no tiene acceso al servicio central');
+    const t = (v: unknown) => String(v ?? '').trim();
+    const cantidad = Number(d.cantidad), precio = Math.round(Number(d.precio) * 100);
+    if (!Number.isInteger(cantidad) || cantidad <= 0) throw new ErrorDominio('CANTIDAD_INVALIDA', 'la cantidad debe ser un entero mayor que 0');
+    if (!t(d.codigo)) throw new ErrorDominio('DATOS_REQUERIDOS', 'falta el código');
+    if (!t(d.descripcion)) throw new ErrorDominio('DATOS_REQUERIDOS', 'falta la descripción');
+    const deptos = this.deptosActivos();
+    const rd = resolverDepartamento(t(d.departamento), deptos);
+    if (rd.estado !== 'exacto' && rd.estado !== 'alias') throw new ErrorDominio('DEPARTAMENTO_INVALIDO', `el departamento «${t(d.departamento)}» no existe${rd.sugerencias[0] ? `; ¿quiso decir «${rd.sugerencias[0].nombre}»?` : ''}`, { sugerencias: rd.sugerencias });
+    const existente = [...catalogo(this.fuente()).values()].find((a) => a.codigo === t(d.codigo));
+    if (!existente && !(precio > 0)) throw new ErrorDominio('PRECIO_INVALIDO', 'el precio debe ser mayor que 0');
+    const res = this.central.altaLote({
+      lote_id: d.lote_id || `manual-${Date.now()}-${t(d.codigo)}`, fuente: 'manual', por: this.actor.usuario,
+      filas: [{ fila: 1, cantidad, codigo: t(d.codigo), marca: t(d.marca), descripcion: t(d.descripcion), estilo: t(d.estilo), lote: t(d.lote), precio, departamento: rd.propuesto, pedimento: t(d.pedimento) || undefined, item_id: existente?.item_id }],
+    });
+    return { ...res, almacen: this.almacen() };
+  }
+  /** Entrega a tiendas. Sin etiquetas confirmadas no se entrega; entregar más de lo registrado pide confirmación. */
+  entregarAlmacen(d: { item_id: string; destinos: Record<string, number>; etiqueta_precio: boolean; etiqueta_costura: boolean; confirmar_exceso?: boolean; ref?: string }) {
+    if (!this.central) throw new ErrorDominio('SIN_CENTRAL', 'esta sesión no tiene acceso al servicio central');
+    const r = this.central.entregar({ ...d, por: this.actor.usuario });
+    if (!r.ok) {
+      const msg = { articulo_inexistente: 'el artículo no existe', cantidad_invalida: 'indique cantidades enteras de 1 en adelante', tienda_invalida: 'tienda desconocida', etiquetas_pendientes: 'confirme que el artículo ya tiene etiqueta de precio y de costura', excede: `se entregarían ${r.pedido} pieza(s) y el almacén registra ${r.disponible}: confirme para entregar de todos modos` }[r.motivo];
+      throw new ErrorDominio(r.motivo === 'excede' ? 'CONFIRMACION_REQUERIDA' : r.motivo === 'etiquetas_pendientes' ? 'ETIQUETAS_PENDIENTES' : 'ENTREGA_INVALIDA', msg, r.motivo === 'excede' ? { disponible: r.disponible, pedido: r.pedido } : undefined);
+    }
+    return { existencia_almacen: r.existencia_almacen, almacen: this.almacen() };
   }
   /** Dólares físicos recibidos y su equivalente con la tasa de cada operación (no la del día). */
   dolares(f: Filtro = {}) {

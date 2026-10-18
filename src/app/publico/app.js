@@ -34,6 +34,8 @@ const I = {
   chart: '<path d="M5 20V11M12 20V4M19 20v-6"/>',
   gift: '<rect x="3" y="8" width="18" height="4" rx="1"/><path d="M12 8v13M5 12v8a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-8"/><path d="M7.5 8a2.5 2.5 0 0 1 0-5C10 3 12 8 12 8s2-5 4.5-5a2.5 2.5 0 0 1 0 5"/>',
   box: '<path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/>',
+  warehouse: '<path d="M3 10 12 4l9 6v10H3z"/><path d="M8 20v-6h8v6M8 17h8"/>',
+  upload: '<path d="M12 16V5m0 0-4 4m4-4 4 4M5 20h14"/>',
   gear: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9 7 7M17 17l2.1 2.1M19.1 4.9 17 7M7 17l-2.1 2.1"/>',
   barcode: '<path d="M4 5v14M7 5v14M11 5v14M14 5v14M18 5v14M20.5 5v14"/>',
   search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
@@ -124,20 +126,28 @@ const folioTexto = () => (S.ultimoFolio ? `Folio ${String(S.ultimoFolio).padStar
 // ── navegación ──
 const NAV = {
   venta: ['Venta', 'cart'], ventas: ['Historial', 'clock'], creditos: ['Créditos', 'card'], corte: ['Corte de caja', 'chart'],
-  tarjetas: ['Tarjetas de regalo', 'gift'], reportes: ['Reportes', 'chart'], cortes: ['Cortes', 'cash'], dolares: ['Dólares recibidos', 'dollar'], inventario: ['Inventario', 'box'], departamentos: ['Departamentos', 'box'], tipo_cambio: ['Tipo de cambio', 'refresh'],
+  tarjetas: ['Tarjetas de regalo', 'gift'], reportes: ['Reportes', 'chart'], cortes: ['Cortes', 'cash'], dolares: ['Dólares recibidos', 'dollar'], inventario: ['Inventario', 'box'], departamentos: ['Departamentos', 'box'], almacen: ['Almacén', 'warehouse'], administracion: ['Administración', 'gear'], volver_caja: ['Caja', 'caja'], tipo_cambio: ['Tipo de cambio', 'refresh'],
 };
 function pintarNav() {
-  const items = S.sesion.rol === 'cajero' ? S.sesion.nav.flatMap((v) => (v === 'ventas' ? [v, 'creditos'] : [v])) : S.sesion.nav;
+  // En la página de prueba (una sola ventana) se puede pasar de la caja a Administración y volver; en la app real cada sesión es la suya.
+  const cambia = !!window.__POS_CAMBIAR_SESION__;
+  const items = S.sesion.rol === 'cajero' ? [...S.sesion.nav.flatMap((v) => (v === 'ventas' ? [v, 'creditos'] : [v])), ...(cambia ? ['administracion'] : [])] : [...S.sesion.nav, ...(cambia ? ['volver_caja'] : [])];
   $('#nav').innerHTML = items.map((v) => v === 'creditos'
     ? `<button type="button" data-proximamente="creditos" disabled title="Próximamente" aria-label="Créditos (próximamente)">${ico(NAV[v][1])}<span>${NAV[v][0]}</span></button>`
     : `<button type="button" data-vista="${v}" title="${NAV[v][0]}" ${v === S.vista ? 'aria-current="page"' : ''}>${ico(NAV[v][1])}<span>${NAV[v][0]}</span></button>`).join('');
-  for (const b of $('#nav').querySelectorAll('button[data-vista]')) b.addEventListener('click', () => ir(b.dataset.vista));
+  for (const b of $('#nav').querySelectorAll('button[data-vista]')) {
+    b.addEventListener('click', () => {
+      if (b.dataset.vista === 'administracion') return window.__POS_CAMBIAR_SESION__('admin');
+      if (b.dataset.vista === 'volver_caja') return window.__POS_CAMBIAR_SESION__('caja');
+      return ir(b.dataset.vista);
+    });
+  }
 }
 async function ir(v) {
   S.vista = v;
   pintarNav();
   await pintarEncabezado();
-  await ({ venta: vistaVenta, corte: vistaCorte, ventas: vistaVentas, reportes: vistaReportes, inventario: vistaInventario, departamentos: vistaDepartamentos, tarjetas: vistaTarjetas, devolucion: vistaDevolucion, dolares: vistaDolares, tipo_cambio: vistaTipoCambio, cortes: vistaCortes })[v]();
+  await ({ venta: vistaVenta, corte: vistaCorte, ventas: vistaVentas, reportes: vistaReportes, inventario: vistaInventario, almacen: vistaAlmacen, departamentos: vistaDepartamentos, tarjetas: vistaTarjetas, devolucion: vistaDevolucion, dolares: vistaDolares, tipo_cambio: vistaTipoCambio, cortes: vistaCortes })[v]();
 }
 
 // ── venta ──
@@ -432,6 +442,7 @@ async function escanear() {
       S.sel = r.linea.linea_id;
       msg(`${r.resultado === 'agregado' ? 'Agregado' : 'Cantidad actualizada'}: ${r.linea.descripcion} ${r.linea.marca} · ${r.linea.qty} pza.`);
       pintarCarrito();
+      await ofrecerRecepciones(r.recepcion, r.linea);
     } else if (r.resultado === 'ambiguo') {
       msg(`El código ${r.codigo} está duplicado en el catálogo. Elija cuál es el artículo: la venta quedará marcada para que Administración lo revise.`, 'aviso');
       $('#resultados').innerHTML = `<ul data-resultado="ambiguo" style="list-style:none;padding:0;display:flex;flex-direction:column;gap:8px">${r.candidatos.map((c) => `<li style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><span style="flex:1;min-width:200px">${esc(c.marca)} · ${esc(c.descripcion)} · Estilo ${esc(c.estilo)} · Lote ${esc(c.lote)} · Item # ${esc(c.item_no ?? 'pendiente')}</span><button class="btn" type="button" data-agregar="${c.item_id}">${ico('plus')}<span>Agregar este</span></button></li>`).join('')}</ul>`;
@@ -460,6 +471,7 @@ function engancharAgregar() {
         const r = await api('/api/venta/agregar', { cart: S.cart, item_id: b.dataset.agregar });
         S.carrito = r.carrito; S.sel = r.linea.linea_id; $('#resultados').innerHTML = '';
         msg(`Agregado: ${r.linea.descripcion} ${r.linea.marca}`.trim() + (r.linea.ambiguo ? ' (código duplicado: queda marcado para revisión)' : '')); pintarCarrito();
+        await ofrecerRecepciones(r.recepcion, r.linea);
       } catch (e) { msg(e.message, 'error'); }
       $('#scan').focus();
     });
@@ -1010,6 +1022,204 @@ async function vistaDolares() {
     try { e.textContent = await exportarArchivo(`/api/admin/dolares.xlsx?desde=${$('#usd-desde').value}&hasta=${$('#usd-hasta').value}`, 'dolares-recibidos.xlsx'); } catch (err) { e.textContent = `No se pudo exportar: ${err.message}`; }
   });
   await consultar();
+}
+
+// ── recepción de mercancía del almacén (la tienda confirma al escanear por primera vez) ──
+function dialogo(id) {
+  let d = document.getElementById(id);
+  if (!d) { d = document.createElement('dialog'); d.id = id; document.body.appendChild(d); }
+  return d;
+}
+async function ofrecerRecepciones(lista, linea) {
+  for (const rec of lista ?? []) {
+    const d = dialogo('dlg-recepcion');
+    d.innerHTML = `<h2 id="rec-titulo" style="margin-top:0">Mercancía nueva del almacén</h2>
+      <p><b>${esc(linea.descripcion)} ${esc(linea.marca)}</b></p>
+      <p id="rec-pregunta" style="font-size:18px">¿Confirmas que recibiste <b>${rec.qty} pieza${rec.qty === 1 ? '' : 's'}</b>?</p>
+      <p class="nota">Al confirmar, esas piezas entran a la existencia de esta tienda. Si no coincide la cuenta, elige «Ahora no» y avisa a Administración.</p>
+      <div class="filas"><button class="btn" type="button" id="rec-no">Ahora no</button><button class="btn btn-primario" type="button" id="rec-si" style="width:auto;flex:1">${ico('check')}<span>Sí, recibí ${rec.qty}</span></button></div>`;
+    d.setAttribute('aria-labelledby', 'rec-titulo');
+    await new Promise((fin) => {
+      $('#rec-no').addEventListener('click', () => { d.close(); fin(); });
+      $('#rec-si').addEventListener('click', async () => {
+        try { await api('/api/recepciones/confirmar', { entrega_id: rec.entrega_id }); d.close(); const v = await api('/api/venta/actual', {}); S.carrito = v.carrito; pintarCarrito(); msg(`Recepción confirmada: ${rec.qty} pieza(s) de ${linea.descripcion} entraron a la existencia de la tienda.`); }
+        catch (e) { d.close(); msg(e.message, 'error'); }
+        fin();
+      });
+      d.showModal();
+    });
+  }
+  $('#scan')?.focus();
+}
+
+// ── Almacén (Administración) ──
+const TIENDAS_ALM = { DUO: 'Tienda DÚO', LON: 'Tienda London' };
+const uuid = () => (window.crypto?.randomUUID ? window.crypto.randomUUID() : `id-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+async function vistaAlmacen() {
+  const j = await api('/api/admin/almacen');
+  S.alm = { ...(S.alm ?? { q: '', solo: true }), tiendas: j.tiendas, items: j.items };
+  $('#vista').innerHTML = `<div class="titulo-vista">${ico('warehouse')}<h1>Almacén</h1></div>
+    <section class="panel"><div class="filas" style="align-items:center">
+      <button class="btn btn-primario" id="btn-alta-lote" type="button" style="width:auto">${ico('upload')}<span>Alta Lote de inventario</span></button>
+      <button class="btn" id="btn-alta-manual" type="button">${ico('plus')}<span>Alta manual</span></button>
+      <label style="margin-left:auto">${ico('search')} <input class="texto" id="alm-q" placeholder="Buscar por código, Item #, texto…" value="${esc(S.alm.q)}" style="padding:6px 8px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie)"></label>
+      <label><input type="checkbox" id="alm-solo" ${S.alm.solo ? 'checked' : ''}> Solo con piezas en el almacén o por confirmar</label></div>
+      <p class="nota">Las piezas llegan aquí sin etiquetar y sin existencia en tienda. Confirme las etiquetas, anote cuántas va a cada tienda y entregue: la tienda confirma la recepción al escanear el artículo por primera vez.</p>
+      <div id="msg-alm" class="mensaje" role="status" aria-live="polite"></div></section>
+    <section class="panel" style="margin-top:12px"><div class="tabla-cont"><table id="tabla-almacen"><thead><tr><th>Item #</th><th>Código</th><th>Descripción</th><th>Estilo</th><th>Lote</th><th>Pedimento</th><th>Departamento</th><th class="num">Almacén</th><th>Etiqueta precio</th><th>Etiqueta costura</th>${j.tiendas.map((t) => `<th>${esc(TIENDAS_ALM[t] ?? t)}</th>`).join('')}<th>Por confirmar</th><th></th></tr></thead><tbody id="alm-cuerpo"></tbody></table></div><p class="nota" id="alm-pie"></p></section>`;
+  $('#btn-alta-lote').addEventListener('click', abrirAltaLote);
+  $('#btn-alta-manual').addEventListener('click', abrirAltaManual);
+  $('#alm-q').addEventListener('input', (ev) => { S.alm.q = ev.target.value; pintarAlmacen(); });
+  $('#alm-solo').addEventListener('change', (ev) => { S.alm.solo = ev.target.checked; pintarAlmacen(); });
+  pintarAlmacen();
+}
+function pintarAlmacen() {
+  const a = S.alm;
+  const q = a.q.trim().toLowerCase();
+  const visibles = a.items.filter((i) => (!a.solo || i.existencia !== 0 || Object.keys(i.pendiente_por_tienda).length)
+    && (!q || [i.codigo, i.item_no, i.descripcion, i.marca, i.estilo, i.lote, i.departamento, ...i.pedimentos].join(' ').toLowerCase().includes(q)));
+  const lim = visibles.slice(0, 150);
+  $('#alm-cuerpo').innerHTML = lim.map((i) => `<tr data-item="${esc(i.item_id)}" data-codigo="${esc(i.codigo)}">
+    <td>${esc(i.item_no ?? '—')}</td><td>${esc(i.codigo)}</td><td class="desc">${esc(i.descripcion)} ${esc(i.marca)}</td><td>${esc(i.estilo)}</td><td>${esc(i.lote)}</td><td>${esc(i.pedimentos.join(', ') || '—')}</td><td>${esc(i.departamento)}</td>
+    <td class="num" data-col="almacen"><b>${i.existencia}</b></td>
+    <td><input type="checkbox" class="et-precio" aria-label="Etiqueta de precio"></td><td><input type="checkbox" class="et-costura" aria-label="Etiqueta de costura"></td>
+    ${a.tiendas.map((t) => `<td><input type="number" min="0" step="1" class="q-${esc(t)}" data-tienda="${esc(t)}" aria-label="Piezas para ${esc(TIENDAS_ALM[t] ?? t)}" style="width:70px;padding:4px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie);text-align:right"></td>`).join('')}
+    <td data-col="pendiente">${Object.entries(i.pendiente_por_tienda).map(([t, n]) => `${esc(TIENDAS_ALM[t] ?? t)}: ${n}`).join(' · ') || '—'}</td>
+    <td><button class="btn btn-entregar" type="button">${ico('check')}<span>Entregar</span></button></td></tr>`).join('')
+    || `<tr><td colspan="${11 + a.tiendas.length}" class="vacio">${a.items.length ? 'Nada coincide con el filtro.' : 'El almacén está vacío. Use «Alta Lote de inventario» o «Alta manual».'}</td></tr>`;
+  $('#alm-pie').textContent = visibles.length > lim.length ? `Se muestran ${lim.length} de ${visibles.length}. Use el buscador para acotar.` : `${visibles.length} artículo(s).`;
+  for (const tr of $('#alm-cuerpo').querySelectorAll('tr[data-item]')) {
+    // Escribir una cantidad para una tienda marca solas las dos etiquetas (el almacén las pone al preparar la entrega).
+    for (const inp of tr.querySelectorAll('input[type=number]')) inp.addEventListener('input', () => { if (Number(inp.value) > 0) { tr.querySelector('.et-precio').checked = true; tr.querySelector('.et-costura').checked = true; } });
+    tr.querySelector('.btn-entregar').addEventListener('click', () => entregarFila(tr, false));
+  }
+}
+async function entregarFila(tr, confirmarExceso) {
+  const m = $('#msg-alm');
+  const destinos = {};
+  for (const inp of tr.querySelectorAll('input[type=number]')) if (inp.value !== '') destinos[inp.dataset.tienda] = Number(inp.value);
+  S.refEntrega = S.refEntrega ?? {};
+  const ref = (S.refEntrega[tr.dataset.item] ??= uuid());
+  try {
+    const r = await api('/api/admin/almacen/entregar', { item_id: tr.dataset.item, destinos, etiqueta_precio: tr.querySelector('.et-precio').checked, etiqueta_costura: tr.querySelector('.et-costura').checked, confirmar_exceso: confirmarExceso, ref });
+    delete S.refEntrega[tr.dataset.item];
+    S.alm.items = r.almacen.items;
+    pintarAlmacen();
+    m.className = 'mensaje ok'; m.textContent = `Entrega registrada. En el almacén quedan ${r.existencia_almacen} pieza(s); cada tienda las recibe al confirmar el primer escaneo.`;
+  } catch (e) {
+    if (e.codigo === 'CONFIRMACION_REQUERIDA') {
+      m.className = 'mensaje aviso';
+      m.innerHTML = `${esc(e.message)} <button class="btn" type="button" id="btn-confirmar-exceso">Entregar de todos modos</button>`;
+      $('#btn-confirmar-exceso').addEventListener('click', () => entregarFila(tr, true));
+    } else { delete S.refEntrega[tr.dataset.item]; m.className = 'mensaje error'; m.textContent = e.message; }
+  }
+}
+async function leerArchivoAlta(archivo) {
+  if (window.__POS_LEER_XLSX__) return window.__POS_LEER_XLSX__(archivo);
+  const r = await fetch('/api/admin/almacen/leer-archivo', { method: 'POST', headers: { 'content-type': 'application/octet-stream' }, body: await archivo.arrayBuffer() });
+  const j = await r.json();
+  if (!j.ok) throw new Error(j.error?.mensaje ?? 'No se pudo leer el archivo');
+  return j.hojas;
+}
+const ESTADO_FILA = { nuevo: 'Nuevo', codigo_existente: 'Ya existe: se suman piezas', invalido: 'No se da de alta' };
+const NOM_ESTADO_DEPTO = { vacio: 'Sin departamento', exacto: 'Reconocido', alias: 'Reconocido (otra forma de escribirlo)', descontinuado: 'Ya no se vende', sugerido: 'Parecido a uno existente: confirme', desconocido: 'Desconocido: elija' };
+function abrirAltaLote() {
+  const d = dialogo('dlg-alta-lote');
+  const E = { hojas: null, hoja: 0, nombre: '', decisiones: {}, regla: true, pedimento: '', lote_id: uuid(), rev: null };
+  d.setAttribute('aria-labelledby', 'alta-titulo');
+  const base = () => `<h2 id="alta-titulo" style="margin-top:0">Alta Lote de inventario</h2>
+    <div id="zona-archivo" class="zona-archivo" tabindex="0"><p>Arrastre aquí el archivo de Excel del lote (.xlsx)</p><p>o</p><button class="btn" type="button" id="btn-buscar-archivo">${ico('file')}<span>Buscar en esta computadora</span></button>
+      <input type="file" id="archivo-alta" accept=".xlsx" hidden></div>
+    <p class="nota">Columnas esperadas: CANTIDAD, DESCRIPCION, ESTILO, MARCA, CODIGO, PRECIO, LOTE, DEPARTAMENTO y, cuando aplique, PEDIMENTO. Revisamos el archivo contra el inventario antes de guardar nada.</p>
+    <div id="msg-alta" class="mensaje" role="status" aria-live="polite"></div><div class="filas"><button class="btn" type="button" id="alta-cerrar">Cancelar</button></div>`;
+  d.innerHTML = base();
+  const err = (t) => { const m = $('#msg-alta'); if (m) { m.className = 'mensaje error'; m.textContent = t; } };
+  const enganchar = () => {
+    $('#alta-cerrar').addEventListener('click', () => d.close());
+    const z = $('#zona-archivo');
+    z.addEventListener('dragover', (ev) => { ev.preventDefault(); z.classList.add('sobre'); });
+    z.addEventListener('dragleave', () => z.classList.remove('sobre'));
+    z.addEventListener('drop', (ev) => { ev.preventDefault(); z.classList.remove('sobre'); const f = ev.dataTransfer.files[0]; if (f) cargarArchivo(f); });
+    $('#btn-buscar-archivo').addEventListener('click', () => $('#archivo-alta').click());
+    $('#archivo-alta').addEventListener('change', (ev) => { const f = ev.target.files[0]; ev.target.value = ''; if (f) cargarArchivo(f); });
+  };
+  const cargarArchivo = async (f) => {
+    try {
+      if (!/\.xlsx$/i.test(f.name)) return err('Solo se aceptan archivos de Excel .xlsx.');
+      E.hojas = await leerArchivoAlta(f); E.nombre = f.name; E.hoja = 0; E.lote_id = uuid(); E.decisiones = {};
+      await revisar();
+    } catch (e) { err(e.message); }
+  };
+  const revisar = async () => {
+    const hoja = E.hojas[E.hoja];
+    E.rev = await api('/api/admin/almacen/revisar', { filas: hoja.filas, decisiones: E.decisiones, regla: E.regla });
+    pintar();
+  };
+  const pintar = () => {
+    const r = E.rev, rv = r.revision, rs = rv.resumen;
+    const quedan = rs.nuevos + rs.codigo_existente;
+    d.innerHTML = `<h2 id="alta-titulo" style="margin-top:0">Alta Lote de inventario</h2>
+      <p><b>${esc(E.nombre)}</b>${E.hojas.length > 1 ? ` · hoja <select id="alta-hoja">${E.hojas.map((h, i) => `<option value="${i}" ${i === E.hoja ? 'selected' : ''}>${esc(h.nombre)}</option>`).join('')}</select>` : ''}</p>
+      ${rv.errores.length ? `<div class="mensaje error" id="alta-errores">${rv.errores.map(esc).join('<br>')}</div>` : ''}
+      <p id="alta-resumen"><b>${rs.filas}</b> filas · <b>${rs.nuevos}</b> artículos nuevos · <b>${rs.codigo_existente}</b> ya existen (se suman piezas) · <b>${rs.invalidos}</b> no se darán de alta · <b>${rs.piezas}</b> piezas en total · <b>${rs.con_estilo_existente}</b> con estilo y marca ya existentes con otro código</p>
+      ${rv.trae_pedimento ? `<p class="nota">${rs.sin_pedimento} fila(s) sin pedimento (compras nacionales).</p>` : '<p class="nota" id="alta-sin-pedimento">El archivo no trae la columna de No. de pedimento. Si el lote lo lleva, anótelo aquí; si es compra nacional, déjelo vacío.</p>'}
+      <label>No. de pedimento del lote (opcional, se aplica a las filas que no lo traen) <input class="texto" id="alta-pedimento" value="${esc(E.pedimento)}" style="padding:6px 8px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie)"></label>
+      <h3>Departamentos del archivo</h3>
+      <div class="tabla-cont anomalias"><table id="alta-deptos"><thead><tr><th>En el archivo</th><th class="num">Filas</th><th>Situación</th><th>Departamento en el sistema</th></tr></thead><tbody>
+      ${r.departamentos.map((g) => { const elegido = E.decisiones[g.clave] || g.propuesto; const aviso = ['sugerido', 'desconocido', 'descontinuado', 'vacio'].includes(g.estado); return `<tr data-clave="${esc(g.clave)}" data-estado="${g.estado}" ${aviso ? 'class="aviso-depto"' : ''}><td>${g.original ? esc(g.original) : '<em>(vacío)</em>'}</td><td class="num">${g.articulos}</td><td>${NOM_ESTADO_DEPTO[g.estado]}${g.estado === 'sugerido' ? `: ¿«${esc(g.propuesto)}»?` : ''}</td><td><select class="sel-depto" data-clave="${esc(g.clave)}">${r.destinos.map((n) => `<option ${n === elegido ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></td></tr>`; }).join('')}</tbody></table></div>
+      <label><input type="checkbox" id="alta-regla" ${E.regla ? 'checked' : ''}> Mover bolsas y cajas de regalo (${r.envolturas} por su descripción) a «Envolturas y Bolsas de regalo»</label>
+      <h3>Artículos</h3>
+      <div class="tabla-cont anomalias" style="max-height:34vh;overflow:auto"><table id="alta-filas"><thead><tr><th>Fila</th><th class="num">Cant.</th><th>Código</th><th>Descripción</th><th>Estilo</th><th>Marca</th><th>Lote</th><th class="num">Precio</th><th>Departamento</th><th>Estado</th><th>Avisos</th></tr></thead><tbody>
+      ${rv.filas.slice(0, 400).map((f) => `<tr data-fila="${f.fila}" data-estado="${f.estado}"><td>${f.fila}</td><td class="num">${f.cantidad}</td><td>${esc(f.codigo)}</td><td>${esc(f.descripcion)}</td><td>${esc(f.estilo)}</td><td>${esc(f.marca)}</td><td>${esc(f.lote)}</td><td class="num">${mxn(f.precio)}</td><td>${esc(f.departamento)}</td><td>${ESTADO_FILA[f.estado]}</td><td>${f.avisos.map(esc).join('<br>')}</td></tr>`).join('')}</tbody></table></div>
+      ${rv.filas.length > 400 ? `<p class="nota">Se muestran las primeras 400 de ${rv.filas.length} filas; todas se procesan.</p>` : ''}
+      <div id="msg-alta" class="mensaje" role="status" aria-live="polite"></div>
+      <div class="filas"><button class="btn" type="button" id="alta-cerrar">Cancelar</button><button class="btn btn-primario" type="button" id="alta-confirmar" style="width:auto;flex:1" ${quedan && !rv.errores.length ? '' : 'disabled'}>Dar de alta ${quedan} artículos (${rs.piezas} piezas) al almacén</button></div>`;
+    $('#alta-cerrar').addEventListener('click', () => d.close());
+    const h = $('#alta-hoja'); if (h) h.addEventListener('change', async (ev) => { E.hoja = Number(ev.target.value); E.decisiones = {}; await revisar(); });
+    for (const x of d.querySelectorAll('.sel-depto')) x.addEventListener('change', async (ev) => { E.decisiones[ev.target.dataset.clave] = ev.target.value; await revisar(); });
+    $('#alta-regla').addEventListener('change', async (ev) => { E.regla = ev.target.checked; await revisar(); });
+    $('#alta-pedimento').addEventListener('input', (ev) => { E.pedimento = ev.target.value; });
+    $('#alta-confirmar').addEventListener('click', async () => {
+      $('#alta-confirmar').disabled = true;
+      try {
+        const res = await api('/api/admin/almacen/alta', { lote_id: E.lote_id, nombre: E.nombre, filas: E.hojas[E.hoja].filas, decisiones: E.decisiones, regla: E.regla, pedimento_lote: E.pedimento });
+        d.close();
+        S.alm.items = res.almacen.items;
+        await vistaAlmacen();
+        const m = $('#msg-alm'); m.className = 'mensaje ok'; m.textContent = `Lote dado de alta: ${res.nuevos} artículo(s) nuevo(s), ${res.sumados} existente(s) con piezas sumadas, ${res.piezas} pieza(s) en el almacén${res.omitidas ? `; ${res.omitidas} fila(s) omitida(s)` : ''}.`;
+      } catch (e) { err(e.message); $('#alta-confirmar').disabled = false; }
+    });
+  };
+  enganchar();
+  d.showModal();
+}
+async function abrirAltaManual() {
+  const d = dialogo('dlg-alta-manual');
+  const { departamentos: lista } = await api('/api/admin/departamentos');
+  const campo = (id, rotulo, extra = '') => `<div class="campo"><label for="${id}">${rotulo}</label><input id="${id}" class="texto" ${extra}></div>`;
+  d.setAttribute('aria-labelledby', 'manual-titulo');
+  d.innerHTML = `<h2 id="manual-titulo" style="margin-top:0">Alta manual de artículo</h2>
+    <form id="form-manual" autocomplete="off">
+      ${campo('man-cantidad', 'Cantidad', 'type="number" min="1" step="1"')}${campo('man-codigo', 'Código (UPC)')}${campo('man-descripcion', 'Descripción')}${campo('man-marca', 'Marca')}${campo('man-estilo', 'Estilo')}${campo('man-lote', 'Lote')}${campo('man-precio', 'Precio de venta (MXN)', 'inputmode="decimal"')}
+      <div class="campo"><label for="man-depto">Departamento</label><select id="man-depto" style="width:100%;padding:10px;border:2px solid var(--borde);border-radius:10px;background:var(--superficie)">${lista.filter((x) => x.activo).map((x) => `<option>${esc(x.nombre)}</option>`).join('')}</select></div>
+      ${campo('man-pedimento', 'No. de pedimento (si aplica)')}
+      <p class="nota">Si el código ya existe, las piezas se suman a ese artículo.</p>
+      <div id="msg-manual" class="mensaje" role="status" aria-live="polite"></div>
+      <div class="filas"><button class="btn" type="button" id="manual-cerrar">Cancelar</button><button class="btn btn-primario" type="submit" id="manual-guardar" style="width:auto;flex:1">${ico('check')}<span>Guardar en el almacén</span></button></div></form>`;
+  $('#manual-cerrar').addEventListener('click', () => d.close());
+  const lote_id = uuid();
+  $('#form-manual').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const v = (id) => $(id).value;
+    try {
+      const r = await api('/api/admin/almacen/manual', { lote_id, cantidad: Number(v('#man-cantidad')), codigo: v('#man-codigo'), descripcion: v('#man-descripcion'), marca: v('#man-marca'), estilo: v('#man-estilo'), lote: v('#man-lote'), precio: Number(v('#man-precio').replace(/[$,\s]/g, '')), departamento: v('#man-depto'), pedimento: v('#man-pedimento') });
+      d.close();
+      S.alm.items = r.almacen.items;
+      await vistaAlmacen();
+      const m = $('#msg-alm'); m.className = 'mensaje ok'; m.textContent = r.sumados ? `El código ya existía: se sumaron ${r.piezas} pieza(s) al artículo.` : `Artículo dado de alta con ${r.piezas} pieza(s) en el almacén.`;
+    } catch (e) { const m = $('#msg-manual'); m.className = 'mensaje error'; m.textContent = e.message; }
+  });
+  d.showModal();
 }
 async function vistaDepartamentos() {
   const { departamentos: lista } = await api('/api/admin/departamentos');

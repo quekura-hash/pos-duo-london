@@ -94,7 +94,7 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     await page.uncheck('#falla-hub');
     await page.selectOption('#sesion-prueba', 'admin');
     await page.waitForSelector('#filtros');
-    assert.deepEqual(await page.$$eval('#nav button', (b) => b.map((x) => x.textContent)), ['Reportes', 'Cortes', 'Dólares recibidos', 'Inventario', 'Departamentos', 'Tarjetas de regalo', 'Tipo de cambio']);
+    assert.deepEqual(await page.$$eval('#nav button', (b) => b.map((x) => x.textContent)), ['Reportes', 'Cortes', 'Dólares recibidos', 'Inventario', 'Almacén', 'Departamentos', 'Tarjetas de regalo', 'Tipo de cambio', 'Caja']);
     await page.click('#filtros button[type="submit"]');
     await page.waitForSelector('#tabla-reporte tbody tr');
     assert.equal(await page.locator('#tabla-reporte tbody tr').count(), 3, 'las 3 ventas, tras sincronizar');
@@ -196,6 +196,91 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     await page.waitForSelector('[data-chip="tienda"]');
     await page.waitForTimeout(400);
     assert.match((await page.textContent('#estado-inv'))!, /Datos de ejemplo/, 'quitado el inventario, no vuelve a cargarse');
+    assert.deepEqual(errores, []);
+  });
+  it('B3 Almacén en la página: acceso a Administración desde la caja, alta de lote con departamentos, entrega a tiendas y confirmación al primer escaneo', async (t) => {
+    execFileSync(process.execPath, [join(RAIZ, 'scripts', 'construir-prueba.mjs')], { stdio: 'pipe' });
+    const dir = mkdtempSync(join(tmpdir(), 'pos-alta-'));
+    const archivo = join(dir, 'CODIGOS_OCTUBRE.xlsx');
+    const ENC = ['CANTIDAD', 'DESCRIPCION', 'ESTILO', 'MARCA', 'CODIGO', 'PRECIO', 'LOTE', 'DEPARTAMENTO'];
+    writeFileSync(archivo, await xlsxDeFilas([
+      [24, 'BLUSA', 'BT2988', 'CAPELLA', '202610001', 349, '20261014', 'mujer plus'],
+      [12, 'PANTALON', '90332-', 'WAX JEAN', '202610002', 649, '20261014', 'DAMA'],
+      [10, 'BOLSA DE REGALO', 'BR1', 'EFENTUS', '202610003', 25, '20261014', 'ACCESORIOS'],
+      [5, 'JEANS', '726-', 'LEVIS', '0002026090782', 899, '20261014', 'CABALLERO'],
+      [3, 'SIN PRECIO', 'X', 'Y', '202610005', 0, '1', 'DAMA'],
+    ], ENC));
+    const browser = await chromium.launch({ executablePath: chromiumPath, args: ['--no-sandbox'] });
+    t.after(async () => { await browser.close(); rmSync(dir, { recursive: true, force: true }); });
+    const page = await (await browser.newContext({ viewport: { width: 1440, height: 900 }, colorScheme: 'light' })).newPage();
+    const errores: string[] = [];
+    page.on('pageerror', (e) => errores.push(String(e)));
+    page.on('console', (m) => { if (m.type() === 'error') errores.push(m.text()); });
+    await page.goto(`file://${HTML}`);
+    await page.waitForSelector('[data-chip="tienda"]');
+
+    // acceso a Administración desde el menú lateral de la caja, y regreso a la misma caja
+    await page.click('#nav button[data-vista="administracion"]');
+    await page.waitForSelector('#nav button[data-vista="almacen"]');
+    assert.equal(await page.inputValue('#sesion-prueba'), 'admin');
+    await page.click('#nav button[data-vista="almacen"]');
+    await page.waitForSelector('#btn-alta-lote');
+    assert.match((await page.textContent('#alm-cuerpo'))!, /El almacén está vacío/);
+
+    // alta de lote: se revisa antes de guardar
+    await page.click('#btn-alta-lote');
+    await page.waitForSelector('#zona-archivo');
+    await page.setInputFiles('#archivo-alta', archivo);
+    await page.waitForSelector('#alta-resumen');
+    assert.match((await page.textContent('#alta-resumen'))!, /5 filas · 3 artículos nuevos · 1 ya existen \(se suman piezas\) · 1 no se darán de alta · 51 piezas/);
+    assert.match((await page.textContent('#alta-sin-pedimento'))!, /no trae la columna de No\. de pedimento/);
+    assert.equal(await page.inputValue('#alta-deptos tr[data-clave="mujer plus"] select'), 'Dama Plus');
+    assert.equal(await page.getAttribute('#alta-filas tr[data-fila="6"]', 'data-estado'), 'invalido');
+    assert.match((await page.textContent('#alta-filas tr[data-fila="5"]'))!, /ya existe: se suman piezas/i);
+    assert.match((await page.textContent('#alta-filas tr[data-fila="4"]'))!, /Envolturas y Bolsas de regalo/);
+    await page.fill('#alta-pedimento', 'PED-OCT-1');
+    await page.screenshot({ path: join(RAIZ, 'docs', 'capturas', '24-alta-lote-almacen.png') });
+    await page.click('#alta-confirmar');
+    await page.waitForFunction(() => /Lote dado de alta: 3 artículo\(s\) nuevo\(s\), 1 existente/.test(document.querySelector('#msg-alm')!.textContent!));
+    const fila = '#alm-cuerpo tr[data-codigo="202610001"]';
+    assert.equal(await page.textContent(`${fila} [data-col="almacen"]`), '24');
+    assert.match((await page.textContent(fila))!, /PED-OCT-1/);
+
+    // entrega: escribir cantidades marca solas las etiquetas; sin ellas no se entrega
+    assert.equal(await page.isChecked(`${fila} .et-precio`), false);
+    await page.fill(`${fila} .q-DUO`, '12');
+    assert.deepEqual([await page.isChecked(`${fila} .et-precio`), await page.isChecked(`${fila} .et-costura`)], [true, true]);
+    await page.fill(`${fila} .q-LON`, '12');
+    await page.uncheck(`${fila} .et-costura`);
+    await page.click(`${fila} .btn-entregar`);
+    await page.waitForFunction(() => /etiqueta/i.test(document.querySelector('#msg-alm')!.textContent!));
+    // más de lo que hay: avisa y pide confirmación
+    await page.check(`${fila} .et-costura`);
+    await page.fill(`${fila} .q-LON`, '20');
+    await page.click(`${fila} .btn-entregar`);
+    await page.waitForSelector('#btn-confirmar-exceso');
+    assert.match((await page.textContent('#msg-alm'))!, /32 pieza\(s\) y el almacén registra 24/);
+    await page.fill(`${fila} .q-LON`, '12');
+    await page.click(`${fila} .btn-entregar`);
+    await page.waitForFunction(() => /Entrega registrada. En el almacén quedan 0/.test(document.querySelector('#msg-alm')!.textContent!));
+    assert.match((await page.textContent(`${fila} [data-col="pendiente"]`))!, /Tienda DÚO: 12 · Tienda London: 12/);
+    await page.screenshot({ path: join(RAIZ, 'docs', 'capturas', '25-almacen-entregas.png') });
+
+    // la tienda: el catálogo ya llegó, la existencia no hasta confirmar al primer escaneo
+    await page.click('#nav button[data-vista="volver_caja"]');
+    await page.waitForSelector('[data-chip="tienda"]');
+    await page.fill('#scan', '202610001');
+    await page.press('#scan', 'Enter');
+    await page.waitForSelector('#dlg-recepcion[open]');
+    assert.match((await page.textContent('#rec-pregunta'))!, /¿Confirmas que recibiste 12 piezas\?/);
+    await page.screenshot({ path: join(RAIZ, 'docs', 'capturas', '26-confirmar-recepcion.png') });
+    await page.click('#rec-si');
+    await page.waitForFunction(() => /Recepción confirmada: 12/.test(document.querySelector('#mensaje')!.textContent!));
+    assert.equal(await page.inputValue('#sesion-prueba'), 'DUO/1');
+    await page.fill('#scan', '202610001');
+    await page.press('#scan', 'Enter');
+    await page.waitForTimeout(300);
+    assert.equal(await page.locator('#dlg-recepcion[open]').count(), 0, 'ya confirmada: no vuelve a preguntar');
     assert.deepEqual(errores, []);
   });
 });

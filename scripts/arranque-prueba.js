@@ -137,6 +137,13 @@
   $('#falla-hub').addEventListener('change', function (e) { ctl.caerHub(ctl.tienda(), e.target.checked); });
   $('#falla-imp').addEventListener('change', function (e) { ctl.fallaImpresora(ctl.sesion, e.target.checked); });
   $('#reiniciar').addEventListener('click', function () { ctl.reiniciar(); $('#sesion-prueba').value = ctl.sesion; });
+  // Una sola ventana: la caja y Administración se alternan desde el menú lateral (en la app real cada sesión es aparte y con acceso propio).
+  var ultimaCaja = 'DUO/1';
+  window.__POS_CAMBIAR_SESION__ = function (a) {
+    if (a === 'admin') { if (ctl.sesion !== 'admin') ultimaCaja = ctl.sesion; ctl.seleccionar('admin'); } else ctl.seleccionar(ultimaCaja);
+    $('#sesion-prueba').value = ctl.sesion;
+  };
+  window.__POS_LEER_XLSX__ = function (archivo) { return archivo.arrayBuffer().then(function (b) { return PosBanco.leerXlsx(window.ExcelJS, new Uint8Array(b)); }); };
   window.POS_PRUEBA = ctl;
   aplicar(); pintarAyuda();
   window.POS_UI.iniciar();

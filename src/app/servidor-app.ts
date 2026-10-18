@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { extname, join } from 'node:path';
-import { escribirXlsxNode } from '../xlsx-node.ts';
+import { escribirXlsxNode, leerXlsxNode } from '../xlsx-node.ts';
 import { atender } from './rutas.ts';
 import type { ServicioAdmin, ServicioCaja } from './servicio.ts';
 
@@ -55,6 +55,13 @@ export function crearServidorApp(o: { cajero?: ServicioCaja; admin?: ServicioAdm
           'content-disposition': `attachment; filename="${xlsx[1] === 'dolares' ? 'dolares-recibidos' : 'inventario'}.xlsx"`, 'cache-control': 'no-store',
         });
         return void res.end(Buffer.from(bytes));
+      }
+      if (req.method === 'POST' && url.pathname === '/api/admin/almacen/leer-archivo') {
+        // El navegador manda el .xlsx tal cual; aquí solo se lee (no se guarda). Solo Administración.
+        if (!o.admin) return json(res, 403, { ok: false, error: { codigo: 'PROHIBIDO', mensaje: 'esta sesión no es de Administración' } });
+        const partes: Buffer[] = [];
+        for await (const d of req) partes.push(d as Buffer);
+        try { return json(res, 200, { ok: true, hojas: await leerXlsxNode(new Uint8Array(Buffer.concat(partes))) }); } catch (e) { return json(res, 400, { ok: false, error: { codigo: 'ARCHIVO_ILEGIBLE', mensaje: `no se pudo leer el archivo: ${(e as Error).message}` } }); }
       }
       const b = req.method === 'POST' ? await leer(req) : {};
       const r = await atender(o, req.method ?? 'GET', url, b);
