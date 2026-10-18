@@ -208,8 +208,8 @@ async function vistaVenta() {
         <strong>Forma de pago</strong>
         <div class="formas" id="formas" role="group" aria-label="Forma de pago">
           <button class="btn forma" type="button" data-forma="efectivo" aria-pressed="true">${ico('cash', 'ico-lg')}<span>Efectivo</span></button>
-          <button class="btn forma" type="button" data-forma="tarjeta" disabled title="${metodos.includes('tarjeta') ? 'Próximamente' : 'Esta caja no tiene terminal bancaria'}" aria-label="Tarjeta (${metodos.includes('tarjeta') ? 'próximamente' : 'no disponible en esta caja'})">${ico('card', 'ico-lg')}<span>Tarjeta</span></button>
-          <button class="btn forma" type="button" data-forma="mixto" disabled title="Próximamente" aria-label="Mixto (próximamente)">${ico('mixto', 'ico-lg')}<span>Mixto</span></button>
+          <button class="btn forma" type="button" data-forma="tarjeta" aria-pressed="false" ${metodos.includes('tarjeta') ? '' : 'disabled title="Esta caja no tiene terminal bancaria"'}>${ico('card', 'ico-lg')}<span>Tarjeta</span></button>
+          <button class="btn forma" type="button" data-forma="mixto" aria-pressed="false" ${metodos.includes('tarjeta') ? '' : 'disabled title="Esta caja no tiene terminal bancaria"'}>${ico('mixto', 'ico-lg')}<span>Mixto</span></button>
           <button class="btn forma" type="button" data-forma="regalo" aria-pressed="false" ${metodos.includes('tarjeta_regalo') ? '' : `disabled title="Esta caja no maneja tarjetas de regalo"`}>${ico('gift', 'ico-lg')}<span>Tarjeta de regalo</span></button>
         </div>
         <div id="pago"></div>
@@ -242,7 +242,25 @@ function elegirForma(f) {
   for (const b of $('#formas').querySelectorAll('button[data-forma]')) b.setAttribute('aria-pressed', String(b.dataset.forma === f));
   pintarPago();
   recalcular();
-  $(f === 'regalo' ? '#codigo-regalo' : '#recibido').focus();
+  $(f === 'regalo' ? '#codigo-regalo' : f === 'tarjeta' ? '#tj-aut' : f === 'mixto' ? '#tj-monto' : '#recibido').focus();
+}
+
+/** Tarjeta con captura manual: se cobra en la terminal bancaria y aquí se teclea lo que dice el comprobante. */
+function htmlTarjeta(mixto) {
+  return `<p class="nota" style="margin:0 0 8px">Cobre en la terminal bancaria y, cuando la apruebe, capture aquí los datos del comprobante.</p>
+    ${mixto ? `<div class="campo"><label for="tj-monto">Monto cobrado con tarjeta (MXN)</label><input id="tj-monto" inputmode="decimal" autocomplete="off" placeholder="0.00"></div>
+    <div class="saldo-tarjeta" id="tj-resto" role="status" aria-live="polite">El resto se cobra en efectivo: <b id="tj-resto-monto">$0.00</b></div>` : ''}
+    <div class="campo"><label for="tj-aut">Autorización del comprobante</label><input id="tj-aut" class="texto" autocomplete="off" spellcheck="false" maxlength="12" placeholder="Ej. 123456"></div>
+    <div class="campo"><label for="tj-marca">Marca (opcional)</label><select id="tj-marca" class="texto"><option value="">—</option><option>Visa</option><option>Mastercard</option><option>American Express</option><option>Otra</option></select></div>
+    <div class="campo"><label for="tj-ult4">Últimos 4 dígitos (opcional)</label><input id="tj-ult4" inputmode="numeric" autocomplete="off" maxlength="4" placeholder="1234"></div>`;
+}
+/** Importe de tarjeta y resto en efectivo de la venta en pantalla (null si el monto del mixto no es válido). */
+function repartoTarjeta() {
+  const total = S.carrito.total;
+  if (S.forma === 'tarjeta') return { importe: total, resto: 0, valido: total > 0 };
+  const m = parseMXN($('#tj-monto')?.value ?? '');
+  const valido = m !== null && m > 0 && m < total;
+  return { importe: valido ? m : 0, resto: valido ? total - m : total, valido };
 }
 
 /** Efectivo: pesos y, si se pide, dólares. El cajero solo captura lo recibido; el POS calcula equivalente, faltante y cambio en MXN. */
@@ -300,6 +318,12 @@ function pintarInfoTasa() {
 }
 function pintarPago() {
   const p = $('#pago');
+  if (S.forma === 'tarjeta' || S.forma === 'mixto') {
+    p.innerHTML = htmlTarjeta(S.forma === 'mixto');
+    for (const id of ['#tj-aut', '#tj-monto', '#tj-ult4', '#tj-marca']) $(id)?.addEventListener('input', recalcular);
+    $('#tj-ult4').addEventListener('input', () => { $('#tj-ult4').value = $('#tj-ult4').value.replace(/\D/g, ''); });
+    return;
+  }
   if (S.forma === 'regalo') {
     p.innerHTML = `
       <div class="campo"><label for="codigo-regalo">Código de la tarjeta de regalo</label>
@@ -419,7 +443,13 @@ function recalcular() {
   const total = S.carrito.total;
   const hay = S.carrito.lineas.length > 0;
   let ok = false;
-  if (S.forma === 'regalo') {
+  if (S.forma === 'tarjeta' || S.forma === 'mixto') {
+    const r = repartoTarjeta();
+    if ($('#tj-resto-monto')) $('#tj-resto-monto').textContent = mxn(r.resto);
+    ok = hay && r.valido && /^[A-Za-z0-9]{4,12}$/.test($('#tj-aut').value.trim()) && (!$('#tj-ult4').value || /^\d{4}$/.test($('#tj-ult4').value));
+    if ($('#linea-cambio')) $('#linea-cambio').classList.remove('falta');
+    if ($('#lbl-cambio')) { $('#lbl-cambio').textContent = 'Cambio'; $('#cambio').textContent = mxn(0); }
+  } else if (S.forma === 'regalo') {
     const t = S.tarjeta;
     const { aplicado, resto, saldoDespues } = repartoRegalo();
     const info = $('#info-regalo');
@@ -509,7 +539,10 @@ async function cobrar() {
   b.disabled = true;
   try {
     let r;
-    if (S.forma === 'regalo') {
+    if (S.forma === 'tarjeta' || S.forma === 'mixto') {
+      const t = repartoTarjeta();
+      r = await api('/api/venta/cobrar-tarjeta', { cart: S.cart, ...(S.forma === 'mixto' ? { importe: t.importe } : {}), autorizacion: $('#tj-aut').value.trim(), marca: $('#tj-marca').value, ultimos4: $('#tj-ult4').value });
+    } else if (S.forma === 'regalo') {
       const { resto } = repartoRegalo();
       const c = calcEfectivo(resto);
       r = await api('/api/venta/cobrar-regalo', { cart: S.cart, codigo: S.tarjeta.codigo, ...(resto > 0 ? { recibido: c.pesos, ...(c.usd > 0 ? { usd: c.usd } : {}) } : {}) });

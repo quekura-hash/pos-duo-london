@@ -59,6 +59,7 @@ export async function atender(o: { cajero?: ServicioCaja; admin?: ServicioAdmin 
       case 'POST /api/venta/espera/descartar': return ok(exigirCajero().descartarEnEspera(b.cart));
       case 'POST /api/venta/anular': return ok(exigirCajero().anularVenta(b.cart, String(b.motivo ?? 'anulada')));
       case 'POST /api/venta/cancelar': return ok(exigirCajero().cancelarVenta(b.sale_id, String(b.motivo ?? 'cancelada')));
+      case 'POST /api/venta/cobrar-tarjeta': return ok(await exigirCajero().cobrarTarjetaManual(b.cart, { importe: b.importe === undefined || b.importe === null ? undefined : Number(b.importe), autorizacion: String(b.autorizacion ?? ''), marca: b.marca, ultimos4: b.ultimos4 }));
       case 'POST /api/venta/cobrar-regalo': return ok(await exigirCajero().cobrarTarjetaRegalo(b.cart, String(b.codigo ?? ''), b.recibido === undefined || b.recibido === null ? undefined : Number(b.recibido), Number(b.usd ?? 0)));
       case 'GET /api/tarjeta': return ok({ tarjeta: exigirCajero().consultarTarjeta(q.get('codigo') ?? '') });
       case 'POST /api/tarjeta/alta': return ok(await exigirCajero().altaTarjetaRegalo(String(b.codigo ?? ''), Number(b.monto), b.recibido === undefined ? undefined : Number(b.recibido), b.ref));

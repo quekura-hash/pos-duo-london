@@ -1453,6 +1453,36 @@ export class Caja {
     return { intento: intentos(this.opsDe('card.intent', 'card.intent_resuelto')).get(intent_id)!, reutilizado: false, avisos: otros.length ? ['hay_otros_cobros_pendientes'] : [] };
   }
 
+  /**
+   * Captura MANUAL de tarjeta (sin integración con la terminal): el cajero ya cobró en la terminal bancaria y teclea los datos del
+   * comprobante. Crea el intento y lo resuelve como aprobado en un solo paso, así nunca queda un cobro pendiente por una captura a medias.
+   * El resto (si el importe de tarjeta es menor al total) se cobra en efectivo exacto.
+   */
+  cobrarConTarjetaManual(cartId: string, d: { importe?: number; autorizacion: string; marca?: string; ultimos4?: string }, cajero = 'cajero'): Venta {
+    const previa = this.repo.getOp(`sale:${cartId}`);
+    if (previa) return ventas([previa]).get(cartId)!;
+    const autorizacion = (d.autorizacion ?? '').trim().toUpperCase();
+    if (!/^[A-Z0-9]{4,12}$/.test(autorizacion)) throw new ErrorDominio('DATOS_REQUERIDOS', 'la autorización del comprobante debe tener de 4 a 12 letras o números');
+    const ultimos4 = (d.ultimos4 ?? '').trim();
+    if (ultimos4 && !/^\d{4}$/.test(ultimos4)) throw new ErrorDominio('DATOS_REQUERIDOS', 'los últimos 4 dígitos de la tarjeta deben ser 4 números');
+    const marca = (d.marca ?? '').trim().slice(0, 20) || undefined;
+    const c = this.cartGet(cartId);
+    this.exigirAbierto(c);
+    if (c.lineas.length === 0) throw new ErrorDominio('CARRITO_VACIO', cartId);
+    const total = c.lineas.reduce((a, l) => a + l.importe, 0);
+    if (total <= 0) throw new ErrorDominio('PAGO_INVALIDO', 'la venta no tiene importe que cobrar con tarjeta');
+    const importe = d.importe ?? total;
+    if (!Number.isInteger(importe) || importe <= 0 || importe > total) throw new ErrorDominio('PAGO_INVALIDO', 'el importe de la tarjeta debe ser mayor que 0 y no exceder el total');
+    const { intento } = this.iniciarCobroTarjeta(cartId, importe);
+    try {
+      const v = this.resolverIntento(intento.intent_id, { resultado: 'aprobado', autorizacion, marca, ultimos4: ultimos4 || undefined, efectivo_adicional: total - importe }, cajero);
+      return v!;
+    } catch (e) {
+      this.resolverIntento(intento.intent_id, { resultado: 'no_cobrado' }, cajero);
+      throw e;
+    }
+  }
+
   pendientesDeConciliar(): Intento[] {
     return [...intentos(this.opsDe('card.intent', 'card.intent_resuelto')).values()].filter((i) => i.tienda === this.tienda && i.caja === this.caja && (i.estado === 'iniciado' || i.estado === 'desconocido'));
   }

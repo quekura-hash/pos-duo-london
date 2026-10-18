@@ -718,6 +718,55 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     await page.waitForFunction(() => /No hay ventas en espera/.test(document.querySelector('#dlg-espera')?.textContent ?? ''));
     assert.deepEqual(errores, []);
   });
+
+  it('B10 tarjeta con captura manual: total y mixto; pide autorización, valida el monto y la autorización sale en el ticket', async (t) => {
+    execFileSync(process.execPath, [join(RAIZ, 'scripts', 'construir-prueba.mjs')], { stdio: 'pipe' });
+    const browser = await chromium.launch({ executablePath: chromiumPath, args: ['--no-sandbox'] });
+    t.after(() => browser.close());
+    const page = await (await browser.newContext({ viewport: { width: 1440, height: 900 }, colorScheme: 'light' })).newPage();
+    const errores: string[] = [];
+    page.on('pageerror', (e) => errores.push(String(e)));
+    page.on('console', (m) => { if (m.type() === 'error') errores.push(m.text()); });
+    await page.goto(`file://${HTML}`);
+    await page.waitForSelector('[data-chip="tienda"]');
+    const escanear = async (c: string) => { await page.fill('#scan', c); await page.press('#scan', 'Enter'); };
+    await escanear('0002026090782');
+    await page.waitForSelector('#cuerpo tr[data-linea]');
+    // tarjeta por el total
+    assert.equal(await page.isDisabled('[data-forma="tarjeta"]'), false);
+    await page.click('[data-forma="tarjeta"]');
+    assert.equal(await page.isDisabled('#btn-cobrar'), true, 'sin autorización no se puede cobrar');
+    await page.fill('#tj-aut', '12');
+    assert.equal(await page.isDisabled('#btn-cobrar'), true, 'autorización demasiado corta');
+    await page.fill('#tj-aut', 'ab1234');
+    await page.selectOption('#tj-marca', 'Visa');
+    await page.locator('#tj-ult4').pressSequentially('43x2a1');
+    assert.equal(await page.inputValue('#tj-ult4'), '4321', 'solo acepta dígitos');
+    await page.screenshot({ path: join(RAIZ, 'docs', 'capturas', '38-tarjeta-manual.png') });
+    assert.equal(await page.isDisabled('#btn-cobrar'), false);
+    await page.click('#btn-cobrar');
+    await page.waitForSelector('#dlg-ticket[open]');
+    assert.match((await page.textContent('#ticket-texto'))!, /Aut\. AB1234\s+VISA \*\*\*\*4321/);
+    await page.click('#btn-nueva');
+    // mixto: tarjeta parcial + resto en efectivo
+    await escanear('0002026090782');
+    await page.waitForSelector('#cuerpo tr[data-linea]');
+    await page.click('[data-forma="mixto"]');
+    await page.fill('#tj-aut', '998877');
+    assert.equal(await page.isDisabled('#btn-cobrar'), true, 'sin monto de tarjeta no se puede cobrar');
+    await page.fill('#tj-monto', '999999');
+    assert.equal(await page.isDisabled('#btn-cobrar'), true, 'el monto no puede exceder el total');
+    await page.fill('#tj-monto', '100');
+    await page.waitForFunction(() => document.querySelector('#tj-resto-monto')!.textContent !== '$0.00');
+    assert.equal(await page.isDisabled('#btn-cobrar'), false);
+    await page.click('#btn-cobrar');
+    await page.waitForSelector('#dlg-ticket[open]');
+    const tk = (await page.textContent('#ticket-texto'))!;
+    assert.match(tk, /Tarjeta\s+\$100\.00/);
+    assert.match(tk, /Efectivo MXN/);
+    assert.match(tk, /Aut\. 998877/);
+    assert.deepEqual(errores, []);
+  });
 });
 
 const REAL = process.env.POS_INVENTARIO_REAL;

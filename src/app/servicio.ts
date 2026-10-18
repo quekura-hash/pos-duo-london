@@ -293,6 +293,10 @@ export class ServicioCaja {
   async cobrarTarjetaRegalo(cartId: string, codigo: string, recibido?: number, usd = 0) {
     return this.finalizarCobro(this.caja.cobrarConTarjetaRegalo(cartId, codigo, recibido, this.actor.usuario, usd));
   }
+  /** Tarjeta con captura manual del comprobante (la terminal bancaria aún no está integrada). */
+  async cobrarTarjetaManual(cartId: string, d: { importe?: number; autorizacion: string; marca?: string; ultimos4?: string }) {
+    return this.finalizarCobro(this.caja.cobrarConTarjetaManual(cartId, d, this.actor.usuario));
+  }
   private async finalizarCobro(venta: Venta) {
     const yaImpreso = this.caja.impresionesDe(venta.sale_id).some((i) => i.resultado === 'ok');
     const imp = yaImpreso

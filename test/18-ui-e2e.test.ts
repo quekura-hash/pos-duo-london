@@ -322,7 +322,7 @@ describe('[navegador real — Chromium con Playwright, UI sobre SQLite]', { time
       }
       assert.equal(await page.locator('#nav button[data-proximamente="creditos"]').count(), 0, 'Créditos ya no está en el menú de venta');
       const formas = await page.$$eval('#formas button', (b) => b.map((x) => [x.textContent!.trim(), (x as HTMLButtonElement).disabled]));
-      assert.deepEqual(formas, [['Efectivo', false], ['Tarjeta', true], ['Mixto', true], ['Tarjeta de regalo', tienda !== 'DUO']]);
+      assert.deepEqual(formas, [['Efectivo', false], ['Tarjeta', tienda !== 'DUO'], ['Mixto', tienda !== 'DUO'], ['Tarjeta de regalo', tienda !== 'DUO']]);
       assert.deepEqual(errores, []);
     }
     const { page } = await pagina(browser, duo.url);

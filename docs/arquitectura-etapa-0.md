@@ -472,3 +472,12 @@ Reportes · Cortes (con el botón «Dólares recibidos») · Inventario · Almac
 - **Descartar** una venta guardada (con confirmación en dos pasos) deja la constancia de anulación (`sale.voided`, motivo «venta en espera descartada») con lo que tenía.
 - **Bitácora**: `cart.en_espera` y `cart.retomada` (solo auditoría; no mueven dinero ni inventario).
 - **Verificado**: pruebas del motor (VE1–VE4, ambos almacenes) y prueba en navegador (B9). Sin hardware involucrado.
+
+## 25. Tarjeta con captura manual [P]
+
+- **Qué es**: mientras la terminal bancaria no esté integrada, el cajero cobra en la terminal y, ya aprobada, captura en el POS la **autorización del comprobante** (obligatoria, 4 a 12 letras o números), la marca y los últimos 4 dígitos (opcionales). **El POS no habla con la terminal: no verifica que el cobro sea real**; la autorización queda como constancia para conciliar contra el estado de cuenta.
+- **Formas de pago**: **Tarjeta** (por el total) y **Mixto** (un monto con tarjeta, mayor que 0 y menor que el total, y el resto en efectivo **exacto**; sin cambio ni dólares en el mixto). Disponible solo en las cajas que tienen terminal (hoy la Caja 1 de cada tienda); en las demás los botones siguen deshabilitados.
+- **Motor**: se crea el intento de cobro y se resuelve como aprobado en un solo paso (`Caja.cobrarConTarjetaManual`), así una captura interrumpida o rechazada no deja cobros pendientes de conciliar. Doble clic = misma venta y mismo folio.
+- **Ticket**: renglón «Aut. XXXX  MARCA ****1234» bajo el pago con tarjeta. El corte ya separa tarjeta de efectivo.
+- **Pendiente**: integración real con la terminal (modelo y protocolo por definir) y, con ella, el flujo de intento/conciliación para cobros dudosos que ya existe en el motor.
+- **Verificado**: pruebas del motor (TM1–TM3, ambos almacenes) y de navegador (B10). Sin terminal real.
