@@ -94,7 +94,7 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     await page.uncheck('#falla-hub');
     await page.selectOption('#sesion-prueba', 'admin');
     await page.waitForSelector('#filtros');
-    assert.deepEqual(await page.$$eval('#nav button', (b) => b.map((x) => x.textContent)), ['Reportes', 'Cortes', 'Dólares recibidos', 'Inventario', 'Almacén', 'Promociones', 'Departamentos', 'Tarjetas de regalo', 'Tipo de cambio', 'Créditos', 'Caja']);
+    assert.deepEqual(await page.$$eval('#nav button', (b) => b.map((x) => x.textContent)), ['Reportes', 'Cortes', 'Dólares recibidos', 'Inventario', 'Almacén', 'Promociones', 'Tiendas', 'Departamentos', 'Tarjetas de regalo', 'Tipo de cambio', 'Créditos', 'Caja']);
     await page.click('#filtros button[type="submit"]');
     await page.waitForSelector('#tabla-reporte tbody tr');
     assert.equal(await page.locator('#tabla-reporte tbody tr').count(), 3, 'las 3 ventas, tras sincronizar');
@@ -364,6 +364,7 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
 
     await page.click('#btn-nueva-promo');
     await page.fill('#pr-nombre', '2x1 en jeans');
+    await page.click('#form-promo details summary');
     await page.fill('#pr-palabras', 'jeans');
     await page.click('#pr-guardar');
     await page.waitForSelector('#tabla-promos tr[data-promo]');
@@ -405,6 +406,15 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     await escanear('0002026090799');
     await page.waitForFunction(() => document.querySelector('#total')!.textContent === '$899.00');
     assert.match((await page.textContent('#promos-aplicadas'))!, /2x1 en jeans.*-\$899\.00/);
+    // una sola promoción o cupón por compra: con el 2x1 puesto, el cupón (que da menos) no se combina
+    await page.click('#btn-cupon');
+    await page.fill('#cup-codigo', 'verano20');
+    await page.click('#cup-aplicar');
+    await page.waitForFunction(() => /no se combina.*2x1 en jeans/.test(document.querySelector('#msg-cupon')!.textContent!));
+    await page.click('#cup-cerrar');
+    // sin la segunda pieza no hay 2x1 y el cupón escaneado sí aplica
+    await page.click('#btn-quitar');
+    await page.waitForFunction(() => document.querySelectorAll('#cuerpo tr[data-linea]').length === 1);
     await escanear('CUPON:VERANO20');
     await page.waitForFunction(() => document.querySelector('#total')!.textContent === '$719.20');
     assert.match((await page.textContent('#promos-aplicadas'))!, /Cupón VERANO20.*-\$179\.80/);
@@ -436,6 +446,69 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     const ticket = (await page.textContent('#ticket-texto'))!;
     assert.match(ticket, /Descuento autorizado por Ana +-\$899\.00\s+Supervisora/);
     assert.match(ticket, /TOTAL +\$0\.00/);
+    assert.deepEqual(errores, []);
+  });
+  it('B6 promoción por tienda desde Inventario («Crear promoción»), paquete a precio fijo, nombre de tienda editable', async (t) => {
+    execFileSync(process.execPath, [join(RAIZ, 'scripts', 'construir-prueba.mjs')], { stdio: 'pipe' });
+    const browser = await chromium.launch({ executablePath: chromiumPath, args: ['--no-sandbox'] });
+    t.after(() => browser.close());
+    const page = await (await browser.newContext({ viewport: { width: 1440, height: 900 }, colorScheme: 'light' })).newPage();
+    const errores: string[] = [];
+    page.on('pageerror', (e) => errores.push(String(e)));
+    page.on('console', (m) => { if (m.type() === 'error') errores.push(m.text()); });
+    await page.goto(`file://${HTML}`);
+    await page.waitForSelector('[data-chip="tienda"]');
+    await page.click('#nav button[data-vista="administracion"]');
+
+    // nombre de la tienda editable
+    await page.click('#nav button[data-vista="tiendas"]');
+    await page.waitForSelector('#tabla-tiendas tr[data-tienda="DUO"]');
+    assert.equal(await page.inputValue('#tabla-tiendas tr[data-tienda="DUO"] .t-nombre'), 'DÚO New York');
+    await page.fill('#tabla-tiendas tr[data-tienda="DUO"] .t-nombre', 'DÚO Centro');
+    await page.click('#tabla-tiendas tr[data-tienda="DUO"] .t-guardar');
+    await page.waitForFunction(() => /Nombre guardado/.test(document.querySelector('#msg-tiendas')!.textContent!));
+    await page.fill('#tabla-tiendas tr[data-tienda="DUO"] .t-nombre', ' ');
+    await page.click('#tabla-tiendas tr[data-tienda="DUO"] .t-guardar');
+    await page.waitForFunction(() => /falta el nombre/.test(document.querySelector('#msg-tiendas')!.textContent!));
+
+    // Inventario → buscar el artículo → «Crear promoción» con el artículo ya elegido
+    await page.click('#nav button[data-vista="inventario"]');
+    await page.fill('#inv-q', 'mascada');
+    await page.waitForSelector('#tabla-inv-buscar tr[data-item] .inv-promo');
+    await page.click('#tabla-inv-buscar tr[data-item] .inv-promo');
+    await page.waitForSelector('#form-promo');
+    assert.match((await page.textContent('#pr-items'))!, /MASCADA/);
+    await page.selectOption('#pr-tipo', 'paquete');
+    await page.fill('#pr-nombre', 'Accesorio popular: 4 por $185');
+    await page.fill('#pr-lleva2', '4');
+    await page.fill('#pr-precio', '185');
+    await page.uncheck('.pr-tienda[value="LON"]'); // solo DÚO
+    await page.click('#pr-guardar');
+    await page.waitForSelector('#tabla-promos tr[data-promo]');
+    const fila = '#tabla-promos tr[data-promo]';
+    assert.match((await page.textContent(`${fila} [data-col="tiendas"]`))!, /^DÚO Centro$/);
+    assert.match((await page.textContent(fila))!, /Lleva 4 por \$185\.00 \(artículos: MASCADA EFENTUS\).*sin fecha límite.*Activa/);
+    // un buscador dentro de la promoción también encuentra artículos (por código)
+    await page.click(`${fila} .p-editar`);
+    await page.fill('#pr-buscar', '0000000000017');
+    await page.waitForSelector('#pr-tabla-res tr[data-item]');
+    assert.match((await page.textContent('#pr-tabla-res'))!, /BOLSA/);
+    await page.click('#pr-cerrar');
+    await page.screenshot({ path: join(RAIZ, 'docs', 'capturas', '31-promocion-por-tienda.png') });
+
+    // en la caja de DÚO vale; en la de London no. El nombre editado aparece en la pantalla
+    await page.click('#nav button[data-vista="volver_caja"]');
+    await page.waitForSelector('[data-chip="tienda"]');
+    assert.match((await page.textContent('[data-chip="tienda"]'))!, /DÚO Centro/);
+    const escanear = async (c: string) => { await page.fill('#scan', c); await page.press('#scan', 'Enter'); };
+    for (let i = 0; i < 4; i++) { await escanear('7501234567890'); await page.waitForTimeout(150); }
+    await page.waitForFunction(() => document.querySelector('#total')!.textContent === '$185.00');
+    assert.match((await page.textContent('#promos-aplicadas'))!, /Accesorio popular: 4 por \$185.*-\$295\.00/);
+    await page.selectOption('#sesion-prueba', 'LON/1');
+    await page.waitForSelector('[data-chip="tienda"]');
+    for (let i = 0; i < 4; i++) { await escanear('7501234567890'); await page.waitForTimeout(150); }
+    await page.waitForFunction(() => document.querySelector('#total')!.textContent === '$480.00');
+    assert.equal(await page.locator('#promos-aplicadas li').count(), 0, 'la promoción de DÚO no aplica en London');
     assert.deepEqual(errores, []);
   });
 });

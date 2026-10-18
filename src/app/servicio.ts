@@ -6,7 +6,7 @@ import { ErrorDominio } from '../errores.ts';
 import type { Impresora } from '../impresion.ts';
 import type { Caja } from '../nodos.ts';
 import { estadoPromo, type Promocion } from '../promociones.ts';
-import { catalogo, departamentos as proyDepartamentos, promocionesDe, supervisoresDe, permisos as proyPermisos, tarjetasRegalo, tiposDeCambio, tipoCambioVigente, ventas, type TipoCambio } from '../proyecciones.ts';
+import { catalogo, nombresTienda, departamentos as proyDepartamentos, promocionesDe, supervisoresDe, permisos as proyPermisos, tarjetasRegalo, tiposDeCambio, tipoCambioVigente, ventas, type TipoCambio } from '../proyecciones.ts';
 import { hojaDolares, hojaInventario, leerInventario, PERFIL_CONFIRMADO, type Hoja } from '../inventario.ts';
 import { codigoTicket, construirTicket, NEGOCIOS, renderTextoEscPos, renderTicketDevolucionTexto, renderTicketEscPos, renderTicketTexto, type NegocioCfg } from '../ticket.ts';
 import type { Actor, Articulo, Linea, Op, Venta } from '../tipos.ts';
@@ -65,7 +65,7 @@ export class ServicioCaja {
     const ahora = this.reloj.now();
     return {
       tienda: this.caja.tienda, caja: this.caja.caja, usuario: this.actor.usuario,
-      negocio: this.negocios[this.caja.tienda]!.nombre,
+      negocio: this.negociosVivos()[this.caja.tienda]!.nombre,
       metodos: this.caja.cfg.metodos,
       ahora, fecha_local: fechaLocal(ahora),
       tipo_cambio: this.vistaTipoCambio(),
@@ -137,6 +137,12 @@ export class ServicioCaja {
   cancelarVenta(saleId: string, motivo: string) {
     const v = this.caja.cancelarVenta(saleId, motivo);
     return { venta: v };
+  }
+
+  /** Configuración de cada negocio con el nombre editado en Administración (si lo hay). */
+  private negociosVivos(): Record<string, NegocioCfg> {
+    const nombres = this.caja.idx.nombresDeTienda();
+    return Object.fromEntries(Object.entries(this.negocios).map(([t, c]) => [t, nombres.has(t) ? { ...c, nombre: nombres.get(t)! } : c]));
   }
 
   /** Reutiliza la venta en curso (sobrevive a reinicios) o abre una nueva. */
@@ -230,8 +236,8 @@ export class ServicioCaja {
 
   private async imprimirVenta(saleId: string, tipo: 'original' | 'reimpresion', n: number) {
     const v = ventas(this.caja.opsVentas()).get(saleId)!;
-    const cfg = this.negocios[v.tienda]!;
-    const ticket = construirTicket(v, cfg, n, this.negocios);
+    const cfg = this.negociosVivos()[v.tienda]!;
+    const ticket = construirTicket(v, cfg, n, this.negociosVivos());
     const texto = renderTicketTexto(ticket);
     // El cajón se abre con el cobro en efectivo original, no al reimprimir.
     const bytes = renderTicketEscPos(ticket, { abrirCajon: tipo === 'original' });
@@ -262,7 +268,7 @@ export class ServicioCaja {
   private async finalizarCobro(venta: Venta) {
     const yaImpreso = this.caja.impresionesDe(venta.sale_id).some((i) => i.resultado === 'ok');
     const imp = yaImpreso
-      ? { ticket_texto: renderTicketTexto(construirTicket(venta, this.negocios[venta.tienda]!, 0, this.negocios)), codigo_ticket: construirTicket(venta, undefined, 0, this.negocios).codigo_ticket, impresion: { ok: true } }
+      ? { ticket_texto: renderTicketTexto(construirTicket(venta, this.negociosVivos()[venta.tienda]!, 0, this.negociosVivos())), codigo_ticket: construirTicket(venta, this.negociosVivos()[venta.tienda]!, 0, this.negociosVivos()).codigo_ticket, impresion: { ok: true } }
       : await this.imprimirVenta(venta.sale_id, 'original', 0);
     return { venta, avisos: venta.avisos ?? [], ...imp, cambio: venta.pagos.find((p) => p.metodo === 'efectivo')?.cambio ?? venta.pagos.find((p) => p.metodo === 'efectivo_usd')?.cambio_mxn ?? 0 };
   }
@@ -322,7 +328,7 @@ export class ServicioCaja {
     return {
       hub: r.hub, articulo: art ? { descripcion: art.descripcion, marca: art.marca, item_no: art.item_no } : null,
       resultados: r.resultados.map((v) => ({
-        sale_id: v.sale_id, caja: v.caja, folio: v.folio, propia: v.propia, codigo_ticket: codigoTicket(v.tienda, v.caja, v.folio, this.negocios),
+        sale_id: v.sale_id, caja: v.caja, folio: v.folio, propia: v.propia, codigo_ticket: codigoTicket(v.tienda, v.caja, v.folio, this.negociosVivos()),
         ocurrio_en: v.ocurrio_en, total: v.total ?? null,
         lineas: (v.lineas_detalle ?? v.lineas).map((l: any) => ({ linea_id: l.linea_id, item_id: l.item_id, descripcion: l.descripcion, qty: l.qty, devuelto: l.devuelto ?? null, importe: l.importe ?? null, marca: l.marca ?? null, item_no: l.item_no ?? null, codigo: l.codigo ?? null, tarjeta_regalo: !!l.tarjeta_regalo })),
       })),
@@ -331,7 +337,7 @@ export class ServicioCaja {
   async devolver(saleId: string, renglones: { linea_id: string; qty: number }[], motivo: string) {
     const d = this.caja.devolver({ sale_id: saleId, renglones, motivo, cajero: this.actor.usuario });
     const v = ventas(this.caja.opsVentas()).get(saleId)!;
-    const texto = renderTicketDevolucionTexto(d, v, this.negocios[v.tienda]!, this.negocios);
+    const texto = renderTicketDevolucionTexto(d, v, this.negociosVivos()[v.tienda]!, this.negociosVivos());
     let impresion: { ok: boolean; error?: string };
     try {
       await this.impresora.imprimir({ ref: `dev:${d.devolucion_id}`, texto, bytes: renderTextoEscPos(texto, { abrirCajon: d.reembolsos.some((r) => r.metodo === 'efectivo') }) });
@@ -353,7 +359,7 @@ export class ServicioCaja {
     const v = ventas(this.caja.opsVentas()).get(saleId);
     if (!v || v.tienda !== this.caja.tienda || v.caja !== this.caja.caja) throw new ErrorDominio('PROHIBIDO', 'solo se consultan tickets de la propia caja');
     const n = this.caja.impresionesDe(saleId).filter((i) => i.tipo === 'reimpresion').length;
-    return renderTicketTexto(construirTicket(v, this.negocios[v.tienda]!, n, this.negocios));
+    return renderTicketTexto(construirTicket(v, this.negociosVivos()[v.tienda]!, n, this.negociosVivos()));
   }
 
   /** Ventas de ESTA caja. El filtro por caja lo impone el permiso del actor, no la ausencia de datos. */
@@ -394,7 +400,7 @@ export class ServicioAdmin {
   readonly cajas: { tienda: string; caja: number }[];
   private inv?: FuenteInventario;
   private central?: { fijarTipoCambio(tasa: number, usuario: string, versionBase: number, confirmarVariacion?: boolean): import('../nodos.ts').ResultadoTipoCambio; asignarPermiso(usuario: string, permiso: string, valor: boolean, por: string): Op; guardarDepto(c: import('../departamentos.ts').CambioDepto, por: string): { ok: true; op: Op } | { ok: false; error: import('../departamentos.ts').ErrorDepto };
-    guardarPromocion: import('../nodos.ts').Central['guardarPromocion']; guardarSupervisor: import('../nodos.ts').Central['guardarSupervisor']; recordarSacarAPiso: import('../nodos.ts').Central['recordarSacarAPiso']; altaLote: import('../nodos.ts').Central['altaLote']; entregar: import('../nodos.ts').Central['entregar'] };
+    guardarNombreTienda: import('../nodos.ts').Central['guardarNombreTienda']; guardarPromocion: import('../nodos.ts').Central['guardarPromocion']; guardarSupervisor: import('../nodos.ts').Central['guardarSupervisor']; recordarSacarAPiso: import('../nodos.ts').Central['recordarSacarAPiso']; altaLote: import('../nodos.ts').Central['altaLote']; entregar: import('../nodos.ts').Central['entregar'] };
   constructor(o: { actor: Extract<Actor, { rol: 'admin' }>; fuente: () => Op[]; cajas: { tienda: string; caja: number }[]; inventario?: FuenteInventario; central?: ServicioAdmin['central'] }) {
     this.central = o.central;
     this.actor = o.actor;
@@ -461,13 +467,43 @@ export class ServicioAdmin {
     if (!r.ok) throw new ErrorDominio(r.error.codigo === 'NO_EXISTE' ? 'NO_ENCONTRADO' : 'DEPARTAMENTO_INVALIDO', r.error.mensaje, { motivo: r.error.codigo });
     return this.departamentos();
   }
+  // ── tiendas (nombre comercial editable) ──
+  tiendasInfo() {
+    const nombres = nombresTienda(this.fuente());
+    return this.tiendas().map((t) => ({ tienda: t, nombre: nombres.get(t) ?? NEGOCIOS[t]?.nombre ?? t, de_fabrica: NEGOCIOS[t]?.nombre ?? t }));
+  }
+  guardarNombreTienda(tienda: string, nombre: string) {
+    if (!this.central) throw new ErrorDominio('SIN_CENTRAL', 'esta sesión no tiene acceso al servicio central');
+    const r = this.central.guardarNombreTienda(tienda, nombre, this.actor.usuario);
+    if (!r.ok) throw new ErrorDominio('TIENDA_INVALIDA', r.mensaje);
+    return { tiendas: this.tiendasInfo() };
+  }
+  /** Búsqueda de artículos para armar promociones (por código, Item #, descripción, marca, estilo…). */
+  buscarArticulos(texto: string, limite = 30) {
+    const sin = (x: string) => x.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+    const palabras = sin(String(texto ?? '')).split(/\s+/).filter(Boolean);
+    if (!palabras.length) return { articulos: [] as ReturnType<ServicioAdmin['vistaArticulo']>[], total: 0 };
+    const hallados = [...catalogo(this.fuente()).values()].filter((a) => {
+      const t = sin(`${a.codigo} ${a.item_no ?? ''} ${a.descripcion} ${a.marca} ${a.estilo} ${a.departamento}`);
+      return palabras.every((w) => t.includes(w));
+    });
+    return { articulos: hallados.slice(0, limite).map((a) => this.vistaArticulo(a)), total: hallados.length };
+  }
+  private vistaArticulo(a: Articulo) {
+    return { item_id: a.item_id, item_no: a.item_no, codigo: a.codigo, descripcion: a.descripcion, marca: a.marca, estilo: a.estilo, departamento: a.departamento, precio: a.precio };
+  }
+
   // ── promociones, cupones y supervisores ──
   promociones() {
     const ops = this.fuente();
     const hoy = fechaLocal(new Date().toISOString());
     const usos = new Map<string, number>();
     for (const v of ventas(ops).values()) if (v.estado === 'confirmada') for (const id of new Set(v.lineas.flatMap((l) => (l.descuento_detalle ?? []).filter((d) => d.tipo !== 'manual').map((d) => d.ref)))) usos.set(id, (usos.get(id) ?? 0) + 1);
-    return { hoy, promociones: promocionesDe(ops).map((p) => ({ ...p, estado: estadoPromo(p, hoy), usos: usos.get(p.id) ?? 0 })) };
+    const promos = promocionesDe(ops);
+    const cat = catalogo(ops);
+    const articulos: Record<string, ReturnType<ServicioAdmin['vistaArticulo']>> = {};
+    for (const p of promos) for (const id of p.alcance?.item_ids ?? []) { const a = cat.get(id); if (a) articulos[id] = this.vistaArticulo(a); }
+    return { hoy, tiendas: this.tiendasInfo(), articulos, promociones: promos.map((p) => ({ ...p, estado: estadoPromo(p, hoy), usos: usos.get(p.id) ?? 0 })) };
   }
   guardarPromocion(p: Promocion) {
     if (!this.central) throw new ErrorDominio('SIN_CENTRAL', 'esta sesión no tiene acceso al servicio central');

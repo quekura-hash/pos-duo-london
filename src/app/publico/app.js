@@ -126,7 +126,7 @@ const folioTexto = () => (S.ultimoFolio ? `Folio ${String(S.ultimoFolio).padStar
 // ── navegación ──
 const NAV = {
   venta: ['Venta', 'cart'], ventas: ['Historial', 'clock'], creditos: ['Créditos', 'card'], corte: ['Corte de caja', 'chart'],
-  tarjetas: ['Tarjetas de regalo', 'gift'], reportes: ['Reportes', 'chart'], cortes: ['Cortes', 'cash'], dolares: ['Dólares recibidos', 'dollar'], inventario: ['Inventario', 'box'], departamentos: ['Departamentos', 'box'], almacen: ['Almacén', 'warehouse'], promociones: ['Promociones', 'percent'], administracion: ['Administración', 'gear'], volver_caja: ['Caja', 'caja'], tipo_cambio: ['Tipo de cambio', 'refresh'],
+  tarjetas: ['Tarjetas de regalo', 'gift'], reportes: ['Reportes', 'chart'], cortes: ['Cortes', 'cash'], dolares: ['Dólares recibidos', 'dollar'], inventario: ['Inventario', 'box'], departamentos: ['Departamentos', 'box'], almacen: ['Almacén', 'warehouse'], promociones: ['Promociones', 'percent'], tiendas: ['Tiendas', 'store'], administracion: ['Administración', 'gear'], volver_caja: ['Caja', 'caja'], tipo_cambio: ['Tipo de cambio', 'refresh'],
 };
 function pintarNav() {
   // En la página de prueba (una sola ventana) se puede pasar de la caja a Administración y volver; en la app real cada sesión es la suya.
@@ -147,7 +147,7 @@ async function ir(v) {
   S.vista = v;
   pintarNav();
   await pintarEncabezado();
-  await ({ venta: vistaVenta, corte: vistaCorte, ventas: vistaVentas, reportes: vistaReportes, inventario: vistaInventario, almacen: vistaAlmacen, promociones: vistaPromociones, departamentos: vistaDepartamentos, tarjetas: vistaTarjetas, devolucion: vistaDevolucion, dolares: vistaDolares, tipo_cambio: vistaTipoCambio, cortes: vistaCortes })[v]();
+  await ({ venta: vistaVenta, corte: vistaCorte, ventas: vistaVentas, reportes: vistaReportes, inventario: vistaInventario, almacen: vistaAlmacen, promociones: vistaPromociones, tiendas: vistaTiendas, departamentos: vistaDepartamentos, tarjetas: vistaTarjetas, devolucion: vistaDevolucion, dolares: vistaDolares, tipo_cambio: vistaTipoCambio, cortes: vistaCortes })[v]();
   if (v !== 'almacen') await avisosPisoInicial();
 }
 
@@ -709,10 +709,24 @@ async function vistaInventario() {
           ${tiendas.map(([t, x]) => `<tr data-tienda="${esc(t)}"><td>${esc(t)}</td><td class="num">${x.piezas}</td><td class="num">${x.articulos_con_existencia}</td><td class="num">${x.no_verificados}</td></tr>`).join('')}</tbody></table>
       </div>
       <p class="nota">La existencia es la que conoce el central (lo ya sincronizado). Las cantidades de prueba están marcadas como tales en los movimientos.</p>
+      <h2>Buscar artículo</h2>
+      <div class="filas" style="align-items:center"><input id="inv-q" class="texto" placeholder="Código, Item #, descripción, marca…" style="padding:6px 8px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie);min-width:300px"><span class="nota">Elija un artículo para crearle una promoción.</span></div>
+      <div id="inv-res" class="tabla-cont"></div>
       <h2>Vista previa (primeros 20 artículos)</h2>
       <div class="tabla-cont"><table id="tabla-inv-previa"><thead><tr>${j.hoja.encabezados.map((h) => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>
         ${j.hoja.filas.map((f) => `<tr>${f.map((v) => `<td>${esc(v)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>
     </div>`;
+  let tmp;
+  $('#inv-q').addEventListener('input', () => {
+    clearTimeout(tmp);
+    tmp = setTimeout(async () => {
+      const t = $('#inv-q').value.trim();
+      if (!t) { $('#inv-res').innerHTML = ''; return; }
+      const r = await api(`/api/admin/articulos?q=${encodeURIComponent(t)}`);
+      $('#inv-res').innerHTML = `<table id="tabla-inv-buscar"><thead><tr><th>Item #</th><th>Código</th><th>Descripción</th><th>Marca</th><th>Estilo</th><th>Departamento</th><th class="num">Precio</th><th></th></tr></thead><tbody>${r.articulos.map((a) => `<tr data-item="${esc(a.item_id)}"><td>${esc(a.item_no ?? '')}</td><td>${esc(a.codigo)}</td><td>${esc(a.descripcion)}</td><td>${esc(a.marca)}</td><td>${esc(a.estilo)}</td><td>${esc(a.departamento)}</td><td class="num">${mxn(a.precio)}</td><td><button class="btn inv-promo" type="button">${ico('percent')}<span>Crear promoción</span></button></td></tr>`).join('') || '<tr><td colspan="8" class="vacio">Sin resultados.</td></tr>'}</tbody></table>${r.total > r.articulos.length ? `<p class="nota">${r.total} resultados; se muestran ${r.articulos.length}. Escriba más para acotar.</p>` : ''}`;
+      for (const b of $('#inv-res').querySelectorAll('.inv-promo')) b.addEventListener('click', async () => { S.hoyPromo = S.hoyPromo ?? new Date().toISOString().slice(0, 10); abrirPromo(null, { item: r.articulos.find((x) => x.item_id === b.closest('tr').dataset.item) }); });
+    }, 250);
+  });
   $('#btn-exportar').addEventListener('click', async () => {
     const e = $('#estado-exportar');
     e.textContent = 'Preparando el archivo…';
@@ -1359,29 +1373,31 @@ async function abrirAltaManual() {
 
 // ── Promociones y cupones (Administración) ──
 const centavosAPesos = (c) => (c / 100).toFixed(2).replace(/\.00$/, '');
+function nombresArticulos(ids) { return ids.map((id) => { const a = S.artInfo?.[id]; return a ? `${a.descripcion}${a.marca ? ' ' + a.marca : ''}` : 'artículo'; }); }
+function alcanceTexto(a) {
+  return [a.item_ids?.length ? `artículos: ${nombresArticulos(a.item_ids).join(', ')}` : '', a.departamentos?.length ? `departamentos: ${a.departamentos.join(', ')}` : '', a.palabras?.length ? `descripción con: ${a.palabras.join(', ')}` : ''].filter(Boolean).join(' · ');
+}
 function reglaTexto(p) {
-  if (p.tipo === 'nxm') {
-    const a = p.alcance ?? {};
-    const donde = [a.departamentos?.length ? `departamentos: ${a.departamentos.join(', ')}` : '', a.palabras?.length ? `descripción con: ${a.palabras.join(', ')}` : '', a.item_ids?.length ? `${a.item_ids.length} artículo(s) elegido(s)` : ''].filter(Boolean).join(' · ');
-    return `Lleva ${p.lleva}, paga ${p.paga} (${donde})`;
-  }
+  if (p.tipo === 'nxm') return `Lleva ${p.lleva}, paga ${p.paga} (${alcanceTexto(p.alcance ?? {})})`;
+  if (p.tipo === 'paquete') return `Lleva ${p.lleva} por ${mxn(p.precio)} (${alcanceTexto(p.alcance ?? {})})`;
   if (p.tipo === 'por_cada') return `Por cada ${mxn(p.cada)} de compra, ${mxn(p.descuenta)} de descuento`;
   const q = p.pct !== undefined ? `${p.pct} %` : mxn(p.monto);
-  return `Código ${p.codigo}: ${q} de descuento${p.minimo ? ` en compras desde ${mxn(p.minimo)}` : ''}${p.usos_max ? ` · máx. ${p.usos_max} uso(s)` : ''}${p.combinable === false ? ' · no se combina con promociones' : ''}`;
+  return `Código ${p.codigo}: ${q} de descuento${p.minimo ? ` en compras desde ${mxn(p.minimo)}` : ''}${p.usos_max ? ` · máx. ${p.usos_max} uso(s)` : ''}`;
 }
-const NOM_TIPO = { nxm: 'Lleva X, paga Y', por_cada: 'Por cada $X de compra', cupon: 'Cupón' };
+const tiendasTexto = (p) => (p.tiendas?.length ? p.tiendas.map((t) => S.tiendasInfo?.find((x) => x.tienda === t)?.nombre ?? t).join(' y ') : 'Todas');
+const NOM_TIPO = { nxm: 'Lleva X, paga Y', paquete: 'Paquete a precio fijo', por_cada: 'Por cada $X de compra', cupon: 'Cupón' };
 const NOM_ESTADO_PROMO = { activa: 'Activa', programada: 'Programada', vencida: 'Vencida', inactiva: 'Desactivada' };
 const vigenciaTexto = (p) => (p.inicio || p.fin ? `${p.inicio ? `Desde el ${fechaPiso(p.inicio)}` : 'Desde ya'} · ${p.fin ? `hasta el ${fechaPiso(p.fin)}` : 'sin fecha límite'}` : 'Sin fecha límite');
 async function vistaPromociones() {
-  const [{ promociones, hoy }, { supervisores }] = await Promise.all([api('/api/admin/promociones'), api('/api/admin/supervisores')]);
-  S.promos = promociones; S.hoyPromo = hoy;
+  const [{ promociones, hoy, tiendas, articulos }, { supervisores }] = await Promise.all([api('/api/admin/promociones'), api('/api/admin/supervisores')]);
+  S.promos = promociones; S.hoyPromo = hoy; S.tiendasInfo = tiendas; S.artInfo = { ...(S.artInfo ?? {}), ...articulos };
   $('#vista').innerHTML = `<div class="titulo-vista">${ico('percent')}<h1>Promociones y cupones</h1></div>
     <section class="panel"><div class="filas" style="align-items:center"><button class="btn btn-primario" id="btn-nueva-promo" type="button" style="width:auto">${ico('plus')}<span>Nueva promoción o cupón</span></button></div>
-      <p class="nota">Toda promoción lleva fecha de inicio y de término, o queda <b>sin fecha límite</b> hasta que Administración la desactive. Se aplican solas al cobrar; los cupones se capturan o se escanean en la caja.</p>
+      <p class="nota">Cada promoción o cupón vale solo en la tienda (o tiendas) que elija. Toda promoción lleva fecha de inicio y de término, o queda <b>sin fecha límite</b> hasta que Administración la desactive. En cada compra aplica <b>una sola</b> promoción o cupón: la que más descuento le da al cliente. Las promociones se aplican solas al cobrar; los cupones se capturan o se escanean en la caja. Para promocionar un artículo concreto, búsquelo al crear la promoción o use «Crear promoción» en Inventario.</p>
       <div id="msg-promo" class="mensaje" role="status" aria-live="polite"></div>
-      <div class="tabla-cont"><table id="tabla-promos"><thead><tr><th>Nombre</th><th>Tipo</th><th>Regla</th><th>Vigencia</th><th>Estado</th><th class="num">Usos</th><th></th></tr></thead><tbody>
-      ${promociones.map((p) => `<tr data-promo="${esc(p.id)}" data-estado="${p.estado}"><td>${esc(p.nombre)}</td><td>${NOM_TIPO[p.tipo]}</td><td class="desc">${esc(reglaTexto(p))}</td><td>${esc(vigenciaTexto(p))}</td><td><span class="insignia ${p.estado === 'activa' ? '' : 'cancelada'}">${NOM_ESTADO_PROMO[p.estado]}</span></td><td class="num">${p.usos}</td>
-        <td class="filas" style="flex-wrap:nowrap"><button class="btn p-editar" type="button">${ico('pencil')}<span>Editar</span></button><button class="btn p-activa" type="button">${p.activa ? 'Desactivar' : 'Activar'}</button>${p.tipo === 'cupon' ? `<button class="btn p-qr" type="button">${ico('download')}<span>Imagen QR</span></button>` : ''}</td></tr>`).join('') || '<tr><td colspan="7" class="vacio">Aún no hay promociones ni cupones.</td></tr>'}</tbody></table></div></section>
+      <div class="tabla-cont"><table id="tabla-promos"><thead><tr><th>Nombre</th><th>Tienda</th><th>Tipo</th><th>Regla</th><th>Vigencia</th><th>Estado</th><th class="num">Usos</th><th></th></tr></thead><tbody>
+      ${promociones.map((p) => `<tr data-promo="${esc(p.id)}" data-estado="${p.estado}"><td>${esc(p.nombre)}</td><td data-col="tiendas">${esc(tiendasTexto(p))}</td><td>${NOM_TIPO[p.tipo]}</td><td class="desc">${esc(reglaTexto(p))}</td><td>${esc(vigenciaTexto(p))}</td><td><span class="insignia ${p.estado === 'activa' ? '' : 'cancelada'}">${NOM_ESTADO_PROMO[p.estado]}</span></td><td class="num">${p.usos}</td>
+        <td class="filas" style="flex-wrap:nowrap"><button class="btn p-editar" type="button">${ico('pencil')}<span>Editar</span></button><button class="btn p-activa" type="button">${p.activa ? 'Desactivar' : 'Activar'}</button>${p.tipo === 'cupon' ? `<button class="btn p-qr" type="button">${ico('download')}<span>Imagen QR</span></button>` : ''}</td></tr>`).join('') || '<tr><td colspan="8" class="vacio">Aún no hay promociones ni cupones.</td></tr>'}</tbody></table></div></section>
     <section class="panel" style="margin-top:12px"><h2 style="margin-top:0">Supervisores que autorizan descuentos</h2>
       <p class="nota">Solo un supervisor puede autorizar un descuento en la caja, tecleando su clave (4 a 8 dígitos). El descuento puede llegar hasta el 100 %. La clave no se puede volver a ver: si se olvida, se cambia.</p>
       <div class="tabla-cont"><table id="tabla-supervisores"><thead><tr><th>Nombre</th><th>Estado</th><th>Nueva clave</th><th></th></tr></thead><tbody>
@@ -1418,11 +1434,15 @@ async function vistaPromociones() {
     });
   }
 }
-async function abrirPromo(p) {
-  const { departamentos } = await api('/api/admin/departamentos');
+async function abrirPromo(p, preset) {
+  const [{ departamentos }, { tiendas }] = await Promise.all([api('/api/admin/departamentos'), api('/api/admin/tiendas')]);
+  S.tiendasInfo = tiendas;
+  S.artInfo = S.artInfo ?? {};
   const d = dialogo('dlg-promo');
   const nueva = !p;
-  const q = p ?? { tipo: 'nxm', nombre: '', activa: true, inicio: S.hoyPromo, fin: null, lleva: 2, paga: 1, alcance: { departamentos: [], palabras: [], item_ids: [] }, cada: 100000, descuenta: 10000, codigo: '', pct: 10, minimo: 0, usos_max: null, combinable: true };
+  const q = p ?? { tipo: 'nxm', nombre: '', activa: true, tiendas: tiendas.map((t) => t.tienda), inicio: S.hoyPromo ?? null, fin: null, lleva: 2, paga: 1, precio: 18500, alcance: { departamentos: [], palabras: [], item_ids: [] }, cada: 100000, descuenta: 10000, codigo: '', pct: 10, minimo: 0, usos_max: null };
+  let items = [...(q.alcance?.item_ids ?? [])];
+  if (preset?.item) { S.artInfo[preset.item.item_id] = preset.item; if (!items.includes(preset.item.item_id)) items.push(preset.item.item_id); }
   const esPct = q.monto === undefined;
   d.setAttribute('aria-labelledby', 'promo-titulo');
   const campo = (id, rotulo, valor, extra = '') => `<div class="campo"><label for="${id}">${rotulo}</label><input id="${id}" class="texto" value="${esc(valor ?? '')}" ${extra}></div>`;
@@ -1430,18 +1450,26 @@ async function abrirPromo(p) {
     <form id="form-promo" autocomplete="off">
       <div class="campo"><label for="pr-tipo">Tipo</label><select id="pr-tipo" ${nueva ? '' : 'disabled'} style="width:100%;padding:10px;border:2px solid var(--borde);border-radius:10px;background:var(--superficie)">
         <option value="nxm" ${q.tipo === 'nxm' ? 'selected' : ''}>Lleva X piezas y paga Y (2x1, 3x2…) en mercancía seleccionada</option>
+        <option value="paquete" ${q.tipo === 'paquete' ? 'selected' : ''}>Paquete a precio fijo (lleva 4 por $185…)</option>
         <option value="por_cada" ${q.tipo === 'por_cada' ? 'selected' : ''}>Por cada $X de compra, $Y de descuento</option>
         <option value="cupon" ${q.tipo === 'cupon' ? 'selected' : ''}>Cupón de descuento (% o $) con código y QR</option></select></div>
       ${campo('pr-nombre', 'Nombre (aparece en el ticket)', q.nombre)}
+      <fieldset style="border:1px solid var(--borde);border-radius:8px"><legend>Vale en la tienda</legend>${tiendas.map((t) => `<label style="display:inline-block;margin-right:16px"><input type="checkbox" class="pr-tienda" value="${esc(t.tienda)}" ${(q.tiendas ?? tiendas.map((x) => x.tienda)).includes(t.tienda) ? 'checked' : ''}> ${esc(t.nombre)}</label>`).join('')}</fieldset>
       <div class="filas"><div class="campo" style="flex:1"><label for="pr-inicio">Inicia</label><input id="pr-inicio" type="date" value="${esc(q.inicio ?? '')}" class="texto"></div>
         <div class="campo" style="flex:1"><label for="pr-fin">Termina</label><input id="pr-fin" type="date" value="${esc(q.fin ?? '')}" class="texto" ${q.fin ? '' : 'disabled'}></div></div>
       <label><input type="checkbox" id="pr-sin-fin" ${q.fin ? '' : 'checked'}> Sin fecha límite (vale hasta que Administración la desactive)</label>
-      <div data-tipo="nxm">
-        <div class="filas"><div class="campo" style="flex:1"><label for="pr-lleva">Lleva (piezas)</label><input id="pr-lleva" type="number" min="2" class="texto" value="${q.lleva ?? 2}"></div><div class="campo" style="flex:1"><label for="pr-paga">Paga (piezas)</label><input id="pr-paga" type="number" min="1" class="texto" value="${q.paga ?? 1}"></div></div>
-        <p class="nota">De cada grupo, las piezas más baratas salen gratis. Aplica a la mercancía que cumpla lo que elija aquí (departamento o palabras de la descripción).</p>
-        <fieldset style="border:1px solid var(--borde);border-radius:8px"><legend>Departamentos</legend>${departamentos.filter((x) => x.activo).map((x) => `<label style="display:inline-block;margin-right:12px"><input type="checkbox" class="pr-dep" value="${esc(x.nombre)}" ${(q.alcance?.departamentos ?? []).includes(x.nombre) ? 'checked' : ''}> ${esc(x.nombre)}</label>`).join('')}</fieldset>
-        ${campo('pr-palabras', 'Palabras de la descripción (separadas por comas): blusa, pantalón, falda…', (q.alcance?.palabras ?? []).join(', '))}
-        <p class="nota">Si pone departamento y palabras, deben cumplirse las dos.</p>
+      <div data-tipo="nxm paquete">
+        <div class="filas" data-tipo="nxm"><div class="campo" style="flex:1"><label for="pr-lleva">Lleva (piezas)</label><input id="pr-lleva" type="number" min="2" class="texto" value="${q.lleva ?? 2}"></div><div class="campo" style="flex:1"><label for="pr-paga">Paga (piezas)</label><input id="pr-paga" type="number" min="1" class="texto" value="${q.paga ?? 1}"></div></div>
+        <div class="filas" data-tipo="paquete"><div class="campo" style="flex:1"><label for="pr-lleva2">Lleva (piezas)</label><input id="pr-lleva2" type="number" min="2" class="texto" value="${q.lleva ?? 4}"></div><div class="campo" style="flex:1"><label for="pr-precio">Paga en total ($)</label><input id="pr-precio" class="texto" inputmode="decimal" value="${centavosAPesos(q.precio ?? 18500)}"></div></div>
+        <p class="nota" data-tipo="nxm">De cada grupo, las piezas más baratas salen gratis.</p>
+        <p class="nota" data-tipo="paquete">Cada grupo completo se cobra al precio del paquete; 5 piezas de un paquete de 4 son un paquete más una suelta a precio normal.</p>
+        <div class="campo"><label for="pr-buscar">Artículos de la promoción: busque por código, Item #, descripción o marca</label><input id="pr-buscar" class="texto" placeholder="Ej. accesorio popular"></div>
+        <div id="pr-resultados" class="tabla-cont" style="max-height:20vh;overflow:auto"></div>
+        <div id="pr-items" class="filas" style="gap:6px;margin:6px 0"></div>
+        <details><summary>También por departamento o palabras de la descripción</summary>
+          <fieldset style="border:1px solid var(--borde);border-radius:8px"><legend>Departamentos</legend>${departamentos.filter((x) => x.activo).map((x) => `<label style="display:inline-block;margin-right:12px"><input type="checkbox" class="pr-dep" value="${esc(x.nombre)}" ${(q.alcance?.departamentos ?? []).includes(x.nombre) ? 'checked' : ''}> ${esc(x.nombre)}</label>`).join('')}</fieldset>
+          ${campo('pr-palabras', 'Palabras de la descripción (separadas por comas): blusa, pantalón, falda…', (q.alcance?.palabras ?? []).join(', '))}
+          <p class="nota">Si pone departamento y palabras, deben cumplirse las dos. Los artículos elegidos arriba entran siempre.</p></details>
       </div>
       <div data-tipo="por_cada">
         <div class="filas"><div class="campo" style="flex:1"><label for="pr-cada">Por cada ($ de compra)</label><input id="pr-cada" class="texto" value="${centavosAPesos(q.cada ?? 100000)}" inputmode="decimal"></div><div class="campo" style="flex:1"><label for="pr-descuenta">Descuento ($)</label><input id="pr-descuenta" class="texto" value="${centavosAPesos(q.descuenta ?? 10000)}" inputmode="decimal"></div></div>
@@ -1454,15 +1482,38 @@ async function abrirPromo(p) {
         ${campo('pr-cup-valor', 'Valor del descuento', esPct ? (q.pct ?? 10) : centavosAPesos(q.monto), 'inputmode="decimal"')}
         ${campo('pr-minimo', 'Compra mínima ($, vacío = sin mínimo; el mínimo se cumple con esa cantidad o más)', q.minimo ? centavosAPesos(q.minimo) : '', 'inputmode="decimal"')}
         ${campo('pr-usos', 'Usos máximos (vacío = sin límite; 1 = un solo uso)', q.usos_max ?? '', 'inputmode="numeric"')}
-        <label><input type="checkbox" id="pr-combinable" ${q.combinable === false ? '' : 'checked'}> Se puede combinar con las promociones de la venta</label>
       </div>
+      <p class="nota">En cada compra aplica una sola promoción o cupón (la que más descuento dé); no se combinan.</p>
       <label style="margin-top:8px"><input type="checkbox" id="pr-activa" ${q.activa ? 'checked' : ''}> Activa</label>
       <div id="msg-pr" class="mensaje" role="status" aria-live="polite"></div>
       <div class="filas"><button class="btn" type="button" id="pr-cerrar">Cancelar</button><button class="btn btn-primario" type="submit" id="pr-guardar" style="width:auto;flex:1">${ico('check')}<span>Guardar</span></button></div>
     </form>`;
-  const mostrar = () => { const t = $('#pr-tipo').value; for (const b of d.querySelectorAll('[data-tipo]')) b.hidden = b.dataset.tipo !== t; };
+  const mostrar = () => { const t = $('#pr-tipo').value; for (const b of d.querySelectorAll('[data-tipo]')) b.hidden = !b.dataset.tipo.split(' ').includes(t); };
   mostrar();
+  if (preset?.item && nueva) { $('#pr-tipo').value = 'nxm'; mostrar(); if (!$('#pr-nombre').value) $('#pr-nombre').value = `Promoción ${preset.item.descripcion}`; }
   $('#pr-tipo').addEventListener('change', mostrar);
+  const pintarItems = () => {
+    $('#pr-items').innerHTML = items.length ? items.map((id) => `<span class="insignia" data-item="${esc(id)}">${esc(nombresArticulos([id])[0])} <button type="button" class="btn btn-icono pr-quitar" aria-label="Quitar" style="width:20px;height:20px">${ico('x')}</button></span>`).join('') : '<span class="nota">Ningún artículo elegido todavía.</span>';
+    for (const b of $('#pr-items').querySelectorAll('.pr-quitar')) b.addEventListener('click', () => { items = items.filter((x) => x !== b.parentElement.dataset.item); pintarItems(); });
+  };
+  pintarItems();
+  let temporizador;
+  $('#pr-buscar').addEventListener('input', () => {
+    clearTimeout(temporizador);
+    temporizador = setTimeout(async () => {
+      const t = $('#pr-buscar').value.trim();
+      if (!t) { $('#pr-resultados').innerHTML = ''; return; }
+      try {
+        const r = await api(`/api/admin/articulos?q=${encodeURIComponent(t)}`);
+        $('#pr-resultados').innerHTML = `<table id="pr-tabla-res"><tbody>${r.articulos.map((a) => `<tr data-item="${esc(a.item_id)}"><td>${esc(a.item_no ?? '')}</td><td>${esc(a.codigo)}</td><td>${esc(a.descripcion)} ${esc(a.marca)}</td><td class="num">${mxn(a.precio)}</td><td><button type="button" class="btn pr-agregar">${ico('plus')}<span>Agregar</span></button></td></tr>`).join('') || '<tr><td class="vacio">Sin resultados.</td></tr>'}</tbody></table>${r.total > r.articulos.length ? `<p class="nota">${r.total} resultados; escriba más para acotar.</p>` : ''}`;
+        for (const b of $('#pr-resultados').querySelectorAll('.pr-agregar')) b.addEventListener('click', () => {
+          const a = r.articulos.find((x) => x.item_id === b.closest('tr').dataset.item);
+          S.artInfo[a.item_id] = a; if (!items.includes(a.item_id)) items.push(a.item_id); pintarItems();
+        });
+      } catch (e) { $('#pr-resultados').textContent = e.message; }
+    }, 250);
+  });
+  $('#form-promo').addEventListener('keydown', (ev) => { if (ev.key === 'Enter' && ev.target.id === 'pr-buscar') ev.preventDefault(); });
   $('#pr-sin-fin').addEventListener('change', (ev) => { $('#pr-fin').disabled = ev.target.checked; if (ev.target.checked) $('#pr-fin').value = ''; });
   $('#pr-generar').addEventListener('click', () => { const A = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let c = ''; for (let i = 0; i < 8; i++) c += A[Math.floor(Math.random() * A.length)]; $('#pr-codigo').value = c; });
   $('#pr-cerrar').addEventListener('click', () => d.close());
@@ -1471,11 +1522,13 @@ async function abrirPromo(p) {
     const m = $('#msg-pr');
     const err = (t) => { m.className = 'mensaje error'; m.textContent = t; };
     const t = $('#pr-tipo').value;
-    const body = { id: p?.id ?? '', tipo: t, nombre: $('#pr-nombre').value, activa: $('#pr-activa').checked, inicio: $('#pr-inicio').value || null, fin: $('#pr-sin-fin').checked ? null : ($('#pr-fin').value || null) };
+    const body = { id: p?.id ?? '', tipo: t, nombre: $('#pr-nombre').value, activa: $('#pr-activa').checked, tiendas: [...d.querySelectorAll('.pr-tienda:checked')].map((x) => x.value), inicio: $('#pr-inicio').value || null, fin: $('#pr-sin-fin').checked ? null : ($('#pr-fin').value || null) };
+    if (!body.tiendas.length) return err('Elija en qué tienda vale (una o ambas).');
     if (!$('#pr-sin-fin').checked && !body.fin) return err('Elija la fecha de término o marque «Sin fecha límite».');
-    if (t === 'nxm') {
-      body.lleva = Number($('#pr-lleva').value); body.paga = Number($('#pr-paga').value);
-      body.alcance = { departamentos: [...d.querySelectorAll('.pr-dep:checked')].map((x) => x.value), palabras: $('#pr-palabras').value.split(',').map((x) => x.trim()).filter(Boolean), item_ids: p?.alcance?.item_ids ?? [] };
+    if (t === 'nxm' || t === 'paquete') {
+      if (t === 'nxm') { body.lleva = Number($('#pr-lleva').value); body.paga = Number($('#pr-paga').value); }
+      else { body.lleva = Number($('#pr-lleva2').value); body.precio = parseMXN($('#pr-precio').value); if (body.precio === null) return err('Escriba el precio del paquete en pesos.'); }
+      body.alcance = { departamentos: [...d.querySelectorAll('.pr-dep:checked')].map((x) => x.value), palabras: $('#pr-palabras').value.split(',').map((x) => x.trim()).filter(Boolean), item_ids: items };
     } else if (t === 'por_cada') {
       body.cada = parseMXN($('#pr-cada').value); body.descuenta = parseMXN($('#pr-descuenta').value);
       if (!body.cada || !body.descuenta) return err('Escriba los dos montos en pesos.');
@@ -1486,12 +1539,29 @@ async function abrirPromo(p) {
       body.minimo = $('#pr-minimo').value.trim() ? parseMXN($('#pr-minimo').value) : 0;
       if (body.minimo === null) return err('La compra mínima no es válida.');
       body.usos_max = $('#pr-usos').value.trim() ? Number($('#pr-usos').value) : null;
-      body.combinable = $('#pr-combinable').checked;
     }
-    try { await api('/api/admin/promociones', body); d.close(); await vistaPromociones(); const mm = $('#msg-promo'); mm.className = 'mensaje ok'; mm.textContent = 'Guardado.'; }
+    try { await api('/api/admin/promociones', body); d.close(); if (S.vista === 'promociones') { await vistaPromociones(); const mm = $('#msg-promo'); mm.className = 'mensaje ok'; mm.textContent = 'Guardado.'; } else await ir('promociones'); }
     catch (e) { err(e.message); }
   });
   d.showModal();
+}
+
+// ── Tiendas: nombre comercial editable ──
+async function vistaTiendas() {
+  const { tiendas } = await api('/api/admin/tiendas');
+  S.tiendasInfo = tiendas;
+  $('#vista').innerHTML = `<div class="titulo-vista">${ico('store')}<h1>Tiendas</h1></div>
+    <section class="panel"><p class="nota">El nombre comercial de cada tienda sale en el ticket, en la pantalla de la caja y en las imágenes de los cupones. Se actualiza en todas las cajas.</p>
+      <div class="tabla-cont"><table id="tabla-tiendas"><thead><tr><th>Tienda</th><th>Nombre comercial</th><th></th></tr></thead><tbody>
+      ${tiendas.map((t) => `<tr data-tienda="${esc(t.tienda)}"><td>${esc(t.tienda)}</td><td><input class="texto t-nombre" value="${esc(t.nombre)}" maxlength="40" aria-label="Nombre de la tienda ${esc(t.tienda)}" style="padding:6px 8px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie);min-width:260px"></td><td class="filas" style="flex-wrap:nowrap"><button class="btn t-guardar" type="button">${ico('check')}<span>Guardar</span></button><button class="btn t-fabrica" type="button" title="Volver al nombre original">Restablecer</button></td></tr>`).join('')}</tbody></table></div>
+      <div id="msg-tiendas" class="mensaje" role="status" aria-live="polite"></div></section>`;
+  const msgT = (t, tipo) => { const m = $('#msg-tiendas'); m.className = `mensaje ${tipo}`; m.textContent = t; };
+  for (const tr of $('#tabla-tiendas').querySelectorAll('tr[data-tienda]')) {
+    const t = tiendas.find((x) => x.tienda === tr.dataset.tienda);
+    const guardar = async (nombre) => { try { await api('/api/admin/tiendas', { tienda: t.tienda, nombre }); await vistaTiendas(); msgT('Nombre guardado.', 'ok'); } catch (e) { msgT(e.message, 'error'); } };
+    tr.querySelector('.t-guardar').addEventListener('click', () => guardar(tr.querySelector('.t-nombre').value));
+    tr.querySelector('.t-fabrica').addEventListener('click', () => guardar(t.de_fabrica));
+  }
 }
 
 // ── imagen del cupón con QR (para WhatsApp, redes o correo) ──
@@ -1529,7 +1599,7 @@ function tarjetaCupon(p) {
   x.fillStyle = '#16314e'; x.fillRect(40, 40, W - 80, H - 80);
   x.strokeStyle = '#2dd4bf'; x.lineWidth = 6; x.setLineDash([22, 14]); x.strokeRect(70, 70, W - 140, H - 140); x.setLineDash([]);
   x.textAlign = 'center'; x.fillStyle = '#9fb3c8'; x.font = '600 40px system-ui, sans-serif';
-  x.fillText('DÚO NY  ·  LONDON LOVE', W / 2, 170);
+  x.fillText(tiendasTexto(p).toUpperCase(), W / 2, 170);
   x.fillStyle = '#5eead4'; x.font = '700 56px system-ui, sans-serif'; x.fillText('CUPÓN', W / 2, 270);
   x.fillStyle = '#ffffff'; x.font = '800 104px system-ui, sans-serif';
   const partes = cuponTitulo(p).split(' DE ');
@@ -1560,7 +1630,7 @@ async function entregarArchivo(nombre, bytes, mime) {
   return `Descarga iniciada: ${nombre}`;
 }
 function textoCupon(p) {
-  return `🎁 ${p.nombre}\n${cuponTitulo(p)}\n${cuponCondiciones(p).join('\n')}\nCódigo: ${p.codigo}\nPresenta este cupón (o su QR) en caja.`;
+  return `🎁 ${tiendasTexto(p)}: ${p.nombre}\n${cuponTitulo(p)}\n${cuponCondiciones(p).join('\n')}\nCódigo: ${p.codigo}\nPresenta este cupón (o su QR) en caja.`;
 }
 function abrirImagenCupon(p) {
   const d = dialogo('dlg-cupon-img');

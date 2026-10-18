@@ -89,7 +89,7 @@ interface Reserva {
 
 const BROADCAST_TIENDA = new Set(['alm.recibida', 'inv.movement', 'inv.conteo', 'inv.verificacion_pendiente', 'doc.perdida_posible', 'item.created', 'item.item_no_assigned', 'giftcard.emitida', 'giftcard.recarga', 'giftcard.uso', 'giftcard.reintegro']);
 // Lo que el central baja a hubs y cajas (catálogo y resoluciones administrativas).
-const CATALOGO = new Set(['item.created', 'item.item_no_assigned', 'item.codigo_corregido', 'doc.perdida_resuelta', 'giftcard.emitida', 'giftcard.recarga', 'giftcard.uso', 'giftcard.reintegro', 'config.tipo_cambio', 'permiso.asignado', 'depto.alta', 'depto.editado', 'alm.entrega', 'promo.guardada', 'supervisor.guardado']);
+const CATALOGO = new Set(['item.created', 'item.item_no_assigned', 'item.codigo_corregido', 'doc.perdida_resuelta', 'giftcard.emitida', 'giftcard.recarga', 'giftcard.uso', 'giftcard.reintegro', 'config.tipo_cambio', 'permiso.asignado', 'depto.alta', 'depto.editado', 'alm.entrega', 'promo.guardada', 'supervisor.guardado', 'config.negocio']);
 
 // ───────────────────────────── Hub ─────────────────────────────
 
@@ -349,12 +349,21 @@ export class Central {
     return { ok: true, op: this.emitirAdmin('depto.editado', payload) };
   }
 
+  /** Nombre comercial de una tienda (sale en el ticket, la pantalla y las imágenes de cupón). Se propaga a todas las cajas. */
+  guardarNombreTienda(tienda: string, nombre: string, por: string): { ok: true } | { ok: false; mensaje: string } {
+    const n = String(nombre ?? '').trim().replace(/\s+/g, ' ');
+    if (!this.ctx.tiendas.includes(tienda)) return { ok: false, mensaje: 'tienda desconocida' };
+    if (!n) return { ok: false, mensaje: 'falta el nombre de la tienda' };
+    if (n.length > 40) return { ok: false, mensaje: 'el nombre es demasiado largo (máximo 40 caracteres)' };
+    this.emitirAdmin('config.negocio', { tienda, nombre: n, por });
+    return { ok: true };
+  }
   /** Alta o edición de una promoción o cupón (con `id` es edición). Se propaga a todas las cajas. */
   guardarPromocion(p: Promocion, por: string): { ok: true; promo: Promocion } | { ok: false; error: ErrorPromo } {
     const otras = promocionesDe(this.repo.ops());
     if (p.id && !otras.some((o) => o.id === p.id)) return { ok: false, error: { codigo: 'NO_EXISTE', mensaje: 'la promoción no existe' } };
     const id = p.id || `promo-${uuid().slice(0, 8)}`;
-    const r = validarPromocion({ ...p, id }, otras);
+    const r = validarPromocion({ ...p, id }, otras, this.ctx.tiendas);
     if (!r.ok) return r;
     this.emitirAdmin('promo.guardada', { ...r.promo, por });
     return r;
@@ -783,7 +792,7 @@ export class Caja {
       for (const v of ventas(this.opsVentas()).values()) if (v.estado === 'confirmada' && v.lineas.some((l) => l.descuento_detalle?.some((d) => d.tipo === 'cupon' && d.ref === p.id))) n++;
       return n;
     };
-    const r = calcularDescuentos(c.lineas, promos, c.cupon ?? null, hoy, usos);
+    const r = calcularDescuentos(c.lineas, promos, c.cupon ?? null, hoy, usos, this.tienda);
     c.lineas = r.lineas;
     c.descuentos = { aplicadas: r.aplicadas, cupon: r.cupon };
   }

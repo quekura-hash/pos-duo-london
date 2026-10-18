@@ -32,6 +32,7 @@ export class Indice {
   private deptos: Departamento[] = copiarBase();
   private promos = new Map<string, Promocion>();
   private supervisoresMap = new Map<string, Supervisor>();
+  private nombresTienda = new Map<string, string>();
 
   constructor(repo: Repo) {
     this.repo = repo;
@@ -40,7 +41,7 @@ export class Indice {
   private reiniciar() {
     this.seq = 0;
     this.cat = new Map(); this.porCodigo = new Map(); this.porAlterno = new Map(); this.porItemNo = new Map(); this.texto = new Map();
-    this.stock = new Map(); this.marcas = new Map(); this.cubiertas = new Map(); this.perdidas = new Map(); this.tarjetas = new Map(); this.tipos = new Map(); this.permisos = new Map(); this.deptos = copiarBase(); this.promos = new Map(); this.supervisoresMap = new Map();
+    this.stock = new Map(); this.marcas = new Map(); this.cubiertas = new Map(); this.perdidas = new Map(); this.tarjetas = new Map(); this.tipos = new Map(); this.permisos = new Map(); this.deptos = copiarBase(); this.promos = new Map(); this.supervisoresMap = new Map(); this.nombresTienda = new Map();
   }
 
   actualizar() {
@@ -75,6 +76,7 @@ export class Indice {
     if (o.tipo.startsWith('giftcard.')) aplicarTarjeta(this.tarjetas, o);
     if (o.tipo === 'permiso.asignado') aplicarPermiso(this.permisos, o);
     if (o.tipo === 'promo.guardada') this.promos.set(p.id, p as Promocion);
+    if (o.tipo === 'config.negocio') this.nombresTienda.set(p.tienda, p.nombre);
     if (o.tipo === 'supervisor.guardado') this.supervisoresMap.set(p.id, p as Supervisor);
     if (o.tipo.startsWith('depto.')) {
       const cambio = aplicarOpDepto(this.deptos, o);
@@ -190,6 +192,11 @@ export class Indice {
   promociones(): Promocion[] {
     this.actualizar();
     return [...this.promos.values()];
+  }
+  /** Nombre comercial de cada tienda editado en Administración (si no se editó, vale el de fábrica). */
+  nombresDeTienda(): Map<string, string> {
+    this.actualizar();
+    return new Map(this.nombresTienda);
   }
   supervisores(): Supervisor[] {
     this.actualizar();

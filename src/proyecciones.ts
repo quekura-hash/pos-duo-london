@@ -333,3 +333,10 @@ export function supervisoresDe(ops: Op[]): import('./supervisores.ts').Superviso
   for (const o of ops) if (o.tipo === 'supervisor.guardado') m.set(o.payload.id, o.payload);
   return [...m.values()];
 }
+
+/** Nombres comerciales de tienda editados en Administración (el último de cada tienda). */
+export function nombresTienda(ops: Op[]): Map<string, string> {
+  const m = new Map<string, string>();
+  for (const o of ops) if (o.tipo === 'config.negocio') m.set(o.payload.tienda, o.payload.nombre);
+  return m;
+}

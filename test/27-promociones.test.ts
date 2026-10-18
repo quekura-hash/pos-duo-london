@@ -60,7 +60,7 @@ it('PR5 vigencia: programada, vencida, inactiva y sin fecha límite', () => {
 });
 
 it('PR6 cupón: % con redondeo al centavo, monto fijo, compra mínima y mensajes claros', () => {
-  const pct = P({ tipo: 'cupon', id: 'k1', nombre: 'Verano', codigo: 'VERANO20', pct: 20, minimo: 50000, usos_max: null, combinable: true });
+  const pct = P({ tipo: 'cupon', id: 'k1', nombre: 'Verano', codigo: 'VERANO20', pct: 20, minimo: 50000, usos_max: null });
   const art = [L('a', 'X', 33333, 2)]; // 66,666 → 20 % = 13,333.2 → 13,333
   const r = calcularDescuentos(art, [pct], 'verano20', HOY);
   assert.deepEqual([r.cupon!.aplicado, r.cupon!.monto, r.lineas[0]!.importe], [true, 13333, 53333]);
@@ -72,16 +72,21 @@ it('PR6 cupón: % con redondeo al centavo, monto fijo, compra mínima y mensajes
   assert.match(calcularDescuentos(art, [pct], 'NOEXISTE', HOY).cupon!.motivo!, /no existe/);
   assert.match(calcularDescuentos(art, [{ ...pct, fin: '2026-11-01' }], 'VERANO20', HOY).cupon!.motivo!, /venció/);
   assert.match(calcularDescuentos(art, [{ ...pct, usos_max: 3 }], 'VERANO20', HOY, () => 3).cupon!.motivo!, /máximo de veces/);
-  // no combinable con promociones
-  const nc = { ...pct, combinable: false, minimo: 0 };
-  assert.match(calcularDescuentos([L('a', 'BLUSA', 10000, 2)], [dosxuno(), nc], 'VERANO20', HOY).cupon!.motivo!, /no se combina/);
-  // combinable: el cupón se calcula sobre lo que deja la promoción
-  const c = calcularDescuentos([L('a', 'BLUSA', 10000, 2)], [dosxuno(), { ...pct, minimo: 0 }], 'VERANO20', HOY);
-  assert.deepEqual([c.aplicadas[0]!.monto, c.cupon!.monto, c.lineas[0]!.importe], [10000, 2000, 8000]);
+  // una sola promoción o cupón por compra: gana la que más descuento da
+  const dos = dosxuno(); // 2 blusas de $100: la promoción regala $100
+  const cup5 = { ...pct, minimo: 0, pct: 5 }; // 5 % de $200 = $10
+  const gana = calcularDescuentos([L('a', 'BLUSA', 10000, 2)], [dos, cup5], 'VERANO20', HOY);
+  assert.deepEqual([gana.aplicadas.map((x) => x.promo_id), gana.cupon!.aplicado, gana.lineas[0]!.importe], [['n1'], false, 10000]);
+  assert.match(gana.cupon!.motivo!, /no se combina.*2x1 blusas/);
+  const cup50 = { ...pct, minimo: 0, pct: 50 }; // 50 % de $200 = $100: empata con la promoción → gana la primera de la lista
+  assert.equal(calcularDescuentos([L('a', 'BLUSA', 10000, 2)], [dos, cup50], 'VERANO20', HOY).cupon!.aplicado, false);
+  const cup60 = { ...pct, minimo: 0, pct: 60 };
+  const cg = calcularDescuentos([L('a', 'BLUSA', 10000, 2)], [dos, cup60], 'VERANO20', HOY);
+  assert.deepEqual([cg.cupon!.aplicado, cg.aplicadas.length, cg.lineas[0]!.importe], [true, 0, 8000], 'el cupón gana y no se suma la promoción');
 });
 
 it('PR7 validación: tipos, fechas, códigos y alcance', () => {
-  const v = (p: Promocion, otras: Promocion[] = []) => validarPromocion(p, otras);
+  const v = (p: Promocion, otras: Promocion[] = []) => validarPromocion({ tiendas: ['DUO'], ...p }, otras, ['DUO', 'LON']);
   assert.equal(v(dosxuno()).ok, true);
   assert.equal(v(dosxuno({ paga: 2 })).ok, false);
   assert.equal(v(dosxuno({ alcance: { departamentos: [], palabras: [], item_ids: [] } })).ok, false);
@@ -94,62 +99,124 @@ it('PR7 validación: tipos, fechas, códigos y alcance', () => {
   assert.equal(v(P({ ...cup, id: 'otro' }), [{ ...cup, codigo: 'VERANO20' }]).ok, false, 'código repetido');
   assert.equal(v(P({ ...cup, pct: 10, monto: 500 })).ok, false);
   assert.equal(v(P({ ...cup, pct: 101 })).ok, false);
+  assert.equal(v(dosxuno({ tiendas: [] })).ok, false, 'hay que elegir tienda');
+  assert.equal(v(dosxuno({ tiendas: ['XYZ'] })).ok, false);
+  assert.equal(v(P({ tipo: 'paquete', id: 'q', nombre: 'Paquete', lleva: 4, precio: 18500, alcance: { departamentos: [], palabras: [], item_ids: ['a'] } })).ok, true);
+  assert.equal(v(P({ tipo: 'paquete', id: 'q', nombre: 'Paquete', lleva: 1, precio: 18500, alcance: { departamentos: [], palabras: [], item_ids: ['a'] } })).ok, false);
   assert.equal(v(P({ ...cup, codigo: 'AB' })).ok, false);
 });
 
 porAlmacen('Promociones, cupones y descuentos con clave de supervisor en la caja', (alm) => {
   const admin = (ctx: ReturnType<typeof nuevoMundo>) => new ServicioAdmin({ central: ctx.m.central, actor: { rol: 'admin', usuario: 'galo' }, fuente: () => ctx.m.central.repo.ops(), cajas: [{ tienda: 'DUO', caja: 1 }, { tienda: 'LON', caja: 1 }] });
 
-  it('PR8 Administración crea promociones y cupones; llegan a las cajas y se aplican al total', async (t) => {
+  it('PR8 Administración crea promociones y cupones; llegan a las cajas; solo una por compra', async (t) => {
     const ctx = nuevoMundo(alm, politica());
     t.after(ctx.limpiar);
     const a = admin(ctx);
-    a.guardarPromocion({ id: '', tipo: 'nxm', nombre: '2x1 jeans', activa: true, inicio: null, fin: null, lleva: 2, paga: 1, alcance: { departamentos: [], palabras: ['jeans'], item_ids: [] } });
-    a.guardarPromocion({ id: '', tipo: 'cupon', nombre: 'Cupón 10 %', activa: true, inicio: null, fin: null, codigo: 'diez', pct: 10, minimo: 0, usos_max: 1, combinable: true });
-    assert.throws(() => a.guardarPromocion({ id: '', tipo: 'cupon', nombre: 'Otro', activa: true, inicio: null, fin: null, codigo: 'DIEZ', pct: 5 }), { codigo: 'PROMOCION_INVALIDA' });
-    assert.throws(() => a.guardarPromocion({ id: 'nada', tipo: 'nxm', nombre: 'x', activa: true, inicio: null, fin: null, lleva: 2, paga: 1, alcance: { departamentos: [], palabras: ['x'], item_ids: [] } }), { codigo: 'NO_ENCONTRADO' });
+    const jeans = a.guardarPromocion({ id: '', tipo: 'nxm', nombre: '2x1 jeans', activa: true, tiendas: ['DUO', 'LON'], inicio: null, fin: null, lleva: 2, paga: 1, alcance: { departamentos: [], palabras: ['jeans'], item_ids: [] } }).guardada;
+    a.guardarPromocion({ id: '', tipo: 'cupon', nombre: 'Cupón 10 %', activa: true, tiendas: ['DUO', 'LON'], inicio: null, fin: null, codigo: 'diez', pct: 10, minimo: 0, usos_max: 1 });
+    assert.throws(() => a.guardarPromocion({ id: '', tipo: 'cupon', nombre: 'Otro', activa: true, tiendas: ['DUO'], inicio: null, fin: null, codigo: 'DIEZ', pct: 5 }), { codigo: 'PROMOCION_INVALIDA' });
+    assert.throws(() => a.guardarPromocion({ id: 'nada', tipo: 'nxm', nombre: 'x', activa: true, tiendas: ['DUO'], inicio: null, fin: null, lleva: 2, paga: 1, alcance: { departamentos: [], palabras: ['x'], item_ids: [] } }), { codigo: 'NO_ENCONTRADO' });
+    assert.throws(() => a.guardarPromocion({ id: '', tipo: 'nxm', nombre: 'sin tienda', activa: true, tiendas: [], inicio: null, fin: null, lleva: 2, paga: 1, alcance: { departamentos: [], palabras: ['x'], item_ids: [] } }), { codigo: 'PROMOCION_INVALIDA' });
     ctx.m.pump();
     const s = servicioDe(ctx, 'DUO', 1);
     const cart = s.svc.nuevaVenta();
     s.svc.escanear(cart, '0002026090782'); // JEANS $899
-    let v = s.svc.escanear(cart, '0002026090799') as any; // JEANS $899 (otro lote)
+    const v = s.svc.escanear(cart, '0002026090799') as any; // JEANS $899 (otro lote)
     assert.deepEqual([v.carrito.total, v.carrito.descuentos, v.carrito.promos.map((p: any) => p.nombre)], [89900, 89900, ['2x1 jeans']], 'la segunda pieza sale gratis');
-    // cupón: se valida, descuenta sobre lo que queda y se puede quitar
-    const k = s.svc.aplicarCupon(cart, 'DIEZ');
-    assert.deepEqual([k.cupon.monto, k.carrito.total], [8990, 80910]);
+    // el cupón de 10 % ($179.80) da MENOS que el 2x1 ($899): no se combinan y gana la promoción
+    assert.throws(() => s.svc.aplicarCupon(cart, 'DIEZ'), (e: any) => e.codigo === 'CUPON_NO_APLICA' && /no se combina.*2x1 jeans/.test(e.message));
+    assert.equal(s.svc.vista(cart).cupon, null);
     assert.throws(() => s.svc.aplicarCupon(cart, 'NOEXISTE'), { codigo: 'CUPON_NO_APLICA' });
-    assert.equal(s.svc.vista(cart).cupon?.codigo, 'DIEZ', 'un intento fallido no quita el cupón vigente');
+    // sin la promoción, el cupón aplica
+    a.guardarPromocion({ ...jeans!, activa: false });
+    ctx.m.pump();
+    const k = s.svc.aplicarCupon(cart, 'DIEZ');
+    assert.deepEqual([k.cupon.monto, k.carrito.total, k.carrito.promos.length], [17980, 161820, 0]);
     s.svc.quitarCupon(cart);
-    assert.equal(s.svc.vista(cart).total, 89900);
+    assert.equal(s.svc.vista(cart).total, 179800);
     s.svc.aplicarCupon(cart, 'DIEZ');
-    // cobrar: el ticket explica cada descuento
-    const venta = await s.svc.cobrarEfectivo(cart, 100000, 0);
-    assert.equal(venta.venta.total, 80910);
+    // cobrar: el ticket explica el descuento
+    const venta = await s.svc.cobrarEfectivo(cart, 200000, 0);
+    assert.equal(venta.venta.total, 161820);
     const txt = renderTicketTexto(construirTicket(venta.venta));
-    assert.match(txt, /2x1 jeans +-\$899\.00/);
     assert.match(txt, /Cupón Cupón 10 % +-\$89\.90/);
-    assert.match(txt, /TOTAL +\$809\.10/);
+    assert.match(txt, /TOTAL +\$1,618\.20/);
     // usos_max = 1: el cupón ya no vale otra vez
     const cart2 = s.svc.nuevaVenta();
     s.svc.escanear(cart2, '7501234567890');
     assert.throws(() => s.svc.aplicarCupon(cart2, 'DIEZ'), (e: any) => /máximo de veces/.test(e.message));
-    // desactivar la promoción: la siguiente venta ya no la lleva
+    // reactivar la promoción: la siguiente venta la lleva sola
     ctx.m.pump(); ctx.m.pump();
-    const promo = a.promociones().promociones.find((p) => p.tipo === 'nxm')!;
-    assert.equal(promo.usos, 1);
-    a.guardarPromocion({ ...promo, activa: false });
+    a.guardarPromocion({ ...jeans!, activa: true });
     ctx.m.pump();
     const cart3 = s.svc.nuevaVenta();
     s.svc.escanear(cart3, '0002026090782');
-    assert.equal((s.svc.escanear(cart3, '0002026090799') as any).carrito.total, 179800);
+    assert.equal((s.svc.escanear(cart3, '0002026090799') as any).carrito.total, 89900);
+    assert.equal(a.promociones().promociones.find((p) => p.id === jeans!.id)!.usos, 0, 'la venta con cupón no cuenta como uso de la promoción');
+  });
+
+  it('PR8b cada tienda tiene sus promociones y cupones: lo de London no vale en DÚO y viceversa', async (t) => {
+    const ctx = nuevoMundo(alm, politica());
+    t.after(ctx.limpiar);
+    const a = admin(ctx);
+    a.guardarPromocion({ id: '', tipo: 'nxm', nombre: '2x1 jeans London', activa: true, tiendas: ['LON'], inicio: null, fin: null, lleva: 2, paga: 1, alcance: { departamentos: [], palabras: ['jeans'], item_ids: [] } });
+    a.guardarPromocion({ id: '', tipo: 'cupon', nombre: 'Cupón London', activa: true, tiendas: ['LON'], inicio: null, fin: null, codigo: 'LONDON10', pct: 10 });
+    a.guardarPromocion({ id: '', tipo: 'cupon', nombre: 'Cupón DÚO', activa: true, tiendas: ['DUO'], inicio: null, fin: null, codigo: 'DUO10', pct: 10 });
+    ctx.m.pump();
+    const venta = (tienda: string) => { const s = servicioDe(ctx, tienda, 1); const c = s.svc.nuevaVenta(); s.svc.escanear(c, '0002026090782'); s.svc.escanear(c, '0002026090799'); return { s, c }; };
+    const d = venta('DUO');
+    assert.equal(d.s.svc.vista(d.c).total, 179800, 'la promoción de London no aplica en DÚO');
+    assert.throws(() => d.s.svc.aplicarCupon(d.c, 'LONDON10'), (e: any) => /no es válido en esta tienda/.test(e.message));
+    assert.equal(d.s.svc.aplicarCupon(d.c, 'DUO10').cupon.aplicado, true);
+    const l = venta('LON');
+    assert.equal(l.s.svc.vista(l.c).total, 89900, 'en London sí');
+    assert.throws(() => l.s.svc.aplicarCupon(l.c, 'DUO10'), (e: any) => /no es válido en esta tienda/.test(e.message));
+  });
+
+  it('PR8c paquete a precio fijo: «lleva 4 por $185» en un artículo elegido (accesorio popular de $55)', async (t) => {
+    const ctx = nuevoMundo(alm, politica());
+    t.after(ctx.limpiar);
+    const a = admin(ctx);
+    const art = a.buscarArticulos('mascada').articulos[0]!; // MASCADA $120 en el catálogo de prueba
+    assert.equal(a.buscarArticulos('7501234567890').articulos[0]!.item_id, art.item_id, 'también se busca por código');
+    assert.deepEqual(a.buscarArticulos('zzz').articulos, []);
+    a.guardarPromocion({ id: '', tipo: 'paquete', nombre: 'Accesorio popular: 4 por $185', activa: true, tiendas: ['DUO', 'LON'], inicio: null, fin: null, lleva: 4, precio: 18500, alcance: { departamentos: [], palabras: [], item_ids: [art.item_id] } });
+    const prom = a.promociones();
+    assert.equal(prom.articulos[art.item_id]!.descripcion, 'MASCADA');
+    ctx.m.pump();
+    const s = servicioDe(ctx, 'DUO', 1);
+    const total = (n: number) => { const c = s.svc.nuevaVenta(); const e = s.svc.escanear(c, '7501234567890') as any; if (n > 1) s.svc.cambiarCantidad(c, e.linea.linea_id, n); return s.svc.vista(c); };
+    // 4 × $120 = $480 → $185 (paquete); 5 piezas = un paquete + 1 suelta; 8 = dos paquetes; 3 no completan
+    assert.deepEqual([3, 4, 5, 8].map((n) => total(n).total), [36000, 18500, 18500 + 12000, 37000]);
+    assert.equal(total(4).promos[0]!.nombre, 'Accesorio popular: 4 por $185');
+  });
+
+  it('PR8d el nombre de cada tienda es editable y se usa en el ticket, la pantalla y la imagen del cupón', async (t) => {
+    const ctx = nuevoMundo(alm, politica());
+    t.after(ctx.limpiar);
+    const a = admin(ctx);
+    assert.deepEqual(a.tiendasInfo().map((x) => [x.tienda, x.nombre]), [['DUO', 'DÚO New York'], ['LON', 'London Love']]);
+    assert.throws(() => a.guardarNombreTienda('DUO', '  '), { codigo: 'TIENDA_INVALIDA' });
+    assert.throws(() => a.guardarNombreTienda('XYZ', 'Otra'), { codigo: 'TIENDA_INVALIDA' });
+    a.guardarNombreTienda('LON', '  London   Love Outlet ');
+    ctx.m.pump();
+    assert.equal(a.tiendasInfo()[1]!.nombre, 'London Love Outlet');
+    const s = servicioDe(ctx, 'LON', 1);
+    assert.equal(s.svc.estado().negocio, 'London Love Outlet');
+    const c = s.svc.nuevaVenta();
+    s.svc.escanear(c, '7501234567890');
+    const v = await s.svc.cobrarEfectivo(c, 20000, 0);
+    assert.match(v.ticket_texto, /London Love Outlet/);
+    assert.equal(servicioDe(ctx, 'DUO', 1).svc.estado().negocio, 'DÚO New York', 'la otra tienda no cambia');
   });
 
   it('PR9 la promoción se recalcula al cambiar cantidades, y una venta cancelada no cuenta como uso del cupón', async (t) => {
     const ctx = nuevoMundo(alm, politica());
     t.after(ctx.limpiar);
     const a = admin(ctx);
-    a.guardarPromocion({ id: '', tipo: 'por_cada', nombre: 'Por cada $1,000, $100', activa: true, inicio: null, fin: null, cada: 100000, descuenta: 10000 });
-    a.guardarPromocion({ id: '', tipo: 'cupon', nombre: 'Único', activa: true, inicio: null, fin: null, codigo: 'UNICO', monto: 5000, minimo: 0, usos_max: 1 });
+    a.guardarPromocion({ id: '', tipo: 'por_cada', nombre: 'Por cada $1,000, $100', activa: true, tiendas: ['DUO', 'LON'], inicio: null, fin: null, cada: 100000, descuenta: 10000 });
+    a.guardarPromocion({ id: '', tipo: 'cupon', nombre: 'Único', activa: true, tiendas: ['DUO', 'LON'], inicio: null, fin: null, codigo: 'UNICO', monto: 5000, minimo: 0, usos_max: 1 });
     ctx.m.pump();
     const s = servicioDe(ctx, 'DUO', 1);
     const cart = s.svc.nuevaVenta();
