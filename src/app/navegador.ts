@@ -4,7 +4,7 @@ import type { Impresora, TrabajoImpresion } from '../impresion.ts';
 import { CAJAS_ESTANDAR, fabricaMemoria, Mundo } from '../mundo.ts';
 import { crearPoliticasEnsayo } from '../politicas.ts';
 import { aplicarDepartamentos, DEPARTAMENTOS_BASE } from '../departamentos.ts';
-import { aOperacionesInventario, leerInventario, PERFILES } from '../inventario.ts';
+import { aOperacionesInventario, leerInventario, perfilConCantidad, PERFILES } from '../inventario.ts';
 import { MemoriaRepo, type EstadoRepo } from '../repo.ts';
 import type { Op } from '../tipos.ts';
 import { escribirXlsx, leerXlsx } from '../xlsx.ts';
@@ -83,7 +83,7 @@ export function crearBanco(opsCatalogo?: Op[], estado?: EstadoBanco) {
 
 export type Banco = ReturnType<typeof crearBanco>;
 
-export { aplicarDepartamentos, DEPARTAMENTOS_BASE, aOperacionesInventario, escribirXlsx, leerInventario, leerXlsx, PERFILES };
+export { aplicarDepartamentos, DEPARTAMENTOS_BASE, aOperacionesInventario, perfilConCantidad, escribirXlsx, leerInventario, leerXlsx, PERFILES };
 
 export function iniciarBanco(opciones: { alCambiar: () => void; estadoInicial?: EstadoBanco }) {
   let opsCatalogo: Op[] | undefined;

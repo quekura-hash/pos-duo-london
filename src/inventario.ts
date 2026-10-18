@@ -54,6 +54,11 @@ export const PERFILES = [PERFIL_CONFIRMADO, PERFIL_PRENDA_EN_NOMBRE];
 const sinAcentos = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '');
 const normEnc = (h: unknown) => sinAcentos(String(h ?? '')).toLowerCase().replace(/\s+/g, ' ').trim();
 
+/** Perfil que toma la cantidad (existencia) de la columna con ese encabezado, cuando el archivo la trae con un nombre que no se reconoce solo. */
+export function perfilConCantidad(perfil: Perfil, encabezado: string): Perfil {
+  return { ...perfil, columnas: { ...perfil.columnas, existencia: [normEnc(encabezado)] } };
+}
+
 export type Severidad = 'bloquea_venta' | 'revisar' | 'info';
 export interface Anomalia {
   tipo: string;
@@ -219,10 +224,10 @@ export interface OpcionesCarga {
   ubicacionExistencia?: string;
   /**
    * Catálogo inicial: la existencia vive en El Limbo (un almacén virtual con todo etiquetado) y se descuenta al vender en cualquier tienda o caja.
-   * `piezas` es la existencia registrada por artículo (0 si el archivo no trae cantidades: no se inventan; el saldo queda negativo con las ventas
-   * hasta que se cuente). Solo para artículos con precio vendible.
+   * La existencia de cada artículo es la cantidad del archivo (`delArchivo`) o, si la fila no la trae, `piezas` (0: no se inventan; el saldo queda
+   * negativo con las ventas hasta que se cuente). Solo para artículos con precio vendible.
    */
-  limbo?: { piezas: number };
+  limbo?: { piezas: number; /** Usa la cantidad que trae cada fila del archivo (si es un entero); `piezas` queda para las filas sin cantidad. */ delArchivo?: boolean };
 }
 
 /** Convierte lo leído en operaciones de catálogo y movimientos trazables. */
@@ -246,7 +251,7 @@ export function aOperacionesInventario(articulos: ArticuloImportado[], o: Opcion
     if (o.limbo && a.precio > 0) {
       ops.push({
         op_id: `mov:limbo:${item_id}`, tipo: 'inv.movement', tienda: LIMBO, caja: null, origen: `importacion:${o.idImportacion}`, ocurrio_en: o.ahora,
-        payload: { item_id, tienda: LIMBO, delta: o.limbo.piezas, tipo: 'limbo_inicial', doc: `importacion:${o.idImportacion}` },
+        payload: { item_id, tienda: LIMBO, delta: o.limbo.delArchivo && Number.isInteger(existencia) ? (existencia as number) : o.limbo.piezas, tipo: 'limbo_inicial', doc: `importacion:${o.idImportacion}` },
       });
     }
     for (const [tienda, q] of Object.entries(o.existenciaPrueba ?? {})) {

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { it } from 'node:test';
 import { ServicioAdmin } from '../src/app/servicio.ts';
 import { detectar } from '../src/incidencias.ts';
+import { aOperacionesInventario, leerInventario, perfilConCantidad, PERFIL_CONFIRMADO } from '../src/inventario.ts';
 import { LIMBO, type Op } from '../src/tipos.ts';
 import { nuevoMundo, politica, porAlmacen, servicioDe } from './ayudas/comun.ts';
 
@@ -77,5 +78,14 @@ porAlmacen('El Limbo: catálogo inicial que se vende en todas las tiendas y se d
     assert.equal((inv.resumen.por_tienda as any).LIMBO.piezas, 10 - 0 - 0 - 2);
     const inc = detectar(ctx.m.central.repo.ops());
     assert.ok(!inc.some((x: any) => x.tipo === 'stock_negativo' && x.tienda === LIMBO));
+  });
+
+  it('LI5 la cantidad que trae el archivo es la existencia inicial de El Limbo (columna reconocida o elegida) y las filas sin cantidad usan el valor de respaldo', () => {
+    const enc = ['Item #', 'Item Name', 'Item Description', 'Estilo', 'Lote', 'Size', 'Regular Price', 'x', 'UPC', 'Department Name', 'Piezas'];
+    const filas = [enc, [1, 'LEVIS', 'JEANS', '726', '1', '', 500, 0, '9001', 'DAMA', 7], [2, 'LEVIS', 'BLUSA', '727', '1', '', 300, 0, '9002', 'DAMA', -2], [3, 'LEVIS', 'FALDA', '728', '1', '', 300, 0, '9003', 'DAMA', ''], [4, 'LEVIS', 'GRATIS', '729', '1', '', 0, 0, '9004', 'DAMA', 4]];
+    const movs = (perfil = PERFIL_CONFIRMADO) => aOperacionesInventario(leerInventario(filas, perfil).articulos, { ahora: '2026-10-01T15:00:00Z', idImportacion: 'x', limbo: { piezas: 3, delArchivo: true } }).ops.filter((o) => o.tipo === 'inv.movement').map((o) => o.payload.delta);
+    assert.deepEqual(movs(), [3, 3, 3], 'la columna «Piezas» no se reconoce sola: todas usan el respaldo');
+    assert.ok(leerInventario(filas, PERFIL_CONFIRMADO).columnas.faltantes.includes('existencia'));
+    assert.deepEqual(movs(perfilConCantidad(PERFIL_CONFIRMADO, 'Piezas')), [7, -2, 3], 'con la columna elegida: la del archivo, tal cual (también negativas); sin cantidad → respaldo; sin precio vendible no se carga');
   });
 });

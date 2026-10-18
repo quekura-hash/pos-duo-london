@@ -7,7 +7,7 @@ import { chromium } from 'playwright-core';
 import { mkdtempSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { leerXlsxNode } from '../src/xlsx-node.ts';
-import { FILAS_REALISTAS, xlsxDeFilas } from './ayudas/inventario.ts';
+import { ENCABEZADOS_REALES, FILAS_REALISTAS, xlsxDeFilas } from './ayudas/inventario.ts';
 
 const RAIZ = join(import.meta.dirname, '..');
 const HTML = join(RAIZ, 'dist', 'pos-venta-prueba.html');
@@ -864,6 +864,33 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     assert.equal(await page.textContent('#tabla-inv-lista tr[data-item] [data-col="limbo"]'), '3');
     assert.equal(await page.textContent('#tabla-inv-tiendas tr[data-tienda="LIMBO"] td'), 'El Limbo');
     await page.screenshot({ path: join(RAIZ, 'docs', 'capturas', '43-inventario-el-limbo.png') });
+    assert.deepEqual(errores, []);
+  });
+
+  it('B12 el archivo trae cantidades: se eligen la columna y se cargan como existencia inicial de El Limbo', async (t) => {
+    execFileSync(process.execPath, [join(RAIZ, 'scripts', 'construir-prueba.mjs')], { stdio: 'pipe' });
+    const dir = mkdtempSync(join(tmpdir(), 'pos-limbo-cant-'));
+    const archivo = join(dir, 'catalogo-con-cantidades.xlsx');
+    writeFileSync(archivo, await xlsxDeFilas(Array.from({ length: 10 }, (_, i) => [i + 1, 'MARCA', `ARTICULO ${i + 1}`, null, null, null, 100 + i, 0, `70000${String(i + 1).padStart(3, '0')}`, 'DAMA', null, 'Yes', null, null, i === 0 ? 8 : 3]), [...ENCABEZADOS_REALES, 'Piezas']));
+    const browser = await chromium.launch({ executablePath: chromiumPath, args: ['--no-sandbox'] });
+    t.after(async () => { await browser.close(); rmSync(dir, { recursive: true, force: true }); });
+    const page = await (await browser.newContext({ viewport: { width: 1440, height: 900 }, colorScheme: 'light' })).newPage();
+    const errores: string[] = [];
+    page.on('pageerror', (e) => errores.push(String(e)));
+    page.on('console', (m) => { if (m.type() === 'error') errores.push(m.text()); });
+    await page.goto(`file://${HTML}`);
+    await page.waitForSelector('[data-chip="tienda"]');
+    await page.setInputFiles('#archivo-inventario', archivo);
+    await page.waitForSelector('#dlg-importar[open]');
+    await page.selectOption('#imp-col-cantidad', 'Piezas');
+    await page.waitForSelector('#imp-cantidad-archivo');
+    assert.match((await page.textContent("#imp-cantidad-archivo"))!, /10 artículos con cantidad · 35 piezas/);
+    await page.screenshot({ path: join(RAIZ, 'docs', 'capturas', '44-importar-cantidades.png') });
+    await page.click('#imp-cargar');
+    await page.waitForFunction(() => /cantidades del archivo, 35 piezas/.test(document.querySelector('#estado-inv')!.textContent!));
+    await page.fill('#scan', '70000001'); await page.press('#scan', 'Enter');
+    await page.waitForSelector('#cuerpo tr[data-linea]');
+    assert.match((await page.textContent('[data-existencia="limbo"]'))!, /El Limbo: 8/);
     assert.deepEqual(errores, []);
   });
 });
