@@ -13,8 +13,8 @@ const RAIZ = join(import.meta.dirname, '..');
 const HTML = join(RAIZ, 'dist', 'pos-venta-prueba.html');
 const chromiumPath = [process.env.POS_CHROMIUM, '/opt/pw-browsers/chromium-1194/chrome-linux/chrome', '/opt/pw-browsers/chromium/chrome-linux/chrome'].find((p) => p && existsSync(p));
 
-/** Con empleadas registradas la venta exige elegir quién vendió: en las pruebas que no lo revisan se elige «Clientas». */
-const vendioClientas = async (page: import('playwright-core').Page) => { if (await page.locator('#bloque-vendio').isVisible()) await page.selectOption('#vendio-por', 'clientas'); };
+/** Con empleadas registradas la venta queda como «Autocompra» por omisión; en las pruebas que no lo revisan solo se espera a que se asigne. */
+const vendioClientas = async (page: import('playwright-core').Page) => { if (await page.locator('#bloque-vendio').isVisible()) await page.waitForFunction(() => (document.querySelector('#vendio-por') as HTMLSelectElement).value === 'autocompra'); };
 /** Los formularios de usuarios exigen nombres y apellidos: lo mínimo para las pruebas. */
 const perfilMin = async (page: import('playwright-core').Page, p: 'caj' | 'adm') => { await page.fill(`#${p}-nombres`, 'Prueba'); await page.fill(`#${p}-apellidos`, 'Apellido'); };
 describe('[navegador real] Versión de prueba en una sola página (motor en memoria dentro del navegador)', { timeout: 120_000, skip: chromiumPath ? false : 'Chromium no encontrado (defina POS_CHROMIUM)' }, () => {
@@ -1296,8 +1296,6 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     await page.fill('#scan', '7501234567890'); await page.press('#scan', 'Enter');
     await page.waitForSelector('#saldo-favor-monto');
     assert.equal(await page.textContent('#saldo-favor-monto'), '$779.00');
-    await page.click('#btn-devolver-dinero'); // con artículos nuevos y empleadas registradas primero se elige quién vendió
-    await page.waitForFunction(() => /Elija quién vendió/.test(document.querySelector('#mensaje')!.textContent!));
     await vendioClientas(page);
     await page.click('#btn-devolver-dinero');
     await page.waitForSelector('#dlg-devolver-dinero[open]');
@@ -1492,19 +1490,19 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     await page.fill('#scan', '0002026090782'); await page.press('#scan', 'Enter');
     await page.waitForSelector('#cuerpo tr[data-linea]');
     await page.fill('#recibido', '899');
-    assert.equal(await page.isDisabled('#btn-cobrar'), true, 'sin elegir quién vendió no se cobra');
-    assert.match((await page.textContent('#msg-vendio'))!, /Elija quién atendió/);
-    assert.deepEqual(await page.$$eval('#vendio-por option', (o) => o.map((x) => x.textContent)), ['Elegir…', 'Clientas', 'Edgardo (supervisor)', 'Lupe']);
+    assert.equal(await page.inputValue('#vendio-por'), 'autocompra', 'por omisión la venta es Autocompra');
+    assert.deepEqual(await page.$$eval('#vendio-por option', (o) => o.map((x) => x.textContent)), ['Autocompra', 'Edgardo (supervisor)', 'Lupe']);
+    await page.waitForFunction(() => !(document.querySelector('#btn-cobrar') as HTMLButtonElement).disabled);
     await page.selectOption('#vendio-por', { label: 'Lupe' });
     await page.waitForFunction(() => !(document.querySelector('#btn-cobrar') as HTMLButtonElement).disabled);
     await page.click('#btn-cobrar');
     await page.waitForSelector('#dlg-ticket[open] #ticket-texto');
     assert.match((await page.textContent('#ticket-texto'))!, /Vendedora-Cajera: Lupe\nVendió: Lupe/);
     await page.click('#btn-nueva');
-    // otra venta sin ayuda: Clientas
+    // otra venta sin ayuda: queda Autocompra sin tocar el selector
     await page.fill('#scan', '7501234567890'); await page.press('#scan', 'Enter');
     await page.waitForSelector('#cuerpo tr[data-linea]');
-    await page.selectOption('#vendio-por', 'clientas');
+    assert.equal(await page.inputValue('#vendio-por'), 'autocompra');
     await page.fill('#recibido', '120');
     await page.waitForFunction(() => !(document.querySelector('#btn-cobrar') as HTMLButtonElement).disabled);
     await page.click('#btn-cobrar');
@@ -1513,7 +1511,7 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     await page.click('#btn-nueva');
     await page.click('#nav button[data-vista="ventas"]');
     await page.waitForSelector('#tabla-ventas tr[data-folio="2"]');
-    assert.deepEqual(await page.$$eval('#tabla-ventas tr[data-col="x"], #tabla-ventas td[data-col="vendio"]', (c) => c.map((x) => x.textContent)), ['Lupe', 'Clientas']);
+    assert.deepEqual(await page.$$eval('#tabla-ventas tr[data-col="x"], #tabla-ventas td[data-col="vendio"]', (c) => c.map((x) => x.textContent)), ['Lupe', 'Autocompra']);
     // reporte por vendedora (Administración)
     await page.selectOption('#sesion-prueba', 'admin');
     await page.click('#nav button[data-vista="reportes"]');
@@ -1521,7 +1519,7 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     await page.click('#filtros button[type="submit"]');
     await page.waitForSelector('#tabla-vendedoras tr[data-vendedora]');
     const filas = await page.$$eval('#tabla-vendedoras tr[data-vendedora]', (r) => r.map((x) => [...x.querySelectorAll('td')].map((c) => c.textContent!.replace(/\s+/g, ' ').trim())));
-    assert.deepEqual(filas.map((f) => [f[0], f[1], f[3], f[5]]), [['LupeGuadalupe Pérez López', '1', '$899.00', '$899.00'], ['Clientas', '1', '$120.00', '$120.00']]);
+    assert.deepEqual(filas.map((f) => [f[0], f[1], f[3], f[5]]), [['LupeGuadalupe Pérez López', '1', '$899.00', '$899.00'], ['Autocompra', '1', '$120.00', '$120.00']]);
     assert.deepEqual(errores.filter((e) => !/401|403|Failed to load resource/.test(e)), []);
   });
 

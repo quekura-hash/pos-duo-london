@@ -83,7 +83,7 @@ export interface Venta {
   total: number;
   pagos: Pago[];
   estado: 'confirmada' | 'cancelada';
-  /** Quién atendió la venta: `vendedora_id` null y `vendedora` «Clientas» = nadie ayudó a la clienta. Ausentes en ventas anteriores. */
+  /** Quién atendió la venta: `vendedora_id` null y `vendedora` «Autocompra» = nadie ayudó a la clienta. Ausentes en ventas anteriores. */
   vendedora_id?: string | null;
   vendedora?: string;
   /** Avisos del arbitraje del hub al confirmar (p. ej. sobreventa). No forman parte de la operación persistida. */

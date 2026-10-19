@@ -554,7 +554,7 @@ function repartoRegalo() {
   return { aplicado, resto: total - aplicado, saldoDespues: saldo - aplicado };
 }
 
-/** «Vendió por»: con empleadas registradas se debe elegir quién atendió a la clienta («Clientas» = nadie la ayudó). Sin clave. */
+/** «Vendió por»: con empleadas registradas se debe elegir quién atendió a la clienta («Autocompra» = nadie la ayudó, y es lo que queda por omisión). Sin clave. */
 async function cargarVendedoras() {
   try { S.vendedoras = await api('/api/venta/vendedoras'); } catch { S.vendedoras = { vendedoras: [], pide: false }; }
   pintarVendedora();
@@ -569,13 +569,19 @@ function pintarVendedora() {
   if (!v?.pide) return;
   const sel = $('#vendio-por');
   const actual = S.carrito.vendedora;
-  sel.innerHTML = `<option value="" ${actual ? '' : 'selected'} disabled>Elegir…</option><option value="clientas" ${actual && actual.id === null ? 'selected' : ''}>Clientas</option>${v.vendedoras.map((x) => `<option value="${esc(x.id)}" ${actual?.id === x.id ? 'selected' : ''}>${esc(x.alias)}${x.tipo === 'supervisor' ? ' (supervisor)' : ''}</option>`).join('')}`;
-  $('#msg-vendio').textContent = actual ? '' : 'Elija quién atendió a la clienta; si nadie la ayudó, «Clientas».';
+  sel.innerHTML = `<option value="autocompra" ${!actual || actual.id === null ? 'selected' : ''}>Autocompra</option>${v.vendedoras.map((x) => `<option value="${esc(x.id)}" ${actual?.id === x.id ? 'selected' : ''}>${esc(x.alias)}${x.tipo === 'supervisor' ? ' (supervisor)' : ''}</option>`).join('')}`;
+  $('#msg-vendio').textContent = '';
+  // Por omisión la venta es «Autocompra»: se registra sola, y solo se cambia si alguien atendió a la clienta.
+  if (!actual && !S.asignandoVendedora) {
+    S.asignandoVendedora = true;
+    const cart = S.cart;
+    api('/api/venta/vendedora', { cart, vendedora_id: null }).then((r) => { if (S.cart === cart) { S.carrito = r.carrito; recalcular(); } }).catch(() => {}).finally(() => { S.asignandoVendedora = false; });
+  }
 }
 async function elegirVendedora() {
   const v = $('#vendio-por').value;
   try {
-    const r = await api('/api/venta/vendedora', { cart: S.cart, vendedora_id: v === 'clientas' ? null : v });
+    const r = await api('/api/venta/vendedora', { cart: S.cart, vendedora_id: v === 'autocompra' ? null : v });
     S.carrito = r.carrito;
     pintarVendedora();
     recalcular();
@@ -1021,7 +1027,7 @@ async function vistaReportes() {
       <p class="nota">Sin tarjetas de regalo vendidas ni recargadas: <b id="total-mercancia">${mxn(r.total_mercancia)}</b>. Lo cobrado con una tarjeta de regalo ya cuenta como venta de mercancía; la venta de la tarjeta no.</p></div>`;
     const { vendedoras } = await api('/api/admin/reporte-vendedoras', { cajas: sel, desde: $('#desde').value, hasta: $('#hasta').value });
     $('#resultado').insertAdjacentHTML('beforeend', `<div class="panel" style="margin-top:12px"><h2 style="margin-top:0">Ventas por vendedora</h2>
-      <p class="nota">Por quien atendió a la clienta («Vendió por»), no por quien cobró. Lo devuelto o cambiado se resta a quien vendió la pieza. «Clientas» = nadie ayudó.</p>
+      <p class="nota">Por quien atendió a la clienta («Vendió por»), no por quien cobró. Lo devuelto o cambiado se resta a quien vendió la pieza. «Autocompra» = nadie ayudó.</p>
       <div class="tabla-cont"><table id="tabla-vendedoras"><thead><tr><th>Vendedora</th><th class="num">Tickets</th><th class="num">Piezas</th><th class="num">Vendido</th><th class="num">Devuelto / cambiado</th><th class="num">Neto</th></tr></thead><tbody>
       ${vendedoras.map((v) => `<tr data-vendedora="${esc(v.clave)}"><td><b>${esc(v.alias)}</b>${v.nombre_completo ? `<br><small>${esc(v.nombre_completo)}</small>` : ''}</td><td class="num">${v.tickets}</td><td class="num">${v.piezas}</td><td class="num">${mxn(v.vendido)}</td><td class="num">${v.devuelto ? `-${mxn(v.devuelto)}` : mxn(0)}</td><td class="num"><b>${mxn(v.neto)}</b></td></tr>`).join('') || '<tr><td colspan="6" class="vacio">Sin ventas en el periodo.</td></tr>'}</tbody></table></div></div>`);
   });

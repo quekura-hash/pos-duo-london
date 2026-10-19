@@ -20,7 +20,7 @@ export interface FilaVenta {
   sale_id: string;
   fecha_local: string;
   cajero: string;
-  /** Quién atendió la venta («Clientas» si nadie ayudó; vacío en ventas anteriores a este registro). */
+  /** Quién atendió la venta («Autocompra» si nadie ayudó; vacío en ventas anteriores a este registro). */
   vendedora: string;
   total: number;
   /** Total sin las tarjetas de regalo vendidas o recargadas (que no son ventas de mercancía). */
@@ -55,7 +55,7 @@ export function ventasPorCaja(actor: Actor, ops: Op[], f: Filtro = {}): FilaVent
     if (!enPeriodo(v.ocurrio_en, f)) continue;
     filas.push({
       tienda: v.tienda, caja: v.caja, folio: v.folio, sale_id: v.sale_id,
-      fecha_local: fechaLocal(v.ocurrio_en), cajero: v.cajero, vendedora: v.vendedora ?? '', total: v.total, total_mercancia: v.lineas.filter((l) => !l.tarjeta_regalo).reduce((a, l) => a + l.importe, 0), estado: v.estado,
+      fecha_local: fechaLocal(v.ocurrio_en), cajero: v.cajero, vendedora: v.vendedora === undefined ? '' : v.vendedora_id ? v.vendedora : 'Autocompra', total: v.total, total_mercancia: v.lineas.filter((l) => !l.tarjeta_regalo).reduce((a, l) => a + l.importe, 0), estado: v.estado,
     });
   }
   // Orden estable por serie y folio: se ordena, pero nunca se asigna un número nuevo.
@@ -306,7 +306,7 @@ export function descuentosPorCaja(actor: Actor, ops: Op[], f: Filtro = {}): Repo
 }
 
 export interface FilaVendedora {
-  /** `vendedora_id`, `clientas` (nadie ayudó) o `sin_registro` (ventas anteriores al registro). */
+  /** `vendedora_id`, `autocompra` (nadie ayudó) o `sin_registro` (ventas anteriores al registro). */
   clave: string;
   alias: string;
   tickets: number;
@@ -325,8 +325,8 @@ export function ventasPorVendedora(actor: Actor, ops: Op[], f: Filtro = {}): Fil
   const todas = ventas(ops);
   const filas = new Map<string, FilaVendedora>();
   const fila = (v: { vendedora_id?: string | null; vendedora?: string }) => {
-    const clave = v.vendedora === undefined ? 'sin_registro' : v.vendedora_id ?? 'clientas';
-    const alias = v.vendedora === undefined ? 'Sin registrar' : v.vendedora;
+    const clave = v.vendedora === undefined ? 'sin_registro' : v.vendedora_id ?? 'autocompra';
+    const alias = v.vendedora === undefined ? 'Sin registrar' : v.vendedora_id ? v.vendedora : 'Autocompra';
     let r = filas.get(clave);
     if (!r) filas.set(clave, (r = { clave, alias, tickets: 0, piezas: 0, vendido: 0, devuelto: 0, neto: 0 }));
     return r;

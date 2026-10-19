@@ -684,7 +684,7 @@ interface Carrito {
   cupon?: string;
   /** Resultado del último cálculo de promociones y cupón (solo para mostrar). */
   descuentos?: { aplicadas: ResultadoDescuentos['aplicadas']; cupon: ResultadoDescuentos['cupon'] };
-  /** Quién atendió a la clienta (`id` null = «Clientas»: nadie la ayudó). Se elige en la venta, sin clave; queda en la venta y en los reportes. */
+  /** Quién atendió a la clienta (`id` null = «Autocompra»: nadie la ayudó). Se elige en la venta, sin clave; queda en la venta y en los reportes. */
   vendedora?: { id: string | null; alias: string };
   /** Cambio en curso: piezas que la clienta regresa de una venta anterior; su importe es un crédito que se descuenta de lo que se lleve en ESTA venta. */
   cambio?: CambioEnCurso;
@@ -2001,12 +2001,12 @@ export class Caja {
     return [...this.idx.cajeros().filter((c) => c.activo).map((c) => ({ id: c.id, alias: c.nombre, tipo: 'cajero' as const })), ...this.idx.supervisores().filter((s) => s.activo).map((s) => ({ id: s.id, alias: s.nombre, tipo: 'supervisor' as const }))]
       .sort((a, b) => a.alias.localeCompare(b.alias, 'es'));
   }
-  /** `null` = «Clientas» (nadie ayudó a la clienta). */
+  /** `null` = «Autocompra» (nadie ayudó a la clienta). */
   asignarVendedora(cartId: string, vendedoraId: string | null): { id: string | null; alias: string } {
     const c = this.cartGet(cartId);
     this.exigirAbierto(c);
     let v: { id: string | null; alias: string };
-    if (vendedoraId === null || vendedoraId === '') v = { id: null, alias: 'Clientas' };
+    if (vendedoraId === null || vendedoraId === '') v = { id: null, alias: 'Autocompra' };
     else {
       const e = this.vendedoras().find((x) => x.id === vendedoraId);
       if (!e) throw new ErrorDominio('VENDEDORA_INEXISTENTE', 'esa vendedora no está activa');

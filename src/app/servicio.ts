@@ -35,7 +35,7 @@ export interface VistaCarrito {
   total: number;
   /** Cambio en curso: piezas que regresa la clienta (se muestran en negativo) y su crédito. `saldo_favor` es lo que sobra si el crédito supera la venta. */
   cambio: { sale_id: string; folio_origen: number; credito: number; aplicado: number; saldo_favor: number; lineas: { linea_id: string; item_id: string; item_no: string | null; codigo: string; descripcion: string; marca: string; estilo: string; qty: number; precio_unit: number; importe: number }[] } | null;
-  /** Quién atendió esta venta (null = todavía no se elige; `id` null = «Clientas»). */
+  /** Quién atendió esta venta (null = todavía no se elige; `id` null = «Autocompra»). */
   vendedora: { id: string | null; alias: string } | null;
   /** Promociones aplicadas y estado del cupón de esta venta. */
   promos: { promo_id: string; nombre: string; tipo: string; monto: number }[];
@@ -497,7 +497,7 @@ export class ServicioCaja {
     return { folios: this.estadoFolios() };
   }
 
-  /** «Vendió por»: las personas que pueden figurar como vendedoras (más «Clientas» = nadie ayudó). */
+  /** «Vendió por»: las personas que pueden figurar como vendedoras (más «Autocompra» = nadie ayudó). */
   vendedoras() {
     return { vendedoras: this.caja.vendedoras(), pide: this.caja.vendedoras().length > 0 };
   }

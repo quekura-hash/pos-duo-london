@@ -82,7 +82,7 @@ export interface LineaTicket {
   tarjeta_regalo?: boolean;
 }
 export interface Ticket {
-  /** Quién atendió la venta (no se imprime si fue «Clientas» o no se registró). */
+  /** Quién atendió la venta (no se imprime si fue «Autocompra» o no se registró). */
   vendio?: string;
   negocio: string;
   tienda: string;

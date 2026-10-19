@@ -48,7 +48,7 @@ porAlmacen('Registro de empleadas con alias y ventas por vendedora', (alm) => {
     assert.equal(a.perfil.apellidos, 'Morales Ruiz');
   });
 
-  it('EM2 «Vendió por»: la vendedora se elige sin clave, «Clientas» es nadie, queda en la venta, el ticket y el historial', async (t) => {
+  it('EM2 «Vendió por»: la vendedora se elige sin clave, «Autocompra» es nadie, queda en la venta, el ticket y el historial', async (t) => {
     const { caja } = await preparar(t);
     const v = (await api(caja.url, '/api/venta/vendedoras')).json;
     assert.deepEqual(v.vendedoras.map((x: any) => [x.alias, x.tipo]), [['Edgardo', 'supervisor'], ['Lupe', 'cajero'], ['Rosa', 'cajero']]);
@@ -62,23 +62,23 @@ porAlmacen('Registro de empleadas con alias y ventas por vendedora', (alm) => {
     const c = await api(caja.url, '/api/venta/cobrar-efectivo', { cart: cart.cart, recibido: 5000000 });
     assert.equal(c.json.venta.vendedora, 'Rosa');
     assert.match(c.json.ticket_texto, /Vendedora-Cajera: Lupe\nVendió: Rosa/);
-    // sin ayuda: Clientas (no se imprime en el ticket)
+    // sin ayuda: Autocompra (no se imprime en el ticket)
     const k = await vender(caja, null);
-    assert.equal(k.venta.vendedora, 'Clientas');
+    assert.equal(k.venta.vendedora, 'Autocompra');
     assert.equal(k.venta.vendedora_id, null);
     assert.doesNotMatch(k.ticket_texto, /Vendió:/);
     const h = (await api(caja.url, '/api/ventas')).json.ventas;
-    assert.deepEqual(h.map((x: any) => x.vendedora), ['Rosa', 'Clientas']);
+    assert.deepEqual(h.map((x: any) => x.vendedora), ['Rosa', 'Autocompra']);
   });
 
-  it('EM3 reporte por vendedora: tickets, piezas, vendido, devuelto/cambiado y neto; Clientas y ventas sin registro aparte', async (t) => {
+  it('EM3 reporte por vendedora: tickets, piezas, vendido, devuelto/cambiado y neto; Autocompra y ventas sin registro aparte', async (t) => {
     const { ctx, adm, caja } = await preparar(t);
     const v = (await api(caja.url, '/api/venta/vendedoras')).json.vendedoras;
     const id = (a: string) => v.find((x: any) => x.alias === a).id;
     await vender(caja, id('Rosa'));                                  // $899
     const v1 = await vender(caja, id('Rosa'), '7501234567890');      // $120
     await vender(caja, id('Lupe'));                                  // $899
-    await vender(caja, null, '0000000000017');                       // $450 Clientas
+    await vender(caja, null, '0000000000017');                       // $450 Autocompra
     await vender(caja);                                              // sin elegir (API): sin registrar
     // la clienta cambia la mascada de Rosa por una bolsa atendida por Lupe
     const cart = (await api(caja.url, '/api/venta/nueva', {})).json.cart;
@@ -91,7 +91,7 @@ porAlmacen('Registro de empleadas con alias y ventas por vendedora', (alm) => {
     const f = (c: string) => r.find((x: any) => x.clave === c || x.alias === c);
     assert.deepEqual([f('Rosa').tickets, f('Rosa').piezas, f('Rosa').vendido, f('Rosa').devuelto, f('Rosa').neto], [2, 2, 89900 + 12000, 12000, 89900], 'el cambio resta a quien vendió la pieza');
     assert.deepEqual([f('Lupe').tickets, f('Lupe').vendido, f('Lupe').neto, f('Lupe').nombre_completo], [2, 89900 + 45000, 134900, 'Guadalupe Pérez López'], 'la bolsa del cambio suma a quien la vendió');
-    assert.deepEqual([f('Clientas').tickets, f('Clientas').vendido], [1, 45000]);
+    assert.deepEqual([f('Autocompra').tickets, f('Autocompra').vendido], [1, 45000]);
     assert.deepEqual([f('Sin registrar').tickets, f('Sin registrar').vendido], [1, 89900]);
   });
 });
