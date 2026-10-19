@@ -892,7 +892,9 @@ export class ServicioAdmin {
       };
     }).sort((x, y) => Number(y.item_no ?? 0) - Number(x.item_no ?? 0));
     const hoy = fechaLocal(new Date().toISOString());
-    return { tiendas, hoy, items, avisos: this.avisosPiso(items, hoy), faltantes: this.faltantesVista(ops, cat) };
+    const faltantes = this.faltantesVista(ops, cat);
+    const pendientes = faltantes.filter((f) => f.estado === 'pendiente');
+    return { tiendas, hoy, items, avisos: this.avisosPiso(items, hoy), faltantes, aviso_faltantes: { entregas: pendientes.length, piezas: pendientes.reduce((n, f) => n + f.pendiente, 0) } };
   }
   /** Piezas faltantes (la tienda recibió menos de lo entregado): primero las pendientes, luego las resueltas. */
   private faltantesVista(ops: Op[], cat: ReturnType<typeof catalogo>) {

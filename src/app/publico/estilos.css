@@ -155,7 +155,8 @@ tr.piso-roja td:first-child { box-shadow: inset 5px 0 0 var(--error); } tr.piso-
 .aviso-piso { margin: auto 12px 0; text-align: left; font-size: 12px; border-radius: 8px; padding: 8px; cursor: pointer; border: 1px solid transparent; }
 .aviso-piso.morada { color: var(--morado-texto); background: var(--morado-fondo); border-color: var(--morado); }
 .aviso-piso.roja { color: var(--error); background: var(--error-fondo); border-color: var(--error); }
-.aviso-piso + .prueba { margin-top: 8px; }
+.aviso-piso + .prueba, .aviso-piso + .aviso-piso { margin-top: 8px; }
+.aviso-faltantes { color: var(--naranja); background: var(--naranja-fondo); border-color: var(--naranja); }
 @media (max-width: 1280px) { .aviso-piso { display: none; } }
 
 .lista-promos { list-style: none; margin: 6px 0 10px; padding: 0; font-size: 13px; }

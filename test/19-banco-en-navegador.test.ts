@@ -334,6 +334,14 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     await page.waitForSelector('#tabla-faltantes tr.faltante-pendiente');
     assert.equal((await page.textContent('#tabla-faltantes [data-col="sin-ubicar"]'))!.trim(), '3');
     assert.match((await page.textContent('#n-faltantes'))!, /3 por ubicar/);
+    // el menú lo avisa en cualquier pantalla de Administración
+    assert.match((await page.textContent('#aviso-faltantes'))!, /3 piezas por ubicar en 1 entrega/);
+    await page.click('#nav button[data-vista="inventario"]');
+    await page.waitForSelector('#tabla-inv-lista tr[data-item]');
+    await page.waitForSelector('#aviso-faltantes');
+    await page.screenshot({ path: join(RAIZ, 'docs', 'capturas', '57-aviso-faltantes.png') });
+    await page.click('#aviso-faltantes');
+    await page.waitForSelector('#tabla-faltantes tr.faltante-pendiente');
     await page.fill('#tabla-faltantes input[data-destino="almacen"]', '1');
     await page.fill('#tabla-faltantes input[data-destino="DUO"]', '1');
     await page.fill('#tabla-faltantes input[data-destino="perdida"]', '5');
@@ -344,6 +352,7 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     await page.click('#tabla-faltantes .btn-guardar-faltante');
     await page.waitForFunction(() => document.querySelectorAll('#tabla-faltantes tr.faltante-pendiente').length === 0);
     assert.match((await page.textContent('#n-faltantes'))!, /0 por ubicar/);
+    assert.equal(await page.locator('#aviso-faltantes').count(), 0, 'sin faltantes por ubicar el aviso desaparece');
     // corregir una entrada mal capturada: el lote de 24 en realidad era de 30
     await page.uncheck('#alm-solo');
     await page.click(`${fila} .btn-entradas`);

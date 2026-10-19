@@ -496,7 +496,8 @@ Reportes · Cortes (con el botón «Dólares recibidos») · Inventario · Almac
 - **Almacén** (Administración): si hay faltantes aparece un bloque **naranja «Piezas faltantes»** con las piezas por ubicar. Cada renglón (artículo, tienda, entregadas, recibidas, faltan) tiene cantidades por destino: **encontradas en almacén**, **en DÚO**, **en London** y **perdidas**, y «Sin ubicar». **Guardar** registra el total por destino; se puede volver a guardar para corregir (el último valor reemplaza al anterior; guardar lo mismo no duplica). La suma no puede exceder lo que faltó. Un renglón totalmente ubicado deja de estar naranja y se oculta salvo «Mostrar también los ya ubicados».
 - **Efecto en existencias**: lo encontrado en el almacén suma a la existencia del almacén; lo encontrado en una tienda suma a la de esa tienda (op `alm.faltante`, se propaga a hubs y cajas); lo perdido solo queda registrado. Nada se borra: las correcciones son operaciones nuevas.
 - **Reporte de entregas**: el renglón muestra «Confirmada: recibió X de Y» y el faltante sin ubicar aparece en Diferencias; el Excel trae piezas entregadas y recibidas.
-- **No incluido**: aviso de faltantes en el menú lateral; confirmar de más de lo entregado (se rechaza).
+- **Aviso en el menú**: mientras haya piezas sin ubicar aparece en el menú lateral de Administración un botón naranja «Piezas faltantes: N piezas por ubicar en M entregas» (en cualquier pantalla; lo ven supervisores y almacenistas); al tocarlo lleva al bloque de faltantes de Almacén y se quita solo cuando todo está ubicado. Se oculta en pantallas angostas, igual que el de sacar a piso.
+- **No incluido**: confirmar de más de lo entregado (se rechaza).
 - **Verificado**: pruebas del motor (FA1–FA2, ambos almacenes) y de navegador (continuación de B3 con London recibiendo 9 de 12).
 
 ## 28. Catálogo inicial y «El Limbo» [P]

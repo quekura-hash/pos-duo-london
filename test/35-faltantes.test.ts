@@ -31,6 +31,7 @@ porAlmacen('Piezas faltantes en la recepción de una entrega', (alm) => {
     ctx.m.pump(); ctx.m.pump();
     const f = a.almacen().faltantes;
     assert.equal(f.length, 1);
+    assert.deepEqual(a.almacen().aviso_faltantes, { entregas: 1, piezas: 2 }, 'el menú avisa cuántas piezas faltan por ubicar');
     assert.deepEqual([f[0]!.tienda, f[0]!.entregadas, f[0]!.recibidas, f[0]!.faltan, f[0]!.pendiente, f[0]!.estado, f[0]!.reportada_por], ['DUO', 12, 10, 2, 2, 'pendiente', 'Ana']);
     // confirmar todo (o sin cantidad) no genera faltante
     const s2 = servicioDe(ctx, 'LON', 1, 'Luis');
@@ -68,6 +69,7 @@ porAlmacen('Piezas faltantes en la recepción de una entrega', (alm) => {
     ctx.m.pump(); ctx.m.pump();
     const g = faltantes(ctx.m.central.repo.ops())[0]!;
     assert.deepEqual([g.pendiente, g.estado, g.ubicadas], [0, 'resuelto', { almacen: 1, DUO: 2, perdida: 1 }]);
+    assert.deepEqual(a.almacen().aviso_faltantes, { entregas: 0, piezas: 0 }, 'ubicado todo, el aviso se quita');
     assert.equal(ctx.m.caja('LON', 1).stockLocal(item.item_id), 0);
     assert.equal(ctx.m.caja('DUO', 1).stockLocal(item.item_id), 8 + 2);
     assert.equal(stock(ctx.m.central.repo.ops(), 'DUO').get(item.item_id), 10);

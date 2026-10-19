@@ -1729,7 +1729,7 @@ const uuid = () => (window.crypto?.randomUUID ? window.crypto.randomUUID() : `id
 async function vistaAlmacen() {
   const j = await api('/api/admin/almacen');
   S.alm = { ...(S.alm ?? { q: '', solo: true }), tiendas: j.tiendas, items: j.items, hoy: j.hoy };
-  pintarAvisoPiso(j.avisos);
+  pintarAvisoPiso(j.avisos, j.aviso_faltantes);
   $('#vista').innerHTML = `<div class="titulo-vista">${ico('warehouse')}<h1>Almacén</h1></div>
     <section class="panel"><div class="filas" style="align-items:center">
       <button class="btn btn-primario" id="btn-alta-lote" type="button" style="width:auto">${ico('upload')}<span>Alta Lote de inventario</span></button>
@@ -1782,7 +1782,7 @@ async function abrirEntradas(itemId) {
         if ($('#ent-qty').value.trim() !== '' && Number($('#ent-qty').value) !== e.qty) cuerpo.qty = Number($('#ent-qty').value);
         if ($('#ent-ped').value.trim() !== (e.pedimento ?? '')) cuerpo.pedimento = $('#ent-ped').value.trim();
         const r = await api('/api/admin/almacen/corregir-entrada', cuerpo);
-        S.alm.items = r.almacen.items; pintarAlmacen(); pintarAvisoPiso(r.almacen.avisos);
+        S.alm.items = r.almacen.items; pintarAlmacen(); pintarAvisoPiso(r.almacen.avisos, r.almacen.aviso_faltantes);
         await abrirEntradas(itemId);
         const n = $('#msg-ent'); n.className = 'mensaje ok'; n.textContent = `Entrada corregida. En el almacén quedan ${r.existencia} pieza(s).`;
       } catch (err) {
@@ -1824,7 +1824,7 @@ function pintarFaltantes() {
       const destinos = Object.fromEntries([...tr.querySelectorAll('input[data-destino]')].map((i) => [i.dataset.destino, Number(i.value) || 0]));
       try {
         const r = await api('/api/admin/almacen/faltante', { entrega_id: f.entrega_id, destinos });
-        S.alm.faltantes = r.faltantes; S.alm.items = r.items; pintarFaltantes(); pintarAlmacen(); pintarAvisoPiso(r.avisos);
+        S.alm.faltantes = r.faltantes; S.alm.items = r.items; pintarFaltantes(); pintarAlmacen(); pintarAvisoPiso(r.avisos, r.aviso_faltantes);
         const n = $('#msg-faltantes'); n.className = 'mensaje ok'; n.textContent = 'Faltante actualizado.';
       } catch (e) { m.className = 'mensaje error'; m.textContent = e.message; }
     });
@@ -1869,15 +1869,27 @@ async function fijarPiso(itemId, fecha) {
   try {
     const r = await api('/api/admin/almacen/piso', { item_id: itemId, fecha: fecha || null });
     S.alm.items = r.items; S.alm.hoy = r.hoy;
-    pintarAlmacen(); pintarAvisoPiso(r.avisos);
+    pintarAlmacen(); pintarAvisoPiso(r.avisos, r.aviso_faltantes);
     m.className = 'mensaje ok'; m.textContent = fecha ? `Recordatorio guardado: sacar a piso el ${fechaPiso(fecha)}.` : 'Recordatorio quitado.';
   } catch (e) { m.className = 'mensaje error'; m.textContent = e.message; }
 }
 /** Aviso en el menú lateral de Administración (junto al de modo de prueba). */
-function pintarAvisoPiso(avisos) {
+/** Marca naranja en el menú: piezas faltantes por ubicar (un faltante no debe quedarse días sin que nadie lo vea). */
+function pintarAvisoFaltantes(af) {
+  let a = $('#aviso-faltantes');
+  if (S.sesion?.rol !== 'admin' || !af?.piezas) { if (a) a.remove(); return; }
+  if (!a) {
+    a = document.createElement('button'); a.id = 'aviso-faltantes'; a.type = 'button'; a.className = 'aviso-piso aviso-faltantes';
+    $('.nav').insertBefore(a, $('.nav .prueba'));
+    a.addEventListener('click', async () => { await ir('almacen'); $('#panel-faltantes')?.scrollIntoView({ block: 'start' }); });
+  }
+  a.innerHTML = `<strong>Piezas faltantes</strong><br><b>${af.piezas}</b> pieza${af.piezas === 1 ? '' : 's'} por ubicar en <b>${af.entregas}</b> entrega${af.entregas === 1 ? '' : 's'}`;
+}
+function pintarAvisoPiso(avisos, faltantes) {
+  pintarAvisoFaltantes(faltantes);
   let a = $('#aviso-piso');
   if (S.sesion?.rol !== 'admin' || !avisos?.length) { if (a) a.remove(); return; }
-  if (!a) { a = document.createElement('button'); a.id = 'aviso-piso'; a.type = 'button'; $('.nav').insertBefore(a, $('.nav .prueba')); a.addEventListener('click', () => ir('almacen')); }
+  if (!a) { a = document.createElement('button'); a.id = 'aviso-piso'; a.type = 'button'; $('.nav').insertBefore(a, $('#aviso-faltantes') ?? $('.nav .prueba')); a.addEventListener('click', () => ir('almacen')); }
   const urgente = avisos.some((x) => x.urgente);
   a.className = `aviso-piso ${urgente ? 'roja' : 'morada'}`;
   const prim = avisos.slice(0, 3);
@@ -1885,7 +1897,7 @@ function pintarAvisoPiso(avisos) {
 }
 async function avisosPisoInicial() {
   if (S.sesion?.rol !== 'admin') return pintarAvisoPiso(null);
-  try { pintarAvisoPiso((await api('/api/admin/almacen')).avisos); } catch { /* sin aviso */ }
+  try { (async (j) => pintarAvisoPiso(j.avisos, j.aviso_faltantes))(await api('/api/admin/almacen')); } catch { /* sin aviso */ }
 }
 async function entregarFila(tr, confirmarExceso) {
   const m = $('#msg-alm');
@@ -1897,7 +1909,7 @@ async function entregarFila(tr, confirmarExceso) {
     const r = await api('/api/admin/almacen/entregar', { item_id: tr.dataset.item, destinos, etiqueta_precio: tr.querySelector('.et-precio').checked, etiqueta_costura: tr.querySelector('.et-costura').checked, confirmar_exceso: confirmarExceso, ref });
     delete S.refEntrega[tr.dataset.item];
     S.alm.items = r.almacen.items; S.alm.hoy = r.almacen.hoy;
-    pintarAlmacen(); pintarAvisoPiso(r.almacen.avisos);
+    pintarAlmacen(); pintarAvisoPiso(r.almacen.avisos, r.almacen.aviso_faltantes);
     m.className = 'mensaje ok'; m.textContent = `Entrega registrada. En el almacén quedan ${r.existencia_almacen} pieza(s); cada tienda las recibe al confirmar el primer escaneo.`;
   } catch (e) {
     if (e.codigo === 'CONFIRMACION_REQUERIDA') {
