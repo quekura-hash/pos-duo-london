@@ -42,6 +42,7 @@ const marcado = `
     <option value="LON/1">Cajero · London Caja 1</option><option value="LON/2">Cajero · London Caja 2</option><option value="admin">Administración</option></select></label>
   <label><input type="checkbox" id="falla-hub"> Hub de la tienda caído (simulado)</label>
   <label><input type="checkbox" id="falla-imp"> La siguiente impresión falla (una vez, simulada)</label>
+  <label title="Con el controlador de Epson instalado: imprime tickets, retiros y devoluciones por el diálogo de impresión de Chrome (sin diálogo si Chrome se abre con --kiosk-printing)"><input type="checkbox" id="imp-navegador"> Imprimir con el navegador (Epson en Windows)</label>
   <button class="btn" type="button" id="reiniciar">Reiniciar datos de prueba</button>
   <div class="fila-inv">
     <button class="btn" type="button" id="importar">Importar inventario (.xlsx)</button>

@@ -696,3 +696,15 @@ Botón **«Abrir caja»** en la fila inferior de la pantalla de venta: manda el 
 ## 50. Orden del menú de Administración
 
 El menú de Administración (supervisor) queda en este orden: **Inventario · Almacén · Promociones · Tarjetas de regalo · Reportes · Cortes · Configuración**, y **al entrar se abre Inventario**. El almacenista conserva solo Inventario y Almacén (también abre en Inventario). En la página de prueba se añade «Caja» al final para volver a la sesión de caja.
+
+## 51. Puente de impresión por el navegador (Epson TM-T20II en Windows)
+
+Solución **de transición** para probar tickets reales en la caja con la página de prueba en Chrome, mientras llega la app de Windows (que enviará ESC/POS directo a la impresora).
+
+- **Activación**: casilla «Imprimir con el navegador (Epson en Windows)» en la barra de la página de prueba (se recuerda en ese navegador). Apagada, no imprime por el navegador.
+- **Qué imprime**: el ticket de venta al cobrar (con logo) y al reimprimir; el retiro; la devolución de efectivo; y un **comprobante corto de «Abrir caja»** (APERTURA DE CAJA, tienda, caja, usuario, fecha y hora), que sirve para que el controlador abra el cajón. Los cupones de recompensa salen con su **QR dibujado** (imagen) y el código.
+- **Papel**: rollo de 80 mm (`@page size: 80mm auto`), zona de 74 mm con fuente monoespaciada de 10.4 px: las 42 columnas del ticket caben sin desbordar. En papel solo se imprime la zona del ticket; el resto de la pantalla se oculta.
+- **Sin diálogo**: Chrome se abre con `--kiosk-printing` (cerrar antes todas las ventanas de Chrome) y la Epson como impresora predeterminada de Windows.
+- **Cajón y corte**: se configuran en el controlador de Epson («Cajón de dinero»: abrir **antes de imprimir**; «Cortar papel»: al final del documento). El pulso lo manda el controlador, no el sistema.
+- **Límites**: imprime como imagen (más lento que ESC/POS); no usa el QR nativo ni el código de barras Code128 del ticket (sale el código en texto); no valida estado de la impresora (sin papel, etc.): si falla, el POS no se entera. **No validado con la impresora real.**
+- **Verificado**: prueba B29 (impresión solo si está activa, contenido del ticket, comprobante de apertura y que en papel solo sale la zona del ticket).

@@ -90,6 +90,27 @@ const NOMBRE_METODO = { efectivo: 'Efectivo', tarjeta: 'Tarjeta', tarjeta_regalo
 const logoTicket = (t) => window.__POS_LOGOS_TICKET__?.[t] ?? (t === 'DUO' ? 'ticket-duo.png' : 'ticket-london.png');
 const logoTicketHtml = () => (S.estado?.tienda ? `<div class="logo-ticket-cont"><img class="logo-ticket" id="logo-ticket" src="${logoTicket(S.estado.tienda)}" alt="Logo de ${esc(S.estado.negocio ?? S.estado.tienda)}"></div>` : '');
 
+// ── Puente de impresión por el navegador (Windows): con el controlador de Epson instalado, el ticket sale por el diálogo de impresión de Chrome
+// (sin diálogo si Chrome se abre con --kiosk-printing). Imprime como imagen: el cajón se abre por la configuración del controlador y el QR sale dibujado. ──
+const impNavegador = () => { try { return localStorage.getItem('pos-imp-navegador') === '1'; } catch { return false; } };
+async function imprimirNavegador(texto, { qrs = [], logo = true } = {}) {
+  if (!impNavegador()) return false;
+  let z = document.getElementById('zona-impresion');
+  if (!z) { z = document.createElement('div'); z.id = 'zona-impresion'; document.body.appendChild(z); }
+  z.innerHTML = `${logo ? logoTicketHtml() : ''}<pre>${esc(texto)}</pre>${qrs.map((q) => `<div class="qr-imp"><canvas width="180" height="180" data-qr="${esc(q)}"></canvas><div>${esc(q)}</div></div>`).join('')}`;
+  for (const cv of z.querySelectorAll('canvas[data-qr]')) dibujarQR(cv.getContext('2d'), cv.dataset.qr, 0, 0, 180);
+  await Promise.all([...z.querySelectorAll('img')].map((i) => (i.decode ? i.decode().catch(() => {}) : Promise.resolve())));
+  try { window.print(); } finally { z.innerHTML = ''; }
+  return true;
+}
+/** Comprobante corto de «Abrir caja»: al imprimirse, el controlador abre el cajón (configurado «antes de imprimir»). */
+function comprobanteApertura() {
+  const c = 42, centro = (t) => ' '.repeat(Math.max(0, Math.floor((c - t.length) / 2))) + t;
+  const f = new Date();
+  const dd = (n) => String(n).padStart(2, '0');
+  return [centro('APERTURA DE CAJA'), centro(`Tienda ${S.sesion.tienda} - Caja ${S.sesion.caja}`), `Usuario: ${S.sesion.usuario ?? ''}`, `Fecha: ${dd(f.getDate())}/${dd(f.getMonth() + 1)}/${f.getFullYear()}  Hora: ${dd(f.getHours())}:${dd(f.getMinutes())}`].join('\n');
+}
+
 // ── barra superior y pie ──
 async function pintarEncabezado() {
   const h = $('#encabezado');
@@ -407,6 +428,7 @@ async function vistaVenta() {
       const a = await api('/api/venta/autorizadores');
       if (a.pide_clave) return abrirClaveCaja(); // con Vendedoras-Cajeras registradas: su propia clave
       await api('/api/caja/abrir', {}); msg('Caja abierta (queda registrado en el corte).');
+      await imprimirNavegador(comprobanteApertura(), { logo: false });
     } catch (e) { msg(e.message, 'error'); }
     $('#scan').focus();
   });
@@ -859,6 +881,7 @@ function mostrarTicket(r) {
     ${(r.venta.recompensas ?? []).map((e) => `<div class="panel" data-cupon-ganado="${esc(e.codigo)}" style="text-align:center;margin:8px 0"><b>Cupón ganado: ${esc(e.nombre)}</b><br><canvas width="150" height="150" aria-label="QR del cupón ${esc(e.codigo)}" data-qr="${esc(e.codigo)}"></canvas><br><small>${esc(e.codigo)}</small></div>`).join('')}
     <div class="filas"><button class="btn" id="btn-reimprimir" type="button">${ico('printer')}<span>${imp.ok ? 'Reimprimir ticket' : 'Reintentar impresión'}</span></button><button class="btn" id="btn-ticket-regalo" type="button">${ico('gift')}<span>Ticket de regalo</span></button><button class="btn btn-primario" id="btn-nueva" type="button" style="width:auto;flex:1">${ico('plus')}<span>Nueva venta</span></button></div>`;
   dlg.showModal();
+  void imprimirNavegador(r.ticket_texto, { qrs: (r.venta.recompensas ?? []).map((e) => e.codigo) });
   for (const cv of dlg.querySelectorAll('canvas[data-qr]')) dibujarQR(cv.getContext('2d'), cv.dataset.qr, 0, 0, 150);
   $('#btn-ticket-regalo').addEventListener('click', () => abrirTicketRegalo(r.venta.sale_id));
   if (S.conRegalo) {
@@ -874,6 +897,7 @@ function mostrarTicket(r) {
       const e = $('#estado-impresion');
       e.className = `mensaje ${x.impresion.ok ? 'ok' : 'error'}`;
       e.textContent = x.impresion.ok ? 'Ticket enviado a la impresora (reimpresión).' : `La impresora falló: ${x.impresion.error}.`;
+      await imprimirNavegador(x.ticket_texto, { qrs: (r.venta.recompensas ?? []).map((q) => q.codigo) });
     } catch (err) { $('#estado-impresion').textContent = err.message; }
   });
   $('#btn-nueva').addEventListener('click', async () => {
@@ -1359,6 +1383,7 @@ function mostrarDevolucionEfectivo(r) {
     ${logoTicketHtml()}<pre class="ticket" id="ticket-texto" tabindex="0">${esc(r.ticket_texto)}</pre>
     <div class="filas"><button class="btn btn-primario" id="btn-nueva" type="button" style="width:auto;flex:1">${ico('plus')}<span>Nueva venta</span></button></div>`;
   dlg.showModal();
+  void imprimirNavegador(r.ticket_texto);
   $('#btn-nueva').addEventListener('click', async () => {
     dlg.close();
     const n = await api('/api/venta/nueva', {});
@@ -1595,6 +1620,7 @@ function mostrarTicketRetiro(r, reimpresion = false) {
     <pre class="ticket" id="ret-tk-texto" tabindex="0">${esc(r.ticket_texto)}</pre>
     <div class="filas"><button class="btn" type="button" id="ret-tk-reimprimir">${ico('printer')}<span>${imp.ok ? 'Reimprimir' : 'Reintentar impresión'}</span></button><button class="btn btn-primario" type="button" id="ret-tk-cerrar" style="width:auto;flex:1">${ico('check')}<span>Listo</span></button></div>`;
   d.showModal();
+  void imprimirNavegador(r.ticket_texto, { logo: false });
   $('#ret-tk-cerrar').addEventListener('click', () => { d.close(); S.retiroAvisoHasta = 0; ir('retiro'); });
   $('#ret-tk-reimprimir').addEventListener('click', async () => {
     try {
@@ -1819,7 +1845,7 @@ function abrirClaveCaja() {
   $('#ac-no').addEventListener('click', () => { d.close(); $('#scan').focus(); });
   $('#form-abrir-caja').addEventListener('submit', async (ev) => {
     ev.preventDefault();
-    try { await api('/api/caja/abrir', { clave: $('#ac-clave').value }); d.close(); msg('Caja abierta (queda registrado en el corte).'); $('#scan').focus(); }
+    try { await api('/api/caja/abrir', { clave: $('#ac-clave').value }); d.close(); msg('Caja abierta (queda registrado en el corte).'); $('#scan').focus(); await imprimirNavegador(comprobanteApertura(), { logo: false }); }
     catch (e) { const m = $('#msg-ac'); m.className = 'mensaje error'; m.textContent = e.message; $('#ac-clave').value = ''; }
   });
   d.showModal();

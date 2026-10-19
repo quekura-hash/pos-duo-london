@@ -1835,6 +1835,63 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     assert.deepEqual(errores.filter((e) => !/401|403|Failed to load resource/.test(e)), []);
   });
 
+  it('B29 puente de impresión por el navegador: imprime ticket, reimpresión y apertura de caja solo si se activa, y en papel solo sale la zona del ticket', async (t) => {
+    execFileSync(process.execPath, [join(RAIZ, 'scripts', 'construir-prueba.mjs')], { stdio: 'pipe' });
+    const browser = await chromium.launch({ executablePath: chromiumPath, args: ['--no-sandbox'] });
+    t.after(() => browser.close());
+    const page = await (await browser.newContext({ viewport: { width: 1440, height: 900 }, colorScheme: 'light' })).newPage();
+    const errores: string[] = [];
+    page.on('pageerror', (e) => errores.push(String(e)));
+    page.on('console', (m) => { if (m.type() === 'error') errores.push(m.text()); });
+    await page.addInitScript(() => {
+      (window as any).__IMPRESOS__ = [];
+      window.print = () => {
+        const z = document.getElementById('zona-impresion')!;
+        (window as any).__IMPRESOS__.push({ texto: z.querySelector('pre')!.textContent, logo: !!z.querySelector('img'), qrs: [...z.querySelectorAll('canvas[data-qr]')].map((c: any) => c.dataset.qr), pintados: [...z.querySelectorAll('canvas')].map((c: any) => { const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data; let n = 0; for (let i = 0; i < d.length; i += 4) if (d[i] < 60) n++; return n; }) });
+      };
+    });
+    await page.goto(`file://${HTML}`);
+    await page.waitForSelector('#scan');
+    const vender = async (recibido: string) => {
+      await page.fill('#scan', '7501234567890'); await page.press('#scan', 'Enter');
+      await page.waitForSelector('#cuerpo tr[data-linea]');
+      await page.fill('#recibido', recibido); await page.click('#btn-cobrar');
+      await page.waitForSelector('#dlg-ticket[open] #ticket-texto');
+    };
+    const impresos = () => page.evaluate(() => (window as any).__IMPRESOS__);
+    // apagado: no imprime por el navegador
+    await vender('120');
+    assert.equal((await impresos()).length, 0);
+    await page.click('#btn-nueva');
+    // encendido: el ticket se imprime solo al cobrar (con logo) y de nuevo al reimprimir
+    await page.check('#imp-navegador');
+    await vender('120');
+    let r = await impresos();
+    assert.equal(r.length, 1);
+    assert.match(r[0].texto, /Folio: 000002[\s\S]*TOTAL +\$120\.00/);
+    assert.equal(r[0].logo, true);
+    await page.click('#btn-reimprimir');
+    await page.waitForFunction(() => (window as any).__IMPRESOS__.length === 2);
+    await page.click('#btn-nueva');
+    // abrir caja: comprobante corto (el controlador abre el cajón al imprimir)
+    await page.click('#btn-abrir-caja');
+    await page.waitForFunction(() => (window as any).__IMPRESOS__.length === 3);
+    r = await impresos();
+    assert.match(r[2].texto, /APERTURA DE CAJA[\s\S]*Usuario:/);
+    // en papel (media print) solo se ve la zona de impresión
+    await page.evaluate(() => { const z = document.getElementById('zona-impresion') ?? document.body.appendChild(Object.assign(document.createElement('div'), { id: 'zona-impresion' })); z.innerHTML = '<pre>HOLA</pre>'; });
+    await page.emulateMedia({ media: 'print' });
+    assert.equal(await page.evaluate(() => getComputedStyle(document.querySelector('.app')!).display), 'none', 'la pantalla del POS no sale en el papel');
+    assert.equal(await page.evaluate(() => getComputedStyle(document.querySelector('.banco')!).display), 'none');
+    assert.equal(await page.evaluate(() => [...document.body.children].filter((e) => getComputedStyle(e).display !== 'none').map((e) => e.id)).then((x) => x.join()), 'zona-impresion');
+    assert.equal(await page.evaluate(() => getComputedStyle(document.querySelector('#zona-impresion')!).display), 'block');
+    const ancho = await page.evaluate(() => document.querySelector('#zona-impresion')!.getBoundingClientRect().width);
+    assert.ok(ancho > 270 && ancho < 290, `74 mm ≈ 280 px (fue ${ancho})`);
+    await page.emulateMedia({ media: 'screen' });
+    assert.equal(await page.evaluate(() => getComputedStyle(document.querySelector('#zona-impresion')!).display), 'none');
+    assert.deepEqual(errores.filter((e) => !/401|403|Failed to load resource/.test(e)), []);
+  });
+
   it('B20 cierre por inactividad: aviso un minuto antes, «Seguir trabajando» renueva, al cerrarse la venta queda en espera y se vuelve al inicio de sesión', async (t) => {
     execFileSync(process.execPath, [join(RAIZ, 'scripts', 'construir-prueba.mjs')], { stdio: 'pipe' });
     const browser = await chromium.launch({ executablePath: chromiumPath, args: ['--no-sandbox'] });

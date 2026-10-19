@@ -186,3 +186,17 @@ tr.faltante-pendiente { background: var(--naranja-fondo); } tr.faltante-pendient
 #aviso-inactividad[hidden] { display: none; }
 /* aviso de retiro: flotante y NO modal, la venta sigue funcionando debajo */
 dialog.aviso-flotante { position: fixed; inset: 16px 16px auto auto; margin: 0; width: min(360px, calc(100vw - 32px)); border: 2px solid var(--naranja); border-radius: 12px; background: var(--superficie); color: inherit; box-shadow: 0 8px 28px rgba(0,0,0,.28); padding: 14px; z-index: 50; }
+
+/* Puente de impresión por el navegador: en papel solo sale la zona de impresión (rollo de 80 mm) */
+#zona-impresion { display: none; }
+@media print {
+  @page { size: 80mm auto; margin: 2mm; }
+  body > *:not(#zona-impresion) { display: none !important; }
+  html, body { background: #fff !important; }
+  #zona-impresion { display: block !important; width: 74mm; margin: 0; color: #000; background: #fff; }
+  #zona-impresion pre { margin: 0; font: 10.4px/1.25 "Courier New", Consolas, monospace; white-space: pre; color: #000; background: #fff; border: 0; padding: 0; }
+  #zona-impresion .logo-ticket-cont { text-align: center; margin: 0 0 2mm; }
+  #zona-impresion .logo-ticket { max-width: 60mm; max-height: 22mm; filter: grayscale(1) contrast(1.4); }
+  #zona-impresion .qr-imp { text-align: center; margin: 3mm 0; font: 10px "Courier New", monospace; }
+  #zona-impresion .qr-imp canvas { width: 34mm; height: 34mm; }
+}

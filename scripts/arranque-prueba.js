@@ -158,6 +158,8 @@
   };
 
   $('#sesion-prueba').addEventListener('change', function (e) { ctl.seleccionar(e.target.value); });
+  try { $('#imp-navegador').checked = localStorage.getItem('pos-imp-navegador') === '1'; } catch (e) { /* sin almacenamiento */ }
+  $('#imp-navegador').addEventListener('change', function (e) { try { localStorage.setItem('pos-imp-navegador', e.target.checked ? '1' : '0'); } catch (x) { /* sin almacenamiento */ } });
   $('#falla-hub').addEventListener('change', function (e) { ctl.caerHub(ctl.tienda(), e.target.checked); });
   $('#falla-imp').addEventListener('change', function (e) { ctl.fallaImpresora(ctl.sesion, e.target.checked); });
   $('#reiniciar').addEventListener('click', function () { borrar('estado'); ultimaVersion = -1; ctl.reiniciar(); $('#sesion-prueba').value = ctl.sesion; });
