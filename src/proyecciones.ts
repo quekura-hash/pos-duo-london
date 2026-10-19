@@ -336,6 +336,14 @@ export function promocionesDe(ops: Op[]): import('./promociones.ts').Promocion[]
   for (const o of ops) if (o.tipo === 'promo.guardada') m.set(o.payload.id, o.payload);
   return [...m.values()];
 }
+/** Minutos de inactividad tras los que se cierra la sesión (0 = nunca). El último registro manda. Sin registro: caja 10 y Administración 15. */
+export interface ConfigSesion { caja_min: number; admin_min: number }
+export const CONFIG_SESION_INICIAL: ConfigSesion = { caja_min: 10, admin_min: 15 };
+export function configSesionDe(ops: Op[]): ConfigSesion {
+  const c = { ...CONFIG_SESION_INICIAL };
+  for (const o of ops) if (o.tipo === 'config.sesion') { c.caja_min = o.payload.caja_min; c.admin_min = o.payload.admin_min; }
+  return c;
+}
 export function administradoresDe(ops: Op[]): import('./supervisores.ts').Administrador[] {
   const m = new Map<string, import('./supervisores.ts').Administrador>();
   for (const o of ops) if (o.tipo === 'admin.guardado') m.set(o.payload.id, o.payload);

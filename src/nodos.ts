@@ -93,7 +93,7 @@ interface Reserva {
 const esMovimientoLimbo = (op: Op) => op.tipo === 'inv.movement' && op.payload.tienda === LIMBO;
 const BROADCAST_TIENDA = new Set(['alm.recibida', 'inv.movement', 'inv.conteo', 'inv.verificacion_pendiente', 'doc.perdida_posible', 'item.created', 'item.item_no_assigned', 'giftcard.emitida', 'giftcard.recarga', 'giftcard.uso', 'giftcard.reintegro']);
 // Lo que el central baja a hubs y cajas (catálogo y resoluciones administrativas).
-const CATALOGO = new Set(['item.created', 'item.item_no_assigned', 'item.codigo_corregido', 'doc.perdida_resuelta', 'giftcard.emitida', 'giftcard.recarga', 'giftcard.uso', 'giftcard.reintegro', 'config.tipo_cambio', 'permiso.asignado', 'depto.alta', 'depto.editado', 'alm.entrega', 'alm.faltante', 'promo.guardada', 'supervisor.guardado', 'cajero.guardado', 'config.negocio', 'item.editado']);
+const CATALOGO = new Set(['item.created', 'item.item_no_assigned', 'item.codigo_corregido', 'doc.perdida_resuelta', 'giftcard.emitida', 'giftcard.recarga', 'giftcard.uso', 'giftcard.reintegro', 'config.tipo_cambio', 'permiso.asignado', 'depto.alta', 'depto.editado', 'alm.entrega', 'alm.faltante', 'promo.guardada', 'supervisor.guardado', 'cajero.guardado', 'config.sesion', 'config.negocio', 'item.editado']);
 
 // ───────────────────────────── Hub ─────────────────────────────
 
@@ -485,6 +485,13 @@ export class Central {
     }
     this.emitirUna('admin.guardado', { id, nombre, activo, sal, hash, rol, por }, `admin.guardado:${uuid()}`, false);
     return { ok: true, admin: { id, nombre, activo, rol } };
+  }
+
+  /** Minutos de inactividad tras los que se cierra la sesión de la caja y la de Administración (0 = nunca, hasta 8 horas). Se reparte a las cajas. */
+  guardarConfigSesion(d: { caja_min: number; admin_min: number }, por: string): { ok: true } | { ok: false; mensaje: string } {
+    for (const [k, v] of Object.entries(d)) if (!Number.isInteger(v) || v < 0 || v > 480) return { ok: false, mensaje: `los minutos de ${k === 'caja_min' ? 'la caja' : 'Administración'} son un entero de 0 a 480 (0 = nunca)` };
+    this.emitirAdmin('config.sesion', { caja_min: d.caja_min, admin_min: d.admin_min, por });
+    return { ok: true };
   }
 
   /** Recordatorio interno de almacén: fecha para sacar el artículo a piso (null la quita). Solo del central, no viaja a las tiendas. */
@@ -936,6 +943,10 @@ export class Caja {
   autorizadoresPosibles(usuarioActual: string): { nombre: string; tipo: 'cajero' | 'supervisor' }[] {
     const otro = (n: string) => nombreClave(n) !== nombreClave(usuarioActual);
     return [...this.idx.cajeros().filter((c) => c.activo && otro(c.nombre)).map((c) => ({ nombre: c.nombre, tipo: 'cajero' as const })), ...this.idx.supervisores().filter((s) => s.activo && otro(s.nombre)).map((s) => ({ nombre: s.nombre, tipo: 'supervisor' as const }))];
+  }
+  /** Minutos de inactividad que cierran la sesión de la caja (0 = nunca). */
+  configSesion() {
+    return this.idx.configSesion();
   }
   /** Cajeros activos con clave: si hay al menos uno, la caja pide usuario y clave para abrir. */
   cajerosActivos(): string[] {

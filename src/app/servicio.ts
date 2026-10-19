@@ -6,7 +6,7 @@ import { ErrorDominio } from '../errores.ts';
 import type { Impresora } from '../impresion.ts';
 import type { Caja } from '../nodos.ts';
 import { estadoPromo, type Promocion } from '../promociones.ts';
-import { CAMPOS_EDITABLES, catalogo, historialArticulo, nombresTienda, datosTiendas, departamentos as proyDepartamentos, promocionesDe, supervisoresDe, cajerosDe, administradoresDe, permisos as proyPermisos, tarjetasRegalo, tiposDeCambio, tipoCambioVigente, ventas, type TipoCambio } from '../proyecciones.ts';
+import { CAMPOS_EDITABLES, catalogo, historialArticulo, nombresTienda, datosTiendas, departamentos as proyDepartamentos, promocionesDe, supervisoresDe, cajerosDe, administradoresDe, configSesionDe, permisos as proyPermisos, tarjetasRegalo, tiposDeCambio, tipoCambioVigente, ventas, type TipoCambio } from '../proyecciones.ts';
 import { hojaDescuentos, hojaEntregas, hojaDolares, hojaInventario, leerInventario, PERFIL_CONFIRMADO, type Hoja } from '../inventario.ts';
 import { LOGOS_TICKET } from '../logos-ticket.ts';
 import { aplicarDatosTienda, codigoTicket, construirTicket, construirTicketRegalo, formatoMXN, NEGOCIOS, renderTextoEscPos, renderTicketDevolucionTexto, renderTicketRetiroTexto, renderTicketEscPos, renderTicketTexto, type NegocioCfg } from '../ticket.ts';
@@ -54,6 +54,7 @@ export class ServicioCaja {
   private negocios: Record<string, NegocioCfg>;
   private usuarioInicial: string;
   private autenticado = false;
+  private ultimaActividad = 0;
 
   constructor(o: { caja: Caja; actor: ActorCajero; impresora: Impresora; conexion: Conexion; reloj: { now(): string }; negocios?: Record<string, NegocioCfg> }) {
     if (o.actor.tienda !== o.caja.tienda || o.actor.caja !== o.caja.caja) throw new ErrorDominio('PROHIBIDO', 'el usuario no pertenece a esta caja');
@@ -74,18 +75,37 @@ export class ServicioCaja {
   autenticada(): boolean {
     if (!this.requiereLogin()) return true;
     if (this.autenticado && !this.caja.cajeroActivo(this.actor.usuario)) this.cerrarSesion(); // un cajero desactivado pierde la sesión
+    const limite = this.caja.configSesion().caja_min * 60000;
+    if (this.autenticado && limite > 0 && this.ahoraMs() - this.ultimaActividad > limite) this.cerrarSesion(true); // inactividad
     return this.autenticado;
   }
+  private ahoraMs() { return Date.parse(this.reloj.now()); }
+  /** Marca actividad de quien usa la caja (cualquier operación suya y el latido de la pantalla; las lecturas automáticas no cuentan). */
+  tocar() { this.ultimaActividad = this.ahoraMs(); }
   sesionInfo() {
     const dentro = this.autenticada();
-    return { requiere_login: this.requiereLogin(), autenticado: dentro, usuario: dentro ? this.actor.usuario : null, cajeros: dentro ? [] : this.caja.cajerosActivos() };
+    const limite = this.caja.configSesion().caja_min * 60;
+    return {
+      requiere_login: this.requiereLogin(), autenticado: dentro, usuario: dentro ? this.actor.usuario : null, cajeros: dentro ? [] : this.caja.cajerosActivos(),
+      inactividad: dentro && limite > 0 ? { limite_seg: limite, restante_seg: Math.max(0, Math.ceil((this.ultimaActividad + limite * 1000 - this.ahoraMs()) / 1000)) } : null,
+    };
   }
   iniciarSesion(usuario: string, clave: string) {
     this.actor.usuario = this.caja.iniciarSesionCajero(String(usuario ?? ''), String(clave ?? ''));
     this.autenticado = true;
+    this.tocar();
     return this.sesionInfo();
   }
-  cerrarSesion() {
+  /**
+   * Cierra la sesión. La venta en curso con artículos NO se pierde ni pasa a la siguiente persona: queda en «Venta en espera» a nombre de la
+   * sesión que se cerró, para retomarla.
+   */
+  cerrarSesion(porInactividad = false) {
+    if (this.autenticado) {
+      for (const id of this.caja.carritosActivos()) {
+        try { if (this.caja.carrito(id).lineas.length) this.caja.ponerEnEspera(id, `Sesión de ${this.actor.usuario} ${porInactividad ? 'cerrada por inactividad' : 'cerrada'}`, this.actor.usuario); } catch { /* cobro con tarjeta pendiente: se queda como está */ }
+      }
+    }
     this.autenticado = false;
     this.actor.usuario = this.usuarioInicial;
     return this.sesionInfo();
@@ -523,16 +543,19 @@ export class ServicioAdmin {
   private autenticado = false;
   /** Rol de quien inició sesión (null con la consola abierta o antes de entrar: se trata como supervisor). */
   private rolUsuario: RolAdmin | null = null;
+  private ultimaActividad = 0;
+  private reloj: { now(): string };
   private fallos = new Map<string, { n: number; hasta: number }>();
   private fuente: () => Op[];
   readonly cajas: { tienda: string; caja: number }[];
   private inv?: FuenteInventario;
   private central?: { fijarTipoCambio(tasa: number, usuario: string, versionBase: number, confirmarVariacion?: boolean): import('../nodos.ts').ResultadoTipoCambio; asignarPermiso(usuario: string, permiso: string, valor: boolean, por: string): Op; guardarDepto(c: import('../departamentos.ts').CambioDepto, por: string): { ok: true; op: Op } | { ok: false; error: import('../departamentos.ts').ErrorDepto };
-    guardarDatosTienda: import('../nodos.ts').Central['guardarDatosTienda']; editarArticulo: import('../nodos.ts').Central['editarArticulo']; guardarPromocion: import('../nodos.ts').Central['guardarPromocion']; guardarSupervisor: import('../nodos.ts').Central['guardarSupervisor']; guardarCajero: import('../nodos.ts').Central['guardarCajero']; guardarAdmin: import('../nodos.ts').Central['guardarAdmin']; recordarSacarAPiso: import('../nodos.ts').Central['recordarSacarAPiso']; resolverFaltante: import('../nodos.ts').Central['resolverFaltante']; contarLimbo: import('../nodos.ts').Central['contarLimbo']; corregirEntrada: import('../nodos.ts').Central['corregirEntrada']; altaLote: import('../nodos.ts').Central['altaLote']; entregar: import('../nodos.ts').Central['entregar'] };
-  constructor(o: { actor: Extract<Actor, { rol: 'admin' }>; fuente: () => Op[]; cajas: { tienda: string; caja: number }[]; inventario?: FuenteInventario; central?: ServicioAdmin['central'] }) {
+    guardarDatosTienda: import('../nodos.ts').Central['guardarDatosTienda']; editarArticulo: import('../nodos.ts').Central['editarArticulo']; guardarPromocion: import('../nodos.ts').Central['guardarPromocion']; guardarSupervisor: import('../nodos.ts').Central['guardarSupervisor']; guardarCajero: import('../nodos.ts').Central['guardarCajero']; guardarAdmin: import('../nodos.ts').Central['guardarAdmin']; guardarConfigSesion: import('../nodos.ts').Central['guardarConfigSesion']; recordarSacarAPiso: import('../nodos.ts').Central['recordarSacarAPiso']; resolverFaltante: import('../nodos.ts').Central['resolverFaltante']; contarLimbo: import('../nodos.ts').Central['contarLimbo']; corregirEntrada: import('../nodos.ts').Central['corregirEntrada']; altaLote: import('../nodos.ts').Central['altaLote']; entregar: import('../nodos.ts').Central['entregar'] };
+  constructor(o: { actor: Extract<Actor, { rol: 'admin' }>; fuente: () => Op[]; cajas: { tienda: string; caja: number }[]; inventario?: FuenteInventario; central?: ServicioAdmin['central']; reloj?: { now(): string } }) {
     this.central = o.central;
     this.actor = o.actor;
     this.usuarioInicial = o.actor.usuario;
+    this.reloj = o.reloj ?? { now: () => new Date().toISOString() };
     this.fuente = o.fuente;
     this.cajas = o.cajas;
     this.inv = o.inventario;
@@ -760,11 +783,27 @@ export class ServicioAdmin {
   autenticada(): boolean {
     if (!this.requiereLogin()) return true;
     if (this.autenticado && !administradoresDe(this.fuente()).some((a) => a.activo && nombreClave(a.nombre) === nombreClave(this.actor.usuario))) this.cerrarSesion();
+    const limite = configSesionDe(this.fuente()).admin_min * 60000;
+    if (this.autenticado && limite > 0 && this.ahoraMs() - this.ultimaActividad > limite) this.cerrarSesion(); // inactividad
     return this.autenticado;
+  }
+  private ahoraMs() { return Date.parse(this.reloj.now()); }
+  tocar() { this.ultimaActividad = this.ahoraMs(); }
+  /** Minutos de inactividad que cierran la sesión de la caja y la de Administración (0 = nunca). */
+  configSesion() { return configSesionDe(this.fuente()); }
+  guardarConfigSesion(d: { caja_min: number; admin_min: number }) {
+    if (!this.central) throw new ErrorDominio('SIN_CENTRAL', 'esta sesión no tiene acceso al servicio central');
+    const r = this.central.guardarConfigSesion(d, this.actor.usuario);
+    if (!r.ok) throw new ErrorDominio('DATOS_INVALIDOS', r.mensaje);
+    return this.configSesion();
   }
   sesionInfo() {
     const dentro = this.autenticada();
-    return { requiere_login: this.requiereLogin(), autenticado: dentro, usuario: dentro ? this.actor.usuario : null, rol_usuario: dentro ? this.rol() : null, sin_administradores: !this.requiereLogin() };
+    const limite = configSesionDe(this.fuente()).admin_min * 60;
+    return {
+      requiere_login: this.requiereLogin(), autenticado: dentro, usuario: dentro ? this.actor.usuario : null, rol_usuario: dentro ? this.rol() : null, sin_administradores: !this.requiereLogin(),
+      inactividad: dentro && this.requiereLogin() && limite > 0 ? { limite_seg: limite, restante_seg: Math.max(0, Math.ceil((this.ultimaActividad + limite * 1000 - this.ahoraMs()) / 1000)) } : null,
+    };
   }
   /** Cinco contraseñas equivocadas seguidas bloquean ese usuario 5 minutos. */
   iniciarSesion(usuario: string, clave: string) {
@@ -783,6 +822,7 @@ export class ServicioAdmin {
     this.actor.usuario = a.nombre;
     this.rolUsuario = a.rol ?? 'supervisor';
     this.autenticado = true;
+    this.tocar();
     return this.sesionInfo();
   }
   cerrarSesion() {
@@ -810,7 +850,7 @@ export class ServicioAdmin {
     const r = this.central.guardarAdmin(d, this.actor.usuario);
     if (!r.ok) throw new ErrorDominio(r.error.codigo === 'NO_EXISTE' ? 'NO_ENCONTRADO' : 'ADMIN_INVALIDO', r.error.mensaje, { motivo: r.error.codigo });
     // Quien crea al primer administrador desde la consola abierta queda dentro como ese administrador: no se queda fuera de su propia pantalla.
-    if (abierta && r.admin.activo) { this.autenticado = true; this.actor.usuario = r.admin.nombre; this.rolUsuario = r.admin.rol; }
+    if (abierta && r.admin.activo) { this.autenticado = true; this.actor.usuario = r.admin.nombre; this.rolUsuario = r.admin.rol; this.tocar(); }
     return this.administradores();
   }
   cajeros() {

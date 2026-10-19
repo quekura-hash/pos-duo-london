@@ -18,14 +18,18 @@ export async function atender(o: { cajero?: ServicioCaja; admin?: ServicioAdmin 
   const q = url.searchParams;
   const ok = (cuerpo: object): Respuesta => ({ status: 200, json: { ok: true, ...cuerpo } });
   try {
+    // Las lecturas automáticas de la pantalla (encabezado, tipo de cambio…) llevan `pasivo` y NO cuentan como actividad de la persona.
+    const pasivo = q.get('pasivo') === '1' || b?.pasivo === true;
     const exigirCajero = () => {
       if (!C) throw new ErrorDominio('PROHIBIDO', 'esta sesión no es de caja');
       if (!C.autenticada()) throw new ErrorDominio('NO_AUTENTICADO', 'inicie sesión con su usuario y clave');
+      if (!pasivo) C.tocar();
       return C;
     };
     const exigirAdmin = () => {
       if (!A) throw new ErrorDominio('PROHIBIDO', 'esta sesión no es de Administración');
       if (!A.autenticada()) throw new ErrorDominio('NO_AUTENTICADO', 'inicie sesión con su usuario y contraseña');
+      if (!pasivo) A.tocar();
       return A;
     };
     // Cada rol de Administración solo llega a lo suyo (el almacenista, a Inventario y Almacén); sin sesión responde exigirAdmin (401).
@@ -34,6 +38,9 @@ export async function atender(o: { cajero?: ServicioCaja; admin?: ServicioAdmin 
 
     switch (`${metodo} ${url.pathname}`) {
       case 'POST /api/login': return ok(C ? C.iniciarSesion(b.usuario, b.clave) : A ? A.iniciarSesion(b.usuario, b.clave) : (() => { throw new ErrorDominio('PROHIBIDO', 'no hay sesión'); })());
+      case 'POST /api/actividad': return ok((C ? exigirCajero() : exigirAdmin()).sesionInfo()); // latido de la pantalla: la persona sigue trabajando
+      case 'GET /api/admin/config-sesion': return ok({ config: exigirAdmin().configSesion() });
+      case 'POST /api/admin/config-sesion': return ok({ config: exigirAdmin().guardarConfigSesion({ caja_min: Number(b.caja_min), admin_min: Number(b.admin_min) }) });
       case 'POST /api/logout': return ok(C ? C.cerrarSesion() : A ? A.cerrarSesion() : (() => { throw new ErrorDominio('PROHIBIDO', 'no hay sesión'); })());
       case 'GET /api/admin/administradores': return ok(exigirAdmin().administradores());
       case 'POST /api/admin/administradores': return ok(exigirAdmin().guardarAdmin({ id: b.id, nombre: b.nombre, clave: b.clave === undefined ? undefined : String(b.clave), activo: b.activo === undefined ? undefined : !!b.activo, rol: b.rol, clave_caja: b.clave_caja === undefined ? undefined : String(b.clave_caja) }));

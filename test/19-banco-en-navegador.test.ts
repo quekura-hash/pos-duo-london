@@ -1300,6 +1300,54 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     await page.waitForSelector('#resumen-devolucion');
     assert.deepEqual(errores.filter((e) => !/401|403|Failed to load resource/.test(e)), []);
   });
+
+  it('B20 cierre por inactividad: aviso un minuto antes, «Seguir trabajando» renueva, al cerrarse la venta queda en espera y se vuelve al inicio de sesión', async (t) => {
+    execFileSync(process.execPath, [join(RAIZ, 'scripts', 'construir-prueba.mjs')], { stdio: 'pipe' });
+    const browser = await chromium.launch({ executablePath: chromiumPath, args: ['--no-sandbox'] });
+    t.after(() => browser.close());
+    const page = await (await browser.newContext({ viewport: { width: 1440, height: 900 }, colorScheme: 'light' })).newPage();
+    const errores: string[] = [];
+    page.on('pageerror', (e) => errores.push(String(e)));
+    page.on('console', (m) => { if (m.type() === 'error') errores.push(m.text()); });
+    await page.goto(`file://${HTML}`);
+    await page.waitForSelector('[data-chip="tienda"]');
+    // se puede configurar el tiempo (Administración abierta aún)
+    await page.selectOption('#sesion-prueba', 'admin');
+    await page.click('#nav button[data-vista="configuracion"]');
+    await page.click('#cfg-tab-cajeros');
+    await page.waitForSelector('#form-inactividad');
+    assert.deepEqual([await page.inputValue('#ina-caja'), await page.inputValue('#ina-admin')], ['10', '15']);
+    await page.fill('#ina-caja', '10'); await page.click('#btn-inactividad');
+    await page.waitForFunction(() => /Guardado/.test(document.querySelector('#msg-inactividad')!.textContent!));
+    await page.fill('#caj-nombre', 'Lupe'); await page.fill('#caj-clave', '4321'); await page.click('#btn-caj');
+    await page.waitForSelector('#tabla-cajeros tr[data-cajero]');
+    await page.selectOption('#sesion-prueba', 'DUO/1');
+    await page.waitForSelector('#form-login');
+    await page.selectOption('#lg-usuario', 'Lupe'); await page.fill('#lg-clave', '4321'); await page.click('#lg-entrar');
+    await page.waitForSelector('#scan');
+    await page.fill('#scan', '0002026090782'); await page.press('#scan', 'Enter');
+    await page.waitForSelector('#cuerpo tr[data-linea]');
+    await page.waitForTimeout(5500); // el latido recoge la actividad y queda tranquilo
+    // 9 min y medio sin tocar nada: aparece el aviso con la cuenta regresiva
+    await page.evaluate(() => (window as any).__POS_AVANZAR__(9.5 * 60e3));
+    await page.waitForSelector('#aviso-inactividad:not([hidden])', { timeout: 15000 });
+    assert.match((await page.textContent('#aviso-inactividad'))!, /se cerrará en \d+ s/);
+    await page.screenshot({ path: join(RAIZ, 'docs', 'capturas', '56-aviso-inactividad.png') });
+    // «Seguir trabajando» renueva
+    await page.click('#btn-seguir');
+    await page.waitForSelector('#aviso-inactividad', { state: 'hidden' });
+    await page.waitForTimeout(5500);
+    // 11 minutos sin actividad: se cierra la sesión
+    await page.evaluate(() => (window as any).__POS_AVANZAR__(11 * 60e3));
+    await page.waitForSelector('#form-login', { timeout: 15000 });
+    assert.equal(await page.locator('#aviso-inactividad:not([hidden])').count(), 0);
+    // al volver a entrar, la venta con artículos está en «Venta en espera»
+    await page.selectOption('#lg-usuario', 'Lupe'); await page.fill('#lg-clave', '4321'); await page.click('#lg-entrar');
+    await page.waitForFunction(() => /Venta en espera \(1\)/.test(document.querySelector('#txt-espera')?.textContent ?? ''));
+    await page.click('#btn-espera');
+    assert.match((await page.textContent('#dlg-espera'))!, /Sesión de Lupe cerrada por inactividad/);
+    assert.deepEqual(errores.filter((e) => !/401|403|Failed to load resource/.test(e)), []);
+  });
 });
 
 const REAL = process.env.POS_INVENTARIO_REAL;

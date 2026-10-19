@@ -49,7 +49,7 @@ export function crearBanco(opsCatalogo?: Op[], estado?: EstadoBanco) {
   m.pump();
   if (opsCatalogo) m.sembrarOps(opsCatalogo);
   else m.sembrar(ARTICULOS_DE_PRUEBA.map(({ existencias: _e, ...a }) => a), ARTICULOS_DE_PRUEBA.map((a) => a.existencias));
-  const ahora = () => new Date().toISOString();
+  const ahora = () => new Date(Date.now() + desfaseMs).toISOString();
   m.reloj.fijar(ahora());
   const impresoras = new Map<string, ImpresoraMemoria>();
   const ultimaSync = new Map<string, string | null>();
@@ -70,7 +70,7 @@ export function crearBanco(opsCatalogo?: Op[], estado?: EstadoBanco) {
       reloj: { now: ahora },
     }));
   }
-  const admin = new ServicioAdmin({ central: m.central, actor: { rol: 'admin', usuario: 'Administración' }, fuente: () => m.central.repo.ops(), cajas: CAJAS_ESTANDAR.map((c) => ({ tienda: c.tienda, caja: c.caja })), inventario: m.inventarioCentral() });
+  const admin = new ServicioAdmin({ central: m.central, actor: { rol: 'admin', usuario: 'Administración' }, fuente: () => m.central.repo.ops(), cajas: CAJAS_ESTANDAR.map((c) => ({ tienda: c.tienda, caja: c.caja })), inventario: m.inventarioCentral(), reloj: { now: ahora } });
   // Base = configuración inicial + catálogo; todo lo posterior (altas, ventas, entregas…) es lo que vale la pena conservar.
   const bases = new Map<string, number>((fab.todos?.() ?? []).map(([n, r]) => [n, r.seqMax()]));
   if (estado && estado.conInventario === !!opsCatalogo) {
@@ -85,6 +85,7 @@ export type Banco = ReturnType<typeof crearBanco>;
 
 export { aplicarDepartamentos, DEPARTAMENTOS_BASE, aOperacionesInventario, perfilConCantidad, escribirXlsx, leerInventario, leerXlsx, PERFILES };
 
+let desfaseMs = 0;
 export function iniciarBanco(opciones: { alCambiar: () => void; estadoInicial?: EstadoBanco }) {
   let opsCatalogo: Op[] | undefined;
   let etiqueta = '';
@@ -103,7 +104,9 @@ export function iniciarBanco(opciones: { alCambiar: () => void; estadoInicial?: 
     get sesion() { return sesion; },
     // Al cambiar de sesión se entrega lo pendiente (si la red simulada lo permite), como haría la sincronización en segundo plano.
     seleccionar(id: string) { banco.m.pump(); sesion = id; opciones.alCambiar(); },
-    reiniciar() { banco = crearBanco(opsCatalogo); opciones.alCambiar(); },
+    reiniciar() { desfaseMs = 0; banco = crearBanco(opsCatalogo); opciones.alCambiar(); },
+    /** Solo para probar: adelanta el reloj de toda la página de prueba (p. ej. para ver el cierre por inactividad sin esperar). */
+    avanzarReloj(ms: number) { desfaseMs += ms; banco.m.reloj.fijar(banco.ahora()); },
     /** Carga un inventario importado (operaciones de catálogo y existencia de prueba) en lugar de los datos de ejemplo. */
     cargarInventario(ops: Op[], texto: string, ejemplos: typeof muestra, estado?: EstadoBanco) { opsCatalogo = ops; etiqueta = texto; muestra = ejemplos; banco = crearBanco(opsCatalogo, estado); opciones.alCambiar(); },
     /** Foto del estado para guardarla (null si no cambió desde la última vez que se pidió). */

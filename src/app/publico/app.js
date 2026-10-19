@@ -101,7 +101,7 @@ async function pintarEncabezado() {
     await pintarTipoCambio();
     return;
   }
-  const { estado: e } = await api('/api/estado');
+  const { estado: e } = await api('/api/estado?pasivo=1');
   S.estado = e;
   pintarTipoCambio();
   const c = e.conexion;
@@ -1130,7 +1130,7 @@ async function pintarTipoCambio() {
   if (!el || !S.sesion) return;
   let t;
   if (S.sesion.rol === 'admin') {
-    const v = (await api('/api/admin/tipo-cambio')).vigente;
+    const v = (await api('/api/admin/tipo-cambio?pasivo=1')).vigente;
     t = v ? { configurado: true, texto: v.texto, version: v.version, actualizado_en: v.ocurrio_en, cambiado_por: v.usuario, verificado: true, puede_editar: true } : { configurado: false, puede_editar: true };
   } else t = S.estado?.tipo_cambio;
   if (!t) return;
@@ -2214,7 +2214,7 @@ async function vistaConfiguracion(tab) {
 
 // ── Cajeros: nombre (el del usuario de la caja) y clave propia ──
 async function vistaCajeros() {
-  const [{ cajeros }, { administradores }] = await Promise.all([api('/api/admin/cajeros'), api('/api/admin/administradores')]);
+  const [{ cajeros }, { administradores }, { config }] = await Promise.all([api('/api/admin/cajeros'), api('/api/admin/administradores'), api('/api/admin/config-sesion')]);
   cuerpoVista().innerHTML = `<div class="titulo-vista">${ico('user')}<h1>Usuarios</h1></div>
     <section class="panel" id="panel-admins" style="margin-bottom:12px"><h2 style="margin-top:0">Supervisores y almacenistas (entran a Administración)</h2>
       <p class="nota" style="margin-top:0">${administradores.some((a) => a.activo) ? '<b>Supervisor</b>: ve todo Administración y autoriza operaciones en la caja con su clave de caja (4 a 8 dígitos). <b>Almacenista</b>: solo Inventario y Almacén, y no cambia precios. Entran con su usuario y contraseña (6 a 40 caracteres), que solo viven en el servidor central. Las Vendedoras-Cajeras no entran a Administración.' : '<b>Esta consola está abierta: cualquiera que la abra puede entrar.</b> Cree el primer usuario (debe ser supervisor) para que pida usuario y contraseña. Quien lo crea queda dentro.'}</p>
@@ -2233,7 +2233,18 @@ async function vistaCajeros() {
     ${cajeros.map((x) => `<tr data-cajero="${esc(x.id)}"><td>${esc(x.nombre)}</td><td>${x.activo ? 'Activo' : 'Desactivado'}</td><td><input type="password" inputmode="numeric" class="c-clave" placeholder="dejar vacío = no cambiar" aria-label="Nueva clave de ${esc(x.nombre)}" style="padding:4px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie)"></td>
       <td class="filas" style="flex-wrap:nowrap"><button class="btn c-guardar" type="button">${ico('check')}<span>Cambiar clave</span></button><button class="btn c-activo" type="button">${x.activo ? 'Desactivar' : 'Activar'}</button></td></tr>`).join('') || '<tr><td colspan="4" class="vacio">Aún no hay Vendedoras-Cajeras con clave: sin ella nadie puede dar de alta artículos en la caja.</td></tr>'}</tbody></table></div>
     <form id="form-cajero" class="filas" style="margin-top:12px;align-items:flex-end"><div class="campo"><label for="caj-nombre">Nombre de la Vendedora-Cajera</label><input id="caj-nombre" class="texto" maxlength="40"></div><div class="campo"><label for="caj-clave">Clave</label><input id="caj-clave" type="password" inputmode="numeric" autocomplete="off"></div>
-      <button class="btn btn-primario" id="btn-caj" type="submit" style="width:auto">${ico('plus')}<span>Agregar cajero</span></button></form>`;
+      <button class="btn btn-primario" id="btn-caj" type="submit" style="width:auto">${ico('plus')}<span>Agregar Vendedora-Cajera</span></button></form>
+    <section class="panel" id="panel-inactividad" style="margin-top:16px"><h2 style="margin-top:0">Cierre de sesión por inactividad</h2>
+      <p class="nota" style="margin-top:0">Si nadie toca la pantalla durante estos minutos, la sesión se cierra y hay que volver a entrar. Un minuto antes aparece un aviso con «Seguir trabajando». La venta con artículos queda en «Venta en espera». <b>0 = nunca se cierra.</b></p>
+      <div id="msg-inactividad" class="mensaje" role="status" aria-live="polite"></div>
+      <form id="form-inactividad" class="filas" style="align-items:flex-end"><div class="campo"><label for="ina-caja">Caja (minutos)</label><input id="ina-caja" type="number" min="0" max="480" step="1" value="${config.caja_min}"></div><div class="campo"><label for="ina-admin">Administración (minutos)</label><input id="ina-admin" type="number" min="0" max="480" step="1" value="${config.admin_min}"></div>
+        <button class="btn btn-primario" type="submit" id="btn-inactividad" style="width:auto">${ico('check')}<span>Guardar</span></button></form></section>`;
+  $('#form-inactividad').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const m = $('#msg-inactividad');
+    try { await api('/api/admin/config-sesion', { caja_min: Number($('#ina-caja').value), admin_min: Number($('#ina-admin').value) }); m.className = 'mensaje ok'; m.textContent = 'Guardado. Las cajas lo reciben al sincronizar.'; }
+    catch (e) { m.className = 'mensaje error'; m.textContent = e.message; }
+  });
   $('#adm-rol').addEventListener('change', () => { $('#adm-caja-campo').hidden = $('#adm-rol').value !== 'supervisor'; });
   const msgA = (t, tipo = 'error') => { const m = $('#msg-admins'); m.className = `mensaje ${tipo}`; m.textContent = t; };
   $('#form-admin').addEventListener('submit', async (ev) => {
@@ -2445,6 +2456,8 @@ async function vistaTipoCambio() {
 /** Pantalla de inicio de sesión: la caja elige cajero y teclea su clave; Administración teclea usuario y contraseña. */
 function pintarLogin() {
   const admin = S.sesion.rol === 'admin';
+  document.querySelectorAll('dialog[open]').forEach((d) => d.close()); // ningún cuadro queda abierto sobre la pantalla de inicio
+  S.finInactividad = null; avisoInactividad().hidden = true;
   $('#nav').innerHTML = '';
   $('#tc-barra').innerHTML = '';
   $('#encabezado').innerHTML = admin
@@ -2474,16 +2487,46 @@ document.addEventListener('click', async (ev) => {
 async function iniciar() {
   Object.assign(S, { conRegalo: false, sesion: null, vista: null, cart: null, carrito: null, sel: null, estado: null, ultimoFolio: null, retiroAvisoHasta: 0, retiroEstado: null, conteoLimbo: null });
   S.sesion = await api('/api/sesion');
+  S.finInactividad = S.sesion.inactividad ? Date.now() + S.sesion.inactividad.restante_seg * 1000 : null;
   if (S.sesion.requiere_login && !S.sesion.autenticado) return pintarLogin();
   await ir(S.sesion.nav[0]);
 }
 window.POS_UI = { iniciar };
+// ── cierre por inactividad: la pantalla avisa que la persona sigue ahí (latido) y muestra el aviso antes de que se cierre la sesión ──
+let actividadPendiente = false;
+for (const ev of ['keydown', 'pointerdown', 'wheel', 'mousemove']) document.addEventListener(ev, () => { actividadPendiente = true; }, { passive: true });
+const avisoInactividad = () => {
+  let a = document.getElementById('aviso-inactividad');
+  if (!a) { a = document.createElement('div'); a.id = 'aviso-inactividad'; a.setAttribute('role', 'alert'); a.hidden = true; document.body.appendChild(a); }
+  return a;
+};
+function pintarAvisoInactividad() {
+  const a = avisoInactividad();
+  const falta = S.finInactividad ? Math.max(0, Math.ceil((S.finInactividad - Date.now()) / 1000)) : null;
+  if (falta === null || falta > 60 || !S.sesion?.autenticado) { a.hidden = true; return; }
+  a.hidden = false;
+  a.innerHTML = `Por inactividad, su sesión se cerrará en <b id="aviso-inact-seg">${falta}</b> s. <button class="btn" type="button" id="btn-seguir">Seguir trabajando</button>`;
+  $('#btn-seguir').addEventListener('click', () => { actividadPendiente = true; latido(); });
+}
+setInterval(() => { if (S.finInactividad) pintarAvisoInactividad(); }, 1000);
+async function latido() {
+  if (!S.sesion?.requiere_login || !S.sesion.autenticado) { avisoInactividad().hidden = true; return; }
+  try {
+    const r = actividadPendiente ? await api('/api/actividad', {}) : await api('/api/sesion?pasivo=1');
+    actividadPendiente = false;
+    S.sesion.autenticado = r.autenticado;
+    S.finInactividad = r.inactividad ? Date.now() + r.inactividad.restante_seg * 1000 : null;
+    pintarAvisoInactividad();
+    if (!r.autenticado) await iniciar(); // la sesión se cerró por inactividad: de vuelta al inicio de sesión
+  } catch { /* sin conexión con el servicio: se reintenta en el siguiente ciclo */ }
+}
+setInterval(latido, 5000);
 setInterval(async () => {
   if (!S.sesion || (S.sesion.requiere_login && !S.sesion.autenticado) || $('#dlg-ticket').open || $('#dlg-tc').open) return;
   pintarEncabezado().catch(() => {});
   // Si hay una tasa nueva mientras se cobra en dólares, se avisa (el cobro conserva la suya).
   if (S.vista === 'venta' && S.usdAbierto && S.cart && S.sesion.rol === 'cajero') {
-    try { S.tasa = await api('/api/venta/tasa', { cart: S.cart }); pintarInfoTasa(); recalcular(); } catch { /* sin cambios */ }
+    try { S.tasa = await api('/api/venta/tasa', { cart: S.cart, pasivo: true }); pintarInfoTasa(); recalcular(); } catch { /* sin cambios */ }
   }
 }, 5000);
 if (!window.__POS_MANUAL__) iniciar();

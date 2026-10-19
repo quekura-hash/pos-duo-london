@@ -610,3 +610,13 @@ Resuelve el pendiente de la sección 36. Un cajero puede vender, cobrar, hacer r
 ## 38. Nombre del rol «Vendedora-Cajera»
 
 El rol que en las secciones anteriores se llama «cajero» se muestra como **Vendedora-Cajera** (singular; plural «Vendedoras-Cajeras») en pantallas, ticket (línea «Vendedora-Cajera: …» de ventas, devoluciones y retiros), encabezados de reportes y Excel, y mensajes. Es solo el **nombre visible**: los registros, las rutas y los códigos internos (`cajero`, `cajero.guardado`, `/api/admin/cajeros`) no cambian, así que no afecta lo ya guardado. Donde este documento diga «cajero» léase Vendedora-Cajera.
+
+## 39. Cierre de sesión por inactividad [P]
+
+- **Qué hace**: si nadie toca la pantalla durante el tiempo configurado, la sesión (de la caja o de Administración) **se cierra** y se vuelve a la pantalla de inicio de sesión. Por omisión **10 minutos en la caja y 15 en Administración**. Solo aplica cuando el inicio de sesión está activo (hay cajeros o supervisores registrados).
+- **Aviso**: **un minuto antes** aparece un aviso «Por inactividad, su sesión se cerrará en N s» con **Seguir trabajando**; cualquier toque, tecla o movimiento del mouse también la renueva.
+- **Venta en curso**: al cerrarse la sesión (por inactividad o con «Cerrar sesión») la venta con artículos **no se pierde ni la hereda la persona siguiente**: pasa a **Venta en espera** con la nota «Sesión de X cerrada por inactividad» (o «…cerrada»), para retomarla. Los cuadros abiertos se cierran. Una venta con un cobro de tarjeta sin conciliar se deja como está.
+- **Cómo cuenta**: lo decide el **servidor**, no el navegador: cada operación de la persona y el «latido» que manda la pantalla cuando detecta actividad renuevan el tiempo; las **lecturas automáticas** (encabezado, tipo de cambio, tasa en cobros con dólares) van marcadas como pasivas y **no** lo renuevan.
+- **Configuración**: Configuración → Usuarios → «Cierre de sesión por inactividad» (solo supervisores): minutos de la caja y de Administración, **0 = nunca** (hasta 480). Se reparte a las cajas como cualquier configuración (necesita sincronizar).
+- **Pruebas**: la página de prueba tiene `window.__POS_AVANZAR__(ms)` para adelantar el reloj sin esperar.
+- **Verificado**: pruebas IN1–IN4 (ambos almacenes: tiempos, lecturas pasivas, latido, venta a espera, configuración, Administración) y de navegador (B20: aviso, «Seguir trabajando», cierre, venta en espera).
