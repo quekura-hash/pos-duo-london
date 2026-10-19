@@ -1004,6 +1004,37 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     assert.equal(await limbo('70000003'), '5', 'lo que no se contó no se toca');
     assert.deepEqual(errores, []);
   });
+
+  it('B15 limpiar la búsqueda: botón y Esc borran texto, resultados y mensaje sin tocar la venta', async (t) => {
+    execFileSync(process.execPath, [join(RAIZ, 'scripts', 'construir-prueba.mjs')], { stdio: 'pipe' });
+    const browser = await chromium.launch({ executablePath: chromiumPath, args: ['--no-sandbox'] });
+    t.after(() => browser.close());
+    const page = await (await browser.newContext({ viewport: { width: 1440, height: 900 }, colorScheme: 'light' })).newPage();
+    const errores: string[] = [];
+    page.on('pageerror', (e) => errores.push(String(e)));
+    page.on('console', (m) => { if (m.type() === 'error') errores.push(m.text()); });
+    await page.goto(`file://${HTML}`);
+    await page.waitForSelector('[data-chip="tienda"]');
+    await page.fill('#scan', '0002026090782'); await page.press('#scan', 'Enter');
+    await page.waitForSelector('#cuerpo tr[data-linea]');
+    // una búsqueda por texto que no sirve
+    await page.fill('#scan', 'jeans'); await page.press('#scan', 'Enter');
+    await page.waitForSelector('#resultados table');
+    await page.click('#btn-limpiar-busqueda');
+    assert.equal(await page.locator('#resultados table').count(), 0);
+    assert.equal(await page.inputValue('#scan'), '');
+    assert.equal((await page.textContent('#mensaje'))!.trim(), '');
+    assert.equal(await page.locator('#cuerpo tr[data-linea]').count(), 1, 'la venta no se toca');
+    // Esc hace lo mismo con texto a medio escribir
+    await page.fill('#scan', 'jeans'); await page.press('#scan', 'Enter');
+    await page.waitForSelector('#resultados table');
+    await page.fill('#scan', 'algo a medias');
+    await page.press('#scan', 'Escape');
+    assert.equal(await page.locator('#resultados table').count(), 0);
+    assert.equal(await page.inputValue('#scan'), '');
+    assert.equal(await page.locator('#cuerpo tr[data-linea]').count(), 1);
+    assert.deepEqual(errores, []);
+  });
 });
 
 const REAL = process.env.POS_INVENTARIO_REAL;

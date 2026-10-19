@@ -175,6 +175,7 @@ async function vistaVenta() {
               <input id="scan" name="scan" inputmode="text" autocomplete="off" spellcheck="false" autofocus placeholder="Escanear código o buscar artículo…">
               <button class="btn btn-icono" type="submit" aria-label="Buscar" title="Buscar" style="border:0;background:none">${ico('search')}</button>
             </form>
+            <button class="btn" id="btn-limpiar-busqueda" type="button" title="Borra el texto y los resultados de la búsqueda (la venta no se toca). Atajo: Esc">${ico('x')}<span>Limpiar búsqueda</span></button>
             ${pronto('btn-nuevo-articulo', 'plus', 'Nuevo artículo', 'btn-acento')}
           </div>
           <div id="mensaje" class="mensaje" role="status" aria-live="polite"></div>
@@ -218,6 +219,10 @@ async function vistaVenta() {
       </aside>
     </div>`;
   $('#escaneo').addEventListener('submit', async (ev) => { ev.preventDefault(); await escanear(); });
+  // Limpia solo la búsqueda (texto, resultados y mensaje); los artículos de la venta no se tocan.
+  const limpiarBusqueda = () => { $('#scan').value = ''; $('#resultados').innerHTML = ''; const m = $('#mensaje'); m.textContent = ''; m.className = 'mensaje'; $('#scan').focus(); };
+  $('#btn-limpiar-busqueda').addEventListener('click', limpiarBusqueda);
+  $('#scan').addEventListener('keydown', (ev) => { if (ev.key === 'Escape') { ev.preventDefault(); limpiarBusqueda(); } });
   $('#btn-regalo').addEventListener('click', () => { S.conRegalo = !S.conRegalo; $('#btn-regalo').setAttribute('aria-pressed', S.conRegalo ? 'true' : 'false'); msg(S.conRegalo ? 'Al cobrar se imprimirá también el ticket de regalo (sin precios).' : 'Sin ticket de regalo.', 'aviso'); });
   $('#btn-descuento').addEventListener('click', abrirDescuento);
   $('#btn-cupon').addEventListener('click', () => abrirCupon());

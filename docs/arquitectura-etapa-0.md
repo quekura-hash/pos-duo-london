@@ -535,6 +535,7 @@ Reportes · Cortes (con el botón «Dólares recibidos») · Inventario · Almac
   2. Los artículos con la **misma descripción y estilo** se agrupan (el grupo se ordena por su año más reciente) y dentro del grupo va primero el de **mayor precio**, que se toma como el más actualizado.
   3. A igual todo, el Item # más alto.
   Antes salían en el orden del catálogo y un artículo nuevo quedaba fuera de los primeros 20. *El criterio «mayor precio = más actualizado» y el año tomado del código son decisiones del propietario; mientras se depura el catálogo.*
+- **Limpiar la búsqueda**: botón «Limpiar búsqueda» junto a «Nuevo artículo» (y la tecla Esc en el campo) borra el texto, los resultados y el mensaje sin tocar los artículos de la venta.
 - **Cantidad**: se muestran 20 y el botón «Mostrar más resultados» pide 40 más (hasta 200). El mensaje indica el total.
 - **Verificado**: pruebas BT1–BT3 y UPC1 (año del código), ambos almacenes.
 
