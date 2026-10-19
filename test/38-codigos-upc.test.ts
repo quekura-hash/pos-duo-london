@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { it } from 'node:test';
-import { claveDeEscaneo, clavesDeCatalogo, digitoVerificadorUpc } from '../src/codigos.ts';
+import { anioDeCodigo, claveDeEscaneo, clavesDeCatalogo, digitoVerificadorUpc } from '../src/codigos.ts';
 import { revisarAlta } from '../src/almacen.ts';
 import { leerInventario } from '../src/inventario.ts';
 import { nuevoMundo, politica, porAlmacen, servicioDe } from './ayudas/comun.ts';
@@ -17,6 +17,7 @@ it('UPC1 dígito verificador y claves: el código corto de la etiqueta se relaci
   assert.equal(claveDeEscaneo('202610212'), '202610212');
   assert.equal(claveDeEscaneo('0002026102126'), '2026102126');
   assert.equal(claveDeEscaneo('17'), null);
+  assert.deepEqual(['0002026090782', '202610212', '0002021010101', '0002024010101', '0021001403065', '7501234567890', '0008201304026', 'ABC2026'].map(anioDeCodigo), [2026, 2026, 2021, 2024, 0, 0, 0, 0]);
   assert.equal(claveDeEscaneo('ABC12345678'), null);
 });
 

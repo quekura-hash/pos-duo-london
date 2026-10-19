@@ -29,6 +29,17 @@ export function clavesDeCatalogo(codigo: string): string[] {
   return claves;
 }
 
+/**
+ * Año de alta que lleva el código (los códigos de los años 2015 a 2029 empiezan con el año o lo contienen: 0002026090782, 202610212).
+ * Si aparecen varios años toma el mayor; 0 si no hay ninguno. Solo códigos numéricos.
+ */
+export function anioDeCodigo(codigo: string): number {
+  if (!soloDigitos(codigo)) return 0;
+  let mejor = 0;
+  for (const m of sinCeros(codigo).matchAll(/(?=(20(?:1[5-9]|2\d)))/g)) mejor = Math.max(mejor, Number(m[1]));
+  return mejor;
+}
+
 /** Clave con la que se busca un código escaneado o tecleado, o null si no se busca por aproximación. */
 export function claveDeEscaneo(codigo: string): string | null {
   if (!soloDigitos(codigo)) return null;

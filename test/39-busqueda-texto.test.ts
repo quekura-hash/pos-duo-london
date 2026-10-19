@@ -34,4 +34,21 @@ porAlmacen('Búsqueda por texto en la venta', (alm) => {
     assert.equal(s.svc.buscarConTotal('pantimedias tipo 7').resultados.some((x) => x.descripcion === 'PANTIMEDIAS TIPO 7'), true);
     assert.equal(s.svc.buscar('pantimedias 9999').length, 0);
   });
+
+  it('BT3 más reciente = año en el código; con la misma descripción y estilo va primero el de mayor precio', (t) => {
+    const ctx = nuevoMundo(alm, politica(), false);
+    t.after(ctx.limpiar);
+    const a = (codigo: string, estilo: string, precio: number, no: string) => ({ codigo, item_no: no, marca: 'TM EXPOSURE', descripcion: 'CAMISA TM EXPOSURE', estilo, lote: '', departamento: 'CABALLERO', precio });
+    const arts = [
+      a('0002021010101', '123L', 30000, '10'), // 2021, $300
+      a('0002026010202', '123L', 29900, '11'), // 2026 pero más barata que la anterior de su grupo
+      a('0002024010101', '123L', 35000, '12'), // 2024, $350
+      a('0002026010101', '123L', 38500, '13'), // 2026, $385: la más actualizada
+      a('0002023010101', '999X', 50000, '14'), // otro estilo, 2023
+      { ...a('7501234567890', 'Z1', 90000, '15'), descripcion: 'CAMISA OTRA' }, // sin año en el código
+    ];
+    ctx.m.sembrar(arts, arts.map(() => ({ DUO: 1 })));
+    const r = servicioDe(ctx, 'DUO', 1, 'Ana').svc.buscar('camisa').map((x) => x.item_no);
+    assert.deepEqual(r, ['13', '12', '10', '11', '14', '15'], 'grupo 123L (2026) por precio; luego el estilo 2023; al final el que no trae año');
+  });
 });

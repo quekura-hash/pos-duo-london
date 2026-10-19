@@ -4,7 +4,7 @@ import { aplicarPermiso, aplicarTarjeta, type PerdidaDocumental, type TarjetaReg
 import type { Repo } from './repo.ts';
 import type { Promocion } from './promociones.ts';
 import type { Supervisor } from './supervisores.ts';
-import { claveDeEscaneo, clavesDeCatalogo } from './codigos.ts';
+import { anioDeCodigo, claveDeEscaneo, clavesDeCatalogo } from './codigos.ts';
 import { LIMBO, type Articulo } from './tipos.ts';
 
 const sinAcentos = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
@@ -205,15 +205,31 @@ export class Indice {
       const a = this.cat.get(id)!;
       if (palabras.every((w, i) => t.includes(w) || precios[i] === a.precio)) hallados.push(a);
     }
-    // Primero los que EMPIEZAN con lo escrito (en la descripción), luego los que tienen una palabra que empieza así, y al final el resto;
-    // a igual relevancia, el Item # más alto (el más reciente) primero.
-    const rel = (a: Articulo) => {
-      const d = sinAcentos(a.descripcion);
-      if (d.startsWith(palabras[0] ?? '')) return 0;
-      return palabras.every((w) => d.split(/[^a-z0-9]+/).some((x) => x.startsWith(w))) ? 1 : 2;
-    };
+    // Relevancia: 1) los que EMPIEZAN con lo escrito (en la descripción), luego los que tienen una palabra que empieza así y al final el resto;
+    // 2) el año de alta que lleva el código (2026 antes que 2025…): lo más reciente; 3) los artículos con la misma descripción y estilo se agrupan y
+    // dentro del grupo va primero el de MAYOR precio (el más actualizado); 4) el Item # más alto.
+    const norm = (x: string) => sinAcentos(x).replace(/[^a-z0-9]+/g, ' ').trim();
     const no = (a: Articulo) => (a.item_no !== null && /^\d+$/.test(a.item_no) ? Number(a.item_no) : -1);
-    hallados.sort((x, y) => rel(x) - rel(y) || no(y) - no(x));
+    const filas = hallados.map((a) => {
+      const d = sinAcentos(a.descripcion);
+      const rel = d.startsWith(palabras[0] ?? '') ? 0 : palabras.every((w) => d.split(/[^a-z0-9]+/).some((x) => x.startsWith(w))) ? 1 : 2;
+      return { a, rel, anio: anioDeCodigo(a.codigo), no: no(a), grupo: `${norm(a.descripcion)}|${norm(a.estilo)}` };
+    });
+    const mejorDelGrupo = new Map<string, { anio: number; no: number }>();
+    for (const f of filas) {
+      const g = mejorDelGrupo.get(f.grupo);
+      if (!g) mejorDelGrupo.set(f.grupo, { anio: f.anio, no: f.no });
+      else { g.anio = Math.max(g.anio, f.anio); g.no = Math.max(g.no, f.no); }
+    }
+    filas.sort((x, y) => {
+      if (x.rel !== y.rel) return x.rel - y.rel;
+      if (x.grupo !== y.grupo) {
+        const gx = mejorDelGrupo.get(x.grupo)!, gy = mejorDelGrupo.get(y.grupo)!;
+        return gy.anio - gx.anio || gy.no - gx.no || (x.grupo < y.grupo ? -1 : 1);
+      }
+      return y.a.precio - x.a.precio || y.anio - x.anio || y.no - x.no;
+    });
+    hallados.splice(0, hallados.length, ...filas.map((f) => f.a));
     lista.push(...hallados.slice(0, Math.max(0, limite - lista.length)));
     return { resultados: lista.slice(0, limite), total: exactos.length + hallados.length };
   }

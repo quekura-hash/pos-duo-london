@@ -530,6 +530,10 @@ Reportes · Cortes (con el botón «Dólares recibidos») · Inventario · Almac
 ## 31. Búsqueda por texto en la venta [P]
 
 - **Palabras**: cada palabra escrita debe aparecer (en cualquier orden) en marca, descripción, estilo, lote o departamento. Un número también coincide con el **precio en pesos** («pantimedias 189», «189.00»).
-- **Orden**: primero código, Item # o código alterno exactos; luego los artículos cuya descripción **empieza** con lo escrito, después los que tienen una palabra que empieza así y al final el resto; a igual relevancia, el **Item # más alto (el más reciente) primero**. Antes salían en el orden del catálogo y un artículo nuevo quedaba fuera de los primeros 20.
+- **Orden**: primero código, Item # o código alterno exactos; luego los artículos cuya descripción **empieza** con lo escrito, después los que tienen una palabra que empieza así y al final el resto. Dentro de cada nivel:
+  1. **Año de alta que lleva el código** (los códigos de 2015 a 2029 empiezan con el año o lo contienen: `0002026090782`, `202610212`): 2026 antes que 2025, etc.; los códigos sin año van al final.
+  2. Los artículos con la **misma descripción y estilo** se agrupan (el grupo se ordena por su año más reciente) y dentro del grupo va primero el de **mayor precio**, que se toma como el más actualizado.
+  3. A igual todo, el Item # más alto.
+  Antes salían en el orden del catálogo y un artículo nuevo quedaba fuera de los primeros 20. *El criterio «mayor precio = más actualizado» y el año tomado del código son decisiones del propietario; mientras se depura el catálogo.*
 - **Cantidad**: se muestran 20 y el botón «Mostrar más resultados» pide 40 más (hasta 200). El mensaje indica el total.
-- **Verificado**: pruebas BT1–BT2 (ambos almacenes).
+- **Verificado**: pruebas BT1–BT3 y UPC1 (año del código), ambos almacenes.
