@@ -69,7 +69,7 @@ porAlmacen('API HTTP local de la aplicación (cajero y Administración)', (alm) 
     assert.deepEqual(varias.porCaja.map((c: any) => [c.tienda, c.caja, c.tickets]).sort(), [['DUO', 1, 3], ['LON', 2, 1]]);
     assert.equal((await api(adm.url, '/api/venta/actual', {})).status, 403, 'Administración no opera la caja');
     assert.equal((await api(adm.url, '/api/estado')).status, 403);
-    assert.deepEqual((await api(adm.url, '/api/sesion')).json.nav, ['reportes', 'cortes', 'inventario', 'almacen', 'promociones', 'tarjetas', 'configuracion']);
+    assert.deepEqual((await api(adm.url, '/api/sesion')).json.nav, ['inventario', 'almacen', 'promociones', 'tarjetas', 'reportes', 'cortes', 'configuracion']);
   });
 
   it('H4 impresora que falla: HTTP 200, la venta existe, y /reimprimir la reenvía con el mismo folio', async (t) => {

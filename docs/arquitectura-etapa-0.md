@@ -692,3 +692,7 @@ Botón **«Abrir caja»** en la fila inferior de la pantalla de venta: manda el 
 - **Lector**: el lector 2D USB HID del negocio (omnidireccional, lee QR en pantalla) basta; no se probó todavía con el lector real.
 - **Fuera de esta etapa**: puntos por clienta (requiere registrar clientas).
 - **Verificado**: pruebas RE1–RE4 (ambos almacenes: validación, mínimo pagado, QR en ESC/POS, canje entre cajas, un solo uso, otra tienda, vigencia, cancelación) y de navegador B28.
+
+## 50. Orden del menú de Administración
+
+El menú de Administración (supervisor) queda en este orden: **Inventario · Almacén · Promociones · Tarjetas de regalo · Reportes · Cortes · Configuración**, y **al entrar se abre Inventario**. El almacenista conserva solo Inventario y Almacén (también abre en Inventario). En la página de prueba se añade «Caja» al final para volver a la sesión de caja.

@@ -97,8 +97,10 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     // Administración: ve las ventas de las cajas con sus folios originales
     await page.uncheck('#falla-hub');
     await page.selectOption('#sesion-prueba', 'admin');
+    await page.waitForSelector('#tabla-inv-resumen'); // Administración abre en Inventario
+    assert.deepEqual(await page.$$eval('#nav button', (b) => b.map((x) => x.textContent)), ['Inventario', 'Almacén', 'Promociones', 'Tarjetas de regalo', 'Reportes', 'Cortes', 'Configuración', 'Caja']);
+    await page.click('#nav button[data-vista="reportes"]');
     await page.waitForSelector('#filtros');
-    assert.deepEqual(await page.$$eval('#nav button', (b) => b.map((x) => x.textContent)), ['Reportes', 'Cortes', 'Inventario', 'Almacén', 'Promociones', 'Tarjetas de regalo', 'Configuración', 'Caja']);
     await page.click('#filtros button[type="submit"]');
     await page.waitForSelector('#tabla-reporte tbody tr');
     assert.equal(await page.locator('#tabla-reporte tbody tr').count(), 3, 'las 3 ventas, tras sincronizar');
