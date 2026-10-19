@@ -129,9 +129,9 @@ async function pintarEncabezado() {
     <span data-chip="pendientes">Pendientes de sincronizar: <b>${c.pendientes}</b></span>
     <span data-chip="sync">Última sincronización: <b>${c.ultima_sync ? hora(c.ultima_sync) : 'Sin sincronizar'}</b></span>`;
   const f = $('#folio-linea b');
-  if (f) f.textContent = folioTexto();
+  if (f) { f.textContent = folioTexto(); f.parentElement.hidden = !S.ultimoFolio; }
 }
-const folioTexto = () => (S.ultimoFolio ? `Folio ${String(S.ultimoFolio).padStart(6, '0')}` : 'Venta en curso · folio al cobrar');
+const folioTexto = () => (S.ultimoFolio ? `Folio ${String(S.ultimoFolio).padStart(6, '0')}` : '');
 
 // ── navegación ──
 const NAV = {
@@ -169,8 +169,8 @@ async function vistaVenta() {
   const metodos = S.estado?.metodos ?? ['efectivo'];
   S.forma = 'efectivo'; S.tarjeta = null; S.usdAbierto = false; S.tasa = null;
   $('#vista').innerHTML = `
-    <h1>Nueva venta</h1>
-    <div class="folio-linea" id="folio-linea" data-chip="folio"><b>${esc(folioTexto())}</b></div>
+    <h1 class="sr-only">Venta</h1>
+    <div class="folio-linea" id="folio-linea" data-chip="folio" ${S.ultimoFolio ? '' : 'hidden'}><b>${esc(folioTexto())}</b></div>
     <div class="venta">
       <div>
         <section class="panel" aria-label="Artículos de la venta">
@@ -288,7 +288,6 @@ function htmlEfectivo(etiquetaPesos) {
       <div id="msg-usd" class="mensaje error" role="alert"></div>
       <div class="saldo-tarjeta" id="info-tasa" role="status" aria-live="polite"></div>
       <div id="aviso-sin-verificar" class="mensaje aviso" role="status" hidden></div>
-      <button class="btn" id="btn-rechazar-billete" type="button" style="width:100%;margin-bottom:8px;font-size:13px">${ico('x')}<span>Rechazar un billete (dañado o sospechoso)</span></button>
       <button class="btn" id="btn-tasa-nueva" type="button" hidden style="width:100%;margin-bottom:8px">${ico('refresh')}<span>Usar la tasa vigente</span></button>
       <div id="aviso-cambio" class="mensaje aviso" role="status" hidden></div>
       <dl class="calc-usd"><dt>Equivalente de los USD</dt><dd id="usd-equivalente">$0.00</dd><dt>Total recibido equivalente</dt><dd id="total-recibido">$0.00</dd></dl>
@@ -300,7 +299,6 @@ function engancharEfectivo() {
   $('#usd').addEventListener('input', recalcular);
   $('#btn-usd').addEventListener('click', () => (S.usdAbierto ? cerrarUsd() : abrirUsd()));
   $('#btn-tasa-nueva').addEventListener('click', () => abrirUsd(true));
-  $('#btn-rechazar-billete').addEventListener('click', abrirRechazoBillete);
 }
 async function abrirUsd(renovar = false) {
   try {
@@ -328,7 +326,8 @@ function pintarInfoTasa() {
   const sv = S.estado?.tipo_cambio?.sin_verificar;
   const av = $('#aviso-sin-verificar');
   if (av) { av.hidden = !sv || sv.nivel === 'ok'; if (sv && sv.nivel !== 'ok') av.textContent = `La tasa lleva ${sv.horas} h sin verificarse contra el central${sv.bloquear_usd_horas ? ` (a las ${sv.bloquear_usd_horas} h ya no se reciben dólares)` : ''}. Los cobros en pesos no se afectan.`; }
-  $('#info-tasa').innerHTML = `Tasa de este cobro: <b id="tasa-aplicada">$${esc(t.bloqueada.texto)} MXN por USD</b> (v${t.bloqueada.version})${t.hay_nueva ? `<br><span id="aviso-tasa-nueva" style="color:var(--aviso)">La tasa vigente cambió a $${esc(t.vigente.texto)} (v${t.vigente.version}). Este cobro conserva la que tenía.</span>` : ''}`;
+  $('#info-tasa').hidden = !t.hay_nueva;
+  $('#info-tasa').innerHTML = `${t.hay_nueva ? `<span id="aviso-tasa-nueva" style="color:var(--aviso)">La tasa vigente cambió a $${esc(t.vigente.texto)} (v${t.vigente.version}). Este cobro conserva la que tenía.</span>` : ''}`;
   $('#btn-tasa-nueva').hidden = !t.hay_nueva;
 }
 function pintarPago() {
@@ -1188,30 +1187,6 @@ function abrirEditarTc() {
 }
 
 // ── procedimiento operativo: rechazar un billete dañado o sospechoso ──
-function abrirRechazoBillete() {
-  const dlg = $('#dlg-tc');
-  dlg.innerHTML = `<h2 id="tc-titulo" style="margin:0 0 4px">Rechazar un billete</h2>
-    <p class="nota" style="margin:0 0 8px"><b>Procedimiento:</b> devuelva el billete al cliente, pídale otro y capture solo lo que acepta. Aquí queda constancia (sin mover dinero). El sistema <b>no detecta falsificaciones</b>: la revisión es del cajero.</p>
-    <form id="form-rechazo" autocomplete="off">
-      <div class="campo"><label for="rb-denom">Billete</label><select id="rb-denom" style="width:100%;padding:8px;border:1px solid var(--borde);border-radius:8px;background:var(--superficie)">${[100, 50, 20, 10, 5, 2, 1].map((d) => `<option value="${d}">US$${d}</option>`).join('')}</select></div>
-      <div class="campo"><label for="rb-cantidad">Cantidad</label><input id="rb-cantidad" type="number" min="1" step="1" value="1"></div>
-      <div class="campo"><label for="rb-motivo">Motivo</label><select id="rb-motivo" style="width:100%;padding:8px;border:1px solid var(--borde);border-radius:8px;background:var(--superficie)"><option value="danado">Dañado</option><option value="sospechoso">Sospechoso</option></select></div>
-      <div class="campo"><label for="rb-nota">Nota (opcional)</label><input id="rb-nota" class="texto"></div>
-      <div id="rb-msg" class="mensaje" role="status" aria-live="polite"></div>
-      <div class="filas"><button class="btn" id="rb-cancelar" type="button">${ico('x')}<span>Cancelar</span></button><button class="btn btn-primario" id="rb-guardar" type="submit" style="width:auto;flex:2">${ico('check')}<span>Registrar rechazo</span></button></div>
-    </form>`;
-  dlg.showModal();
-  $('#rb-cancelar').addEventListener('click', () => dlg.close());
-  $('#form-rechazo').addEventListener('submit', async (ev) => {
-    ev.preventDefault();
-    const m = $('#rb-msg');
-    try {
-      await api('/api/efectivo/billete-rechazado', { denominacion: Number($('#rb-denom').value), cantidad: Number($('#rb-cantidad').value), motivo: $('#rb-motivo').value, nota: $('#rb-nota').value });
-      dlg.close();
-      msg('Rechazo registrado. Devuelva el billete al cliente y capture solo los billetes aceptados.', 'aviso');
-    } catch (e) { m.className = 'mensaje error'; m.textContent = e.message; }
-  });
-}
 
 // ── Administración: cortes consolidados con pesos y dólares en columnas separadas ──
 async function vistaCortes() {

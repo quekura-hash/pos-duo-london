@@ -628,3 +628,7 @@ El rol que en las secciones anteriores se llama «cajero» se muestra como **Ven
 - **«Editar catálogo» se quitó** de la pantalla de venta: el catálogo se edita en Inventario/Administración.
 - **Cancelar venta**: botón en la fila inferior de la venta en curso. Pregunta «¿Cancelar la venta?» y **no pide clave ni nada más**; si se confirma se descarta la venta (sin cobro, sin folio) y se abre una venta nueva vacía. Queda el registro de auditoría de lo que tenía. Una venta **ya cobrada** no se cancela así: sigue pidiendo la clave de otra persona (sección 37).
 - **Verificado**: pruebas ED1–ED2, CV1 (ambos almacenes) y de navegador B21.
+
+## 41. Pantalla de venta más limpia
+
+Se quitaron de la pantalla de venta el título «Nueva venta», el texto «Venta en curso · folio al cobrar» (la línea de folio solo aparece tras cobrar), el renglón «Tasa de este cobro: … (vN)» y el botón «Rechazar un billete» del resumen. Del cobro en dólares sigue visible el aviso **solo cuando la tasa vigente cambió** a mitad del cobro. El registro de billetes rechazados sigue existiendo en el servicio (`/api/efectivo/billete-rechazado`) y en el corte, pero ya no tiene botón en la venta.

@@ -105,8 +105,8 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     await page.selectOption('#sesion-prueba', 'DUO/1');
     await page.waitForSelector('#scan');
     await page.click('#reiniciar');
-    await page.waitForSelector('[data-chip="folio"]');
-    assert.match((await page.textContent('[data-chip="folio"] b'))!, /folio al cobrar/);
+    await page.waitForSelector('[data-chip="folio"]', { state: 'attached' });
+    assert.equal(await page.locator('[data-chip="folio"]').isHidden(), true);
     assert.deepEqual(errores, [], 'sin errores en la consola');
   });
 

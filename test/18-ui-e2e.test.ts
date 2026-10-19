@@ -41,7 +41,8 @@ describe('[navegador real — Chromium con Playwright, UI sobre SQLite]', { time
     assert.equal(await chip('caja'), '1');
     assert.equal(await chip('usuario'), 'Ana');
     assert.equal(await chip('fecha'), '01 oct 2026 · 08:00');
-    assert.match(await chip('folio'), /folio al cobrar/);
+    assert.equal(await page.locator('[data-chip="folio"]').isHidden(), true, 'sin venta cobrada no hay línea de folio');
+    assert.doesNotMatch((await page.textContent('#vista'))!, /Nueva venta|folio al cobrar/);
     assert.equal(await chip('hub'), 'Conectado');
     assert.equal(await chip('pendientes'), '0');
     // navegación según permisos: un cajero NO ve Administración ni Reportes
@@ -551,7 +552,8 @@ describe('[navegador real — Chromium con Playwright, UI sobre SQLite]', { time
     assert.equal(await page.textContent('#total'), '$1,349.00');
     await page.click('#btn-usd');
     await page.waitForSelector('#bloque-usd:not([hidden])');
-    assert.match((await page.textContent('#info-tasa'))!, /\$18\.00 MXN por USD.*\(v1\)/);
+    assert.equal(await page.locator('#info-tasa').isHidden(), true, 'ya no se muestra «Tasa de este cobro»');
+    assert.equal(await page.locator('#btn-rechazar-billete').count(), 0);
     await page.fill('#usd', '50');
     await page.fill('#recibido', '400');
     assert.deepEqual([await page.textContent('#usd-equivalente'), await page.textContent('#total-recibido'), await page.textContent('#lbl-cambio'), await page.textContent('#cambio')], ['$900.00', '$1,300.00', 'Faltan', '$49.00']);
@@ -586,7 +588,6 @@ describe('[navegador real — Chromium con Playwright, UI sobre SQLite]', { time
     await page.waitForSelector('#cuerpo tr[data-linea]');
     await page.click('#btn-usd');
     await page.waitForSelector('#bloque-usd:not([hidden])');
-    assert.match((await page.textContent('#info-tasa'))!, /\$19\.00 MXN por USD.*\(v2\)/);
     await page.fill('#usd', '100');
     assert.equal(await page.textContent('#cambio'), '$1,780.00');
     await page.click('#btn-cobrar');
@@ -729,14 +730,8 @@ describe('[navegador real — Chromium con Playwright, UI sobre SQLite]', { time
     await page.fill('#usd', '100.50');
     await page.waitForFunction(() => /Solo se aceptan billetes/.test(document.querySelector('#msg-usd')!.textContent!));
     assert.equal(await page.locator('#btn-cobrar').isDisabled(), true);
-    // procedimiento operativo: rechazar un billete dañado o sospechoso
-    await page.click('#btn-rechazar-billete');
-    await page.waitForSelector('#form-rechazo');
-    await page.selectOption('#rb-denom', '100');
-    await page.selectOption('#rb-motivo', 'sospechoso');
-    await page.fill('#rb-nota', 'sin marca de agua');
-    await page.click('#rb-guardar');
-    await page.waitForFunction(() => /Rechazo registrado/.test(document.querySelector('#mensaje')!.textContent!));
+    // el rechazo de un billete sigue registrándose en el servicio (ya no hay botón en la venta)
+    assert.equal((await page.evaluate(async () => (await fetch('/api/efectivo/billete-rechazado', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ denominacion: 100, cantidad: 1, motivo: 'sospechoso', nota: 'sin marca de agua' }) })).status)), 200);
     // US$100 por $120: cambio $1,680, más de lo que se sabe que hay en la caja ($100) → advertencia, sin bloquear
     await page.fill('#usd', '100');
     assert.equal(await page.textContent('#cambio'), '$1,680.00');
