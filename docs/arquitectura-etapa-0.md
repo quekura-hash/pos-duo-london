@@ -519,3 +519,10 @@ Reportes · Cortes (con el botón «Dólares recibidos») · Inventario · Almac
 - **Impresión**: se imprimen los datos del retiro (tienda y caja, folio, fecha, cajero, desglose por billete, tipo de cambio, total en pesos, efectivo de venta antes/después y renglones de firma de quien retira y quien recibe). Una falla de la impresora no deshace el retiro; «Reimprimir» desde «Retiros de hoy». **Impresión no validada con una impresora real.**
 - **Alcance**: lo registrado en el día; el efectivo de venta de días anteriores sin retirar no se suma al aviso.
 - **Verificado**: pruebas del motor (RT1–RT4, ambos almacenes) y de navegador (B13: aviso sin bloquear, mínimo, retiro, ticket e historial).
+
+## 30. Código corto de la etiqueta y UPC completo [P]
+
+- **Qué pasaba**: el sistema anterior (QuickBooks) completaba los códigos cortos hasta un UPC válido (ceros a la izquierda y dígito verificador), pero las etiquetas nuevas traen el código corto (por ejemplo `202610212`). En el catálogo importado el mismo artículo está como `0002026102126`, así que el escaneo exacto no lo encontraba.
+- **Regla**: el código exacto siempre manda. Si no hay coincidencia exacta ni por código alterno, se busca por aproximación: el código escaneado sin ceros a la izquierda contra el código del catálogo sin ceros y, si el código del catálogo es un UPC-A (12 dígitos, o 13 con un cero) con **dígito verificador válido**, contra su base sin ese dígito. Solo para códigos numéricos de **8 dígitos o más** (así «17» no encuentra nada por aproximación). Si hay varios candidatos se pregunta cuál (mismo flujo de código ambiguo).
+- **Dónde aplica**: escaneo en la venta, buscador de la venta y Alta Lote (una fila con el código corto de un artículo ya existente con UPC completo se suma a ese artículo en lugar de crear otro). El código guardado en el catálogo no se modifica.
+- **Verificado**: pruebas UPC1–UPC4 (ambos almacenes). Los dígitos verificadores de los códigos de prueba y del archivo real que se revisaron coinciden con esta fórmula.

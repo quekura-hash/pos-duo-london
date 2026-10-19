@@ -4,6 +4,7 @@ import { aplicarPermiso, aplicarTarjeta, type PerdidaDocumental, type TarjetaReg
 import type { Repo } from './repo.ts';
 import type { Promocion } from './promociones.ts';
 import type { Supervisor } from './supervisores.ts';
+import { claveDeEscaneo, clavesDeCatalogo } from './codigos.ts';
 import { LIMBO, type Articulo } from './tipos.ts';
 
 const sinAcentos = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
@@ -21,6 +22,8 @@ export class Indice {
   cat = new Map<string, Articulo>();
   porCodigo = new Map<string, Articulo[]>();
   porAlterno = new Map<string, Articulo[]>();
+  /** Código sin ceros a la izquierda y base de un UPC (sin dígito verificador): encuentra el código corto de la etiqueta. */
+  porClave = new Map<string, Articulo[]>();
   porItemNo = new Map<string, Articulo[]>();
   private texto = new Map<string, string>();
   private mover(tienda: string, itemId: string, delta: number) {
@@ -48,7 +51,7 @@ export class Indice {
 
   private reiniciar() {
     this.seq = 0;
-    this.cat = new Map(); this.porCodigo = new Map(); this.porAlterno = new Map(); this.porItemNo = new Map(); this.texto = new Map();
+    this.cat = new Map(); this.porCodigo = new Map(); this.porAlterno = new Map(); this.porClave = new Map(); this.porItemNo = new Map(); this.texto = new Map();
     this.stock = new Map(); this.enLimbo = new Set(); this.faltantesTienda = new Map(); this.marcas = new Map(); this.cubiertas = new Map(); this.perdidas = new Map(); this.tarjetas = new Map(); this.tipos = new Map(); this.permisos = new Map(); this.deptos = copiarBase(); this.promos = new Map(); this.supervisoresMap = new Map(); this.datosTienda = new Map();
   }
 
@@ -97,6 +100,7 @@ export class Indice {
         this.cat.set(a.item_id, a);
         this.poner(this.porCodigo, a.codigo, a);
         this.poner(this.porAlterno, a.codigo_alterno, a);
+        for (const k of clavesDeCatalogo(a.codigo)) this.poner(this.porClave, k, a);
         this.poner(this.porItemNo, a.item_no, a);
         this.texto.set(a.item_id, this.textoDe(a));
         break;
@@ -116,7 +120,10 @@ export class Indice {
       }
       case 'item.codigo_corregido': {
         const a = this.cat.get(p.item_id);
-        if (a) { this.quitar(this.porCodigo, a.codigo, a); a.codigo = p.codigo_nuevo; this.poner(this.porCodigo, a.codigo, a); }
+        if (a) {
+          this.quitar(this.porCodigo, a.codigo, a); for (const k of clavesDeCatalogo(a.codigo)) this.quitar(this.porClave, k, a);
+          a.codigo = p.codigo_nuevo; this.poner(this.porCodigo, a.codigo, a); for (const k of clavesDeCatalogo(a.codigo)) this.poner(this.porClave, k, a);
+        }
         break;
       }
       case 'inv.movement': {
@@ -172,6 +179,12 @@ export class Indice {
     this.actualizar();
     return codigo ? (this.porCodigo.get(codigo) ?? []) : [];
   }
+  /** Código escaneado que no es exacto: lo relaciona con el UPC completo (ceros a la izquierda y dígito verificador) o con su forma corta. */
+  buscarCodigoAproximado(codigo: string): Articulo[] {
+    this.actualizar();
+    const k = claveDeEscaneo(codigo);
+    return k ? (this.porClave.get(k) ?? []) : [];
+  }
   buscarAlterno(codigo: string): Articulo[] {
     this.actualizar();
     return codigo ? (this.porAlterno.get(codigo) ?? []) : [];
@@ -179,7 +192,8 @@ export class Indice {
   /** Código exacto, Item # exacto, código alterno exacto, o texto contenido (sin acentos ni mayúsculas). */
   buscar(q: string, limite: number): { resultados: Articulo[]; total: number } {
     this.actualizar();
-    const exactos = [...(this.porCodigo.get(q) ?? []), ...(this.porItemNo.get(q) ?? []), ...(this.porAlterno.get(q) ?? [])];
+    const aprox = claveDeEscaneo(q);
+    const exactos = [...(this.porCodigo.get(q) ?? []), ...(this.porItemNo.get(q) ?? []), ...(this.porAlterno.get(q) ?? []), ...(aprox ? (this.porClave.get(aprox) ?? []) : [])];
     const vistos = new Set(exactos.map((a) => a.item_id));
     const nq = sinAcentos(q);
     const lista: Articulo[] = [...new Set(exactos)];

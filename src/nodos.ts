@@ -968,6 +968,7 @@ export class Caja {
     this.exigirAbierto(c);
     let r = this.buscarPorCodigo(cod);
     if (r.length === 0) r = this.idx.buscarAlterno(cod); // "Alternate Lookup": segundo código de búsqueda (no es la identidad)
+    if (r.length === 0) r = this.idx.buscarCodigoAproximado(cod); // la etiqueta trae el código corto y el catálogo el UPC completo (o al revés)
     if (r.length === 0) return { resultado: 'no_encontrado', codigo: cod };
     if (r.length > 1) return { resultado: 'ambiguo', codigo: cod, candidatos: r.map((a) => ({ item_id: a.item_id, item_no: a.item_no, marca: a.marca, descripcion: a.descripcion, estilo: a.estilo, lote: a.lote })) };
     return this.sumarArticulo(cartId, r[0]!);

@@ -1,6 +1,7 @@
 // Almacén: entradas de lotes, existencia del almacén, entregas a tiendas y recepción confirmada por la tienda.
 // Todo es una proyección de operaciones inmutables (`alm.entrada`, `alm.entrega`, `alm.recibida`); nada se edita.
 // Módulo puro: la lectura del archivo vive en inventario.ts / xlsx.ts.
+import { claveDeEscaneo, clavesDeCatalogo } from './codigos.ts';
 import { aplicarDepartamentos, normalizarDepto, type Departamento } from './departamentos.ts';
 import type { ResultadoInventario } from './inventario.ts';
 import type { Articulo, Op } from './tipos.ts';
@@ -132,8 +133,10 @@ export function revisarAlta(
   const aplicados = aplicarDepartamentos(lectura.articulos, deptos, { decisiones: o.decisiones, reglaEnvolturas: o.reglaEnvolturas });
   const porCodigo = new Map<string, Articulo>();
   const porEstilo = new Map<string, Articulo[]>();
+  const porClave = new Map<string, Articulo>();
   for (const a of catalogo) {
     if (a.codigo) porCodigo.set(a.codigo, a);
+    for (const k of clavesDeCatalogo(a.codigo)) if (!porClave.has(k)) porClave.set(k, a);
     const ke = a.estilo ? `${k(a.estilo)}|${k(a.marca)}` : '';
     if (ke) { const l = porEstilo.get(ke); if (l) l.push(a); else porEstilo.set(ke, [a]); }
   }
@@ -148,7 +151,8 @@ export function revisarAlta(
     if (!a.codigo) { avisos.push('sin código: no se puede dar de alta (el almacén etiqueta con un código nuevo por lote)'); invalido = true; }
     if (!(a.precio > 0)) { avisos.push('el precio debe ser mayor que 0'); invalido = true; }
     if ((vistos.get(a.codigo) ?? 0) > 1) { avisos.push('el código se repite en el archivo'); invalido = true; }
-    const existente = a.codigo ? porCodigo.get(a.codigo) : undefined;
+    const clave = a.codigo ? claveDeEscaneo(a.codigo) : null;
+    const existente = a.codigo ? (porCodigo.get(a.codigo) ?? (clave ? porClave.get(clave) : undefined)) : undefined; // el UPC completo del sistema anterior y el código corto de la etiqueta son el mismo artículo
     if (existente) {
       avisos.push('el código ya existe en el inventario: las piezas se suman a ese artículo');
       if (existente.precio !== a.precio) avisos.push(`el precio del archivo ($${(a.precio / 100).toFixed(2)}) difiere del inventario ($${(existente.precio / 100).toFixed(2)}); se conserva el del inventario`);
