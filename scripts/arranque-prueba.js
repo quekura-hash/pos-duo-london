@@ -4,6 +4,7 @@
   var pesos = function (c) { return '$' + (c / 100).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ','); };
   var ctl = PosBanco.iniciarBanco({ alCambiar: function () { aplicar(); pintarAyuda(); window.POS_UI.iniciar(); } });
   window.__POS_AVANZAR__ = function (ms) { ctl.avanzarReloj(ms); };
+  window.__POS_TICKET_ESCANEADO__ = function (folio) { ctl.ticketEscaneado(folio); };
   window.__POS_ATENDER__ = function (m, r, c) { return ctl.atender(m, r, c).then(function (x) { $('#falla-imp').checked = ctl.fallaImpresoraActiva(); return x; }); };
 
   // ── almacenamiento del archivo en ESTE navegador (IndexedDB); nunca se envía a un servidor ──

@@ -469,6 +469,34 @@ export class ServicioCaja {
       })),
     };
   }
+  // ── P-06: folios ──
+  /** Estado de la serie de folios de esta caja y lo necesario para decidir cómo continuar si está bloqueada. */
+  estadoFolios() {
+    const st = this.caja.estadoFolios();
+    const an = this.caja.anclasDeFolios();
+    const visto = this.caja.folioMaximoVisto();
+    const conocido = Math.max(st.ultimo, an?.hwm ?? 0, an?.ceiling ?? 0, visto);
+    return {
+      estado: st.estado, motivo: st.motivo, ultimo: st.ultimo, techo: st.techo,
+      hub: { disponible: an !== null, hwm: an?.hwm ?? null, techo: an?.ceiling ?? null },
+      visto_en_ticket: visto || null, conocido, sugerido: conocido + 1,
+      huecos: this.caja.huecosDeFolio(),
+      recuperacion_automatica: this.caja.arrendamientoFolios() && an?.ceiling != null,
+      pide_clave: this.caja.controlesConClave(),
+      supervisores: this.caja.idx.supervisores().filter((x) => x.activo).map((x) => x.nombre),
+    };
+  }
+  recuperarFolios() {
+    const resultado = this.caja.recuperarFolios();
+    return { resultado, folios: this.estadoFolios() };
+  }
+  /** Continuar la serie tras una pérdida: un supervisor confirma el folio siguiente y deja la evidencia en la que se apoya. */
+  confirmarFolio(d: { siguiente: number; evidencia: { tipo: string; referencia: string }; sin_anclas?: boolean; autoriza?: { nombre: string; clave: string } }) {
+    const autorizo = this.caja.verificarSupervisor(d.autoriza);
+    this.caja.atestarSiguienteFolio({ siguiente: d.siguiente, usuario: this.actor.usuario, evidencia: d.evidencia, sinAnclasConfirmado: !!d.sin_anclas, autorizo });
+    return { folios: this.estadoFolios() };
+  }
+
   /** «Vendió por»: las personas que pueden figurar como vendedoras (más «Clientas» = nadie ayudó). */
   vendedoras() {
     return { vendedoras: this.caja.vendedoras(), pide: this.caja.vendedoras().length > 0 };

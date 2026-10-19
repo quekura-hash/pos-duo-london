@@ -751,6 +751,25 @@ export class Caja {
   private arrendamientoActivo() {
     return this.ctx.politicas.P06_huecos_de_folio === 'aceptados';
   }
+  /** P-06 aceptada: con hub se puede recuperar solo; si no, solo por atestación manual. */
+  arrendamientoFolios(): boolean { return this.arrendamientoActivo(); }
+  /** Lo que el hub o el central saben de esta serie (mayor folio recibido y techo concedido); null si no hay acceso. */
+  anclasDeFolios(): { hwm: number; ceiling: number | null } | null { return this.enlace.anclasFolios(); }
+  /** Rangos de folios que quedaron sin comprobar tras una recuperación (documentados, nunca reutilizados). */
+  huecosDeFolio(): { desde: number; hasta: number; motivo: string; ocurrio_en: string }[] {
+    return this.opsDe('folio.gap').filter((o) => o.payload.tienda === this.tienda && o.payload.caja === this.caja).map((o) => ({ desde: o.payload.desde, hasta: o.payload.hasta, motivo: o.payload.motivo, ocurrio_en: o.ocurrio_en }));
+  }
+  /** Mayor folio de esta serie visto en un ticket escaneado que superaba el contador (prueba de que se emitieron folios que la caja no tiene). */
+  folioMaximoVisto(): number {
+    return this.opsDe('incidencia.ticket_fuera_de_rango').filter((o) => o.payload.tienda === this.tienda && o.payload.caja === this.caja).reduce((m, o) => Math.max(m, o.payload.folio), 0);
+  }
+  /** La confirmación de un folio la da un supervisor con su clave (sin controles con clave, la caja trabaja abierta). */
+  verificarSupervisor(autoriza: { nombre: string; clave: string } | undefined): string | null {
+    const nombre = this.verificarAutorizador('', autoriza, true);
+    if (nombre === null) return null;
+    if (!this.idx.supervisores().some((x) => x.activo && nombreClave(x.nombre) === nombreClave(nombre))) throw new ErrorDominio('AUTORIZADOR_INVALIDO', 'la continuación de folios la confirma un supervisor con su clave');
+    return nombre;
+  }
   private bloquearFolios(motivo: string) {
     this.repo.kvSet('folio:estado', 'recuperacion');
     this.repo.kvSet('folio:motivo', motivo);
@@ -811,7 +830,7 @@ export class Caja {
   }
 
   /** Resolución humana. El sistema NO puede verificarla: se registra como atestación. */
-  atestarSiguienteFolio(a: { siguiente: number; usuario: string; evidencia: { tipo: string; referencia: string }; sinAnclasConfirmado?: boolean }) {
+  atestarSiguienteFolio(a: { siguiente: number; usuario: string; evidencia: { tipo: string; referencia: string }; sinAnclasConfirmado?: boolean; autorizo?: string | null }) {
     const st = this.estadoFolios();
     if (st.estado === 'activa') throw new ErrorDominio('FOLIO_ACTIVO', 'no hay recuperación pendiente');
     if (!a.evidencia?.referencia?.trim()) throw new ErrorDominio('EVIDENCIA_REQUERIDA', 'se requiere una referencia a evidencia física');
@@ -819,14 +838,15 @@ export class Caja {
     if (!an && !a.sinAnclasConfirmado) {
       throw new ErrorDominio('EVIDENCIA_INSUFICIENTE', 'sin acceso a hub/central no se puede contrastar el folio; confirmar explícitamente que se atesta sin anclas');
     }
-    const conocido = Math.max(st.ultimo, an?.hwm ?? 0, an?.ceiling ?? 0);
+    const registrado = Math.max(st.ultimo, an?.hwm ?? 0, an?.ceiling ?? 0);
+    const conocido = Math.max(registrado, this.folioMaximoVisto()); // un ticket escaneado también prueba que existen folios
     if (a.siguiente <= conocido) throw new ErrorDominio('FOLIO_REUTILIZABLE', `el folio ${a.siguiente} no supera lo conocido (${conocido})`);
     this.repo.tx(() => {
       this.emitir('folio.atestacion_manual', {
         tienda: this.tienda, caja: this.caja, siguiente: a.siguiente, usuario: a.usuario, evidencia: a.evidencia,
-        verificable: false, hwm_conocido: conocido, anclas_disponibles: an !== null,
+        verificable: false, hwm_conocido: registrado, anclas_disponibles: an !== null, ...(a.autorizo ? { autorizado_por: a.autorizo } : {}),
       });
-      if (a.siguiente - 1 > conocido) this.emitir('folio.gap', { tienda: this.tienda, caja: this.caja, desde: conocido + 1, hasta: a.siguiente - 1, motivo: 'atestacion_manual' });
+      if (a.siguiente - 1 > registrado) this.emitir('folio.gap', { tienda: this.tienda, caja: this.caja, desde: registrado + 1, hasta: a.siguiente - 1, motivo: 'atestacion_manual' });
       this.repo.kvSet('folio:ultimo', a.siguiente - 1);
       this.repo.kvSet('folio:techo', this.arrendamientoActivo() ? a.siguiente - 1 : null);
       this.repo.kvSet('folio:estado', 'activa');

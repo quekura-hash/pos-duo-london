@@ -1525,6 +1525,58 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     assert.deepEqual(errores.filter((e) => !/401|403|Failed to load resource/.test(e)), []);
   });
 
+  it('B24 pantalla de folios (P-06): un ticket con folio mayor bloquea la caja, la pantalla informa y sugiere y la caja continúa con confirmación', async (t) => {
+    execFileSync(process.execPath, [join(RAIZ, 'scripts', 'construir-prueba.mjs')], { stdio: 'pipe' });
+    const browser = await chromium.launch({ executablePath: chromiumPath, args: ['--no-sandbox'] });
+    t.after(() => browser.close());
+    const page = await (await browser.newContext({ viewport: { width: 1440, height: 900 }, colorScheme: 'light' })).newPage();
+    const errores: string[] = [];
+    page.on('pageerror', (e) => errores.push(String(e)));
+    page.on('console', (m) => { if (m.type() === 'error') errores.push(m.text()); });
+    await page.goto(`file://${HTML}`);
+    await page.waitForSelector('[data-chip="tienda"]');
+    await page.waitForSelector('#scan');
+    for (let i = 0; i < 2; i++) { // dos ventas normales: folios 1 y 2
+      await page.fill('#scan', '7501234567890'); await page.press('#scan', 'Enter');
+      await page.waitForSelector('#cuerpo tr[data-linea]');
+      await page.fill('#recibido', '120'); await page.click('#btn-cobrar');
+      await page.waitForSelector('#dlg-ticket[open] #ticket-texto');
+      await page.click('#btn-nueva');
+    }
+    // se escanea un ticket de esta caja con el folio 5: la serie se bloquea
+    await page.evaluate(() => (window as any).__POS_TICKET_ESCANEADO__(5));
+    await page.waitForSelector('#folios-bloqueo');
+    assert.match((await page.textContent('[data-alerta="folios"]'))!, /no puede vender/);
+    assert.match((await page.textContent('#folios-bloqueo .mensaje'))!, /folio mayor/);
+    assert.equal((await page.textContent('#folio-ultimo'))!.trim(), '000002');
+    assert.equal((await page.textContent('#folio-visto'))!.trim(), '000005');
+    assert.equal((await page.textContent('#folio-sugerido'))!.trim(), '000006');
+    assert.equal(await page.inputValue('#fo-siguiente'), '6');
+    assert.equal(await page.locator('#folios-auto').count(), 0, 'sin P-06 aceptada no hay recuperación automática');
+    await page.screenshot({ path: join(RAIZ, 'docs', 'capturas', '56-revisar-folios.png') });
+    // exige evidencia y un folio que no reutilice ninguno
+    await page.click('#fo-confirmar');
+    await page.waitForFunction(() => /evidencia/.test(document.querySelector('#msg-folios')!.textContent!));
+    await page.fill('#fo-ref', 'último ticket impreso D1-000005');
+    await page.fill('#fo-siguiente', '5');
+    await page.click('#fo-confirmar');
+    await page.waitForFunction(() => /no supera/.test(document.querySelector('#msg-folios')!.textContent!));
+    await page.fill('#fo-siguiente', '6');
+    await page.click('#fo-confirmar');
+    await page.waitForSelector('#scan');
+    assert.match((await page.textContent('#mensaje'))!, /continúa desde el 000006/);
+    assert.equal(await page.locator('[data-alerta="folios"]').count(), 0);
+    await page.fill('#scan', '7501234567890'); await page.press('#scan', 'Enter');
+    await page.waitForSelector('#cuerpo tr[data-linea]');
+    await page.fill('#recibido', '120'); await page.click('#btn-cobrar');
+    await page.waitForSelector('#dlg-ticket[open] #ticket-texto');
+    assert.match((await page.textContent('#resumen-venta'))!, /Folio 000006/);
+    await page.click('#btn-nueva');
+    // la pantalla en orden informa los folios sin comprobar
+    await page.evaluate(() => (document.querySelector('#nav button[data-vista="venta"]') as HTMLElement).click());
+    assert.deepEqual(errores.filter((e) => !/401|403|Failed to load resource/.test(e)), []);
+  });
+
   it('B20 cierre por inactividad: aviso un minuto antes, «Seguir trabajando» renueva, al cerrarse la venta queda en espera y se vuelve al inicio de sesión', async (t) => {
     execFileSync(process.execPath, [join(RAIZ, 'scripts', 'construir-prueba.mjs')], { stdio: 'pipe' });
     const browser = await chromium.launch({ executablePath: chromiumPath, args: ['--no-sandbox'] });

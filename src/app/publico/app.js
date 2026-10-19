@@ -118,8 +118,10 @@ async function pintarEncabezado() {
       <span class="chip-top" data-chip="fecha">${ico('calendar')}<b>${fechaCorta(e.ahora)}</b></span>
       ${S.sesion.requiere_login ? `<button class="btn" type="button" id="btn-salir" title="Cerrar la sesión">${ico('x')}<span>Cerrar sesión</span></button>` : ''}
     </div>
+    ${e.folios === 'recuperacion' ? `<div class="alerta-banda" style="flex-basis:100%;margin:0;display:flex;gap:12px;align-items:center;flex-wrap:wrap" role="alert" data-alerta="folios"><span>Esta caja no puede vender: hay que revisar los folios.</span><button class="btn" type="button" id="btn-revisar-folios">${ico('receipt')}<span>Revisar folios</span></button></div>` : ''}
     ${e.alertas.perdida_documental_abierta ? `<div class="alerta-banda" style="flex-basis:100%;margin:0" role="alert" data-alerta="perdida">Hay una posible pérdida de ventas, pagos o folios de esta caja sin resolver (Administración).</div>` : ''}
     ${e.alertas.articulos_no_verificados ? `<div class="alerta-banda" style="flex-basis:100%;margin:0" role="status" data-alerta="inventario">Existencias sin verificar: ${e.alertas.articulos_no_verificados} artículos (requieren conteo físico).</div>` : ''}`;
+  $('#btn-revisar-folios')?.addEventListener('click', () => ir('folios'));
   const pagos = e.metodos.map((m) => NOMBRE_METODO[m].toLowerCase()).join(', ').replace(/, ([^,]*)$/, ' y $1');
   pie.innerHTML = `
     <span data-chip="pie-usuario">Usuario: ${esc(e.usuario)}</span>
@@ -158,14 +160,81 @@ async function ir(v) {
   S.vista = v;
   pintarNav();
   await pintarEncabezado();
-  await ({ venta: vistaVenta, retiro: vistaRetiro, corte: vistaCorte, ventas: vistaVentas, reportes: vistaReportes, inventario: vistaInventario, almacen: vistaAlmacen, promociones: vistaPromociones, configuracion: vistaConfiguracion, tiendas: vistaTiendas, departamentos: vistaDepartamentos, tarjetas: vistaTarjetas, devolucion: vistaDevolucion, dolares: vistaDolares, descuentos: vistaDescuentos, entregas: vistaEntregas, conteo_limbo: vistaConteoLimbo, tipo_cambio: vistaTipoCambio, cortes: vistaCortes })[v]();
+  await ({ folios: vistaFolios, venta: vistaVenta, retiro: vistaRetiro, corte: vistaCorte, ventas: vistaVentas, reportes: vistaReportes, inventario: vistaInventario, almacen: vistaAlmacen, promociones: vistaPromociones, configuracion: vistaConfiguracion, tiendas: vistaTiendas, departamentos: vistaDepartamentos, tarjetas: vistaTarjetas, devolucion: vistaDevolucion, dolares: vistaDolares, descuentos: vistaDescuentos, entregas: vistaEntregas, conteo_limbo: vistaConteoLimbo, tipo_cambio: vistaTipoCambio, cortes: vistaCortes })[v]();
   if (v !== 'almacen') await avisosPisoInicial();
+}
+
+// ── P-06: folios. Si la serie se bloquea (disco nuevo, respaldo restaurado, ticket con folio mayor…) no se vende hasta confirmar cómo continuar ──
+const MOTIVO_FOLIOS = {
+  disco_nuevo_en_caja_existente: 'Esta caja se instaló con un disco nuevo, pero ya había vendido antes: no se sabe qué folios se emitieron.',
+  restaurado_desde_respaldo: 'Se restauró un respaldo: puede faltar lo vendido después de esa copia.',
+  contador_local_atrasado_respecto_a_hub_o_central: 'El hub o el central tienen registrados folios más altos que los de esta caja.',
+  ticket_con_folio_mayor_al_contador: 'Se escaneó un ticket de esta caja con un folio mayor al último que la caja tiene registrado.',
+};
+const EVIDENCIAS_FOLIO = [['ticket_impreso', 'Último ticket impreso'], ['libreta', 'Libreta o bitácora de la caja'], ['reporte_hub', 'Reporte del hub o del central'], ['otra', 'Otra']];
+const folio6 = (n) => String(n).padStart(6, '0');
+async function vistaFolios() {
+  const f = await api('/api/folios');
+  const rangos = f.huecos.map((h) => (h.desde === h.hasta ? folio6(h.desde) : `${folio6(h.desde)} a ${folio6(h.hasta)}`));
+  if (f.estado === 'activa') {
+    $('#vista').innerHTML = `<div class="titulo-vista">${ico('receipt')}<h1>Folios</h1></div>
+      <section class="panel" id="folios-ok"><p style="font-size:17px;margin-top:0">La serie de folios de esta caja está <b>en orden</b>. Último folio registrado: <b id="folio-ultimo">${f.ultimo ? folio6(f.ultimo) : 'ninguno todavía'}</b>.</p>
+        ${f.huecos.length ? `<p class="nota" id="folios-huecos">Folios que quedaron sin comprobar tras una recuperación anterior (documentados, no se reutilizan): <b>${rangos.join(', ')}</b>.</p>` : ''}
+        <button class="btn btn-primario" id="folios-volver" type="button" style="width:auto">${ico('cart')}<span>Volver a la venta</span></button></section>`;
+    $('#folios-volver').addEventListener('click', () => ir('venta'));
+    return;
+  }
+  const pideClave = f.pide_clave;
+  $('#vista').innerHTML = `<div class="titulo-vista">${ico('receipt')}<h1>Revisar folios</h1></div>
+    <section class="panel" id="folios-bloqueo">
+      <div class="mensaje error" role="alert" style="margin-top:0"><b>La caja no puede vender hasta que se confirme cómo continuar.</b> ${esc(MOTIVO_FOLIOS[f.motivo] ?? f.motivo ?? '')}</div>
+      <dl class="detalle" id="folios-datos" style="margin:12px 0">
+        <div><dt>Último folio registrado en esta caja</dt><dd id="folio-ultimo"><b>${f.ultimo ? folio6(f.ultimo) : 'ninguno'}</b></dd></div>
+        <div><dt>Mayor folio que conoce el hub o el central</dt><dd id="folio-hub">${f.hub.disponible ? `<b>${f.hub.hwm ? folio6(f.hub.hwm) : 'ninguno'}</b>${f.hub.techo ? ` (concedido hasta ${folio6(f.hub.techo)})` : ''}` : '<span style="color:var(--aviso)">sin conexión: no se puede contrastar</span>'}</dd></div>
+        ${f.visto_en_ticket ? `<div><dt>Folio visto en un ticket escaneado</dt><dd id="folio-visto"><b>${folio6(f.visto_en_ticket)}</b></dd></div>` : ''}
+        <div><dt>Folio sugerido para continuar</dt><dd id="folio-sugerido"><b>${folio6(f.sugerido)}</b></dd></div>
+      </dl>
+      <p class="nota" id="folios-aviso">Los folios entre el último registrado y el elegido <b>no se reutilizan</b>: quedan documentados como «sin comprobar» y Administración los verá. Si hay tickets impresos con folios que la caja no tiene, súbalos al número mayor que vea.</p>
+      ${f.recuperacion_automatica ? `<div class="mensaje ok" style="margin:12px 0">El hub tiene el techo de folios concedido a esta caja: puede recuperarse automáticamente.<br><button class="btn btn-primario" id="folios-auto" type="button" style="width:auto;margin-top:8px">${ico('refresh')}<span>Recuperar automáticamente</span></button></div>` : ''}
+      <form id="form-folios" autocomplete="off"><h2 style="margin-bottom:4px">Continuar con confirmación</h2>
+        <div class="filas" style="align-items:flex-end">
+          <div class="campo"><label for="fo-siguiente">Siguiente folio a usar</label><input id="fo-siguiente" inputmode="numeric" value="${f.sugerido}" style="width:130px"></div>
+          <div class="campo"><label for="fo-tipo">Evidencia</label><select id="fo-tipo" style="padding:10px;border:2px solid var(--borde);border-radius:10px;background:var(--superficie)">${EVIDENCIAS_FOLIO.map(([v, t]) => `<option value="${v}">${t}</option>`).join('')}</select></div>
+          <div class="campo" style="flex:1;min-width:220px"><label for="fo-ref">En qué se apoya (obligatorio)</label><input id="fo-ref" class="texto" maxlength="120" placeholder="Ej. último ticket impreso D1-000142"></div></div>
+        ${f.hub.disponible ? '' : '<label style="display:block;margin:8px 0"><input type="checkbox" id="fo-sin-hub"> Confirmo que no hay forma de contrastar con el hub o el central y quiero continuar sin ese contraste.</label>'}
+        ${pideClave ? `<div class="filas" style="align-items:flex-end"><div class="campo"><label for="fo-quien">Confirma (supervisor)</label><select id="fo-quien" style="padding:10px;border:2px solid var(--borde);border-radius:10px;background:var(--superficie)">${f.supervisores.map((n) => `<option>${esc(n)}</option>`).join('')}</select></div>
+          <div class="campo"><label for="fo-clave">Su clave</label><input id="fo-clave" type="password" inputmode="numeric" autocomplete="off" placeholder="••••"></div></div>` : ''}
+        <div id="msg-folios" class="mensaje" role="alert"></div>
+        <button class="btn btn-peligro" type="submit" id="fo-confirmar" style="width:auto">${ico('check')}<span>Confirmar y continuar</span></button>
+      </form></section>`;
+  $('#folios-auto')?.addEventListener('click', async () => {
+    try { await api('/api/folios/recuperar', {}); await foliosListo('Folios recuperados automáticamente; los huecos quedaron documentados.'); }
+    catch (e) { const m = $('#msg-folios'); m.className = 'mensaje error'; m.textContent = e.message; }
+  });
+  $('#form-folios').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const m = $('#msg-folios');
+    const siguiente = Number($('#fo-siguiente').value);
+    if (!Number.isInteger(siguiente) || siguiente < 1) { m.className = 'mensaje error'; m.textContent = 'Escriba el número de folio siguiente.'; return; }
+    if (!$('#fo-ref').value.trim()) { m.className = 'mensaje error'; m.textContent = 'Escriba en qué evidencia se apoya (por ejemplo, el último ticket impreso).'; return; }
+    if (pideClave && !$('#fo-clave').value) { m.className = 'mensaje error'; m.textContent = 'El supervisor debe teclear su clave.'; return; }
+    try {
+      await api('/api/folios/confirmar', { siguiente, evidencia: { tipo: $('#fo-tipo').value, referencia: $('#fo-ref').value }, sin_anclas: !!$('#fo-sin-hub')?.checked, ...(pideClave ? { autoriza: { nombre: $('#fo-quien').value, clave: $('#fo-clave').value } } : {}) });
+      await foliosListo(`Folios confirmados: la caja continúa desde el ${folio6(siguiente)}.`);
+    } catch (e) { m.className = 'mensaje error'; m.textContent = e.message; const c = $('#fo-clave'); if (c) c.value = ''; }
+  });
+}
+async function foliosListo(texto) {
+  await pintarEncabezado();
+  await ir('venta');
+  msg(texto);
 }
 
 // ── venta ──
 function msg(texto, tipo = 'ok') { const m = $('#mensaje'); if (m) { m.className = `mensaje ${tipo}`; m.textContent = texto; } }
 
 async function vistaVenta() {
+  if (S.estado?.folios === 'recuperacion') return ir('folios'); // con la serie bloqueada no se vende: primero se revisan los folios
   if (!S.cart) { const r = await api('/api/venta/actual', {}); S.cart = r.cart; S.carrito = r.carrito; }
   const metodos = S.estado?.metodos ?? ['efectivo'];
   S.forma = 'efectivo'; S.tarjeta = null; S.usdAbierto = false; S.tasa = null;
@@ -662,7 +731,10 @@ async function cobrar() {
     S.ultimoFolio = r.venta.folio;
     mostrarTicket(r);
     await pintarEncabezado();
-  } catch (e) { msg(e.message, 'error'); recalcular(); }
+  } catch (e) {
+    msg(e.message, 'error'); recalcular();
+    if (e.codigo === 'FOLIO_BLOQUEADO') { await pintarEncabezado(); await ir('folios'); }
+  }
 }
 
 function mostrarTicket(r) {
@@ -2384,8 +2456,12 @@ function tomarFoto() {
     navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } }, audio: false }).then((st) => {
       if (!d.open) { st.getTracks().forEach((t) => t.stop()); return; }
       stream = st;
-      $('#foto-video').srcObject = st;
-      $('#foto-capturar').disabled = false;
+      const v = $('#foto-video');
+      v.srcObject = st;
+      // solo se puede tomar la foto cuando la cámara ya entrega imagen (si no, saldría vacía)
+      const listo = () => { if (v.videoWidth) $('#foto-capturar').disabled = false; };
+      v.addEventListener('loadeddata', listo, { once: true });
+      listo();
     }).catch((e) => { m.className = 'mensaje aviso'; m.textContent = `No se pudo usar la cámara (${e?.name === 'NotAllowedError' ? 'sin permiso' : 'no hay cámara'}). Elija un archivo.`; });
   });
 }

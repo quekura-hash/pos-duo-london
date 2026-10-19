@@ -115,6 +115,8 @@ export function iniciarBanco(opciones: { alCambiar: () => void; estadoInicial?: 
     restaurar(estado: EstadoBanco) { banco = crearBanco(opsCatalogo, estado); opciones.alCambiar(); },
     quitarInventario() { opsCatalogo = undefined; etiqueta = ''; muestra = []; banco = crearBanco(); opciones.alCambiar(); },
     inventarioCargado: () => ({ etiqueta, muestra, conInventario: !!opsCatalogo }),
+    /** Solo para probar: simula que se escaneó un ticket de esta caja con ese folio (si supera el contador, la serie se bloquea). */
+    ticketEscaneado(folio: number) { if (sesion === 'admin') return; const [t, c] = sesion.split('/'); banco.m.caja(t!, Number(c)).registrarTicketEscaneado({ tienda: t!, caja: Number(c), folio }); opciones.alCambiar(); },
     caerHub(t: string, v: boolean) { if (v) banco.m.caerHub(t); else banco.m.levantarHub(t); },
     fallaImpresora(id: string, v: boolean) { const i = banco.impresoras.get(id); if (i) i.falla = v ? 'sin papel (falla simulada)' : null; },
     tienda: () => (sesion === 'admin' ? null : sesion.split('/')[0]!),
