@@ -587,3 +587,22 @@ Reemplaza lo dicho de «administradores» en la sección 35: quien entra a Admin
 - **Cumplimiento en el servidor**: cada ruta de Administración revisa el rol (403 `PROHIBIDO`); el menú del almacenista solo muestra Inventario y Almacén, el campo de precio queda de solo lectura y no ve «Crear promoción». El encabezado muestra el rol.
 - **Pendiente de definir con el propietario**: qué otras operaciones de la caja deben pedir la clave de un supervisor (hoy solo los descuentos). Candidatas: cancelar una venta ya cobrada, devoluciones, retiros, fondo y entradas de efectivo, anular una venta con artículos, cambiar un precio en la venta.
 - **Verificado**: pruebas RO1–RO3 (ambos almacenes) y de navegador (B18: roles, menú del almacenista, precio de solo lectura, cajero rechazado, supervisor completo).
+
+## 37. Claves en la caja: retiros, cancelaciones y devoluciones [P]
+
+Resuelve el pendiente de la sección 36. Un cajero puede vender, cobrar, hacer retiros, cortes, tarjetas de regalo y devoluciones, y dar de alta artículos; estas operaciones piden clave así:
+
+| Operación | Clave que pide |
+|---|---|
+| Vender, cobrar, corte, tarjetas de regalo | ninguna (basta la sesión del cajero) |
+| **Retiro de efectivo** | la **propia** del cajero (la de otro no vale a su nombre) |
+| **Alta de un artículo** | la **propia** del cajero (sección 33) |
+| **Cancelar una venta ya cobrada** | la de **otra persona**: otro cajero activo o un supervisor activo (su clave de caja) |
+| **Devolución** | la de **otra persona**, igual que la cancelación |
+| Descuento | la de un supervisor (sección 19) |
+
+- **Quien opera no puede autorizarse a sí mismo** (se compara el nombre). Se elige quién autoriza en una lista (los demás cajeros activos y los supervisores) y teclea su clave. *Extensión sobre lo pedido: se aceptan también los supervisores como autorizadores, para que haya quién autorice cuando solo hay un cajero en turno; se quita con una línea.*
+- **Constancia**: la cancelación guarda quién la hizo y quién la autorizó (`cancelo`, `autorizado_por`); la devolución, `autorizado_por`. **Cinco claves equivocadas seguidas bloquean a esa persona 5 minutos** (la de quien opera o la de quien autoriza).
+- **Cancelar venta** tiene botón en el **Historial** («Cancelar venta», con motivo obligatorio); antes solo existía en el motor.
+- **Se activan en cuanto hay cajeros con clave registrados.** Mientras no haya ninguno, la caja trabaja abierta (así se monta la tienda) y estas operaciones no piden clave; igual que el inicio de sesión.
+- **Verificado**: pruebas AU1–AU3 (ambos almacenes: sin cajeros, retiro con la propia clave, cancelación y devolución con otra persona o supervisor, no autorizarse a sí mismo, bloqueo) y de navegador (B19: retiro, cancelación y devolución con sus diálogos).

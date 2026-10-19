@@ -1,7 +1,7 @@
 import { ErrorDominio } from '../errores.ts';
 import type { ServicioAdmin, ServicioCaja } from './servicio.ts';
 
-const STATUS: Record<string, number> = { PROHIBIDO: 403, ARTICULO_INEXISTENTE: 404, CARRITO_INEXISTENTE: 404, LINEA_INEXISTENTE: 404, NO_ENCONTRADO: 404, CLAVE_INVALIDA: 403, NO_AUTENTICADO: 401, CLAVE_BLOQUEADA: 429, CAJERO_SIN_CLAVE: 403 };
+const STATUS: Record<string, number> = { PROHIBIDO: 403, ARTICULO_INEXISTENTE: 404, CARRITO_INEXISTENTE: 404, LINEA_INEXISTENTE: 404, NO_ENCONTRADO: 404, CLAVE_INVALIDA: 403, NO_AUTENTICADO: 401, CLAVE_BLOQUEADA: 429, CAJERO_SIN_CLAVE: 403, AUTORIZACION_REQUERIDA: 403, AUTORIZADOR_INVALIDO: 403 };
 
 export interface Respuesta {
   status: number;
@@ -68,10 +68,11 @@ export async function atender(o: { cajero?: ServicioCaja; admin?: ServicioAdmin 
       case 'POST /api/venta/retomar': return ok(exigirCajero().retomarVenta(b.cart, b.actual ? String(b.actual) : undefined));
       case 'POST /api/venta/espera/descartar': return ok(exigirCajero().descartarEnEspera(b.cart));
       case 'GET /api/retiro': return ok({ retiro: exigirCajero().estadoRetiro() });
-      case 'POST /api/retiro': return ok(await exigirCajero().registrarRetiro({ retiro_id: String(b.retiro_id ?? ''), mxn: b.mxn ?? {}, usd: b.usd ?? {} }));
+      case 'POST /api/retiro': return ok(await exigirCajero().registrarRetiro({ retiro_id: String(b.retiro_id ?? ''), mxn: b.mxn ?? {}, usd: b.usd ?? {}, clave: b.clave === undefined ? undefined : String(b.clave) }));
       case 'POST /api/retiro/reimprimir': return ok(await exigirCajero().reimprimirRetiro(String(b.retiro_id ?? '')));
       case 'POST /api/venta/anular': return ok(exigirCajero().anularVenta(b.cart, String(b.motivo ?? 'anulada')));
-      case 'POST /api/venta/cancelar': return ok(exigirCajero().cancelarVenta(b.sale_id, String(b.motivo ?? 'cancelada')));
+      case 'GET /api/venta/autorizadores': return ok(exigirCajero().autorizadores());
+      case 'POST /api/venta/cancelar': return ok(exigirCajero().cancelarVenta(b.sale_id, String(b.motivo ?? 'cancelada'), b.autoriza));
       case 'POST /api/venta/cobrar-tarjeta': return ok(await exigirCajero().cobrarTarjetaManual(b.cart, { importe: b.importe === undefined || b.importe === null ? undefined : Number(b.importe), autorizacion: String(b.autorizacion ?? ''), marca: b.marca, ultimos4: b.ultimos4 }));
       case 'POST /api/venta/cobrar-regalo': return ok(await exigirCajero().cobrarTarjetaRegalo(b.cart, String(b.codigo ?? ''), b.recibido === undefined || b.recibido === null ? undefined : Number(b.recibido), Number(b.usd ?? 0)));
       case 'GET /api/tarjeta': return ok({ tarjeta: exigirCajero().consultarTarjeta(q.get('codigo') ?? '') });
@@ -81,7 +82,7 @@ export async function atender(o: { cajero?: ServicioCaja; admin?: ServicioAdmin 
         const c = exigirCajero();
         return ok(c.buscarVentas({ fecha: q.get('fecha') || undefined, desde: q.get('desde') || undefined, hasta: q.get('hasta') || undefined, codigo: q.get('codigo') || undefined, folio: q.get('folio') ? Number(q.get('folio')) : undefined }));
       }
-      case 'POST /api/venta/devolver': return ok(await exigirCajero().devolver(b.sale_id, b.renglones ?? [], String(b.motivo ?? 'devolución')));
+      case 'POST /api/venta/devolver': return ok(await exigirCajero().devolver(b.sale_id, b.renglones ?? [], String(b.motivo ?? 'devolución'), b.autoriza));
       case 'POST /api/tarjeta/recargar': return ok(await exigirCajero().recargarTarjetaRegalo(String(b.codigo ?? ''), Number(b.monto), b.recibido === undefined ? undefined : Number(b.recibido), b.ref));
       case 'POST /api/venta/ticket-regalo': return ok(await exigirCajero().ticketRegalo(b.sale_id));
       case 'POST /api/venta/reimprimir': return ok(await exigirCajero().reimprimir(b.sale_id));

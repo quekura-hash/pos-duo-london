@@ -755,9 +755,20 @@ async function vistaCorte() {
 // ── ventas de la caja ──
 async function vistaVentas() {
   const j = await api('/api/ventas');
-  $('#vista').innerHTML = `<div class="titulo-vista">${ico('clock')}<h1>Historial de mi caja</h1></div><div class="panel"><div class="tabla-cont"><table id="tabla-ventas"><thead><tr><th>Folio</th><th>Fecha</th><th>Cajero</th><th class="num">Total</th><th>Estado</th><th>Impresiones</th><th></th></tr></thead><tbody>
-    ${j.ventas.length ? j.ventas.map((r) => `<tr data-folio="${r.folio}"><td>${String(r.folio).padStart(6, '0')}</td><td>${esc(r.fecha_local)}</td><td>${esc(r.cajero)}</td><td class="num">${mxn(r.total)}</td><td><span class="insignia ${r.estado}">${esc(r.estado)}</span></td><td>${r.impresiones}${r.ultima_impresion === 'error' ? ' (última falló)' : ''}</td><td><button class="btn" type="button" data-ver="${r.sale_id}">${ico('receipt')}<span>Ver ticket</span></button></td></tr>`).join('') : '<tr><td colspan="7" class="vacio">Sin ventas hoy en esta caja.</td></tr>'}
+  $('#vista').innerHTML = `<div class="titulo-vista">${ico('clock')}<h1>Historial de mi caja</h1></div><div id="mensaje-hist" class="mensaje" role="status" aria-live="polite"></div><div class="panel"><div class="tabla-cont"><table id="tabla-ventas"><thead><tr><th>Folio</th><th>Fecha</th><th>Cajero</th><th class="num">Total</th><th>Estado</th><th>Impresiones</th><th></th></tr></thead><tbody>
+    ${j.ventas.length ? j.ventas.map((r) => `<tr data-folio="${r.folio}"><td>${String(r.folio).padStart(6, '0')}</td><td>${esc(r.fecha_local)}</td><td>${esc(r.cajero)}</td><td class="num">${mxn(r.total)}</td><td><span class="insignia ${r.estado}">${esc(r.estado)}</span></td><td>${r.impresiones}${r.ultima_impresion === 'error' ? ' (última falló)' : ''}</td><td><button class="btn" type="button" data-ver="${r.sale_id}">${ico('receipt')}<span>Ver ticket</span></button>${r.estado === 'confirmada' ? ` <button class="btn" type="button" data-cancelar="${r.sale_id}" title="Cancela la venta ya cobrada: la autoriza otra persona">${ico('x')}<span>Cancelar venta</span></button>` : ''}</td></tr>`).join('') : '<tr><td colspan="7" class="vacio">Sin ventas hoy en esta caja.</td></tr>'}
     </tbody></table></div></div>`;
+  for (const b of $('#vista').querySelectorAll('[data-cancelar]')) {
+    b.addEventListener('click', async () => {
+      try {
+        const aut = await pedirAutorizacion({ titulo: 'Cancelar la venta', texto: 'Se cancela una venta ya cobrada: el cobro y el cambio quedan registrados y se suma la salida de dinero. La autoriza otra persona (otro cajero o un supervisor) con su clave.', conMotivo: true, boton: 'Cancelar la venta' });
+        if (aut === null) return;
+        await api('/api/venta/cancelar', { sale_id: b.dataset.cancelar, motivo: aut.motivo, ...(aut.autoriza ? { autoriza: aut.autoriza } : {}) });
+        await vistaVentas();
+        const m = $('#mensaje-hist'); if (m) { m.className = 'mensaje ok'; m.textContent = 'Venta cancelada.'; }
+      } catch (e) { const m = $('#mensaje-hist'); if (m) { m.className = 'mensaje error'; m.textContent = e.message; } else msg(e.message, 'error'); }
+    });
+  }
   for (const b of $('#vista').querySelectorAll('[data-ver]')) {
     b.addEventListener('click', async () => {
       const t = await api(`/api/ticket?sale_id=${b.dataset.ver}`);
@@ -1040,6 +1051,39 @@ async function buscarVentasDev() {
     for (const f of $('#bv-resultados').querySelectorAll('form[data-sale]')) f.addEventListener('submit', (ev) => { ev.preventDefault(); devolverVenta(f); });
   } catch (e) { m.className = 'mensaje error'; m.textContent = e.message; }
 }
+/**
+ * Pide la autorización de OTRA persona (otro cajero o un supervisor: su nombre y su clave) y, si se pide, el motivo. Si todavía no hay cajeros
+ * registrados (la caja trabaja abierta) no hay a quién pedirla. Devuelve { motivo, autoriza } o null si se cancela.
+ */
+async function pedirAutorizacion({ titulo, texto, conMotivo = false, boton = 'Autorizar' }) {
+  const a = await api('/api/venta/autorizadores');
+  if (!a.pide_clave && !conMotivo) return { autoriza: undefined };
+  const d = dialogo('dlg-autorizacion');
+  d.setAttribute('aria-labelledby', 'aut-titulo');
+  d.innerHTML = `<h2 id="aut-titulo" style="margin-top:0">${esc(titulo)}</h2><p class="nota" style="margin-top:0">${esc(texto)}</p>
+    <form id="form-autorizacion" autocomplete="off">
+      ${conMotivo ? '<div class="campo"><label for="aut-motivo">Motivo</label><input id="aut-motivo" class="texto" maxlength="120" placeholder="Obligatorio"></div>' : ''}
+      ${a.pide_clave ? `<div class="campo"><label for="aut-quien">Autoriza (otro cajero o supervisor)</label><select id="aut-quien" style="width:100%;padding:10px;border:2px solid var(--borde);border-radius:10px;background:var(--superficie)">${a.autorizadores.map((x) => `<option value="${esc(x.nombre)}">${esc(x.nombre)}${x.tipo === 'supervisor' ? ' (supervisor)' : ''}</option>`).join('')}</select></div>
+      <div class="campo"><label for="aut-clave">Su clave</label><input id="aut-clave" type="password" inputmode="numeric" autocomplete="off" placeholder="••••"></div>` : ''}
+      <div id="msg-aut" class="mensaje" role="alert"></div>
+      <div class="filas"><button class="btn" type="button" id="aut-no">Cancelar</button><button class="btn btn-primario" type="submit" style="width:auto;flex:1">${ico('check')}<span>${esc(boton)}</span></button></div></form>`;
+  return new Promise((fin) => {
+    let listo = false;
+    const cerrar = (v) => { if (listo) return; listo = true; d.close(); fin(v); };
+    $('#aut-no').addEventListener('click', () => cerrar(null));
+    d.addEventListener('cancel', () => cerrar(null), { once: true });
+    $('#form-autorizacion').addEventListener('submit', (ev) => {
+      ev.preventDefault();
+      const m = $('#msg-aut');
+      const motivo = conMotivo ? $('#aut-motivo').value.trim() : '';
+      if (conMotivo && !motivo) { m.className = 'mensaje error'; m.textContent = 'Escriba el motivo.'; return; }
+      if (a.pide_clave && (!$('#aut-quien').value || !$('#aut-clave').value)) { m.className = 'mensaje error'; m.textContent = a.autorizadores.length ? 'Elija quién autoriza y teclee su clave.' : 'No hay otro cajero o supervisor registrado que pueda autorizar.'; return; }
+      cerrar({ motivo, autoriza: a.pide_clave ? { nombre: $('#aut-quien').value, clave: $('#aut-clave').value } : undefined });
+    });
+    d.showModal();
+    ($(conMotivo ? '#aut-motivo' : '#aut-clave') ?? $('#aut-no')).focus();
+  });
+}
 function ventaDevHtml(v) {
   const cab = `<div class="cab" style="display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center"><b>${esc(v.codigo_ticket)}</b><span>${esc(fechaHora(v.ocurrio_en))}</span><span class="insignia">Caja ${v.caja}</span>${v.propia && v.total !== null ? `<span>Total ${mxn(v.total)}</span>` : ''}</div>`;
   if (!v.propia) {
@@ -1065,7 +1109,9 @@ async function devolverVenta(form) {
   const renglones = [...form.querySelectorAll('input[data-linea]')].map((i) => ({ linea_id: i.dataset.linea, qty: Number(i.value) })).filter((x) => x.qty > 0);
   if (!renglones.length) { m.className = 'mensaje error'; m.textContent = 'Indique cuántas piezas se devuelven.'; return; }
   try {
-    const r = await api('/api/venta/devolver', { sale_id: form.dataset.sale, renglones, motivo: form.querySelector('[data-motivo]').value.trim() || 'devolución' });
+    const aut = await pedirAutorizacion({ titulo: 'Autorizar la devolución', texto: 'Una devolución la autoriza otra persona: otro cajero o un supervisor, con su clave.' });
+    if (aut === null) return;
+    const r = await api('/api/venta/devolver', { sale_id: form.dataset.sale, renglones, motivo: form.querySelector('[data-motivo]').value.trim() || 'devolución', ...(aut.autoriza ? { autoriza: aut.autoriza } : {}) });
     const d = r.devolucion;
     const dlg = $('#dlg-ticket');
     dlg.innerHTML = `<h2 id="dlg-titulo" style="margin:0 0 4px">Devolución registrada</h2>
@@ -1277,6 +1323,7 @@ async function vistaRetiro() {
         ${e.billetes.usd.map((d) => `<tr><td>${nomUsd(d)}</td><td class="num"><input type="number" min="0" step="1" class="ret-usd" data-den="${d}" aria-label="Billetes de ${nomUsd(d)}" style="width:80px;text-align:right"></td><td class="num" data-sub="usd-${d}">${usd(0)}</td></tr>`).join('')}</tbody></table>
       </div>
       <dl class="calc-usd"><dt>Pesos</dt><dd id="ret-t-mxn">${mxn(0)}</dd><dt>Dólares</dt><dd id="ret-t-usd">${usd(0)}</dd><dt>Total a retirar (MXN)</dt><dd id="ret-total"><b>${mxn(0)}</b></dd></dl>
+      ${e.pide_clave ? `<div class="campo" style="max-width:260px"><label for="ret-clave">Su clave (${esc(S.sesion.usuario ?? '')}) para confirmar el retiro</label><input id="ret-clave" type="password" inputmode="numeric" autocomplete="off" placeholder="••••"></div>` : ''}
       <div class="mensaje" id="ret-estado" role="status" aria-live="polite"></div>
       <button class="btn btn-primario" id="btn-retirar" type="button" disabled>${ico('printer')}<span>Registrar retiro e imprimir</span></button></section>
     <section class="panel" style="margin-top:12px"><h2 style="margin-top:0">Retiros de hoy</h2>
@@ -1302,16 +1349,17 @@ async function vistaRetiro() {
     else if (eq < e.minimo) m = eq > 0 ? `Faltan ${mxn(e.minimo - eq)} para llegar al mínimo de ${mxn(e.minimo)}.` : '';
     else m = `Retiro de ${mxn(eq)}: queda ${mxn(e.venta.equivalente - eq)} de efectivo de venta en la caja.`;
     const el = $('#ret-estado'); el.textContent = m; el.className = `mensaje ${ok ? 'ok' : m ? 'aviso' : ''}`;
+    if (e.pide_clave && !($('#ret-clave').value.length >= 4)) { ok = false; if (eq >= e.minimo && valido) { el.textContent = `${m} Teclee su clave para confirmar.`; } }
     $('#btn-retirar').disabled = !ok;
   };
-  for (const el of document.querySelectorAll('.ret-mxn, .ret-usd')) el.addEventListener('input', pintar);
+  for (const el of document.querySelectorAll('.ret-mxn, .ret-usd, #ret-clave')) el.addEventListener('input', pintar);
   $('#btn-retirar').addEventListener('click', async () => {
     const { mx, us } = leer();
     $('#btn-retirar').disabled = true;
     try {
-      const r = await api('/api/retiro', { retiro_id: retiroId, mxn: mx, usd: us });
+      const r = await api('/api/retiro', { retiro_id: retiroId, mxn: mx, usd: us, ...(e.pide_clave ? { clave: $('#ret-clave').value } : {}) });
       mostrarTicketRetiro(r);
-    } catch (err) { const el = $('#ret-estado'); el.className = 'mensaje error'; el.textContent = err.message; pintar(); }
+    } catch (err) { if ($('#ret-clave')) $('#ret-clave').value = ''; pintar(); const el = $('#ret-estado'); el.className = 'mensaje error'; el.textContent = err.message; }
   });
   for (const b of document.querySelectorAll('.btn-reimp-retiro')) b.addEventListener('click', async () => {
     try { mostrarTicketRetiro(await api('/api/retiro/reimprimir', { retiro_id: b.closest('tr').dataset.retiro }), true); } catch (err) { const m = $('#msg-retiros'); m.className = 'mensaje error'; m.textContent = err.message; }

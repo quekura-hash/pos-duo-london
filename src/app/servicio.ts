@@ -161,10 +161,10 @@ export class ServicioCaja {
   /** Efectivo de venta en la caja y si ya toca un retiro, más los retiros de hoy. */
   estadoRetiro() {
     const e = this.caja.estadoRetiro();
-    return { ...e, retiros: this.caja.retiros(e.fecha) };
+    return { ...e, retiros: this.caja.retiros(e.fecha), pide_clave: this.caja.controlesConClave() };
   }
   /** Registra el retiro y manda a imprimir sus datos. Una falla de impresión no deshace el retiro: se reimprime después. */
-  async registrarRetiro(d: { retiro_id: string; mxn?: Record<string, number>; usd?: Record<string, number> }) {
+  async registrarRetiro(d: { retiro_id: string; mxn?: Record<string, number>; usd?: Record<string, number>; clave?: string }) {
     const retiro = this.caja.registrarRetiro({ ...d, usuario: this.actor.usuario });
     return { retiro, ...(await this.imprimirRetiro(retiro, 0)), estado: this.estadoRetiro() };
   }
@@ -189,9 +189,13 @@ export class ServicioCaja {
     return { cart: this.caja.abrirCarrito() };
   }
   /** Venta cancelada DESPUÉS de recibir efectivo: conserva el cobro y suma la salida de pesos. */
-  cancelarVenta(saleId: string, motivo: string) {
-    const v = this.caja.cancelarVenta(saleId, motivo);
+  cancelarVenta(saleId: string, motivo: string, autoriza?: { nombre: string; clave: string }) {
+    const v = this.caja.cancelarVenta(saleId, motivo, this.actor.usuario, autoriza);
     return { venta: v };
+  }
+  /** Quién puede autorizar una cancelación o una devolución (otro cajero o un supervisor) y si hace falta pedir la clave. */
+  autorizadores() {
+    return { pide_clave: this.caja.controlesConClave(), autorizadores: this.caja.controlesConClave() ? this.caja.autorizadoresPosibles(this.actor.usuario) : [] };
   }
 
   /** Configuración de cada negocio con el nombre editado en Administración (si lo hay). */
@@ -429,8 +433,8 @@ export class ServicioCaja {
       })),
     };
   }
-  async devolver(saleId: string, renglones: { linea_id: string; qty: number }[], motivo: string) {
-    const d = this.caja.devolver({ sale_id: saleId, renglones, motivo, cajero: this.actor.usuario });
+  async devolver(saleId: string, renglones: { linea_id: string; qty: number }[], motivo: string, autoriza?: { nombre: string; clave: string }) {
+    const d = this.caja.devolver({ sale_id: saleId, renglones, motivo, cajero: this.actor.usuario, autoriza });
     const v = ventas(this.caja.opsVentas()).get(saleId)!;
     const texto = renderTicketDevolucionTexto(d, v, this.negociosVivos()[v.tienda]!, this.negociosVivos());
     let impresion: { ok: boolean; error?: string };

@@ -1222,6 +1222,84 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     assert.match((await page.textContent('[data-chip="rol"]'))!, /Supervisor/);
     assert.deepEqual(errores.filter((e) => !/401|403|Failed to load resource/.test(e)), []);
   });
+
+  it('B19 claves en la caja: el retiro pide la propia, cancelar una venta cobrada y devolver piden la de otra persona', async (t) => {
+    execFileSync(process.execPath, [join(RAIZ, 'scripts', 'construir-prueba.mjs')], { stdio: 'pipe' });
+    const browser = await chromium.launch({ executablePath: chromiumPath, args: ['--no-sandbox'] });
+    t.after(() => browser.close());
+    const page = await (await browser.newContext({ viewport: { width: 1440, height: 900 }, colorScheme: 'light' })).newPage();
+    const errores: string[] = [];
+    page.on('pageerror', (e) => errores.push(String(e)));
+    page.on('console', (m) => { if (m.type() === 'error') errores.push(m.text()); });
+    await page.goto(`file://${HTML}`);
+    await page.waitForSelector('[data-chip="tienda"]');
+    // Administración registra dos cajeros
+    await page.selectOption('#sesion-prueba', 'admin');
+    await page.click('#nav button[data-vista="configuracion"]');
+    await page.click('#cfg-tab-cajeros');
+    await page.waitForSelector('#form-cajero');
+    for (const [n, c] of [['Lupe', '4321'], ['Rosa', '8765']]) {
+      await page.fill('#caj-nombre', n); await page.fill('#caj-clave', c); await page.click('#btn-caj');
+      await page.waitForFunction((x) => [...document.querySelectorAll('#tabla-cajeros tr[data-cajero] td:first-child')].some((td) => td.textContent === x), n);
+    }
+    // Lupe entra a la caja y hace una venta
+    await page.selectOption('#sesion-prueba', 'DUO/1');
+    await page.waitForSelector('#form-login');
+    await page.selectOption('#lg-usuario', 'Lupe'); await page.fill('#lg-clave', '4321'); await page.click('#lg-entrar');
+    await page.waitForSelector('#scan');
+    const vender = async () => page.evaluate(async () => {
+      const a = (window as any).__POS_ATENDER__;
+      const { json: v } = await a('POST', '/api/venta/nueva', {});
+      const { json: e } = await a('POST', '/api/venta/escanear', { cart: v.cart, codigo: '0002026090782' });
+      await a('POST', '/api/venta/cantidad', { cart: v.cart, linea_id: e.linea.linea_id, qty: 12 });
+      return (await a('POST', '/api/venta/cobrar-efectivo', { cart: v.cart, recibido: 1500000 })).json.venta.folio;
+    });
+    const folio = await vender();
+    // retiro: pide SU clave
+    await page.click('#nav button[data-vista="retiro"]');
+    await page.waitForSelector('#ret-clave');
+    await page.fill('.ret-mxn[data-den="100000"]', '8');
+    assert.equal(await page.isDisabled('#btn-retirar'), true, 'sin clave no se puede retirar');
+    await page.fill('#ret-clave', '8765'); // la de Rosa no vale a nombre de Lupe
+    await page.click('#btn-retirar');
+    await page.waitForFunction(() => /no es correcta/.test(document.querySelector('#ret-estado')!.textContent!));
+    await page.fill('#ret-clave', '4321');
+    await page.click('#btn-retirar');
+    await page.waitForSelector('#dlg-retiro-ticket[open]');
+    await page.click('#ret-tk-cerrar');
+    // cancelar la venta cobrada: pide motivo y la clave de otra persona
+    await page.click('#nav button[data-vista="ventas"]');
+    await page.waitForSelector(`#tabla-ventas tr[data-folio="${folio}"] [data-cancelar]`);
+    await page.click(`#tabla-ventas tr[data-folio="${folio}"] [data-cancelar]`);
+    await page.waitForSelector('#dlg-autorizacion[open]');
+    assert.deepEqual(await page.$$eval('#aut-quien option', (o) => o.map((x) => x.textContent)), ['Rosa'], 'Lupe no puede autorizarse a sí misma');
+    await page.screenshot({ path: join(RAIZ, 'docs', 'capturas', '55-autorizacion.png') });
+    await page.click('#form-autorizacion button[type=submit]');
+    await page.waitForFunction(() => /Escriba el motivo/.test(document.querySelector('#msg-aut')!.textContent!));
+    await page.fill('#aut-motivo', 'error de captura'); await page.fill('#aut-clave', '0000');
+    await page.click('#form-autorizacion button[type=submit]');
+    await page.waitForFunction(() => /no es correcta/.test(document.querySelector('#mensaje-hist')?.textContent ?? ''));
+    await page.click(`#tabla-ventas tr[data-folio="${folio}"] [data-cancelar]`);
+    await page.waitForSelector('#dlg-autorizacion[open]');
+    await page.fill('#aut-motivo', 'error de captura'); await page.fill('#aut-clave', '8765');
+    await page.click('#form-autorizacion button[type=submit]');
+    await page.waitForFunction(() => /Venta cancelada/.test(document.querySelector('#mensaje-hist')?.textContent ?? ''));
+    assert.match((await page.textContent(`#tabla-ventas tr[data-folio="${folio}"]`))!, /cancelada/);
+    // devolución: otra venta; pide la clave de otra persona
+    const folio2 = await vender();
+    await page.click('#nav button[data-vista="venta"]');
+    await page.click('#btn-devolucion');
+    await page.fill('#bv-folio', String(folio2));
+    await page.click('#form-buscar-venta button[type=submit]');
+    await page.waitForSelector('form[data-sale] input[data-linea]');
+    await page.fill('form[data-sale] input[data-linea]', '1');
+    await page.click('form[data-sale] button[type=submit]');
+    await page.waitForSelector('#dlg-autorizacion[open]');
+    await page.fill('#aut-clave', '8765');
+    await page.click('#form-autorizacion button[type=submit]');
+    await page.waitForSelector('#resumen-devolucion');
+    assert.deepEqual(errores.filter((e) => !/401|403|Failed to load resource/.test(e)), []);
+  });
 });
 
 const REAL = process.env.POS_INVENTARIO_REAL;

@@ -904,6 +904,39 @@ export class Caja {
     this.repo.kvSet(llave, { n: 0, hasta: 0 });
     return cajero;
   }
+  /** Los controles con clave (retiros, cancelar una venta cobrada, devoluciones) se activan en cuanto hay cajeros registrados con clave. */
+  controlesConClave(): boolean {
+    return this.idx.cajeros().some((c) => c.activo);
+  }
+  /**
+   * Autorización de OTRA persona: otro cajero activo o un supervisor activo (por su clave de caja) con su nombre y su clave. Quien hace la operación
+   * no puede autorizarse a sí mismo. Las claves equivocadas se cuentan por autorizador (5 fallos = 5 minutos de bloqueo). Devuelve el nombre registrado.
+   */
+  verificarAutorizador(usuarioActual: string, autoriza: { nombre: string; clave: string } | undefined): string | null {
+    if (!this.controlesConClave()) return null; // sin cajeros registrados no hay a quién pedirle clave: la caja trabaja abierta
+    const nombre = String(autoriza?.nombre ?? '').trim();
+    if (!nombre || !autoriza?.clave) throw new ErrorDominio('AUTORIZACION_REQUERIDA', 'esta operación necesita la clave de otro cajero o de un supervisor');
+    if (nombreClave(nombre) === nombreClave(usuarioActual)) throw new ErrorDominio('AUTORIZADOR_INVALIDO', 'la autorización debe darla otra persona, no quien hace la operación');
+    if (this.idx.cajeros().some((c) => c.activo && nombreClave(c.nombre) === nombreClave(nombre))) return this.verificarClaveCajero(nombre, String(autoriza.clave)).nombre;
+    const sup = this.idx.supervisores().find((s) => s.activo && nombreClave(s.nombre) === nombreClave(nombre));
+    if (!sup) throw new ErrorDominio('AUTORIZADOR_INVALIDO', `«${nombre}» no es un cajero ni un supervisor activo con clave`);
+    const llave = `clavefallos:sup:${nombreClave(sup.nombre)}`;
+    const fallos = this.repo.kvGet<{ n: number; hasta: number }>(llave) ?? { n: 0, hasta: 0 };
+    const ahora = Date.parse(this.ctx.reloj.now());
+    if (fallos.hasta > ahora) throw new ErrorDominio('CLAVE_BLOQUEADA', `demasiados intentos con una clave equivocada: espere ${Math.ceil((fallos.hasta - ahora) / 60000)} minuto(s)`);
+    if (!claveValida(autoriza.clave) || sup.hash !== hashClave(sup.sal, autoriza.clave)) {
+      const n = fallos.n + 1;
+      this.repo.kvSet(llave, n >= 5 ? { n: 0, hasta: ahora + 5 * 60000 } : { n, hasta: 0 });
+      throw new ErrorDominio('CLAVE_INVALIDA', 'la clave de quien autoriza no es correcta');
+    }
+    this.repo.kvSet(llave, { n: 0, hasta: 0 });
+    return sup.nombre;
+  }
+  /** Quién puede autorizar al cajero actual: los demás cajeros activos y los supervisores activos. */
+  autorizadoresPosibles(usuarioActual: string): { nombre: string; tipo: 'cajero' | 'supervisor' }[] {
+    const otro = (n: string) => nombreClave(n) !== nombreClave(usuarioActual);
+    return [...this.idx.cajeros().filter((c) => c.activo && otro(c.nombre)).map((c) => ({ nombre: c.nombre, tipo: 'cajero' as const })), ...this.idx.supervisores().filter((s) => s.activo && otro(s.nombre)).map((s) => ({ nombre: s.nombre, tipo: 'supervisor' as const }))];
+  }
   /** Cajeros activos con clave: si hay al menos uno, la caja pide usuario y clave para abrir. */
   cajerosActivos(): string[] {
     return this.idx.cajeros().filter((c) => c.activo).map((c) => c.nombre);
@@ -1616,15 +1649,16 @@ export class Caja {
    * (importes originales, sin recalcular con otra tasa; un cobro con dólares conserva los dólares recibidos). Para algo anulado ANTES de recibir
    * dinero usar `anularCarrito`.
    */
-  cancelarVenta(saleId: string, motivo: string) {
+  cancelarVenta(saleId: string, motivo: string, usuario = 'cajero', autoriza?: { nombre: string; clave: string }) {
     const v = ventas(this.opsVentas()).get(saleId);
     if (!v || v.tienda !== this.tienda || v.caja !== this.caja) throw new ErrorDominio('PROHIBIDO', 'solo se cancelan ventas de la propia caja');
     if (v.estado === 'cancelada') return v;
     if (v.lineas.some((l) => l.tarjeta_regalo)) throw new ErrorDominio('CANCELACION_BLOQUEADA', 'la venta o recarga de una tarjeta de regalo no se cancela (pendiente de definir)');
     if (devoluciones(this.opsDe('return.registered')).some((x) => x.sale_id === saleId)) throw new ErrorDominio('CANCELACION_BLOQUEADA', 'la venta ya tiene devoluciones: no se cancela completa, se sigue devolviendo');
+    const autorizo = this.verificarAutorizador(usuario, autoriza); // cancelar una venta ya cobrada la autoriza otra persona
     const reembolsos = this.repartirReembolso(v, v.total, [], 0);
     this.repo.tx(() => {
-      this.emitir('sale.cancelled', { sale_id: saleId, motivo, reembolsos }, `cancel:${saleId}`);
+      this.emitir('sale.cancelled', { sale_id: saleId, motivo, reembolsos, cancelo: usuario, ...(autorizo ? { autorizado_por: autorizo } : {}) }, `cancel:${saleId}`);
       for (const p of v.pagos) {
         if (p.metodo === 'tarjeta_regalo') this.emitir('giftcard.reintegro', { codigo: p.tarjeta, monto: p.monto, sale_id: saleId, tienda: this.tienda, caja: this.caja, motivo: 'cancelacion' }, `gcre:${saleId}:${p.tarjeta}`);
       }
@@ -1792,10 +1826,11 @@ export class Caja {
   }
 
   // ── devoluciones ──
-  devolver(d: { sale_id: string; renglones: { linea_id: string; qty: number }[]; motivo: string; devolucion_id?: string; ventaSnapshot?: Venta; cajero?: string }): Devolucion {
+  devolver(d: { sale_id: string; renglones: { linea_id: string; qty: number }[]; motivo: string; devolucion_id?: string; ventaSnapshot?: Venta; cajero?: string; autoriza?: { nombre: string; clave: string } }): Devolucion {
     const id = d.devolucion_id ?? uuid();
     const previa = this.repo.getOp(`ret:${id}`);
     if (previa) return { ...previa.payload, ocurrio_en: previa.ocurrio_en };
+    const autorizo = this.verificarAutorizador(d.cajero ?? 'cajero', d.autoriza); // una devolución la autoriza otra persona
     const local = this.opsDe('sale.confirmed', 'sale.cancelled', 'return.registered');
     let venta = ventas(local).get(d.sale_id) ?? null;
     let verificacion = 'local';
@@ -1846,7 +1881,7 @@ export class Caja {
       const payload = {
         devolucion_id: id, sale_id: d.sale_id, tienda: this.tienda, caja: this.caja, folio,
         tienda_origen: venta.tienda, caja_origen: venta.caja, folio_origen: venta.folio,
-        lineas, importe, reembolsos, motivo: d.motivo, cajero: d.cajero ?? 'cajero', verificacion,
+        lineas, importe, reembolsos, motivo: d.motivo, cajero: d.cajero ?? 'cajero', verificacion, ...(autorizo ? { autorizado_por: autorizo } : {}),
       };
       const o = this.emitir('return.registered', payload, `ret:${id}`);
       for (const r of reembolsos) {
@@ -1889,10 +1924,11 @@ export class Caja {
    * el corte lo descuenta; el registro `cash.retiro` guarda el desglose y el efectivo de venta antes y después. Reintentar con el mismo
    * `retiro_id` devuelve el mismo retiro.
    */
-  registrarRetiro(d: { retiro_id: string; mxn?: Record<string, number>; usd?: Record<string, number>; usuario: string }): RetiroRegistrado {
+  registrarRetiro(d: { retiro_id: string; mxn?: Record<string, number>; usd?: Record<string, number>; usuario: string; clave?: string }): RetiroRegistrado {
     if (!d.retiro_id) throw new ErrorDominio('DATOS_REQUERIDOS', 'falta la referencia del retiro');
     const previo = this.repo.getOp(`retiro:${d.retiro_id}`);
     if (previo) return { ...previo.payload, ocurrio_en: previo.ocurrio_en } as RetiroRegistrado;
+    if (this.controlesConClave()) this.verificarClaveCajero(d.usuario, String(d.clave ?? '')); // un retiro lo confirma el propio cajero con su clave
     const limpia = (x: Record<string, number> | undefined, permitidas: readonly number[], moneda: string) => {
       const out: Record<string, number> = {};
       for (const [k, n] of Object.entries(x ?? {})) {
