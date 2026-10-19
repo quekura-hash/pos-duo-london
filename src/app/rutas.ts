@@ -43,7 +43,7 @@ export async function atender(o: { cajero?: ServicioCaja; admin?: ServicioAdmin 
       case 'POST /api/admin/config-sesion': return ok({ config: exigirAdmin().guardarConfigSesion({ caja_min: Number(b.caja_min), admin_min: Number(b.admin_min) }) });
       case 'POST /api/logout': return ok(C ? C.cerrarSesion() : A ? A.cerrarSesion() : (() => { throw new ErrorDominio('PROHIBIDO', 'no hay sesión'); })());
       case 'GET /api/admin/administradores': return ok(exigirAdmin().administradores());
-      case 'POST /api/admin/administradores': return ok(exigirAdmin().guardarAdmin({ id: b.id, nombre: b.nombre, clave: b.clave === undefined ? undefined : String(b.clave), activo: b.activo === undefined ? undefined : !!b.activo, rol: b.rol, clave_caja: b.clave_caja === undefined ? undefined : String(b.clave_caja) }));
+      case 'POST /api/admin/administradores': return ok(exigirAdmin().guardarAdmin({ id: b.id, nombre: b.nombre, clave: b.clave === undefined ? undefined : String(b.clave), activo: b.activo === undefined ? undefined : !!b.activo, rol: b.rol, clave_caja: b.clave_caja === undefined ? undefined : String(b.clave_caja), perfil: b.perfil }));
       case 'GET /api/sesion':
         return ok(C
           ? { rol: 'cajero', ...C.sesionInfo(), usuario: C.autenticada() ? C.actor.usuario : null, tienda: C.caja.tienda, caja: C.caja.caja, nav: ['venta', 'retiro', 'ventas', 'corte', ...(C.caja.cfg.metodos.includes('tarjeta_regalo') ? ['tarjetas'] : [])] }
@@ -79,6 +79,8 @@ export async function atender(o: { cajero?: ServicioCaja; admin?: ServicioAdmin 
       case 'POST /api/retiro': return ok(await exigirCajero().registrarRetiro({ retiro_id: String(b.retiro_id ?? ''), mxn: b.mxn ?? {}, usd: b.usd ?? {}, clave: b.clave === undefined ? undefined : String(b.clave) }));
       case 'POST /api/retiro/reimprimir': return ok(await exigirCajero().reimprimirRetiro(String(b.retiro_id ?? '')));
       case 'POST /api/venta/anular': return ok(exigirCajero().anularVenta(b.cart, String(b.motivo ?? 'anulada')));
+      case 'GET /api/venta/vendedoras': return ok(exigirCajero().vendedoras());
+      case 'POST /api/venta/vendedora': return ok(exigirCajero().asignarVendedora(b.cart, b.vendedora_id ?? null));
       case 'POST /api/venta/cambio/iniciar': return ok(exigirCajero().iniciarCambio(b.cart, String(b.sale_id ?? ''), b.renglones ?? []));
       case 'POST /api/venta/cambio/quitar': return ok(exigirCajero().quitarCambio(b.cart));
       case 'GET /api/venta/autorizadores-efectivo': return ok(exigirCajero().autorizadoresEfectivo());
@@ -117,6 +119,7 @@ export async function atender(o: { cajero?: ServicioCaja; admin?: ServicioAdmin 
       case 'POST /api/sincronizar': return ok({ conexion: await exigirCajero().sincronizar() });
       // ── administración ──
       case 'GET /api/admin/cajas': return ok({ cajas: exigirAdmin().cajas });
+      case 'POST /api/admin/reporte-vendedoras': return ok(exigirAdmin().reporteVendedoras({ cajas: b.cajas, desde: b.desde, hasta: b.hasta }));
       case 'POST /api/admin/reporte': return ok({ reporte: exigirAdmin().reporte({ cajas: b.cajas, desde: b.desde, hasta: b.hasta }) });
       case 'GET /api/admin/tipo-cambio': return ok(exigirAdmin().tipoCambio());
       case 'POST /api/admin/tipo-cambio': return ok(exigirAdmin().fijarTipoCambio(Number(b.tasa), !!b.confirmar));
@@ -129,7 +132,7 @@ export async function atender(o: { cajero?: ServicioCaja; admin?: ServicioAdmin 
       case 'GET /api/admin/promociones': return ok(exigirAdmin().promociones());
       case 'POST /api/admin/promociones': return ok(exigirAdmin().guardarPromocion(b as any));
       case 'GET /api/admin/cajeros': return ok(exigirAdmin().cajeros());
-      case 'POST /api/admin/cajeros': return ok(exigirAdmin().guardarCajero({ id: b.id, nombre: b.nombre, clave: b.clave === undefined ? undefined : String(b.clave), activo: b.activo === undefined ? undefined : !!b.activo }));
+      case 'POST /api/admin/cajeros': return ok(exigirAdmin().guardarCajero({ id: b.id, nombre: b.nombre, clave: b.clave === undefined ? undefined : String(b.clave), activo: b.activo === undefined ? undefined : !!b.activo, perfil: b.perfil }));
       case 'GET /api/admin/supervisores': return ok(exigirAdmin().supervisores());
       case 'POST /api/admin/supervisores': return ok(exigirAdmin().guardarSupervisor({ id: b.id, nombre: b.nombre, clave: b.clave === undefined ? undefined : String(b.clave), activo: b.activo === undefined ? undefined : !!b.activo }));
       case 'GET /api/admin/almacen': return ok(exigirAdmin().almacen());

@@ -1,4 +1,4 @@
-import { cortesPorCaja, descuentosPorCaja, dolaresPorCaja, reporteConsolidado, ventasPorCaja, type Filtro } from '../consultas.ts';
+import { cortesPorCaja, descuentosPorCaja, dolaresPorCaja, reporteConsolidado, ventasPorCaja, ventasPorVendedora, type Filtro } from '../consultas.ts';
 import { DIAS_URGENTE, diasHasta, entradasDeArticulo, existenciaAlmacen, faltantes, recepcionesPendientes, recordatoriosPiso, reporteEntregas, revisarAlta, type AltaManual } from '../almacen.ts';
 import { DEPARTAMENTOS_BASE, resolverDepartamento } from '../departamentos.ts';
 import { formatoTasa } from '../dinero.ts';
@@ -10,7 +10,7 @@ import { CAMPOS_EDITABLES, catalogo, historialArticulo, nombresTienda, datosTien
 import { hojaDescuentos, hojaEntregas, hojaDolares, hojaInventario, leerInventario, PERFIL_CONFIRMADO, type Hoja } from '../inventario.ts';
 import { LOGOS_TICKET } from '../logos-ticket.ts';
 import { aplicarDatosTienda, codigoTicket, construirTicket, construirTicketRegalo, formatoMXN, NEGOCIOS, renderTextoEscPos, renderTicketDevolucionTexto, renderTicketRetiroTexto, renderTicketEscPos, renderTicketTexto, type NegocioCfg } from '../ticket.ts';
-import { hashClave, nombreClave, type RolAdmin } from '../supervisores.ts';
+import { hashClave, nombreClave, type Perfil, type RolAdmin } from '../supervisores.ts';
 import { LIMBO, type Actor, type Articulo, type Linea, type Op, type Venta } from '../tipos.ts';
 import { fechaLocal } from '../util.ts';
 
@@ -35,6 +35,8 @@ export interface VistaCarrito {
   total: number;
   /** Cambio en curso: piezas que regresa la clienta (se muestran en negativo) y su crédito. `saldo_favor` es lo que sobra si el crédito supera la venta. */
   cambio: { sale_id: string; folio_origen: number; credito: number; aplicado: number; saldo_favor: number; lineas: { linea_id: string; item_id: string; item_no: string | null; codigo: string; descripcion: string; marca: string; estilo: string; qty: number; precio_unit: number; importe: number }[] } | null;
+  /** Quién atendió esta venta (null = todavía no se elige; `id` null = «Clientas»). */
+  vendedora: { id: string | null; alias: string } | null;
   /** Promociones aplicadas y estado del cupón de esta venta. */
   promos: { promo_id: string; nombre: string; tipo: string; monto: number }[];
   cupon: { codigo: string; nombre: string; monto: number; aplicado: boolean; motivo?: string } | null;
@@ -274,6 +276,7 @@ export class ServicioCaja {
         const bruto = c.lineas.reduce((a, l) => a + l.importe, 0);
         return { sale_id: c.cambio.sale_id, folio_origen: c.cambio.folio_origen, credito: c.cambio.credito, aplicado: Math.min(c.cambio.credito, bruto), saldo_favor: Math.max(0, c.cambio.credito - bruto), lineas: c.cambio.lineas };
       })() : null,
+      vendedora: c.vendedora ?? null,
       promos: c.descuentos?.aplicadas ?? [], cupon: c.descuentos?.cupon ?? null,
       tasa: c.tasa ? { version: c.tasa.version, tasa: c.tasa.tasa, texto: formatoTasa(c.tasa.tasa), hay_nueva: (this.caja.tipoCambio()?.version ?? 0) > c.tasa.version } : null,
       existencias: Object.fromEntries(c.lineas.map((l) => { const e = this.caja.existenciaVerificada(l.item_id); return [l.item_id, { saldo: e.saldo, verificada: e.verificada, limbo: this.caja.saldoLimbo(l.item_id) }]; })),
@@ -465,6 +468,14 @@ export class ServicioCaja {
         lineas: (v.lineas_detalle ?? v.lineas).map((l: any) => ({ linea_id: l.linea_id, item_id: l.item_id, descripcion: l.descripcion, qty: l.qty, devuelto: l.devuelto ?? null, importe: l.importe ?? null, marca: l.marca ?? null, item_no: l.item_no ?? null, codigo: l.codigo ?? null, tarjeta_regalo: !!l.tarjeta_regalo })),
       })),
     };
+  }
+  /** «Vendió por»: las personas que pueden figurar como vendedoras (más «Clientas» = nadie ayudó). */
+  vendedoras() {
+    return { vendedoras: this.caja.vendedoras(), pide: this.caja.vendedoras().length > 0 };
+  }
+  asignarVendedora(cartId: string, vendedoraId: string | null) {
+    this.caja.asignarVendedora(cartId, vendedoraId);
+    return { carrito: this.vista(cartId) };
   }
   /** Cambio: las piezas que regresa la clienta quedan en negativo como crédito de ESTA venta. Sin clave; el dinero solo sale con «devolver dinero». */
   iniciarCambio(cartId: string, saleId: string, renglones: { linea_id: string; qty: number }[]) {
@@ -883,9 +894,9 @@ export class ServicioAdmin {
     return /^(GET|POST) \/api\/admin\/(almacen|limbo)(\/|$)/.test(`${metodo} ${ruta}`) || /^GET \/api\/admin\/(inventario|entregas|articulos|articulo\/historial|departamentos|tipo-cambio)$/.test(`${metodo} ${ruta}`) || `${metodo} ${ruta}` === 'POST /api/admin/articulos';
   }
   administradores() {
-    return { administradores: administradoresDe(this.fuente()).map(({ id, nombre, activo, rol }) => ({ id, nombre, activo, rol: rol ?? 'supervisor', clave_caja: supervisoresDe(this.fuente()).some((s) => s.id === `sup-${id.slice(4)}`) })) };
+    return { administradores: administradoresDe(this.fuente()).map(({ id, nombre, activo, rol, perfil }) => ({ id, nombre, activo, perfil: perfil ?? null, rol: rol ?? 'supervisor', clave_caja: supervisoresDe(this.fuente()).some((s) => s.id === `sup-${id.slice(4)}`) })) };
   }
-  guardarAdmin(d: { id?: string; nombre?: string; clave?: string; activo?: boolean; rol?: RolAdmin; clave_caja?: string }) {
+  guardarAdmin(d: { id?: string; nombre?: string; clave?: string; activo?: boolean; rol?: RolAdmin; clave_caja?: string; perfil?: Partial<Perfil> }) {
     if (!this.central) throw new ErrorDominio('SIN_CENTRAL', 'esta sesión no tiene acceso al servicio central');
     const abierta = !this.requiereLogin();
     const r = this.central.guardarAdmin(d, this.actor.usuario);
@@ -895,9 +906,9 @@ export class ServicioAdmin {
     return this.administradores();
   }
   cajeros() {
-    return { cajeros: cajerosDe(this.fuente()).map(({ id, nombre, activo }) => ({ id, nombre, activo })) };
+    return { cajeros: cajerosDe(this.fuente()).map(({ id, nombre, activo, perfil }) => ({ id, nombre, activo, perfil: perfil ?? null })) };
   }
-  guardarCajero(d: { id?: string; nombre?: string; clave?: string; activo?: boolean }) {
+  guardarCajero(d: { id?: string; nombre?: string; clave?: string; activo?: boolean; perfil?: Partial<Perfil> }) {
     if (!this.central) throw new ErrorDominio('SIN_CENTRAL', 'esta sesión no tiene acceso al servicio central');
     const r = this.central.guardarCajero(d, this.actor.usuario);
     if (!r.ok) throw new ErrorDominio(r.error.codigo === 'NO_EXISTE' ? 'NO_ENCONTRADO' : 'CAJERO_INVALIDO', r.error.mensaje, { motivo: r.error.codigo });
@@ -1065,6 +1076,14 @@ export class ServicioAdmin {
   }
   reporte(f: Filtro = {}) {
     return reporteConsolidado(this.actor, this.fuente(), f);
+  }
+  /** Ventas por vendedora con su nombre completo (el alias es lo que se ve en caja; aquí también nombres y apellidos). */
+  reporteVendedoras(f: Filtro = {}) {
+    const ops = this.fuente();
+    const nombres = new Map<string, string>();
+    for (const c of cajerosDe(ops)) if (c.perfil) nombres.set(c.id, `${c.perfil.nombres} ${c.perfil.apellidos}`.trim());
+    for (const a of administradoresDe(ops)) if (a.perfil) nombres.set(`sup-${a.id.slice(4)}`, `${a.perfil.nombres} ${a.perfil.apellidos}`.trim());
+    return { vendedoras: ventasPorVendedora(this.actor, ops, f).map((r) => ({ ...r, nombre_completo: nombres.get(r.clave) ?? '' })) };
   }
   ventas(f: Filtro = {}) {
     return ventasPorCaja(this.actor, this.fuente(), f);

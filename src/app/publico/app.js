@@ -52,6 +52,7 @@ const I = {
   pause: '<path d="M9 5v14M15 5v14"/>',
   store: '<path d="M3 9l1.5-5h15L21 9"/><path d="M3 9a3 3 0 0 0 6 0 3 3 0 0 0 6 0 3 3 0 0 0 6 0"/><path d="M5 12v8h14v-8M10 20v-5h4v5"/>',
   caja: '<rect x="5" y="3" width="14" height="6" rx="1"/><path d="M3 21v-7a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v7zM8 16h.01M12 16h.01M16 16h.01"/>',
+  camera: '<path d="M4 8h3l1.5-2h7L17 8h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13" r="3.5"/>',
   user: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
   calendar: '<rect x="3.5" y="5" width="17" height="15" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4"/>',
   cash: '<rect x="2.5" y="6" width="19" height="12" rx="2"/><circle cx="12" cy="12" r="2.6"/><path d="M6 12h.01M18 12h.01"/>',
@@ -204,6 +205,7 @@ async function vistaVenta() {
       </div>
       <aside class="panel resumen" aria-label="Resumen y cobro">
         <h2>Resumen de venta</h2>
+        <div class="campo" id="bloque-vendio" hidden style="margin:0 0 10px"><label for="vendio-por">Vendió por:</label><select id="vendio-por" style="width:100%;padding:10px;border:2px solid var(--borde);border-radius:10px;background:var(--superficie)"></select><div id="msg-vendio" class="nota" style="margin-top:4px"></div></div>
         <p class="nota" style="margin:0 0 10px"><span id="piezas">0</span> pieza(s)</p>
         <dl>
           <dt>Importe</dt><dd id="brutas">$0.00</dd>
@@ -244,6 +246,8 @@ async function vistaVenta() {
   $('#btn-quitar').addEventListener('click', () => S.sel && accionLinea(S.sel, 'quitar'));
   $('#btn-buscar-ticket').addEventListener('click', () => ir('ventas'));
   $('#btn-devolucion').addEventListener('click', () => ir('devolucion'));
+  $('#vendio-por').addEventListener('change', elegirVendedora);
+  cargarVendedoras();
   $('#btn-devolver-dinero').addEventListener('click', abrirDevolverDinero);
   for (const b of $('#formas').querySelectorAll('button[data-forma]:not(:disabled)')) b.addEventListener('click', () => elegirForma(b.dataset.forma));
   pintarPago();
@@ -387,6 +391,34 @@ function repartoRegalo() {
   return { aplicado, resto: total - aplicado, saldoDespues: saldo - aplicado };
 }
 
+/** «Vendió por»: con empleadas registradas se debe elegir quién atendió a la clienta («Clientas» = nadie la ayudó). Sin clave. */
+async function cargarVendedoras() {
+  try { S.vendedoras = await api('/api/venta/vendedoras'); } catch { S.vendedoras = { vendedoras: [], pide: false }; }
+  pintarVendedora();
+  recalcular();
+}
+const exigeVendedora = () => !!S.vendedoras?.pide && !S.carrito?.vendedora;
+function pintarVendedora() {
+  const bloque = $('#bloque-vendio');
+  if (!bloque) return;
+  const v = S.vendedoras;
+  bloque.hidden = !v?.pide;
+  if (!v?.pide) return;
+  const sel = $('#vendio-por');
+  const actual = S.carrito.vendedora;
+  sel.innerHTML = `<option value="" ${actual ? '' : 'selected'} disabled>Elegir…</option><option value="clientas" ${actual && actual.id === null ? 'selected' : ''}>Clientas</option>${v.vendedoras.map((x) => `<option value="${esc(x.id)}" ${actual?.id === x.id ? 'selected' : ''}>${esc(x.alias)}${x.tipo === 'supervisor' ? ' (supervisor)' : ''}</option>`).join('')}`;
+  $('#msg-vendio').textContent = actual ? '' : 'Elija quién atendió a la clienta; si nadie la ayudó, «Clientas».';
+}
+async function elegirVendedora() {
+  const v = $('#vendio-por').value;
+  try {
+    const r = await api('/api/venta/vendedora', { cart: S.cart, vendedora_id: v === 'clientas' ? null : v });
+    S.carrito = r.carrito;
+    pintarVendedora();
+    recalcular();
+  } catch (e) { msg(e.message, 'error'); }
+}
+
 function pintarCarrito() {
   const c = S.carrito;
   $('#piezas').textContent = c.piezas;
@@ -499,7 +531,8 @@ function recalcular() {
     if ($('#btn-exacto')) $('#btn-exacto').disabled = !hay;
   }
   const saldo = S.carrito.cambio?.saldo_favor ?? 0; // con saldo a favor no se cobra: se agregan artículos o se devuelve el dinero
-  $('#btn-cobrar').disabled = !ok || saldo > 0;
+  $('#btn-cobrar').disabled = !ok || saldo > 0 || (hay && exigeVendedora());
+  pintarVendedora();
   $('#txt-cobrar').textContent = S.carrito.cambio && hay && total === 0 && saldo === 0 ? 'CONFIRMAR CAMBIO' : hay && total === 0 && S.forma !== 'regalo' ? 'REGISTRAR VENTA SIN COBRO' : `COBRAR ${mxn(total)}`;
 }
 
@@ -774,8 +807,8 @@ async function vistaCorte() {
 // ── ventas de la caja ──
 async function vistaVentas() {
   const j = await api('/api/ventas');
-  $('#vista').innerHTML = `<div class="titulo-vista">${ico('clock')}<h1>Historial de mi caja</h1></div><div id="mensaje-hist" class="mensaje" role="status" aria-live="polite"></div><div class="panel"><div class="tabla-cont"><table id="tabla-ventas"><thead><tr><th>Folio</th><th>Fecha</th><th>Vendedora-Cajera</th><th class="num">Total</th><th>Estado</th><th>Impresiones</th><th></th></tr></thead><tbody>
-    ${j.ventas.length ? j.ventas.map((r) => `<tr data-folio="${r.folio}"><td>${String(r.folio).padStart(6, '0')}</td><td>${esc(r.fecha_local)}</td><td>${esc(r.cajero)}</td><td class="num">${mxn(r.total)}</td><td><span class="insignia ${r.estado}">${esc(r.estado)}</span></td><td>${r.impresiones}${r.ultima_impresion === 'error' ? ' (última falló)' : ''}</td><td><button class="btn" type="button" data-ver="${r.sale_id}">${ico('receipt')}<span>Ver ticket</span></button>${r.estado === 'confirmada' ? ` <button class="btn" type="button" data-cambio="${r.folio}" title="La clienta regresa piezas de esta venta y se lleva otras">${ico('undo')}<span>Aceptar cambio</span></button>` : ''}</td></tr>`).join('') : '<tr><td colspan="7" class="vacio">Sin ventas hoy en esta caja.</td></tr>'}
+  $('#vista').innerHTML = `<div class="titulo-vista">${ico('clock')}<h1>Historial de mi caja</h1></div><div id="mensaje-hist" class="mensaje" role="status" aria-live="polite"></div><div class="panel"><div class="tabla-cont"><table id="tabla-ventas"><thead><tr><th>Folio</th><th>Fecha</th><th>Vendedora-Cajera</th><th>Vendió por</th><th class="num">Total</th><th>Estado</th><th>Impresiones</th><th></th></tr></thead><tbody>
+    ${j.ventas.length ? j.ventas.map((r) => `<tr data-folio="${r.folio}"><td>${String(r.folio).padStart(6, '0')}</td><td>${esc(r.fecha_local)}</td><td>${esc(r.cajero)}</td><td data-col="vendio">${esc(r.vendedora || '—')}</td><td class="num">${mxn(r.total)}</td><td><span class="insignia ${r.estado}">${esc(r.estado)}</span></td><td>${r.impresiones}${r.ultima_impresion === 'error' ? ' (última falló)' : ''}</td><td><button class="btn" type="button" data-ver="${r.sale_id}">${ico('receipt')}<span>Ver ticket</span></button>${r.estado === 'confirmada' ? ` <button class="btn" type="button" data-cambio="${r.folio}" title="La clienta regresa piezas de esta venta y se lleva otras">${ico('undo')}<span>Aceptar cambio</span></button>` : ''}</td></tr>`).join('') : '<tr><td colspan="8" class="vacio">Sin ventas hoy en esta caja.</td></tr>'}
     </tbody></table></div></div>`;
   for (const b of $('#vista').querySelectorAll('[data-cambio]')) b.addEventListener('click', async () => { S.buscarFolio = b.dataset.cambio; await ir('devolucion'); });
   for (const b of $('#vista').querySelectorAll('[data-ver]')) {
@@ -820,6 +853,11 @@ async function vistaReportes() {
       ${r.porCaja.map((c) => `<tr><td>${esc(c.tienda)}</td><td>${c.caja}</td><td class="num">${c.tickets}</td><td class="num">${mxn(c.total)}</td></tr>`).join('')}
       <tr><th colspan="3" scope="row">Total consolidado</th><td class="num" id="total-consolidado"><b>${mxn(r.total)}</b></td></tr></tbody></table>
       <p class="nota">Sin tarjetas de regalo vendidas ni recargadas: <b id="total-mercancia">${mxn(r.total_mercancia)}</b>. Lo cobrado con una tarjeta de regalo ya cuenta como venta de mercancía; la venta de la tarjeta no.</p></div>`;
+    const { vendedoras } = await api('/api/admin/reporte-vendedoras', { cajas: sel, desde: $('#desde').value, hasta: $('#hasta').value });
+    $('#resultado').insertAdjacentHTML('beforeend', `<div class="panel" style="margin-top:12px"><h2 style="margin-top:0">Ventas por vendedora</h2>
+      <p class="nota">Por quien atendió a la clienta («Vendió por»), no por quien cobró. Lo devuelto o cambiado se resta a quien vendió la pieza. «Clientas» = nadie ayudó.</p>
+      <div class="tabla-cont"><table id="tabla-vendedoras"><thead><tr><th>Vendedora</th><th class="num">Tickets</th><th class="num">Piezas</th><th class="num">Vendido</th><th class="num">Devuelto / cambiado</th><th class="num">Neto</th></tr></thead><tbody>
+      ${vendedoras.map((v) => `<tr data-vendedora="${esc(v.clave)}"><td><b>${esc(v.alias)}</b>${v.nombre_completo ? `<br><small>${esc(v.nombre_completo)}</small>` : ''}</td><td class="num">${v.tickets}</td><td class="num">${v.piezas}</td><td class="num">${mxn(v.vendido)}</td><td class="num">${v.devuelto ? `-${mxn(v.devuelto)}` : mxn(0)}</td><td class="num"><b>${mxn(v.neto)}</b></td></tr>`).join('') || '<tr><td colspan="6" class="vacio">Sin ventas en el periodo.</td></tr>'}</tbody></table></div></div>`);
   });
 }
 
@@ -1101,6 +1139,7 @@ async function quitarCambio() {
 async function abrirDevolverDinero() {
   const monto = S.carrito.cambio?.saldo_favor ?? 0;
   if (!(monto > 0)) return;
+  if (S.carrito.lineas.length && exigeVendedora()) return msg('Elija quién vendió antes de continuar.', 'aviso');
   const a = await api('/api/venta/autorizadores-efectivo');
   const d = dialogo('dlg-devolver-dinero');
   d.setAttribute('aria-labelledby', 'dd-titulo');
@@ -2272,27 +2311,133 @@ async function vistaConfiguracion(tab) {
   await ({ tiendas: vistaTiendas, departamentos: vistaDepartamentos, tipo_cambio: vistaTipoCambio, cajeros: vistaCajeros })[tab]();
 }
 
-// ── Cajeros: nombre (el del usuario de la caja) y clave propia ──
+// ── Registro de empleadas: alias (el «Usuario»), datos completos y foto con la cámara de la PC ──
+const avatar = (x, tam = 44) => (x.perfil?.foto
+  ? `<img src="${esc(x.perfil.foto)}" alt="Foto de ${esc(x.nombre)}" style="width:${tam}px;height:${tam}px;border-radius:50%;object-fit:cover;flex:none">`
+  : `<span aria-hidden="true" style="width:${tam}px;height:${tam}px;border-radius:50%;background:var(--superficie-2);display:inline-flex;align-items:center;justify-content:center;flex:none">${ico('user')}</span>`);
+const nombreCompleto = (x) => [x.perfil?.nombres, x.perfil?.apellidos].filter(Boolean).join(' ');
+const celdaPersona = (x) => `<div style="display:flex;gap:10px;align-items:center">${avatar(x)}<div><b data-alias>${esc(x.nombre)}</b><br><small data-nombre-completo>${nombreCompleto(x) ? esc(nombreCompleto(x)) : '<span class="nota">sin datos completos</span>'}</small>${x.perfil?.telefono ? `<br><small>${esc(x.perfil.telefono)}</small>` : ''}</div></div>`;
+const perfilCampos = (p) => `<div class="campo"><label for="${p}-nombres">Nombres</label><input id="${p}-nombres" class="texto" maxlength="60" autocomplete="off"></div>
+  <div class="campo"><label for="${p}-apellidos">Apellidos</label><input id="${p}-apellidos" class="texto" maxlength="60" autocomplete="off"></div>
+  <div class="campo"><label for="${p}-telefono">Teléfono</label><input id="${p}-telefono" class="texto" inputmode="tel" maxlength="20" autocomplete="off"></div>
+  <div class="campo"><label for="${p}-direccion">Dirección</label><input id="${p}-direccion" class="texto" maxlength="160" autocomplete="off"></div>
+  <div class="campo"><label for="${p}-foto-btn">Foto</label><div class="filas" style="align-items:center"><span id="${p}-foto-img"></span><button class="btn" type="button" id="${p}-foto-btn">${ico('camera')}<span>Tomar foto</span></button></div></div>`;
+/** Conecta los campos del perfil (con prefijo `p`): valores iniciales, botón de foto y lectura de lo capturado. */
+function perfilEnlazar(p, inicial) {
+  const v = inicial ?? {};
+  for (const k of ['nombres', 'apellidos', 'telefono', 'direccion']) $(`#${p}-${k}`).value = v[k] ?? '';
+  let foto = v.foto ?? null;
+  let cambio = false;
+  const pintar = () => {
+    $(`#${p}-foto-img`).innerHTML = foto ? `<img id="${p}-foto" src="${esc(foto)}" alt="Foto tomada" style="width:56px;height:56px;border-radius:50%;object-fit:cover">` : '';
+    $(`#${p}-foto-btn span`).textContent = foto ? 'Cambiar foto' : 'Tomar foto';
+  };
+  pintar();
+  $(`#${p}-foto-btn`).addEventListener('click', async () => { const f = await tomarFoto(); if (f) { foto = f; cambio = true; pintar(); } });
+  return {
+    leer: () => ({ nombres: $(`#${p}-nombres`).value, apellidos: $(`#${p}-apellidos`).value, telefono: $(`#${p}-telefono`).value, direccion: $(`#${p}-direccion`).value, ...(cambio ? { foto } : {}) }),
+    completo: () => !!$(`#${p}-nombres`).value.trim() && !!$(`#${p}-apellidos`).value.trim(),
+  };
+}
+/** Foto con la cámara de la PC; si no hay cámara o no se autoriza, se elige un archivo. Devuelve un JPEG de 240×240 (data URL) o null. */
+function tomarFoto() {
+  return new Promise((fin) => {
+    const d = dialogo('dlg-foto');
+    d.setAttribute('aria-labelledby', 'foto-titulo');
+    d.innerHTML = `<h2 id="foto-titulo" style="margin-top:0">Foto</h2>
+      <div style="position:relative;width:100%;max-width:300px;aspect-ratio:1;margin:0 auto;background:#000;border-radius:12px;overflow:hidden">
+        <video id="foto-video" autoplay playsinline muted style="width:100%;height:100%;object-fit:cover"></video>
+        <img id="foto-previa" alt="Foto tomada" hidden style="width:100%;height:100%;object-fit:cover;position:absolute;inset:0"></div>
+      <div id="msg-foto" class="mensaje" role="status" aria-live="polite"></div>
+      <div class="filas" style="margin-top:8px;align-items:center">
+        <button class="btn" type="button" id="foto-cancelar">${ico('x')}<span>Cancelar</span></button>
+        <label class="btn" for="foto-archivo" id="foto-archivo-lbl" style="cursor:pointer">${ico('upload')}<span>Elegir archivo</span></label><input type="file" id="foto-archivo" accept="image/*" hidden>
+        <button class="btn" type="button" id="foto-repetir" hidden>${ico('refresh')}<span>Repetir</span></button>
+        <button class="btn btn-primario" type="button" id="foto-capturar" disabled style="width:auto;flex:1">${ico('camera')}<span>Tomar foto</span></button>
+        <button class="btn btn-primario" type="button" id="foto-usar" hidden style="width:auto;flex:1">${ico('check')}<span>Usar esta foto</span></button></div>`;
+    let stream = null;
+    let resultado = null;
+    const recortar = (fuente, ancho, alto) => {
+      const c = document.createElement('canvas');
+      c.width = c.height = 240;
+      const lado = Math.min(ancho, alto);
+      c.getContext('2d').drawImage(fuente, (ancho - lado) / 2, (alto - lado) / 2, lado, lado, 0, 0, 240, 240);
+      return c.toDataURL('image/jpeg', 0.8);
+    };
+    const mostrar = (url) => { resultado = url; $('#foto-previa').src = url; $('#foto-previa').hidden = false; $('#foto-capturar').hidden = true; $('#foto-usar').hidden = false; $('#foto-repetir').hidden = false; };
+    const cerrar = () => { stream?.getTracks().forEach((t) => t.stop()); stream = null; if (d.open) d.close(); fin(null); };
+    d.addEventListener('close', () => { stream?.getTracks().forEach((t) => t.stop()); stream = null; }, { once: true });
+    $('#foto-cancelar').addEventListener('click', cerrar);
+    d.addEventListener('cancel', cerrar, { once: true });
+    $('#foto-repetir').addEventListener('click', () => { resultado = null; $('#foto-previa').hidden = true; $('#foto-capturar').hidden = false; $('#foto-usar').hidden = true; $('#foto-repetir').hidden = true; });
+    $('#foto-usar').addEventListener('click', () => { const r = resultado; stream?.getTracks().forEach((t) => t.stop()); stream = null; d.close(); fin(r); });
+    $('#foto-capturar').addEventListener('click', () => { const v = $('#foto-video'); if (v.videoWidth) mostrar(recortar(v, v.videoWidth, v.videoHeight)); });
+    $('#foto-archivo').addEventListener('change', async (ev) => {
+      const f = ev.target.files[0];
+      if (!f) return;
+      try { const b = await createImageBitmap(f); mostrar(recortar(b, b.width, b.height)); }
+      catch { const m = $('#msg-foto'); m.className = 'mensaje error'; m.textContent = 'No se pudo leer esa imagen.'; }
+    });
+    d.showModal();
+    const m = $('#msg-foto');
+    if (!navigator.mediaDevices?.getUserMedia) { m.className = 'mensaje aviso'; m.textContent = 'Este equipo no permite usar la cámara aquí: elija un archivo.'; return; }
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } }, audio: false }).then((st) => {
+      if (!d.open) { st.getTracks().forEach((t) => t.stop()); return; }
+      stream = st;
+      $('#foto-video').srcObject = st;
+      $('#foto-capturar').disabled = false;
+    }).catch((e) => { m.className = 'mensaje aviso'; m.textContent = `No se pudo usar la cámara (${e?.name === 'NotAllowedError' ? 'sin permiso' : 'no hay cámara'}). Elija un archivo.`; });
+  });
+}
+/** Edita los datos de una persona ya registrada (alias, nombres, apellidos, teléfono, dirección y foto). */
+function abrirEditarEmpleado(tipo, x, recargar) {
+  const d = dialogo('dlg-empleado');
+  d.setAttribute('aria-labelledby', 'emp-titulo');
+  d.innerHTML = `<h2 id="emp-titulo" style="margin-top:0">Datos de ${esc(x.nombre)}</h2>
+    <form id="form-empleado" autocomplete="off">
+      <div class="campo"><label for="ed-alias">Usuario (alias)</label><input id="ed-alias" class="texto" maxlength="40"></div>
+      ${perfilCampos('ed')}
+      <div id="msg-emp" class="mensaje" role="alert"></div>
+      <div class="filas"><button class="btn" type="button" id="emp-cerrar">Cancelar</button><button class="btn btn-primario" type="submit" id="emp-guardar" style="width:auto;flex:1">${ico('check')}<span>Guardar datos</span></button></div></form>`;
+  $('#ed-alias').value = x.nombre;
+  const f = perfilEnlazar('ed', x.perfil ?? undefined);
+  $('#emp-cerrar').addEventListener('click', () => d.close());
+  $('#form-empleado').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const m = $('#msg-emp');
+    if (!$('#ed-alias').value.trim()) { m.className = 'mensaje error'; m.textContent = 'Escriba el usuario (alias).'; return; }
+    if (!f.completo()) { m.className = 'mensaje error'; m.textContent = 'Escriba los nombres y los apellidos.'; return; }
+    try {
+      await api(tipo === 'admin' ? '/api/admin/administradores' : '/api/admin/cajeros', { id: x.id, ...($('#ed-alias').value.trim() !== x.nombre ? { nombre: $('#ed-alias').value } : {}), perfil: f.leer() });
+      d.close();
+      await recargar();
+    } catch (e) { m.className = 'mensaje error'; m.textContent = e.message; }
+  });
+  d.showModal();
+  $('#ed-nombres').focus();
+}
+
+// ── Usuarios: alias, datos completos y clave propia ──
 async function vistaCajeros() {
   const [{ cajeros }, { administradores }, { config }] = await Promise.all([api('/api/admin/cajeros'), api('/api/admin/administradores'), api('/api/admin/config-sesion')]);
   cuerpoVista().innerHTML = `<div class="titulo-vista">${ico('user')}<h1>Usuarios</h1></div>
     <section class="panel" id="panel-admins" style="margin-bottom:12px"><h2 style="margin-top:0">Supervisores y almacenistas (entran a Administración)</h2>
       <p class="nota" style="margin-top:0">${administradores.some((a) => a.activo) ? '<b>Supervisor</b>: ve todo Administración y autoriza operaciones en la caja con su clave de caja (4 a 8 dígitos). <b>Almacenista</b>: solo Inventario y Almacén, y no cambia precios. Entran con su usuario y contraseña (6 a 40 caracteres), que solo viven en el servidor central. Las Vendedoras-Cajeras no entran a Administración.' : '<b>Esta consola está abierta: cualquiera que la abra puede entrar.</b> Cree el primer usuario (debe ser supervisor) para que pida usuario y contraseña. Quien lo crea queda dentro.'}</p>
       <div id="msg-admins" class="mensaje" role="status" aria-live="polite"></div>
-      <div class="tabla-cont"><table id="tabla-admins"><thead><tr><th>Nombre</th><th>Rol</th><th>Estado</th><th>Nueva contraseña</th><th>Clave de caja</th><th></th></tr></thead><tbody>
-      ${administradores.map((x) => `<tr data-admin="${esc(x.id)}" data-rol="${x.rol}"><td>${esc(x.nombre)}</td><td>${x.rol === 'almacenista' ? 'Almacenista' : 'Supervisor'}</td><td>${x.activo ? 'Activo' : 'Desactivado'}</td><td><input type="password" class="a-clave" placeholder="dejar vacío = no cambiar" aria-label="Nueva contraseña de ${esc(x.nombre)}" style="padding:4px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie)"></td><td>${x.rol === 'supervisor' ? `<input type="password" inputmode="numeric" class="a-clave-caja" placeholder="${x.clave_caja ? 'dejar vacío = no cambiar' : 'sin clave: no autoriza en la caja'}" aria-label="Clave de caja de ${esc(x.nombre)}" style="padding:4px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie)">` : '—'}</td>
-        <td class="filas" style="flex-wrap:nowrap"><button class="btn a-guardar" type="button">${ico('check')}<span>Guardar cambios</span></button><button class="btn a-activo" type="button">${x.activo ? 'Desactivar' : 'Activar'}</button></td></tr>`).join('') || '<tr><td colspan="6" class="vacio">Aún no hay usuarios de Administración.</td></tr>'}</tbody></table></div>
-      <form id="form-admin" class="filas" style="margin-top:12px;align-items:flex-end"><div class="campo"><label for="adm-nombre">Nombre</label><input id="adm-nombre" class="texto" maxlength="40" autocomplete="off"></div><div class="campo"><label for="adm-clave">Contraseña</label><input id="adm-clave" type="password" autocomplete="new-password"></div>
+      <div class="tabla-cont"><table id="tabla-admins"><thead><tr><th>Usuario y datos</th><th>Rol</th><th>Estado</th><th>Nueva contraseña</th><th>Clave de caja</th><th></th></tr></thead><tbody>
+      ${administradores.map((x) => `<tr data-admin="${esc(x.id)}" data-rol="${x.rol}"><td>${celdaPersona(x)}</td><td>${x.rol === 'almacenista' ? 'Almacenista' : 'Supervisor'}</td><td>${x.activo ? 'Activo' : 'Desactivado'}</td><td><input type="password" class="a-clave" placeholder="dejar vacío = no cambiar" aria-label="Nueva contraseña de ${esc(x.nombre)}" style="padding:4px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie)"></td><td>${x.rol === 'supervisor' ? `<input type="password" inputmode="numeric" class="a-clave-caja" placeholder="${x.clave_caja ? 'dejar vacío = no cambiar' : 'sin clave: no autoriza en la caja'}" aria-label="Clave de caja de ${esc(x.nombre)}" style="padding:4px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie)">` : '—'}</td>
+        <td class="filas" style="flex-wrap:nowrap"><button class="btn a-guardar" type="button">${ico('check')}<span>Guardar cambios</span></button><button class="btn a-editar" type="button">${ico('pencil')}<span>Editar datos</span></button><button class="btn a-activo" type="button">${x.activo ? 'Desactivar' : 'Activar'}</button></td></tr>`).join('') || '<tr><td colspan="6" class="vacio">Aún no hay usuarios de Administración.</td></tr>'}</tbody></table></div>
+      <form id="form-admin" class="filas" style="margin-top:12px;align-items:flex-end"><div class="campo"><label for="adm-nombre">Usuario (alias)</label><input id="adm-nombre" class="texto" maxlength="40" autocomplete="off"></div>${perfilCampos('adm')}<div class="campo"><label for="adm-clave">Contraseña</label><input id="adm-clave" type="password" autocomplete="new-password"></div>
         <div class="campo"><label for="adm-rol">Rol</label><select id="adm-rol" style="padding:10px;border:2px solid var(--borde);border-radius:10px;background:var(--superficie)"><option value="supervisor">Supervisor</option><option value="almacenista" ${administradores.length ? '' : 'disabled'}>Almacenista</option></select></div>
         <div class="campo" id="adm-caja-campo"><label for="adm-clave-caja">Clave de caja (4 a 8 dígitos)</label><input id="adm-clave-caja" type="password" inputmode="numeric" autocomplete="off"></div>
         <button class="btn btn-primario" id="btn-adm" type="submit" style="width:auto">${ico('plus')}<span>Agregar usuario</span></button></form></section>
     <h2>Vendedoras-Cajeras</h2>
-    <p class="nota">Cada Vendedora-Cajera tiene su propia clave (4 a 8 dígitos) para confirmar operaciones a su nombre, como dar de alta un artículo en la caja. El nombre debe ser el del usuario con el que entra a la caja. La clave no se puede volver a ver: si se olvida, se cambia.</p>
+    <p class="nota">Cada Vendedora-Cajera tiene su propia clave (4 a 8 dígitos) para confirmar operaciones a su nombre, como dar de alta un artículo en la caja. El <b>usuario (alias)</b> es con el que entra a la caja y el que sale en tickets y reportes; los nombres, apellidos, teléfono, dirección y foto son su registro. La clave no se puede volver a ver: si se olvida, se cambia.</p>
     <div id="msg-cajeros" class="mensaje" role="status" aria-live="polite"></div>
-    <div class="tabla-cont"><table id="tabla-cajeros"><thead><tr><th>Nombre</th><th>Estado</th><th>Nueva clave</th><th></th></tr></thead><tbody>
-    ${cajeros.map((x) => `<tr data-cajero="${esc(x.id)}"><td>${esc(x.nombre)}</td><td>${x.activo ? 'Activo' : 'Desactivado'}</td><td><input type="password" inputmode="numeric" class="c-clave" placeholder="dejar vacío = no cambiar" aria-label="Nueva clave de ${esc(x.nombre)}" style="padding:4px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie)"></td>
-      <td class="filas" style="flex-wrap:nowrap"><button class="btn c-guardar" type="button">${ico('check')}<span>Cambiar clave</span></button><button class="btn c-activo" type="button">${x.activo ? 'Desactivar' : 'Activar'}</button></td></tr>`).join('') || '<tr><td colspan="4" class="vacio">Aún no hay Vendedoras-Cajeras con clave: sin ella nadie puede dar de alta artículos en la caja.</td></tr>'}</tbody></table></div>
-    <form id="form-cajero" class="filas" style="margin-top:12px;align-items:flex-end"><div class="campo"><label for="caj-nombre">Nombre de la Vendedora-Cajera</label><input id="caj-nombre" class="texto" maxlength="40"></div><div class="campo"><label for="caj-clave">Clave</label><input id="caj-clave" type="password" inputmode="numeric" autocomplete="off"></div>
+    <div class="tabla-cont"><table id="tabla-cajeros"><thead><tr><th>Usuario y datos</th><th>Estado</th><th>Nueva clave</th><th></th></tr></thead><tbody>
+    ${cajeros.map((x) => `<tr data-cajero="${esc(x.id)}"><td>${celdaPersona(x)}</td><td>${x.activo ? 'Activo' : 'Desactivado'}</td><td><input type="password" inputmode="numeric" class="c-clave" placeholder="dejar vacío = no cambiar" aria-label="Nueva clave de ${esc(x.nombre)}" style="padding:4px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie)"></td>
+      <td class="filas" style="flex-wrap:nowrap"><button class="btn c-guardar" type="button">${ico('check')}<span>Cambiar clave</span></button><button class="btn c-editar" type="button">${ico('pencil')}<span>Editar datos</span></button><button class="btn c-activo" type="button">${x.activo ? 'Desactivar' : 'Activar'}</button></td></tr>`).join('') || '<tr><td colspan="4" class="vacio">Aún no hay Vendedoras-Cajeras con clave: sin ella nadie puede dar de alta artículos en la caja.</td></tr>'}</tbody></table></div>
+    <form id="form-cajero" class="filas" style="margin-top:12px;align-items:flex-end"><div class="campo"><label for="caj-nombre">Usuario (alias)</label><input id="caj-nombre" class="texto" maxlength="40"></div>${perfilCampos('caj')}<div class="campo"><label for="caj-clave">Clave</label><input id="caj-clave" type="password" inputmode="numeric" autocomplete="off"></div>
       <button class="btn btn-primario" id="btn-caj" type="submit" style="width:auto">${ico('plus')}<span>Agregar Vendedora-Cajera</span></button></form>
     <section class="panel" id="panel-inactividad" style="margin-top:16px"><h2 style="margin-top:0">Cierre de sesión por inactividad</h2>
       <p class="nota" style="margin-top:0">Si nadie toca la pantalla durante estos minutos, la sesión se cierra y hay que volver a entrar. Un minuto antes aparece un aviso con «Seguir trabajando». La venta con artículos queda en «Venta en espera». <b>0 = nunca se cierra.</b></p>
@@ -2307,11 +2452,13 @@ async function vistaCajeros() {
   });
   $('#adm-rol').addEventListener('change', () => { $('#adm-caja-campo').hidden = $('#adm-rol').value !== 'supervisor'; });
   const msgA = (t, tipo = 'error') => { const m = $('#msg-admins'); m.className = `mensaje ${tipo}`; m.textContent = t; };
+  const perfilAdm = perfilEnlazar('adm');
   $('#form-admin').addEventListener('submit', async (ev) => {
     ev.preventDefault();
     const eraAbierta = !administradores.some((a) => a.activo);
+    if (!perfilAdm.completo()) return msgA('Escriba los nombres y los apellidos.');
     try {
-      await api('/api/admin/administradores', { nombre: $('#adm-nombre').value, clave: $('#adm-clave').value, rol: $('#adm-rol').value, ...($('#adm-rol').value === 'supervisor' && $('#adm-clave-caja').value ? { clave_caja: $('#adm-clave-caja').value } : {}) });
+      await api('/api/admin/administradores', { nombre: $('#adm-nombre').value, perfil: perfilAdm.leer(), clave: $('#adm-clave').value, rol: $('#adm-rol').value, ...($('#adm-rol').value === 'supervisor' && $('#adm-clave-caja').value ? { clave_caja: $('#adm-clave-caja').value } : {}) });
       if (eraAbierta) { S.sesion = await api('/api/sesion'); await pintarEncabezado(); }
       await vistaCajeros(); msgA('Administrador agregado.', 'ok');
     } catch (e) { msgA(e.message); }
@@ -2325,14 +2472,17 @@ async function vistaCajeros() {
       if (!clave && !claveCaja) return msgA('Escriba la nueva contraseña o la nueva clave de caja.');
       try { await api('/api/admin/administradores', { id, ...(clave ? { clave } : {}), ...(claveCaja ? { clave_caja: claveCaja } : {}) }); await vistaCajeros(); msgA('Cambios guardados.', 'ok'); } catch (e) { msgA(e.message); }
     });
+    tr.querySelector('.a-editar').addEventListener('click', () => abrirEditarEmpleado('admin', administradores.find((c) => c.id === id), vistaCajeros));
     tr.querySelector('.a-activo').addEventListener('click', async () => {
       try { await api('/api/admin/administradores', { id, activo: !activo }); S.sesion = await api('/api/sesion'); await vistaCajeros(); } catch (e) { msgA(e.message); }
     });
   }
   const msgC = (t, tipo = 'error') => { const m = $('#msg-cajeros'); m.className = `mensaje ${tipo}`; m.textContent = t; };
+  const perfilCaj = perfilEnlazar('caj');
   $('#form-cajero').addEventListener('submit', async (ev) => {
     ev.preventDefault();
-    try { await api('/api/admin/cajeros', { nombre: $('#caj-nombre').value, clave: $('#caj-clave').value }); await vistaCajeros(); msgC('Vendedora-Cajera agregada.', 'ok'); } catch (e) { msgC(e.message); }
+    if (!perfilCaj.completo()) return msgC('Escriba los nombres y los apellidos.');
+    try { await api('/api/admin/cajeros', { nombre: $('#caj-nombre').value, clave: $('#caj-clave').value, perfil: perfilCaj.leer() }); await vistaCajeros(); msgC('Vendedora-Cajera agregada.', 'ok'); } catch (e) { msgC(e.message); }
   });
   for (const tr of $('#tabla-cajeros').querySelectorAll('tr[data-cajero]')) {
     const id = tr.dataset.cajero;
@@ -2342,6 +2492,7 @@ async function vistaCajeros() {
       if (!clave) return msgC('Escriba la nueva clave.');
       try { await api('/api/admin/cajeros', { id, clave }); await vistaCajeros(); msgC('Clave cambiada.', 'ok'); } catch (e) { msgC(e.message); }
     });
+    tr.querySelector('.c-editar').addEventListener('click', () => abrirEditarEmpleado('cajero', cajeros.find((c) => c.id === id), vistaCajeros));
     tr.querySelector('.c-activo').addEventListener('click', async () => { try { await api('/api/admin/cajeros', { id, activo: !activo }); await vistaCajeros(); } catch (e) { msgC(e.message); } });
   }
 }
@@ -2527,7 +2678,7 @@ function pintarLogin() {
   const lista = S.sesion.cajeros ?? [];
   $('#vista').innerHTML = `<section class="panel" id="login" style="max-width:420px;margin:40px auto"><h1 style="margin-top:0">${ico('user')} Iniciar sesión</h1>
     <form id="form-login" autocomplete="off">
-      <div class="campo"><label for="lg-usuario">${admin ? 'Usuario' : 'Vendedora-Cajera'}</label>${!admin && lista.length <= 15 ? `<select id="lg-usuario" style="width:100%;padding:10px;border:2px solid var(--borde);border-radius:10px;background:var(--superficie)">${lista.map((n) => `<option>${esc(n)}</option>`).join('')}</select>` : '<input id="lg-usuario" class="texto" autocomplete="username">'}</div>
+      <div class="campo"><label for="lg-usuario">Usuario</label>${!admin && lista.length <= 15 ? `<select id="lg-usuario" style="width:100%;padding:10px;border:2px solid var(--borde);border-radius:10px;background:var(--superficie)">${lista.map((n) => `<option>${esc(n)}</option>`).join('')}</select>` : '<input id="lg-usuario" class="texto" autocomplete="username">'}</div>
       <div class="campo"><label for="lg-clave">${admin ? 'Contraseña' : 'Clave'}</label><input id="lg-clave" type="password" ${admin ? '' : 'inputmode="numeric"'} autocomplete="current-password" placeholder="${admin ? '' : '••••'}"></div>
       <div id="msg-login" class="mensaje" role="alert"></div>
       <button class="btn btn-primario" type="submit" id="lg-entrar">${ico('check')}<span>Entrar</span></button></form></section>`;

@@ -1,5 +1,5 @@
 import { ErrorDominio } from './errores.ts';
-import { ventas } from './proyecciones.ts';
+import { devoluciones, ventas } from './proyecciones.ts';
 import type { Actor, Op } from './tipos.ts';
 import { aMXN, fechaLocal } from './util.ts';
 
@@ -20,6 +20,8 @@ export interface FilaVenta {
   sale_id: string;
   fecha_local: string;
   cajero: string;
+  /** Quién atendió la venta («Clientas» si nadie ayudó; vacío en ventas anteriores a este registro). */
+  vendedora: string;
   total: number;
   /** Total sin las tarjetas de regalo vendidas o recargadas (que no son ventas de mercancía). */
   total_mercancia: number;
@@ -53,7 +55,7 @@ export function ventasPorCaja(actor: Actor, ops: Op[], f: Filtro = {}): FilaVent
     if (!enPeriodo(v.ocurrio_en, f)) continue;
     filas.push({
       tienda: v.tienda, caja: v.caja, folio: v.folio, sale_id: v.sale_id,
-      fecha_local: fechaLocal(v.ocurrio_en), cajero: v.cajero, total: v.total, total_mercancia: v.lineas.filter((l) => !l.tarjeta_regalo).reduce((a, l) => a + l.importe, 0), estado: v.estado,
+      fecha_local: fechaLocal(v.ocurrio_en), cajero: v.cajero, vendedora: v.vendedora ?? '', total: v.total, total_mercancia: v.lineas.filter((l) => !l.tarjeta_regalo).reduce((a, l) => a + l.importe, 0), estado: v.estado,
     });
   }
   // Orden estable por serie y folio: se ordena, pero nunca se asigna un número nuevo.
@@ -301,4 +303,52 @@ export function descuentosPorCaja(actor: Actor, ops: Op[], f: Filtro = {}): Repo
     }
   }
   return { filas, resumen, porPromocion: [...pp.values()].sort((a, b) => b.monto - a.monto), porSupervisor: [...ps.values()].sort((a, b) => b.monto - a.monto) };
+}
+
+export interface FilaVendedora {
+  /** `vendedora_id`, `clientas` (nadie ayudó) o `sin_registro` (ventas anteriores al registro). */
+  clave: string;
+  alias: string;
+  tickets: number;
+  piezas: number;
+  /** Venta de mercancía (sin tarjetas de regalo) de las ventas que atendió. */
+  vendido: number;
+  /** Lo devuelto o cambiado de esas mismas ventas dentro del periodo. */
+  devuelto: number;
+  neto: number;
+}
+
+/** Solo Administración: ventas por vendedora (la persona que atendió, no quien cobró) en el periodo y las cajas elegidas. */
+export function ventasPorVendedora(actor: Actor, ops: Op[], f: Filtro = {}): FilaVendedora[] {
+  if (actor.rol !== 'admin') throw new ErrorDominio('PROHIBIDO', 'el reporte por vendedora es solo de Administración');
+  const permitidas = cajasPermitidas(actor, f);
+  const todas = ventas(ops);
+  const filas = new Map<string, FilaVendedora>();
+  const fila = (v: { vendedora_id?: string | null; vendedora?: string }) => {
+    const clave = v.vendedora === undefined ? 'sin_registro' : v.vendedora_id ?? 'clientas';
+    const alias = v.vendedora === undefined ? 'Sin registrar' : v.vendedora;
+    let r = filas.get(clave);
+    if (!r) filas.set(clave, (r = { clave, alias, tickets: 0, piezas: 0, vendido: 0, devuelto: 0, neto: 0 }));
+    return r;
+  };
+  for (const v of todas.values()) {
+    if (v.estado !== 'confirmada') continue;
+    if (permitidas !== 'todas' && !permitidas.some((c) => mismaCaja(c, v))) continue;
+    if (!enPeriodo(v.ocurrio_en, f)) continue;
+    const mercancia = v.lineas.filter((l) => !l.tarjeta_regalo);
+    if (!mercancia.length) continue;
+    const r = fila(v);
+    r.tickets++;
+    r.piezas += mercancia.reduce((a, l) => a + l.qty, 0);
+    r.vendido += mercancia.reduce((a, l) => a + l.importe, 0);
+  }
+  for (const d of devoluciones(ops)) {
+    const v = todas.get(d.sale_id);
+    if (!v || v.estado !== 'confirmada') continue;
+    if (permitidas !== 'todas' && !permitidas.some((c) => mismaCaja(c, { tienda: d.tienda, caja: d.caja }))) continue;
+    if (!enPeriodo(d.ocurrio_en, f)) continue;
+    fila(v).devuelto += d.importe;
+  }
+  for (const r of filas.values()) r.neto = r.vendido - r.devuelto;
+  return [...filas.values()].sort((a, b) => b.neto - a.neto || a.alias.localeCompare(b.alias, 'es'));
 }

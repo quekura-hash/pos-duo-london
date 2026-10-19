@@ -82,6 +82,8 @@ export interface LineaTicket {
   tarjeta_regalo?: boolean;
 }
 export interface Ticket {
+  /** Quién atendió la venta (no se imprime si fue «Clientas» o no se registró). */
+  vendio?: string;
   negocio: string;
   tienda: string;
   caja: number;
@@ -119,7 +121,7 @@ export function construirTicket(v: Venta, cfg: NegocioCfg = NEGOCIOS[v.tienda]!,
   const local = new Date(Date.parse(v.ocurrio_en) - 7 * 3600_000).toISOString();
   const [y, mo, d] = fechaLocal(v.ocurrio_en).split('-');
   return {
-    negocio: cfg.nombre, tienda: v.tienda, caja: v.caja, cajero: v.cajero,
+    negocio: cfg.nombre, tienda: v.tienda, caja: v.caja, cajero: v.cajero, vendio: v.vendedora_id ? v.vendedora : undefined,
     fecha: `${d}/${mo}/${y}`, hora: local.slice(11, 16), folio: v.folio, codigo_ticket: codigoTicket(v.tienda, v.caja, v.folio, negocios),
     lineas: v.lineas.map((l) => ({
       item_no: l.item_no, codigo: l.codigo, descripcion: l.descripcion, marca: l.marca, estilo: l.estilo, lote: l.lote,
@@ -216,7 +218,7 @@ export function renderTicketTexto(t: Ticket): string {
   L.push(centrar(t.negocio, c));
   for (const x of t.encabezado) L.push(...envolver(x, c).map((y) => centrar(y, c)));
   L.push(centrar(`Tienda ${t.tienda} - Caja ${t.caja}`, c));
-  L.push(`Vendedora-Cajera: ${t.cajero}`.slice(0, c), `Fecha: ${t.fecha}  Hora: ${t.hora}`, `Folio: ${String(t.folio).padStart(6, '0')}`);
+  L.push(`Vendedora-Cajera: ${t.cajero}`.slice(0, c), ...(t.vendio ? [`Vendió: ${t.vendio}`.slice(0, c)] : []), `Fecha: ${t.fecha}  Hora: ${t.hora}`, `Folio: ${String(t.folio).padStart(6, '0')}`);
   if (t.reimpresion > 0) L.push(centrar(`*** REIMPRESIÓN ${t.reimpresion} ***`, c));
   L.push(regla);
   for (const l of t.lineas) {

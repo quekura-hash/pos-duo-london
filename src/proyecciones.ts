@@ -75,6 +75,7 @@ export function ventas(ops: Op[]): Map<string, Venta> {
       m.set(p.sale_id, {
         sale_id: p.sale_id, tienda: p.tienda, caja: p.caja, folio: p.folio, cajero: p.cajero,
         ocurrio_en: o.ocurrio_en, lineas: p.lineas, total: p.total, pagos: p.pagos, estado: 'confirmada',
+        ...(p.vendedora !== undefined ? { vendedora_id: p.vendedora_id ?? null, vendedora: p.vendedora } : {}),
       });
     }
   }

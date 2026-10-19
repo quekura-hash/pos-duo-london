@@ -46,7 +46,36 @@ export const hashClave = (sal: string, clave: string) => sha256(`${sal}:${clave}
 export const claveValida = (c: unknown): c is string => typeof c === 'string' && /^\d{4,8}$/.test(c);
 
 /** Cajero con clave propia: confirma operaciones a su nombre (p. ej. dar de alta un artículo en la caja). La clave se guarda con sal y hash, como la de los supervisores. */
-export interface Cajero { id: string; nombre: string; activo: boolean; sal: string; hash: string }
+export interface Cajero { id: string; nombre: string; activo: boolean; sal: string; hash: string; perfil?: Perfil }
+/**
+ * Registro de la persona. El `nombre` del usuario (cajero, supervisor o almacenista) es su ALIAS: lo que se elige al iniciar sesión, sale en el ticket
+ * y en los reportes. Aquí van los datos completos; `foto` es una imagen pequeña (data URL) tomada con la cámara de la PC.
+ */
+export interface Perfil { nombres: string; apellidos: string; telefono: string; direccion: string; foto?: string }
+const FOTO_RE = /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/;
+/** Valida y mezcla los datos del perfil: lo no enviado se conserva; un texto vacío lo borra. Sin ningún dato devuelve undefined. */
+export function mezclarPerfil(actual: Perfil | undefined, d: Partial<Perfil> | undefined): { ok: true; perfil: Perfil | undefined } | { ok: false; mensaje: string } {
+  const limpia = (v: unknown, max: number, rotulo: string): string | { error: string } => {
+    const t = String(v ?? '').trim().replace(/\s+/g, ' ');
+    return t.length > max ? { error: `${rotulo} admite hasta ${max} caracteres` } : t;
+  };
+  const campos: [keyof Pick<Perfil, 'nombres' | 'apellidos' | 'telefono' | 'direccion'>, number, string][] = [['nombres', 60, 'Los nombres'], ['apellidos', 60, 'Los apellidos'], ['telefono', 20, 'El teléfono'], ['direccion', 160, 'La dirección']];
+  const out: Perfil = { nombres: actual?.nombres ?? '', apellidos: actual?.apellidos ?? '', telefono: actual?.telefono ?? '', direccion: actual?.direccion ?? '', ...(actual?.foto ? { foto: actual.foto } : {}) };
+  for (const [k, max, rotulo] of campos) {
+    if (d?.[k] === undefined) continue;
+    const t = limpia(d[k], max, rotulo);
+    if (typeof t !== 'string') return { ok: false, mensaje: t.error };
+    out[k] = t;
+  }
+  if (out.telefono && !/^[0-9+()\-\s]{7,20}$/.test(out.telefono)) return { ok: false, mensaje: 'el teléfono solo lleva números (y + - ( ) espacios), de 7 a 20 caracteres' };
+  if (d?.foto !== undefined) {
+    if (d.foto === '' || d.foto === null) delete out.foto;
+    else if (typeof d.foto !== 'string' || d.foto.length > 200_000 || !FOTO_RE.test(d.foto)) return { ok: false, mensaje: 'la foto debe ser una imagen JPEG, PNG o WebP de hasta 150 KB' };
+    else out.foto = d.foto;
+  }
+  const vacio = !out.nombres && !out.apellidos && !out.telefono && !out.direccion && !out.foto;
+  return { ok: true, perfil: vacio ? undefined : out };
+}
 /** Administrador: contraseña de 6 a 40 caracteres. Sus registros solo viven en el central (no se reparten a las cajas). */
 /** Quien entra a Administración: el supervisor ve todo y autoriza en la caja; el almacenista solo trabaja Inventario y Almacén. Sin `rol` (registros anteriores) vale supervisor. */
 export type RolAdmin = 'supervisor' | 'almacenista';

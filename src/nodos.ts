@@ -1,7 +1,7 @@
 import type { BusquedaVentas, VentaLocalizada } from './consultas.ts';
 import { ErrorDominio } from './errores.ts';
 import { calcularDescuentos, normCodigo, repartir, validarPromocion, type ErrorPromo, type Promocion, type ResultadoDescuentos } from './promociones.ts';
-import { claveAdminValida, claveValida, hashClave, nombreClave, supervisorPorClave, type Cajero, type RolAdmin, type Supervisor } from './supervisores.ts';
+import { mezclarPerfil, claveAdminValida, claveValida, hashClave, nombreClave, supervisorPorClave, type Cajero, type Perfil, type RolAdmin, type Supervisor } from './supervisores.ts';
 import { correccionesEntradas } from './almacen.ts';
 import { BILLETES_RETIRO_MXN, BILLETES_RETIRO_USD, efectivoDeVentaEnCaja, MINIMO_RETIRO, UMBRAL_AVISO_RETIRO, type RetiroRegistrado } from './retiros.ts';
 import { DESTINOS_FALTANTE_ESPECIALES, existenciaAlmacen, faltantes, fechaValida, recepcionesPendientes, type Faltante, type AltaManual, type RecepcionPendiente } from './almacen.ts';
@@ -434,7 +434,7 @@ export class Central {
   }
 
   /** Alta o edición de un cajero con clave propia (4 a 8 dígitos). El nombre es el del usuario de la caja y no se repite. */
-  guardarCajero(d: { id?: string; nombre?: string; clave?: string; activo?: boolean }, por: string): { ok: true; cajero: Omit<Cajero, 'sal' | 'hash'> } | { ok: false; error: { codigo: 'DATOS_INVALIDOS' | 'NOMBRE_REPETIDO' | 'NO_EXISTE'; mensaje: string } } {
+  guardarCajero(d: { id?: string; nombre?: string; clave?: string; activo?: boolean; perfil?: Partial<Perfil> }, por: string): { ok: true; cajero: Omit<Cajero, 'sal' | 'hash'> } | { ok: false; error: { codigo: 'DATOS_INVALIDOS' | 'NOMBRE_REPETIDO' | 'NO_EXISTE'; mensaje: string } } {
     const lista = cajerosDe(this.repo.ops());
     const actual = d.id ? lista.find((c) => c.id === d.id) : undefined;
     if (d.id && !actual) return { ok: false, error: { codigo: 'NO_EXISTE', mensaje: 'la Vendedora-Cajera no existe' } };
@@ -447,15 +447,17 @@ export class Central {
     let sal = actual?.sal ?? uuid(), hash = actual?.hash ?? '';
     if (d.clave) { sal = uuid(); hash = hashClave(sal, d.clave); }
     const id = actual?.id ?? `caj-${uuid().slice(0, 8)}`;
-    this.emitirAdmin('cajero.guardado', { id, nombre, activo, sal, hash, por });
-    return { ok: true, cajero: { id, nombre, activo } };
+    const pf = mezclarPerfil(actual?.perfil, d.perfil);
+    if (!pf.ok) return { ok: false, error: { codigo: 'DATOS_INVALIDOS', mensaje: pf.mensaje } };
+    this.emitirAdmin('cajero.guardado', { id, nombre, activo, sal, hash, ...(pf.perfil ? { perfil: pf.perfil } : {}), por });
+    return { ok: true, cajero: { id, nombre, activo, ...(pf.perfil ? { perfil: pf.perfil } : {}) } };
   }
 
   /**
    * Alta o edición de un administrador (contraseña de 6 a 40 caracteres). Solo vive en el central: no se reparte a las tiendas ni a las cajas.
    * Los nombres no se repiten entre administradores ni con los cajeros.
    */
-  guardarAdmin(d: { id?: string; nombre?: string; clave?: string; activo?: boolean; rol?: RolAdmin; clave_caja?: string }, por: string): { ok: true; admin: Omit<Cajero, 'sal' | 'hash'> & { rol: RolAdmin } } | { ok: false; error: { codigo: 'DATOS_INVALIDOS' | 'NOMBRE_REPETIDO' | 'NO_EXISTE' | 'ULTIMO_SUPERVISOR'; mensaje: string } } {
+  guardarAdmin(d: { id?: string; nombre?: string; clave?: string; activo?: boolean; rol?: RolAdmin; clave_caja?: string; perfil?: Partial<Perfil> }, por: string): { ok: true; admin: Omit<Cajero, 'sal' | 'hash'> & { rol: RolAdmin } } | { ok: false; error: { codigo: 'DATOS_INVALIDOS' | 'NOMBRE_REPETIDO' | 'NO_EXISTE' | 'ULTIMO_SUPERVISOR'; mensaje: string } } {
     const ops = this.repo.ops();
     const lista = administradoresDe(ops);
     const actual = d.id ? lista.find((c) => c.id === d.id) : undefined;
@@ -483,8 +485,10 @@ export class Central {
         if (!r.ok) return { ok: false, error: { codigo: 'DATOS_INVALIDOS', mensaje: r.error.mensaje } };
       }
     }
-    this.emitirUna('admin.guardado', { id, nombre, activo, sal, hash, rol, por }, `admin.guardado:${uuid()}`, false);
-    return { ok: true, admin: { id, nombre, activo, rol } };
+    const pf = mezclarPerfil(actual?.perfil, d.perfil);
+    if (!pf.ok) return { ok: false, error: { codigo: 'DATOS_INVALIDOS', mensaje: pf.mensaje } };
+    this.emitirUna('admin.guardado', { id, nombre, activo, sal, hash, rol, ...(pf.perfil ? { perfil: pf.perfil } : {}), por }, `admin.guardado:${uuid()}`, false);
+    return { ok: true, admin: { id, nombre, activo, rol, ...(pf.perfil ? { perfil: pf.perfil } : {}) } };
   }
 
   /** Minutos de inactividad tras los que se cierra la sesión de la caja y la de Administración (0 = nunca, hasta 8 horas). Se reparte a las cajas. */
@@ -680,6 +684,8 @@ interface Carrito {
   cupon?: string;
   /** Resultado del último cálculo de promociones y cupón (solo para mostrar). */
   descuentos?: { aplicadas: ResultadoDescuentos['aplicadas']; cupon: ResultadoDescuentos['cupon'] };
+  /** Quién atendió a la clienta (`id` null = «Clientas»: nadie la ayudó). Se elige en la venta, sin clave; queda en la venta y en los reportes. */
+  vendedora?: { id: string | null; alias: string };
   /** Cambio en curso: piezas que la clienta regresa de una venta anterior; su importe es un crédito que se descuenta de lo que se lleve en ESTA venta. */
   cambio?: CambioEnCurso;
   /** Venta en espera: el cliente se fue un momento y la caja atiende a otro. No reserva existencias; se recalcula al retomarla. */
@@ -1691,6 +1697,7 @@ export class Caja {
       const op = this.emitir('sale.confirmed', {
         sale_id: c.id, tienda: this.tienda, caja: this.caja, folio, cajero, lineas, total, pagos,
         ...(c.cambio ? { cambio_de: { sale_id: c.cambio.sale_id, folio: c.cambio.folio_origen } } : {}),
+        ...(c.vendedora ? { vendedora_id: c.vendedora.id, vendedora: c.vendedora.alias } : {}),
       }, `sale:${c.id}`);
       this.ctx.fallo?.('tras_venta');
       for (const p of pagos) {
@@ -1966,6 +1973,28 @@ export class Caja {
       return o;
     });
     return { ...op.payload, ocurrio_en: op.ocurrio_en };
+  }
+
+  // ── «Vendió por»: la vendedora que atendió la venta (sin clave) ──
+  /** Quién puede figurar como vendedora: las Vendedoras-Cajeras y los supervisores activos. */
+  vendedoras(): { id: string; alias: string; tipo: 'cajero' | 'supervisor' }[] {
+    return [...this.idx.cajeros().filter((c) => c.activo).map((c) => ({ id: c.id, alias: c.nombre, tipo: 'cajero' as const })), ...this.idx.supervisores().filter((s) => s.activo).map((s) => ({ id: s.id, alias: s.nombre, tipo: 'supervisor' as const }))]
+      .sort((a, b) => a.alias.localeCompare(b.alias, 'es'));
+  }
+  /** `null` = «Clientas» (nadie ayudó a la clienta). */
+  asignarVendedora(cartId: string, vendedoraId: string | null): { id: string | null; alias: string } {
+    const c = this.cartGet(cartId);
+    this.exigirAbierto(c);
+    let v: { id: string | null; alias: string };
+    if (vendedoraId === null || vendedoraId === '') v = { id: null, alias: 'Clientas' };
+    else {
+      const e = this.vendedoras().find((x) => x.id === vendedoraId);
+      if (!e) throw new ErrorDominio('VENDEDORA_INEXISTENTE', 'esa vendedora no está activa');
+      v = { id: e.id, alias: e.alias };
+    }
+    c.vendedora = v;
+    this.repo.tx(() => { this.repo.kvSet(`cart:${cartId}`, c); });
+    return v;
   }
 
   // ── cambios: las piezas que regresa la clienta quedan como crédito (en negativo) dentro de una venta nueva ──
