@@ -121,6 +121,10 @@ export async function atender(o: { cajero?: ServicioCaja; admin?: ServicioAdmin 
         id: b.id === undefined ? undefined : String(b.id), nombre: b.nombre === undefined ? undefined : String(b.nombre),
         activo: b.activo === undefined ? undefined : !!b.activo, alias: Array.isArray(b.alias) ? b.alias.map(String) : undefined,
       }));
+      case 'GET /api/admin/limbo/buscar': return ok(exigirAdmin().buscarLimbo(q.get('codigo') ?? ''));
+      case 'POST /api/admin/limbo/revisar': return ok(exigirAdmin().revisarConteoLimbo(Array.isArray(b.filas) ? b.filas : []));
+      case 'POST /api/admin/limbo/conteo': return ok(exigirAdmin().contarLimbo({ conteo_id: String(b.conteo_id ?? ''), lineas: Array.isArray(b.lineas) ? b.lineas : [] }));
+      case 'GET /api/admin/limbo/conteos': return ok({ conteos: exigirAdmin().conteosLimbo() });
       case 'GET /api/admin/entregas': {
         const A4 = exigirAdmin();
         const f = { desde: q.get('desde') || undefined, hasta: q.get('hasta') || undefined, tienda: q.get('tienda') || undefined };

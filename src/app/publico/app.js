@@ -138,7 +138,7 @@ function pintarNav() {
   const items = S.sesion.rol === 'cajero' ? [...S.sesion.nav, ...(cambia ? ['administracion'] : [])] : [...S.sesion.nav, 'creditos', ...(cambia ? ['volver_caja'] : [])]; // Créditos vive en Administración, no en la venta
   $('#nav').innerHTML = items.map((v) => v === 'creditos'
     ? `<button type="button" data-proximamente="creditos" disabled title="Próximamente" aria-label="Créditos (próximamente)">${ico(NAV[v][1])}<span>${NAV[v][0]}</span></button>`
-    : `<button type="button" data-vista="${v}" title="${NAV[v][0]}" ${v === ({ descuentos: 'promociones', dolares: 'cortes', entregas: 'almacen' }[S.vista] ?? S.vista) ? 'aria-current="page"' : ''}>${ico(NAV[v][1])}<span>${NAV[v][0]}</span></button>`).join('');
+    : `<button type="button" data-vista="${v}" title="${NAV[v][0]}" ${v === ({ descuentos: 'promociones', dolares: 'cortes', entregas: 'almacen', conteo_limbo: 'inventario' }[S.vista] ?? S.vista) ? 'aria-current="page"' : ''}>${ico(NAV[v][1])}<span>${NAV[v][0]}</span></button>`).join('');
   for (const b of $('#nav').querySelectorAll('button[data-vista]')) {
     b.addEventListener('click', () => {
       if (b.dataset.vista === 'administracion') return window.__POS_CAMBIAR_SESION__('admin');
@@ -151,7 +151,7 @@ async function ir(v) {
   S.vista = v;
   pintarNav();
   await pintarEncabezado();
-  await ({ venta: vistaVenta, retiro: vistaRetiro, corte: vistaCorte, ventas: vistaVentas, reportes: vistaReportes, inventario: vistaInventario, almacen: vistaAlmacen, promociones: vistaPromociones, configuracion: vistaConfiguracion, tiendas: vistaTiendas, departamentos: vistaDepartamentos, tarjetas: vistaTarjetas, devolucion: vistaDevolucion, dolares: vistaDolares, descuentos: vistaDescuentos, entregas: vistaEntregas, tipo_cambio: vistaTipoCambio, cortes: vistaCortes })[v]();
+  await ({ venta: vistaVenta, retiro: vistaRetiro, corte: vistaCorte, ventas: vistaVentas, reportes: vistaReportes, inventario: vistaInventario, almacen: vistaAlmacen, promociones: vistaPromociones, configuracion: vistaConfiguracion, tiendas: vistaTiendas, departamentos: vistaDepartamentos, tarjetas: vistaTarjetas, devolucion: vistaDevolucion, dolares: vistaDolares, descuentos: vistaDescuentos, entregas: vistaEntregas, conteo_limbo: vistaConteoLimbo, tipo_cambio: vistaTipoCambio, cortes: vistaCortes })[v]();
   if (v !== 'almacen') await avisosPisoInicial();
 }
 
@@ -769,6 +769,7 @@ async function vistaInventario() {
     <div class="panel">
       <div class="filas" style="align-items:center;margin-bottom:12px">
         ${window.__POS_IMPORTAR_INVENTARIO__ ? `<button class="btn btn-primario" id="btn-catalogo-inicial" type="button" style="width:auto" title="Carga el archivo completo de artículos: la cantidad de cada fila queda en El Limbo, que se vende en todas las tiendas y cajas">${ico('upload')}<span>Cargar catálogo inicial (El Limbo)</span></button>` : ''}
+        <button class="btn" id="btn-conteo-limbo" type="button" title="Contar físicamente las piezas de El Limbo y ajustar su existencia">${ico('check')}<span>Conteo de El Limbo</span></button>
         <button class="btn btn-primario" id="btn-exportar" type="button" style="width:auto">${ico('download')}<span>Exportar inventario a Excel</span></button>
         <span id="estado-exportar" role="status" aria-live="polite"></span>
       </div>
@@ -795,6 +796,7 @@ async function vistaInventario() {
     e.textContent = 'Preparando el archivo…';
     try { e.textContent = await exportarInventario(); } catch (err) { e.textContent = `No se pudo exportar: ${err.message}`; }
   });
+  $('#btn-conteo-limbo').addEventListener('click', () => ir('conteo_limbo'));
   const ci = $('#btn-catalogo-inicial'); if (ci) ci.addEventListener('click', () => window.__POS_IMPORTAR_INVENTARIO__());
   await cargarListaInventario();
 }
@@ -1279,6 +1281,97 @@ function mostrarTicketRetiro(r, reimpresion = false) {
       const e2 = $('#ret-tk-impresion'); e2.className = `mensaje ${x.impresion.ok ? 'ok' : 'error'}`; e2.textContent = x.impresion.ok ? 'Datos del retiro enviados a la impresora (reimpresión).' : `La impresora falló: ${x.impresion.error}.`;
     } catch (err) { $('#ret-tk-impresion').textContent = err.message; }
   });
+}
+// ── conteo físico de El Limbo ──
+const CL_LLAVE = 'pos-conteo-limbo';
+const clLeer = () => { try { return JSON.parse(localStorage.getItem(CL_LLAVE) ?? 'null'); } catch { return null; } };
+const clGuardar = (c) => { try { localStorage.setItem(CL_LLAVE, JSON.stringify(c)); } catch { /* sin almacenamiento: el conteo vive mientras la página esté abierta */ } };
+async function vistaConteoLimbo() {
+  const C = S.conteoLimbo ?? (S.conteoLimbo = clLeer() ?? { id: uuid(), lineas: [] });
+  const { conteos } = await api('/api/admin/limbo/conteos');
+  $('#vista').innerHTML = `<div class="titulo-vista">${ico('check')}<h1>Conteo de El Limbo</h1><button class="btn" id="btn-volver-inv" type="button" style="margin-left:auto">${ico('undo')}<span>Volver a inventario</span></button></div>
+    <section class="panel"><p class="nota" style="margin-top:0">Escanee o escriba el código de cada artículo: <b>cada escaneo cuenta una pieza</b>. También puede importar un Excel con las columnas CODIGO y CANTIDAD. Al aplicar el conteo, cada artículo contado queda en El Limbo con la cantidad contada; <b>los artículos que no cuente no se tocan</b>.</p>
+      <form id="cl-form" class="filas" autocomplete="off"><input id="cl-scan" class="texto" placeholder="Escanee o escriba el código" style="flex:1"><button class="btn btn-primario" type="submit" style="width:auto">${ico('plus')}<span>Contar</span></button>
+        <button class="btn" type="button" id="cl-importar">${ico('upload')}<span>Importar Excel de conteo</span></button><input type="file" id="cl-archivo" accept=".xlsx" hidden></form>
+      <div id="msg-cl" class="mensaje" role="status" aria-live="polite"></div></section>
+    <section class="panel" style="margin-top:12px"><div id="cl-resumen" class="nota" style="margin:0 0 8px"></div>
+      <div class="tabla-cont"><table id="cl-tabla"><thead><tr><th>Item #</th><th>Código</th><th>Descripción</th><th class="num">En el sistema</th><th class="num">Contadas</th><th class="num">Diferencia</th><th></th></tr></thead><tbody></tbody></table></div>
+      <div class="filas" style="margin-top:8px"><button class="btn" type="button" id="cl-vaciar">${ico('trash')}<span>Vaciar conteo</span></button><button class="btn btn-primario" type="button" id="cl-aplicar" style="width:auto;flex:1">${ico('check')}<span>Aplicar conteo</span></button></div></section>
+    <section class="panel" style="margin-top:12px"><h2 style="margin-top:0">Conteos anteriores</h2><table id="cl-historial"><thead><tr><th>Fecha</th><th>Registró</th><th class="num">Artículos</th><th class="num">Con diferencia</th><th class="num">Sobrantes</th><th class="num">Faltantes</th></tr></thead><tbody>
+      ${conteos.map((c) => `<tr data-conteo="${esc(c.conteo_id)}"><td>${esc(c.ocurrio_en.slice(0, 10))} ${esc(hora(c.ocurrio_en))}</td><td>${esc(c.por)}</td><td class="num">${c.articulos}</td><td class="num">${c.con_diferencia}</td><td class="num">${c.sobrantes}</td><td class="num">${c.faltantes}</td></tr>`).join('') || '<tr><td colspan="6" class="vacio">Todavía no hay conteos.</td></tr>'}</tbody></table></section>`;
+  const aviso = (t, tipo = 'aviso') => { const m = $('#msg-cl'); m.className = `mensaje ${tipo}`; m.textContent = t; };
+  const pintar = () => {
+    clGuardar(C);
+    const filas = C.lineas;
+    $('#cl-tabla tbody').innerHTML = filas.map((l) => `<tr data-item="${esc(l.item_id)}"><td>${esc(l.item_no ?? '—')}</td><td>${esc(l.codigo)}</td><td>${esc(l.descripcion)} ${esc(l.marca)}</td><td class="num">${l.sistema}</td><td class="num"><input type="number" min="0" step="1" class="cl-contado" value="${l.contado}" aria-label="Piezas contadas" style="width:80px;text-align:right"></td><td class="num" data-col="dif">${l.contado - l.sistema > 0 ? '+' : ''}${l.contado - l.sistema}</td><td><button class="btn btn-icono cl-quitar" type="button" aria-label="Quitar del conteo">${ico('x')}</button></td></tr>`).reverse().join('') || '<tr><td colspan="7" class="vacio">Aún no ha contado nada.</td></tr>';
+    const dif = filas.reduce((n, l) => n + l.contado - l.sistema, 0);
+    $('#cl-resumen').textContent = `${filas.length} artículo(s) · ${filas.reduce((n, l) => n + l.contado, 0)} pieza(s) contadas · diferencia contra el sistema: ${dif > 0 ? '+' : ''}${dif}`;
+    $('#cl-aplicar').disabled = !filas.length; $('#cl-vaciar').disabled = !filas.length;
+    for (const tr of $('#cl-tabla tbody').querySelectorAll('tr[data-item]')) {
+      const l = C.lineas.find((x) => x.item_id === tr.dataset.item);
+      tr.querySelector('.cl-contado').addEventListener('change', (ev) => { const n = Number(ev.target.value); if (Number.isInteger(n) && n >= 0) l.contado = n; pintar(); });
+      tr.querySelector('.cl-quitar').addEventListener('click', () => { C.lineas = C.lineas.filter((x) => x !== l); pintar(); });
+    }
+  };
+  const sumar = (a, cantidad = 1) => {
+    const l = C.lineas.find((x) => x.item_id === a.item_id);
+    if (l) { l.contado += cantidad; l.sistema = a.sistema; } else C.lineas.push({ item_id: a.item_id, item_no: a.item_no, codigo: a.codigo, descripcion: a.descripcion, marca: a.marca, sistema: a.sistema, contado: cantidad });
+  };
+  $('#btn-volver-inv').addEventListener('click', () => ir('inventario'));
+  $('#cl-form').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const codigo = $('#cl-scan').value.trim();
+    $('#cl-scan').value = '';
+    if (!codigo) return;
+    try {
+      const { articulos } = await api(`/api/admin/limbo/buscar?codigo=${encodeURIComponent(codigo)}`);
+      if (!articulos.length) aviso(`No se encontró el código «${codigo}».`, 'error');
+      else if (articulos.length > 1) aviso(`El código «${codigo}» corresponde a ${articulos.length} artículos (código duplicado): no se contó. Resuélvalo en Administración.`, 'error');
+      else { sumar(articulos[0]); aviso(`${articulos[0].descripcion} ${articulos[0].marca}: ${C.lineas.find((x) => x.item_id === articulos[0].item_id).contado} contada(s)`.trim(), 'ok'); pintar(); }
+    } catch (e) { aviso(e.message, 'error'); }
+    $('#cl-scan').focus();
+  });
+  $('#cl-importar').addEventListener('click', () => $('#cl-archivo').click());
+  $('#cl-archivo').addEventListener('change', async (ev) => {
+    const f = ev.target.files[0]; ev.target.value = '';
+    if (!f) return;
+    try {
+      if (!/\.xlsx$/i.test(f.name)) return aviso('Solo se aceptan archivos de Excel .xlsx.', 'error');
+      const filas = (await leerArchivoAlta(f))[0].filas;
+      const norm = (x) => String(x ?? '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+      const enc = filas[0].map(norm);
+      const ic = enc.findIndex((h) => ['codigo', 'upc', 'code', 'codigo de barras'].includes(h));
+      const iq = enc.findIndex((h) => ['cantidad', 'contado', 'conteo', 'qty', 'piezas', 'existencia'].includes(h));
+      if (ic < 0 || iq < 0) return aviso('El archivo necesita una columna CODIGO y una columna CANTIDAD (lo contado).', 'error');
+      const r = await api('/api/admin/limbo/revisar', { filas: filas.slice(1).map((x) => ({ codigo: x[ic], cantidad: x[iq] })) });
+      for (const a of r.reconocidas) { const l = C.lineas.find((x) => x.item_id === a.item_id); if (l) { l.contado = a.contado; l.sistema = a.sistema; } else sumar(a, a.contado); }
+      pintar();
+      const aparte = [r.noEncontradas.length ? `${r.noEncontradas.length} código(s) no encontrados (${r.noEncontradas.slice(0, 5).map((x) => x.codigo).join(', ')}${r.noEncontradas.length > 5 ? '…' : ''})` : '', r.invalidas.length ? `${r.invalidas.length} con cantidad inválida` : '', r.ambiguas.length ? `${r.ambiguas.length} con código duplicado` : ''].filter(Boolean);
+      aviso(`Se importaron ${r.reconocidas.length} artículo(s) al conteo${aparte.length ? `; no se importaron: ${aparte.join('; ')}.` : '.'}`, aparte.length ? 'aviso' : 'ok');
+    } catch (e) { aviso(e.message, 'error'); }
+  });
+  $('#cl-vaciar').addEventListener('click', () => { if (!$('#cl-vaciar').dataset.seguro) { $('#cl-vaciar').dataset.seguro = '1'; $('#cl-vaciar').querySelector('span').textContent = '¿Vaciar? Confirmar'; return; } C.lineas = []; C.id = uuid(); delete $('#cl-vaciar').dataset.seguro; $('#cl-vaciar').querySelector('span').textContent = 'Vaciar conteo'; pintar(); });
+  $('#cl-aplicar').addEventListener('click', () => {
+    const d = dialogo('dlg-cl-confirmar');
+    const sob = C.lineas.filter((l) => l.contado > l.sistema).reduce((n, l) => n + l.contado - l.sistema, 0);
+    const fal = C.lineas.filter((l) => l.contado < l.sistema).reduce((n, l) => n + l.sistema - l.contado, 0);
+    d.setAttribute('aria-labelledby', 'cl-conf-titulo');
+    d.innerHTML = `<h2 id="cl-conf-titulo" style="margin-top:0">Aplicar el conteo</h2>
+      <p id="cl-conf-resumen">${C.lineas.length} artículo(s) contados: <b>${sob}</b> pieza(s) sobrantes y <b>${fal}</b> faltantes contra el sistema. El saldo de El Limbo de esos artículos quedará en lo contado; los demás no cambian.</p>
+      <div id="cl-conf-msg" class="mensaje" role="status"></div><div class="filas"><button class="btn" type="button" id="cl-conf-no">Volver</button><button class="btn btn-primario" type="button" id="cl-conf-si" style="width:auto;flex:1">${ico('check')}<span>Aplicar</span></button></div>`;
+    $('#cl-conf-no').addEventListener('click', () => d.close());
+    $('#cl-conf-si').addEventListener('click', async () => {
+      $('#cl-conf-si').disabled = true;
+      try {
+        const r = await api('/api/admin/limbo/conteo', { conteo_id: C.id, lineas: C.lineas.map((l) => ({ item_id: l.item_id, contado: l.contado })) });
+        d.close(); S.conteoLimbo = { id: uuid(), lineas: [] }; clGuardar(S.conteoLimbo);
+        await ir('conteo_limbo'); const m = $('#msg-cl'); m.className = 'mensaje ok'; m.textContent = `Conteo aplicado: ${r.conteo.articulos} artículo(s), ${r.conteo.con_diferencia} con diferencia (${r.conteo.sobrantes} sobrantes, ${r.conteo.faltantes} faltantes).`;
+      } catch (e) { $('#cl-conf-si').disabled = false; const m = $('#cl-conf-msg'); m.className = 'mensaje error'; m.textContent = e.message; }
+    });
+    d.showModal();
+  });
+  pintar();
+  $('#cl-scan').focus();
 }
 const NOM_DIF = { sin_confirmar: 'Sin confirmar', faltante: 'Piezas faltantes', exceso: 'Más de lo registrado', almacen_negativo: 'Almacén negativo' };
 async function vistaEntregas() {
@@ -2141,7 +2234,7 @@ async function vistaTipoCambio() {
 
 // ── arranque ──
 async function iniciar() {
-  Object.assign(S, { conRegalo: false, sesion: null, vista: null, cart: null, carrito: null, sel: null, estado: null, ultimoFolio: null, retiroAvisoHasta: 0, retiroEstado: null });
+  Object.assign(S, { conRegalo: false, sesion: null, vista: null, cart: null, carrito: null, sel: null, estado: null, ultimoFolio: null, retiroAvisoHasta: 0, retiroEstado: null, conteoLimbo: null });
   S.sesion = await api('/api/sesion');
   await ir(S.sesion.nav[0]);
 }

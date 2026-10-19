@@ -537,3 +537,11 @@ Reportes · Cortes (con el botón «Dólares recibidos») · Inventario · Almac
   Antes salían en el orden del catálogo y un artículo nuevo quedaba fuera de los primeros 20. *El criterio «mayor precio = más actualizado» y el año tomado del código son decisiones del propietario; mientras se depura el catálogo.*
 - **Cantidad**: se muestran 20 y el botón «Mostrar más resultados» pide 40 más (hasta 200). El mensaje indica el total.
 - **Verificado**: pruebas BT1–BT3 y UPC1 (año del código), ambos almacenes.
+
+## 32. Conteo físico de El Limbo [P]
+
+- **Dónde**: Administración → Inventario → **Conteo de El Limbo**.
+- **Cómo se cuenta**: escanear o teclear el código de cada artículo (**cada escaneo cuenta una pieza**; el código corto de la etiqueta y el UPC completo valen igual) o **importar un Excel** con las columnas CODIGO y CANTIDAD (lo contado; un mismo código en varios renglones se suma). La tabla muestra lo que dice el sistema, lo contado y la diferencia; la cantidad contada se puede corregir a mano. El conteo en curso se conserva al cambiar de pantalla y, si el navegador lo permite, al recargar (almacenamiento local de ese navegador).
+- **Aplicar**: pide confirmación con el resumen (sobrantes y faltantes). Cada artículo contado queda en El Limbo con **lo contado** (movimiento `conteo` por la diferencia contra el saldo que conoce el central); **los artículos que no se contaron no se tocan** (un conteo parcial nunca los pone en 0). Los saldos viajan a todas las tiendas y cajas como cualquier movimiento de El Limbo. Reintentar el mismo conteo no repite nada. Queda el registro `limbo.conteo` (artículos, sistema, contado y diferencia) y el historial «Conteos anteriores». En el historial del artículo aparece como «Conteo físico … en El Limbo».
+- **Límites**: la diferencia se calcula con lo que el central ha recibido: una venta que aún no se sincroniza se descuenta al llegar, así que conviene contar con las tiendas sincronizadas. Un código duplicado no se cuenta hasta resolverlo. No hay todavía detalle por conteo ni exportación del conteo a Excel.
+- **Verificado**: pruebas del motor (CL1–CL3, ambos almacenes) y de navegador (B14: escanear, corregir, aplicar, saldos en Inventario).

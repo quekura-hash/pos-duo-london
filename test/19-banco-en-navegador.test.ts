@@ -947,6 +947,63 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     assert.equal(await page.textContent('#ret-resumen [data-campo="equivalente"]'), '$2,288.00');
     assert.deepEqual(errores, []);
   });
+
+  it('B14 conteo de El Limbo: escanear cuenta una pieza, se corrige la cantidad, se aplica y El Limbo queda en lo contado', async (t) => {
+    execFileSync(process.execPath, [join(RAIZ, 'scripts', 'construir-prueba.mjs')], { stdio: 'pipe' });
+    const dir = mkdtempSync(join(tmpdir(), 'pos-conteo-'));
+    const archivo = join(dir, 'catalogo.xlsx');
+    writeFileSync(archivo, await xlsxDeFilas(Array.from({ length: 10 }, (_, i) => [i + 1, 'MARCA', `ARTICULO ${i + 1}`, null, null, null, 100 + i, 0, `70000${String(i + 1).padStart(3, '0')}`, 'DAMA', null, 'Yes', null, null])));
+    const browser = await chromium.launch({ executablePath: chromiumPath, args: ['--no-sandbox'] });
+    t.after(async () => { await browser.close(); rmSync(dir, { recursive: true, force: true }); });
+    const page = await (await browser.newContext({ viewport: { width: 1440, height: 900 }, colorScheme: 'light' })).newPage();
+    const errores: string[] = [];
+    page.on('pageerror', (e) => errores.push(String(e)));
+    page.on('console', (m) => { if (m.type() === 'error') errores.push(m.text()); });
+    await page.goto(`file://${HTML}`);
+    await page.waitForSelector('[data-chip="tienda"]');
+    await page.setInputFiles('#archivo-inventario', archivo);
+    await page.waitForSelector('#dlg-importar[open]');
+    await page.fill('#imp-limbo', '5');
+    await page.click('#imp-cargar');
+    await page.waitForFunction(() => /catálogo inicial en El Limbo/.test(document.querySelector('#estado-inv')!.textContent!));
+    await page.selectOption('#sesion-prueba', 'admin');
+    await page.click('#nav button[data-vista="inventario"]');
+    await page.click('#btn-conteo-limbo');
+    await page.waitForSelector('#cl-form');
+    assert.equal(await page.isDisabled('#cl-aplicar'), true, 'sin nada contado no hay qué aplicar');
+    const contar = async (c: string) => { await page.fill('#cl-scan', c); await page.press('#cl-scan', 'Enter'); };
+    await contar('70000001'); await contar('70000001'); await contar('70000001'); // 3 piezas del artículo 1 (el sistema dice 5)
+    await contar('70000002');
+    await contar('9999999999999');
+    await page.waitForFunction(() => /No se encontró el código/.test(document.querySelector('#msg-cl')!.textContent!));
+    await page.waitForFunction(() => document.querySelectorAll('#cl-tabla tr[data-item]').length === 2);
+    assert.match((await page.textContent('#cl-tabla tr[data-item] [data-col="dif"]'))!, /-4/, 'el artículo 2: 1 contada contra 5 en el sistema (más reciente arriba)');
+    // corregir a mano la cantidad del artículo 1: contó 6
+    const fila1 = page.locator('#cl-tabla tr[data-item]', { hasText: 'ARTICULO 1' });
+    await fila1.locator('.cl-contado').fill('6');
+    await fila1.locator('.cl-contado').press('Tab');
+    await page.waitForFunction(() => /2 artículo\(s\) · 7 pieza\(s\) contadas · diferencia contra el sistema: -3/.test(document.querySelector('#cl-resumen')!.textContent!));
+    await page.screenshot({ path: join(RAIZ, 'docs', 'capturas', '47-conteo-limbo.png') });
+    // el conteo sobrevive a recargar la vista
+    await page.click('#btn-volver-inv');
+    await page.click('#btn-conteo-limbo');
+    await page.waitForSelector('#cl-tabla tr[data-item]');
+    assert.equal(await page.locator('#cl-tabla tr[data-item]').count(), 2);
+    await page.click('#cl-aplicar');
+    await page.waitForSelector('#dlg-cl-confirmar[open]');
+    assert.match((await page.textContent('#cl-conf-resumen'))!, /2 artículo\(s\) contados: 1 pieza\(s\) sobrantes y 4 faltantes/);
+    await page.click('#cl-conf-si');
+    await page.waitForFunction(() => /Conteo aplicado: 2 artículo\(s\), 2 con diferencia \(1 sobrantes, 4 faltantes\)/.test(document.querySelector('#msg-cl')?.textContent ?? ''));
+    assert.equal(await page.locator('#cl-historial tr[data-conteo]').count(), 1);
+    // Inventario: El Limbo del artículo 1 = 6 y del 2 = 1; el resto no cambió
+    await page.click('#btn-volver-inv');
+    await page.waitForSelector('#tabla-inv-lista tr[data-item]');
+    const limbo = async (q: string) => { await page.fill('#inv-q', q); await page.waitForFunction((c) => { const f = document.querySelectorAll('#tabla-inv-lista tbody tr[data-item]'); return f.length === 1 && f[0]!.textContent!.includes(c); }, q); return page.textContent('#tabla-inv-lista tr[data-item] [data-col="limbo"]'); };
+    assert.equal(await limbo('70000001'), '6');
+    assert.equal(await limbo('70000002'), '1');
+    assert.equal(await limbo('70000003'), '5', 'lo que no se contó no se toca');
+    assert.deepEqual(errores, []);
+  });
 });
 
 const REAL = process.env.POS_INVENTARIO_REAL;

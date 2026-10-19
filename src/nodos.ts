@@ -529,6 +529,31 @@ export class Central {
     return faltantes(this.repo.ops()).find((x) => x.entrega_id === entregaId)!;
   }
 
+  /**
+   * Conteo físico de El Limbo: deja la existencia de cada artículo contado en lo que se contó (movimiento `conteo` por la diferencia contra lo que
+   * el central sabe) y guarda el registro del conteo. Los artículos que no vienen en el conteo no se tocan. Reintentar el mismo `conteo_id` no repite nada.
+   * La diferencia se calcula con lo que el central ha recibido: una venta que aún no ha sincronizado se descuenta al llegar.
+   */
+  contarLimbo(conteoId: string, lineas: { item_id: string; contado: number }[], por: string) {
+    if (!conteoId) throw new ErrorDominio('DATOS_REQUERIDOS', 'falta la referencia del conteo');
+    const previo = this.repo.getOp(`limbo.conteo:${conteoId}`);
+    if (previo) return { ...previo.payload, ocurrio_en: previo.ocurrio_en, repetido: true };
+    const porArticulo = new Map<string, number>();
+    for (const l of lineas) porArticulo.set(l.item_id, l.contado);
+    if (!porArticulo.size) throw new ErrorDominio('DATOS_REQUERIDOS', 'el conteo no tiene artículos');
+    const ops = this.repo.ops();
+    const cat = catalogo(ops);
+    const saldos = stock(ops, LIMBO);
+    for (const [item, q] of porArticulo) {
+      if (!cat.has(item)) throw new ErrorDominio('ARTICULO_INEXISTENTE', item);
+      if (!Number.isInteger(q) || q < 0) throw new ErrorDominio('CANTIDAD_INVALIDA', 'lo contado es un entero de 0 o más');
+    }
+    const detalle = [...porArticulo].map(([item_id, contado]) => ({ item_id, sistema: saldos.get(item_id) ?? 0, contado, delta: contado - (saldos.get(item_id) ?? 0) }));
+    for (const l of detalle) if (l.delta !== 0) this.emitirAdmin('inv.movement', { item_id: l.item_id, tienda: LIMBO, delta: l.delta, tipo: 'conteo', doc: `conteo_limbo:${conteoId}` }, `mov:conteoL:${conteoId}:${l.item_id}`);
+    const op = this.emitirUna('limbo.conteo', { conteo_id: conteoId, por, lineas: detalle }, `limbo.conteo:${conteoId}`, false)!;
+    return { ...op.payload, ocurrio_en: op.ocurrio_en, repetido: false };
+  }
+
   anclas(tienda: string, caja: number): Anclas {
     let ceiling: number | null = null;
     let hwm = 0;

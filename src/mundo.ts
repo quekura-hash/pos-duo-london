@@ -365,6 +365,8 @@ export class Mundo {
       tiendas: this.ctx.tiendas,
       articulos: () => { idx.actualizar(); return [...idx.cat.values()]; },
       saldo: (t: string, i: string) => idx.saldo(t, i),
+      /** Código exacto, alterno o aproximado (código corto de la etiqueta ↔ UPC completo). */
+      buscarCodigo: (c: string) => { const e = idx.buscarCodigo(c); if (e.length) return e; const a = idx.buscarAlterno(c); return a.length ? a : idx.buscarCodigoAproximado(c); },
       verificada: (t: string, i: string) => idx.verificada(t, i).verificada,
     };
   }

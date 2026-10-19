@@ -472,6 +472,7 @@ export interface FuenteInventario {
   articulos(): Articulo[];
   saldo(tienda: string, itemId: string): number;
   verificada(tienda: string, itemId: string): boolean;
+  buscarCodigo?(codigo: string): Articulo[];
 }
 
 export class ServicioAdmin {
@@ -480,7 +481,7 @@ export class ServicioAdmin {
   readonly cajas: { tienda: string; caja: number }[];
   private inv?: FuenteInventario;
   private central?: { fijarTipoCambio(tasa: number, usuario: string, versionBase: number, confirmarVariacion?: boolean): import('../nodos.ts').ResultadoTipoCambio; asignarPermiso(usuario: string, permiso: string, valor: boolean, por: string): Op; guardarDepto(c: import('../departamentos.ts').CambioDepto, por: string): { ok: true; op: Op } | { ok: false; error: import('../departamentos.ts').ErrorDepto };
-    guardarDatosTienda: import('../nodos.ts').Central['guardarDatosTienda']; editarArticulo: import('../nodos.ts').Central['editarArticulo']; guardarPromocion: import('../nodos.ts').Central['guardarPromocion']; guardarSupervisor: import('../nodos.ts').Central['guardarSupervisor']; recordarSacarAPiso: import('../nodos.ts').Central['recordarSacarAPiso']; resolverFaltante: import('../nodos.ts').Central['resolverFaltante']; altaLote: import('../nodos.ts').Central['altaLote']; entregar: import('../nodos.ts').Central['entregar'] };
+    guardarDatosTienda: import('../nodos.ts').Central['guardarDatosTienda']; editarArticulo: import('../nodos.ts').Central['editarArticulo']; guardarPromocion: import('../nodos.ts').Central['guardarPromocion']; guardarSupervisor: import('../nodos.ts').Central['guardarSupervisor']; recordarSacarAPiso: import('../nodos.ts').Central['recordarSacarAPiso']; resolverFaltante: import('../nodos.ts').Central['resolverFaltante']; contarLimbo: import('../nodos.ts').Central['contarLimbo']; altaLote: import('../nodos.ts').Central['altaLote']; entregar: import('../nodos.ts').Central['entregar'] };
   constructor(o: { actor: Extract<Actor, { rol: 'admin' }>; fuente: () => Op[]; cajas: { tienda: string; caja: number }[]; inventario?: FuenteInventario; central?: ServicioAdmin['central'] }) {
     this.central = o.central;
     this.actor = o.actor;
@@ -598,6 +599,54 @@ export class ServicioAdmin {
       precio: a.precio, existencias, almacen: almacen ?? 0, limbo: this.inv ? this.inv.saldo(LIMBO, a.item_id) : 0,
     };
   }
+  // ── conteo físico de El Limbo ──
+  private lineaLimbo(a: Articulo) {
+    return { item_id: a.item_id, item_no: a.item_no, codigo: a.codigo, descripcion: a.descripcion, marca: a.marca, estilo: a.estilo, precio: a.precio, sistema: this.inv!.saldo(LIMBO, a.item_id) };
+  }
+  /** Artículo(s) de un código escaneado o tecleado y lo que El Limbo tiene registrado de cada uno. */
+  buscarLimbo(codigo: string) {
+    if (!this.inv?.buscarCodigo) throw new ErrorDominio('SIN_INVENTARIO', 'esta sesión no tiene fuente de inventario');
+    const c = String(codigo ?? '').replace(/[\r\n]+$/g, '').trim();
+    return { articulos: c ? this.inv.buscarCodigo(c).map((a) => this.lineaLimbo(a)) : [] };
+  }
+  /** Revisa un archivo de conteo (CODIGO y CANTIDAD contada): qué artículos reconoce, cuáles no y la diferencia contra El Limbo. No guarda nada. */
+  revisarConteoLimbo(filas: { codigo: string; cantidad: unknown }[]) {
+    if (!this.inv?.buscarCodigo) throw new ErrorDominio('SIN_INVENTARIO', 'esta sesión no tiene fuente de inventario');
+    const reconocidas: (ReturnType<ServicioAdmin['lineaLimbo']> & { contado: number })[] = [];
+    const noEncontradas: { codigo: string }[] = [];
+    const invalidas: { codigo: string; cantidad: unknown }[] = [];
+    const ambiguas: { codigo: string; candidatos: number }[] = [];
+    const vistos = new Map<string, number>();
+    for (const f of filas) {
+      const codigo = String(f.codigo ?? '').trim();
+      const cant = typeof f.cantidad === 'number' ? f.cantidad : Number(String(f.cantidad ?? '').trim());
+      if (!codigo) continue;
+      if (!Number.isInteger(cant) || cant < 0) { invalidas.push({ codigo, cantidad: f.cantidad }); continue; }
+      const hallados = this.inv.buscarCodigo(codigo);
+      if (!hallados.length) { noEncontradas.push({ codigo }); continue; }
+      if (hallados.length > 1) { ambiguas.push({ codigo, candidatos: hallados.length }); continue; }
+      const a = hallados[0]!;
+      const i = vistos.get(a.item_id);
+      if (i === undefined) { vistos.set(a.item_id, reconocidas.length); reconocidas.push({ ...this.lineaLimbo(a), contado: cant }); } else reconocidas[i]!.contado += cant; // el mismo código en varios renglones se suma
+    }
+    return { reconocidas, noEncontradas, invalidas, ambiguas };
+  }
+  /** Aplica un conteo: deja El Limbo de cada artículo contado en lo contado (los no contados no se tocan). */
+  contarLimbo(d: { conteo_id: string; lineas: { item_id: string; contado: number }[] }) {
+    if (!this.central) throw new ErrorDominio('SIN_CENTRAL', 'esta sesión no tiene acceso al servicio central');
+    const r = this.central.contarLimbo(String(d.conteo_id ?? ''), (d.lineas ?? []).map((l) => ({ item_id: String(l.item_id), contado: Number(l.contado) })), this.actor.usuario);
+    return { conteo: this.resumenConteoLimbo(r), conteos: this.conteosLimbo() };
+  }
+  private resumenConteoLimbo(c: { conteo_id: string; por: string; ocurrio_en: string; lineas: { delta: number }[] }) {
+    return {
+      conteo_id: c.conteo_id, por: c.por, ocurrio_en: c.ocurrio_en, articulos: c.lineas.length,
+      con_diferencia: c.lineas.filter((l) => l.delta !== 0).length, sobrantes: c.lineas.filter((l) => l.delta > 0).reduce((a, l) => a + l.delta, 0), faltantes: -c.lineas.filter((l) => l.delta < 0).reduce((a, l) => a + l.delta, 0),
+    };
+  }
+  /** Conteos de El Limbo, el más reciente primero. */
+  conteosLimbo() {
+    return this.fuente().filter((o) => o.tipo === 'limbo.conteo').map((o) => this.resumenConteoLimbo({ ...o.payload, ocurrio_en: o.ocurrio_en })).reverse();
+  }
   /** Edita un artículo del catálogo (marca, descripción, estilo, lote, departamento, precio en pesos). */
   editarArticulo(itemId: string, cambios: Record<string, unknown>) {
     if (!this.central) throw new ErrorDominio('SIN_CENTRAL', 'esta sesión no tiene acceso al servicio central');
@@ -628,7 +677,7 @@ export class ServicioAdmin {
         case 'venta': evento = 'Venta'; detalle = `${pza(d.qty)} por ${formatoMXN(d.importe)} · ${t(d.tienda)} caja ${d.caja}, folio ${String(d.folio).padStart(6, '0')}`; break;
         case 'venta_cancelada': evento = 'Venta cancelada'; detalle = `${pza(d.qty)} · ${t(d.tienda)} caja ${d.caja}, folio ${String(d.folio).padStart(6, '0')}${d.motivo ? ` · ${d.motivo}` : ''}`; break;
         case 'devolucion': evento = 'Devolución'; detalle = `${pza(d.qty)} por ${formatoMXN(d.importe)} · ${t(d.tienda)} caja ${d.caja}, folio ${String(d.folio).padStart(6, '0')}${d.motivo ? ` · ${d.motivo}` : ''}`; break;
-        case 'conteo': evento = 'Conteo físico'; detalle = `Ajuste de ${d.delta > 0 ? '+' : ''}${d.delta} en ${t(d.tienda)}`; break;
+        case 'conteo': evento = 'Conteo físico'; detalle = `Ajuste de ${d.delta > 0 ? '+' : ''}${d.delta} en ${d.tienda === LIMBO ? 'El Limbo' : t(d.tienda)}`; break;
       }
       return { ocurrio_en: e.ocurrio_en, tipo: e.tipo, evento, detalle, por: e.por };
     });
