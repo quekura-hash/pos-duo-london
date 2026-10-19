@@ -1603,6 +1603,33 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     assert.equal(await page.textContent('#calc-pantalla'), '123,456');
     await tecla('Backspace', 'neg');
     assert.equal(await page.textContent('#calc-pantalla'), '-12,345');
+    // teclado: con el foco en la calculadora (al abrirla, o tocando su barra o visor) se teclea igual que con el mouse
+    await page.click('#calc-visor');
+    assert.equal(await page.evaluate(() => document.activeElement?.id), 'calculadora');
+    assert.match((await page.textContent('#calc-ayuda'))!, /Teclado activo/);
+    await page.keyboard.press('Escape');
+    await page.keyboard.type('12*3+4');
+    await page.keyboard.press('Enter');
+    assert.equal(await page.textContent('#calc-pantalla'), '40');
+    await page.keyboard.type('10,5');
+    await page.keyboard.press('Backspace');
+    assert.equal(await page.textContent('#calc-pantalla'), '10.');
+    await page.keyboard.press('Delete');
+    await page.keyboard.type('9/4=');
+    assert.equal(await page.textContent('#calc-pantalla'), '2.25');
+    await page.keyboard.press('Escape');
+    await page.keyboard.type('5');
+    assert.equal(await page.textContent('#calc-pantalla'), '5');
+    // fuera de la calculadora el teclado es del POS: no la toca
+    await page.click('#scan');
+    await page.keyboard.type('77');
+    assert.equal(await page.inputValue('#scan'), '77');
+    assert.equal(await page.textContent('#calc-pantalla'), '5');
+    assert.match((await page.textContent('#calc-ayuda'))!, /Toque la barra/);
+    await page.fill('#scan', '');
+    await page.click('#calc-visor');
+    await page.keyboard.press('Escape');
+    await tecla('1', '2', '3', '4', '5', '6', 'Backspace', 'neg'); // deja -12,345 para lo que sigue
     // se mueve arrastrando la barra y no se sale de la ventana
     const antes = (await page.locator('#calculadora').boundingBox())!;
     await page.mouse.move(antes.x + 60, antes.y + 15);

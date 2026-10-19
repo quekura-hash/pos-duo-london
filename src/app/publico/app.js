@@ -180,13 +180,28 @@ function abrirCalculadora() {
   d.id = 'calculadora';
   d.setAttribute('role', 'dialog');
   d.setAttribute('aria-label', 'Calculadora');
-  d.style.cssText = 'position:fixed;z-index:50;width:244px;background:var(--superficie);color:var(--texto);border:1px solid var(--borde);border-radius:14px;box-shadow:0 10px 40px rgba(0,0,0,.35);user-select:none;touch-action:none';
+  d.tabIndex = 0;
+  d.style.cssText = 'outline:none;position:fixed;z-index:50;width:244px;background:var(--superficie);color:var(--texto);border:1px solid var(--borde);border-radius:14px;box-shadow:0 10px 40px rgba(0,0,0,.35);user-select:none;touch-action:none';
   d.innerHTML = `<div id="calc-barra" style="display:flex;align-items:center;justify-content:space-between;padding:8px 10px;cursor:move;border-bottom:1px solid var(--borde)"><b style="display:inline-flex;gap:6px;align-items:center">${ico('calc')}Calculadora</b><button type="button" id="calc-cerrar" class="btn btn-icono" aria-label="Cerrar la calculadora" title="Cerrar">${ico('x')}</button></div>
-    <div style="padding:10px"><div id="calc-previa" style="min-height:18px;text-align:right;font-size:13px;color:var(--texto-2)"></div><div id="calc-pantalla" aria-live="polite" style="text-align:right;font-size:28px;font-weight:700;padding:2px 4px 8px;overflow:hidden;white-space:nowrap">0</div>
+    <div style="padding:10px"><div id="calc-visor" style="cursor:text"><div id="calc-previa" style="min-height:18px;text-align:right;font-size:13px;color:var(--texto-2)"></div><div id="calc-pantalla" aria-live="polite" style="text-align:right;font-size:28px;font-weight:700;padding:2px 4px 8px;overflow:hidden;white-space:nowrap">0</div></div>
+    <div id="calc-ayuda" class="nota" style="font-size:11px;text-align:center;margin:0 0 6px"></div>
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px">${teclas.map(([k, t]) => `<button type="button" class="btn" data-calc="${k}" tabindex="-1" style="padding:10px 0;justify-content:center;font-size:17px;${/[+\-*/=]/.test(k) ? 'background:var(--acento);color:var(--acento-texto);border-color:var(--acento)' : ''}">${t}</button>`).join('')}</div></div>`;
   document.body.appendChild(d);
   // No se roba el foco: así el cursor sigue en la búsqueda o en el campo que se estaba usando.
-  d.addEventListener('mousedown', (ev) => { if (!ev.target.closest('#calc-barra')) ev.preventDefault(); });
+  // Las teclas del mouse no la enfocan; el teclado funciona cuando la calculadora tiene el foco: al abrirla con el menú, o al tocar su barra o su visor.
+  d.addEventListener('mousedown', (ev) => { if (!ev.target.closest('#calc-barra, #calc-visor')) ev.preventDefault(); else if (!ev.target.closest('#calc-cerrar')) setTimeout(() => d.focus(), 0); });
+  const marcarFoco = (on) => { d.style.borderColor = on ? 'var(--acento)' : 'var(--borde)'; d.style.boxShadow = on ? '0 0 0 3px var(--acento), 0 10px 40px rgba(0,0,0,.35)' : '0 10px 40px rgba(0,0,0,.35)'; $('#calc-ayuda').textContent = on ? 'Teclado activo: 0-9 + - * / Enter . Esc' : 'Toque la barra o el visor para usar el teclado'; };
+  d.addEventListener('focus', () => marcarFoco(true));
+  d.addEventListener('blur', () => marcarFoco(false));
+  d.addEventListener('keydown', (ev) => {
+    if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
+    const mapa = { Enter: '=', '=': '=', ',': '.', '.': '.', Delete: 'C', Escape: 'C', Backspace: 'Backspace', '%': '%', '+': '+', '-': '-', '*': '*', '/': '/', x: '*', X: '*' };
+    const k = /^\d$/.test(ev.key) ? ev.key : mapa[ev.key];
+    if (!k) return; // Tab y demás teclas siguen su camino normal
+    ev.preventDefault();
+    ev.stopPropagation();
+    calcTecla(k);
+  });
   for (const b of d.querySelectorAll('[data-calc]')) b.addEventListener('click', () => calcTecla(b.dataset.calc));
   $('#calc-cerrar').addEventListener('click', cerrarCalculadora);
   // Mover: se arrastra por la barra y se mantiene dentro de la ventana.
@@ -206,7 +221,9 @@ function abrirCalculadora() {
   });
   window.addEventListener('resize', calc.reubicar = () => colocar(calc.pos.x, calc.pos.y));
   pintarCalculadora();
+  marcarFoco(false);
   $('#btn-calculadora')?.setAttribute('aria-pressed', 'true');
+  d.focus(); // se abrió a propósito: el teclado queda listo
 }
 function cerrarCalculadora() {
   $('#calculadora')?.remove();
