@@ -61,6 +61,7 @@ export async function atender(o: { cajero?: ServicioCaja; admin?: ServicioAdmin 
       case 'POST /api/venta/descuento': return ok(exigirCajero().aplicarDescuento(b.cart, { linea_id: b.linea_id ?? null, tipo: b.tipo === 'monto' ? 'monto' : 'pct', valor: Number(b.valor) }, String(b.clave ?? '')));
       case 'POST /api/venta/descuento/quitar': return ok(exigirCajero().quitarDescuento(b.cart, b.linea_id ?? null));
       case 'POST /api/venta/cantidad': return ok({ carrito: exigirCajero().cambiarCantidad(b.cart, b.linea_id, Number(b.qty)) });
+      case 'POST /api/venta/editar-linea': return ok(exigirCajero().editarLinea(b.cart, b.linea_id, { precio_unit: b.precio_unit === undefined ? undefined : Number(b.precio_unit), descripcion: b.descripcion }, b.clave === undefined ? undefined : String(b.clave)));
       case 'POST /api/venta/quitar': return ok({ carrito: exigirCajero().quitarLinea(b.cart, b.linea_id) });
       case 'POST /api/venta/cobrar-efectivo': return ok(await exigirCajero().cobrarEfectivo(b.cart, Number(b.recibido ?? 0), Number(b.usd ?? 0)));
       case 'POST /api/venta/tasa': return ok(exigirCajero().bloquearTasa(b.cart, !!b.renovar));

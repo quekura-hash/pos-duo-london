@@ -64,6 +64,8 @@ export interface Linea {
   ambiguo?: { codigo: string; candidatos: string[] };
   /** Renglón de venta o recarga de una tarjeta de regalo: no es mercancía (sin inventario ni existencia). */
   tarjeta_regalo?: { codigo: string; tipo: 'alta' | 'recarga' };
+  /** Precio o descripción editados SOLO en esta venta (el catálogo no cambia): el precio de lista, la descripción original y el supervisor que autorizó el cambio de precio. */
+  editado?: { precio_lista: number; descripcion_original: string; autorizo?: string };
   /** Piezas de este renglón que salieron de El Limbo al vender (el resto salió de la existencia de la tienda). */
   de_limbo?: number;
 }

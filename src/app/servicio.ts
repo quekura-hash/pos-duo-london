@@ -203,10 +203,11 @@ export class ServicioCaja {
       return { ticket_texto: texto, impresion: { ok: false, error: e instanceof Error ? e.message : String(e) } };
     }
   }
-  /** Venta anulada ANTES de recibir dinero (sin folio ni movimiento físico). */
+  /** Cancela la venta EN CURSO (aún sin cobrar): no pide clave. Queda el registro de auditoría con lo que tenía y se abre una venta nueva. */
   anularVenta(cartId: string, motivo: string) {
     this.caja.anularCarrito(cartId, motivo, this.actor.usuario);
-    return { cart: this.caja.abrirCarrito() };
+    const cart = this.caja.abrirCarrito();
+    return { cart, carrito: this.vista(cart) };
   }
   /** Venta cancelada DESPUÉS de recibir efectivo: conserva el cobro y suma la salida de pesos. */
   cancelarVenta(saleId: string, motivo: string, autoriza?: { nombre: string; clave: string }) {
@@ -284,6 +285,11 @@ export class ServicioCaja {
   aplicarDescuento(cartId: string, d: { linea_id?: string | null; tipo: 'pct' | 'monto'; valor: number }, clave: string) {
     const r = this.caja.aplicarDescuentoManual(cartId, d, clave);
     return { ...r, carrito: this.vista(cartId) };
+  }
+  /** «Editar en esta venta»: precio (con la clave de un supervisor) y/o descripción de un renglón, solo para esta venta. */
+  editarLinea(cartId: string, lineaId: string, d: { precio_unit?: number; descripcion?: string }, clave?: string) {
+    this.caja.editarLinea(cartId, lineaId, d, clave);
+    return { carrito: this.vista(cartId) };
   }
   /** Departamentos entre los que se elige al dar de alta un artículo en la caja. */
   departamentosAlta() {

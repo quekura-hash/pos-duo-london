@@ -1187,6 +1187,41 @@ export class Caja {
     if (existente) return { resultado: 'cantidad_incrementada', linea: this.cambiarCantidad(cartId, existente.linea_id, existente.qty + 1) };
     return { resultado: 'agregado', linea: this.agregarLinea(cartId, { item_id: art.item_id, qty: 1 }) };
   }
+  /**
+   * «Editar en esta venta»: cambia el precio unitario y/o la descripción de UN renglón solo para esta venta (el catálogo no se toca). **Cambiar el
+   * precio exige la clave de un supervisor** (es lo mismo que un descuento o un recargo); la descripción se edita sin clave. Quedan guardados el
+   * precio de lista, la descripción original y quién autorizó, dentro de la venta.
+   */
+  editarLinea(cartId: string, lineaId: string, d: { precio_unit?: number; descripcion?: string }, clave?: string): Linea {
+    const c = this.cartGet(cartId);
+    this.exigirAbierto(c);
+    this.exigirSinCobroPendiente(c);
+    const l = c.lineas.find((x) => x.linea_id === lineaId);
+    if (!l) throw new ErrorDominio('LINEA_INEXISTENTE', lineaId);
+    if (l.tarjeta_regalo) throw new ErrorDominio('PROHIBIDO', 'una tarjeta de regalo no se edita');
+    const art = this.idx.articulo(l.item_id);
+    const original = l.editado ?? { precio_lista: art?.precio ?? l.precio_unit, descripcion_original: l.descripcion };
+    const descripcion = d.descripcion === undefined ? l.descripcion : String(d.descripcion).trim();
+    if (!descripcion || descripcion.length > 60) throw new ErrorDominio('DATOS_REQUERIDOS', 'la descripción lleva de 1 a 60 caracteres');
+    const cambiaPrecio = d.precio_unit !== undefined && d.precio_unit !== l.precio_unit;
+    let autorizo = l.editado?.autorizo;
+    if (cambiaPrecio) {
+      if (!Number.isInteger(d.precio_unit) || (d.precio_unit as number) <= 0) throw new ErrorDominio('PRECIO_INVALIDO', 'el precio es un entero de centavos mayor que 0');
+      const sup = supervisorPorClave(this.idx.supervisores(), String(clave ?? ''));
+      if (!sup) throw new ErrorDominio('CLAVE_INVALIDA', 'cambiar un precio lo autoriza un supervisor con su clave');
+      autorizo = sup.nombre;
+    }
+    const precio = cambiaPrecio ? (d.precio_unit as number) : l.precio_unit;
+    l.descripcion = descripcion;
+    l.precio_unit = precio;
+    l.importe = l.qty * precio - l.descuento;
+    // Si no cambió nada respecto al catálogo, el renglón vuelve a ser el de siempre.
+    if (precio === original.precio_lista && descripcion === original.descripcion_original) delete l.editado;
+    else l.editado = { precio_lista: original.precio_lista, descripcion_original: original.descripcion_original, ...(autorizo ? { autorizo } : {}) };
+    this.recalcular(c);
+    this.repo.tx(() => { this.repo.kvSet(`cart:${cartId}`, c); });
+    return c.lineas.find((x) => x.linea_id === lineaId)!;
+  }
   cambiarCantidad(cartId: string, lineaId: string, qty: number): Linea {
     const c = this.cartGet(cartId);
     this.exigirAbierto(c);

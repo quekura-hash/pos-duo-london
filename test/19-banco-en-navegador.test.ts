@@ -1310,6 +1310,65 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     assert.deepEqual(errores.filter((e) => !/401|403|Failed to load resource/.test(e)), []);
   });
 
+  it('B21 editar en esta venta (precio con clave de supervisor) y cancelar la venta (solo confirmación, sin clave)', async (t) => {
+    execFileSync(process.execPath, [join(RAIZ, 'scripts', 'construir-prueba.mjs')], { stdio: 'pipe' });
+    const browser = await chromium.launch({ executablePath: chromiumPath, args: ['--no-sandbox'] });
+    t.after(() => browser.close());
+    const page = await (await browser.newContext({ viewport: { width: 1440, height: 900 }, colorScheme: 'light' })).newPage();
+    const errores: string[] = [];
+    page.on('pageerror', (e) => errores.push(String(e)));
+    page.on('console', (m) => { if (m.type() === 'error') errores.push(m.text()); });
+    await page.goto(`file://${HTML}`);
+    await page.waitForSelector('[data-chip="tienda"]');
+    await page.selectOption('#sesion-prueba', 'admin');
+    await page.click('#nav button[data-vista="configuracion"]');
+    await page.click('#cfg-tab-cajeros');
+    await page.waitForSelector('#form-admin');
+    await page.fill('#adm-nombre', 'Edgardo'); await page.fill('#adm-clave', 'clave-segura'); await page.fill('#adm-clave-caja', '2468');
+    await page.click('#btn-adm');
+    await page.waitForFunction(() => document.querySelectorAll('#tabla-admins tr[data-admin]').length === 1);
+    await page.fill('#caj-nombre', 'Lupe'); await page.fill('#caj-clave', '4321'); await page.click('#btn-caj');
+    await page.waitForFunction(() => document.querySelectorAll('#tabla-cajeros tr[data-cajero]').length === 1);
+    await page.selectOption('#sesion-prueba', 'DUO/1');
+    await page.waitForSelector('#form-login');
+    await page.selectOption('#lg-usuario', 'Lupe'); await page.fill('#lg-clave', '4321'); await page.click('#lg-entrar');
+    await page.waitForSelector('#scan');
+    assert.equal(await page.locator('#btn-editar-catalogo').count(), 0, 'ya no existe «Editar catálogo»');
+    await page.fill('#scan', '0002026090782'); await page.press('#scan', 'Enter');
+    await page.waitForSelector('#cuerpo tr');
+    await page.click('#cuerpo tr');
+    // editar la descripción: sin clave
+    await page.click('#btn-editar-venta');
+    await page.waitForSelector('#dlg-editar-linea[open]');
+    assert.equal(await page.locator('#el-clave-bloque').isHidden(), true, 'la clave solo aparece al cambiar el precio');
+    await page.fill('#el-desc', 'CAMISA CON DEFECTO');
+    await page.click('#form-editar-linea button[type=submit]');
+    await page.waitForFunction(() => /CAMISA CON DEFECTO/.test(document.querySelector('#cuerpo')!.textContent!));
+    // cambiar el precio: pide la clave de un supervisor
+    await page.click('#cuerpo tr');
+    await page.click('#btn-editar-venta');
+    await page.waitForSelector('#dlg-editar-linea[open]');
+    await page.fill('#el-precio', '50');
+    await page.waitForSelector('#el-clave', { state: 'visible' });
+    await page.fill('#el-clave', '4321'); // la de una Vendedora-Cajera no autoriza
+    await page.click('#form-editar-linea button[type=submit]');
+    await page.waitForFunction(() => /clave/i.test(document.querySelector("#msg-el")!.textContent!));
+    await page.fill('#el-clave', '2468');
+    await page.click('#form-editar-linea button[type=submit]');
+    await page.waitForFunction(() => /\$50\.00/.test(document.querySelector('#total')!.textContent!));
+    assert.match((await page.textContent('#cuerpo'))!, /\(editado\)/);
+    // cancelar la venta: solo confirmación
+    await page.click('#btn-cancelar-venta');
+    await page.waitForSelector('#dlg-cancelar-venta[open]');
+    assert.equal(await page.locator('#dlg-cancelar-venta input').count(), 0, 'no pide clave ni nada');
+    await page.click('#cv-no');
+    assert.equal(await page.locator('#cuerpo tr').count(), 1, '«No» conserva la venta');
+    await page.click('#btn-cancelar-venta');
+    await page.click('#cv-si');
+    await page.waitForFunction(() => document.querySelectorAll('#cuerpo tr[data-linea], #cuerpo tr[data-id]').length === 0 && /\$0\.00/.test(document.querySelector('#total')!.textContent!));
+    assert.deepEqual(errores.filter((e) => !/401|403|Failed to load resource/.test(e)), []);
+  });
+
   it('B20 cierre por inactividad: aviso un minuto antes, «Seguir trabajando» renueva, al cerrarse la venta queda en espera y se vuelve al inicio de sesión', async (t) => {
     execFileSync(process.execPath, [join(RAIZ, 'scripts', 'construir-prueba.mjs')], { stdio: 'pipe' });
     const browser = await chromium.launch({ executablePath: chromiumPath, args: ['--no-sandbox'] });

@@ -194,12 +194,12 @@ async function vistaVenta() {
           <h2 id="detalle-titulo"></h2><div class="sub" id="detalle-sub"></div>
           <dl class="detalle" id="detalle"></dl>
           <div class="existencias"><span>Existencias:</span><span class="chips" id="existencias"></span>
-            <span class="acciones">${pronto('btn-editar-venta', 'pencil', 'Editar en esta venta', 'btn-acento')}${pronto('btn-editar-catalogo', 'pencil', 'Editar catálogo', 'btn-acento')}
+            <span class="acciones"><button class="btn btn-acento" id="btn-editar-venta" type="button" title="Cambiar el precio o la descripción de este artículo solo en esta venta">${ico('pencil')}<span>Editar en esta venta</span></button>
             <button class="btn btn-peligro" id="btn-quitar" type="button">${ico('trash')}<span>Quitar artículo</span></button></span></div>
         </section>
         <div class="acciones-inf" id="acciones-inf">
           <button class="btn" id="btn-buscar-ticket" type="button" title="Abre el historial de ventas de esta caja">${ico('search')}<span>Buscar ticket</span></button>
-          <button class="btn" id="btn-devolucion" type="button" title="Buscar la venta y devolver (solo en la caja donde se vendió)">${ico('undo')}<span>Cambio o devolución</span></button><button class="btn" id="btn-descuento" type="button" title="Descuento autorizado por un supervisor con su clave">${ico('percent')}<span>Aplicar descuento</span></button><button class="btn" id="btn-cupon" type="button" title="Capturar o escanear un cupón de descuento">${ico('gift')}<span>Cupón</span></button><button class="btn" id="btn-espera" type="button" title="Guardar esta venta y atender a otro cliente, o retomar una venta guardada">${ico('pause')}<span id="txt-espera">Venta en espera</span></button>
+          <button class="btn" id="btn-devolucion" type="button" title="Buscar la venta y devolver (solo en la caja donde se vendió)">${ico('undo')}<span>Cambio o devolución</span></button><button class="btn" id="btn-descuento" type="button" title="Descuento autorizado por un supervisor con su clave">${ico('percent')}<span>Aplicar descuento</span></button><button class="btn" id="btn-cupon" type="button" title="Capturar o escanear un cupón de descuento">${ico('gift')}<span>Cupón</span></button><button class="btn" id="btn-espera" type="button" title="Guardar esta venta y atender a otro cliente, o retomar una venta guardada">${ico('pause')}<span id="txt-espera">Venta en espera</span></button><button class="btn btn-peligro" id="btn-cancelar-venta" type="button" title="Cancelar la venta en curso (aún sin cobrar)">${ico('trash')}<span>Cancelar venta</span></button>
         </div>
       </div>
       <aside class="panel resumen" aria-label="Resumen y cobro">
@@ -234,6 +234,8 @@ async function vistaVenta() {
   $('#btn-descuento').addEventListener('click', abrirDescuento);
   $('#btn-cupon').addEventListener('click', () => abrirCupon());
   $('#btn-espera').addEventListener('click', () => abrirEspera());
+  $('#btn-cancelar-venta').addEventListener('click', abrirCancelarVenta);
+  $('#btn-editar-venta').addEventListener('click', () => abrirEditarLinea());
   actualizarEspera();
   revisarAvisoRetiro();
   $('#btn-cobrar').addEventListener('click', cobrar);
@@ -396,7 +398,7 @@ function pintarCarrito() {
   } else {
     cuerpo.innerHTML = c.lineas.map((l) => `
       <tr data-linea="${l.linea_id}" aria-selected="${S.sel === l.linea_id}">
-        <td data-col="item_no">${esc(l.item_no ?? 'pendiente')}</td><td data-col="codigo">${esc(l.codigo)}</td><td class="desc" data-col="descripcion">${esc(l.descripcion)}</td>
+        <td data-col="item_no">${esc(l.item_no ?? 'pendiente')}</td><td data-col="codigo">${esc(l.codigo)}</td><td class="desc" data-col="descripcion">${esc(l.descripcion)}${l.editado ? ' <small class="nota" title="Precio o descripción editados solo en esta venta">(editado)</small>' : ''}</td>
         <td data-col="marca">${esc(l.marca)}</td><td data-col="estilo">${esc(l.estilo)}</td><td data-col="lote">${esc(l.lote)}</td>
         <td class="num" data-col="cantidad"><span class="qty"><button class="btn" type="button" data-accion="menos" aria-label="Quitar una pieza de ${esc(l.descripcion)}" ${l.qty <= 1 ? 'disabled' : ''}>−</button><b>${l.qty}</b><button class="btn" type="button" data-accion="mas" aria-label="Agregar una pieza de ${esc(l.descripcion)}">+</button></span></td>
         <td class="num" data-col="precio">${mxn(l.precio_unit)}</td><td class="num" data-col="descuento">${l.descuento ? `-${mxn(l.descuento)}` : mxn(0)}</td><td class="num" data-col="importe"><b>${mxn(l.importe)}</b></td>
@@ -1586,6 +1588,56 @@ function abrirCupon() {
   });
   d.showModal();
   $('#cup-codigo').focus();
+}
+/** Cancelar la venta en curso (sin cobrar): solo pide confirmación, nunca clave. */
+function abrirCancelarVenta() {
+  if (!S.carrito.lineas.length) return msg('No hay una venta con artículos que cancelar.', 'aviso');
+  const d = dialogo('dlg-cancelar-venta');
+  d.setAttribute('aria-labelledby', 'cv-titulo');
+  d.innerHTML = `<h2 id="cv-titulo" style="margin-top:0">¿Cancelar la venta?</h2>
+    <p id="cv-texto">Se descartan los ${S.carrito.lineas.reduce((a, l) => a + l.qty, 0)} artículo(s) de esta venta y se abre una venta nueva. Aún no se ha cobrado nada.</p>
+    <div id="msg-cv" class="mensaje" role="status" aria-live="polite"></div>
+    <div class="filas"><button class="btn" type="button" id="cv-no">No, seguir con la venta</button><button class="btn btn-peligro" type="button" id="cv-si" style="width:auto;flex:1">${ico('trash')}<span>Sí, cancelar la venta</span></button></div>`;
+  $('#cv-no').addEventListener('click', () => { d.close(); $('#scan').focus(); });
+  $('#cv-si').addEventListener('click', async () => {
+    try {
+      const r = await api('/api/venta/anular', { cart: S.cart, motivo: 'cancelada antes de cobrar' });
+      S.cart = r.cart; S.carrito = r.carrito; S.sel = null; d.close(); pintarCarrito(); msg('Venta cancelada.'); $('#scan').focus();
+    } catch (e) { const m = $('#msg-cv'); m.className = 'mensaje error'; m.textContent = e.message; }
+  });
+  d.showModal();
+  $('#cv-no').focus();
+}
+/** «Editar en esta venta»: descripción libre; el precio nuevo exige la clave de un supervisor. */
+function abrirEditarLinea() {
+  const l = S.sel ? S.carrito.lineas.find((x) => x.linea_id === S.sel && !x.tarjeta_regalo) : null;
+  if (!l) return msg('Seleccione un artículo de la lista para editarlo en esta venta.', 'aviso');
+  const d = dialogo('dlg-editar-linea');
+  d.setAttribute('aria-labelledby', 'el-titulo');
+  d.innerHTML = `<h2 id="el-titulo" style="margin-top:0">Editar en esta venta</h2>
+    <p class="nota">Solo cambia en esta venta; el catálogo no se toca. Cambiar el precio lo autoriza un supervisor con su clave.${l.editado ? ` Precio de lista: ${mxn(l.editado.precio_lista)}.` : ''}</p>
+    <form id="form-editar-linea" autocomplete="off">
+      <div class="campo"><label for="el-desc">Descripción</label><input id="el-desc" maxlength="60" value="${esc(l.descripcion)}"></div>
+      <div class="campo"><label for="el-precio">Precio unitario</label><input id="el-precio" inputmode="decimal" value="${centavosAPesos(l.precio_unit)}"></div>
+      <div class="campo" id="el-clave-bloque" hidden><label for="el-clave">Clave del supervisor</label><input id="el-clave" type="password" inputmode="numeric" autocomplete="off" placeholder="••••"></div>
+      <div id="msg-el" class="mensaje" role="status" aria-live="polite"></div>
+      <div class="filas"><button class="btn" type="button" id="el-cerrar">Cancelar</button><button class="btn btn-primario" type="submit" style="width:auto;flex:1">${ico('check')}<span>Guardar cambios</span></button></div>
+    </form>`;
+  const cambiaPrecio = () => parseMXN($('#el-precio').value) !== l.precio_unit;
+  $('#el-precio').addEventListener('input', () => { $('#el-clave-bloque').hidden = !cambiaPrecio(); });
+  $('#el-cerrar').addEventListener('click', () => { d.close(); $('#scan').focus(); });
+  $('#form-editar-linea').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const m = $('#msg-el');
+    const precio = parseMXN($('#el-precio').value);
+    if (!precio) { m.className = 'mensaje error'; m.textContent = 'Escriba el precio en pesos.'; return; }
+    try {
+      const r = await api('/api/venta/editar-linea', { cart: S.cart, linea_id: l.linea_id, descripcion: $('#el-desc').value, ...(precio !== l.precio_unit ? { precio_unit: precio, clave: $('#el-clave').value } : {}) });
+      S.carrito = r.carrito; pintarCarrito(); d.close(); msg('Artículo editado en esta venta.'); $('#scan').focus();
+    } catch (e) { m.className = 'mensaje error'; m.textContent = e.message; const c = $('#el-clave'); if (c) c.value = ''; }
+  });
+  d.showModal();
+  $('#el-desc').focus();
 }
 function abrirDescuento() {
   if (!S.carrito.lineas.length) return msg('Agregue artículos a la venta antes de aplicar un descuento.', 'aviso');

@@ -621,3 +621,10 @@ El rol que en las secciones anteriores se llama «cajero» se muestra como **Ven
 - **Configuración**: Configuración → Usuarios → «Cierre de sesión por inactividad» (solo supervisores): minutos de la caja y de Administración, **0 = nunca** (hasta 480). Se reparte a las cajas como cualquier configuración (necesita sincronizar).
 - **Pruebas**: la página de prueba tiene `window.__POS_AVANZAR__(ms)` para adelantar el reloj sin esperar.
 - **Verificado**: pruebas IN1–IN4 (ambos almacenes: tiempos, lecturas pasivas, latido, venta a espera, configuración, Administración) y de navegador (B20: aviso, «Seguir trabajando», cierre, venta en espera).
+
+## 40. Editar en esta venta y Cancelar venta
+
+- **Editar en esta venta**: con un renglón seleccionado, cambia su **descripción** (hasta 60 caracteres, sin clave) y/o su **precio unitario** solo en esa venta; el catálogo no se toca. **Cambiar el precio exige la clave de un supervisor** (igual que un descuento); la clave solo aparece en el diálogo cuando el precio cambia. El renglón queda marcado «(editado)» y guarda el precio de lista, la descripción original y quién autorizó; si se regresa a los valores originales la marca desaparece. No aplica a tarjetas de regalo ni con un cobro con tarjeta pendiente. El ticket no cambia (muestra el precio cobrado).
+- **«Editar catálogo» se quitó** de la pantalla de venta: el catálogo se edita en Inventario/Administración.
+- **Cancelar venta**: botón en la fila inferior de la venta en curso. Pregunta «¿Cancelar la venta?» y **no pide clave ni nada más**; si se confirma se descarta la venta (sin cobro, sin folio) y se abre una venta nueva vacía. Queda el registro de auditoría de lo que tenía. Una venta **ya cobrada** no se cancela así: sigue pidiendo la clave de otra persona (sección 37).
+- **Verificado**: pruebas ED1–ED2, CV1 (ambos almacenes) y de navegador B21.
