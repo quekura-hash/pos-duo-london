@@ -53,6 +53,7 @@ const I = {
   store: '<path d="M3 9l1.5-5h15L21 9"/><path d="M3 9a3 3 0 0 0 6 0 3 3 0 0 0 6 0 3 3 0 0 0 6 0"/><path d="M5 12v8h14v-8M10 20v-5h4v5"/>',
   caja: '<rect x="5" y="3" width="14" height="6" rx="1"/><path d="M3 21v-7a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v7zM8 16h.01M12 16h.01M16 16h.01"/>',
   camera: '<path d="M4 8h3l1.5-2h7L17 8h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13" r="3.5"/>',
+  calc: '<rect x="5" y="3" width="14" height="18" rx="2"/><path d="M8 7h8M8 12h.01M12 12h.01M16 12h.01M8 16h.01M12 16h.01M16 16h.01"/>',
   user: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
   calendar: '<rect x="3.5" y="5" width="17" height="15" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4"/>',
   cash: '<rect x="2.5" y="6" width="19" height="12" rx="2"/><circle cx="12" cy="12" r="2.6"/><path d="M6 12h.01M18 12h.01"/>',
@@ -141,11 +142,89 @@ const NAV = {
   venta: ['Venta', 'cart'], retiro: ['Retiro', 'cash'], ventas: ['Historial', 'clock'], corte: ['Corte de caja', 'chart'],
   tarjetas: ['Tarjetas de regalo', 'gift'], reportes: ['Reportes', 'chart'], cortes: ['Cortes', 'cash'], dolares: ['Dólares recibidos', 'dollar'], descuentos: ['Descuentos', 'percent'], entregas: ['Entregas de almacén', 'warehouse'], inventario: ['Inventario', 'box'], departamentos: ['Departamentos', 'box'], almacen: ['Almacén', 'warehouse'], promociones: ['Promociones', 'percent'], tiendas: ['Tiendas', 'store'], configuracion: ['Configuración', 'gear'], administracion: ['Administración', 'gear'], volver_caja: ['Caja', 'caja'], tipo_cambio: ['Tipo de cambio', 'refresh'],
 };
+// ── Calculadora básica: ventana flotante y movible, no modal. Sigue abierta mientras se usa el resto del POS ──
+const calc = { abierta: false, pos: null, acc: null, op: null, entrada: '0', nuevo: true };
+const OPS_CALC = { '+': '+', '-': '−', '*': '×', '/': '÷' };
+const redondeaCalc = (n) => Number.parseFloat(n.toPrecision(12));
+function calcAplicar(a, op, b) { return op === '+' ? a + b : op === '-' ? a - b : op === '*' ? a * b : op === '/' ? (b === 0 ? NaN : a / b) : b; }
+function calcTecla(k) {
+  const ent = () => Number(calc.entrada);
+  if (/^\d$/.test(k)) { calc.entrada = calc.nuevo || calc.entrada === '0' ? k : (calc.entrada.replace('-', '').replace('.', '').length >= 15 ? calc.entrada : calc.entrada + k); calc.nuevo = false; }
+  else if (k === '.') { if (calc.nuevo) { calc.entrada = '0.'; calc.nuevo = false; } else if (!calc.entrada.includes('.')) calc.entrada += '.'; }
+  else if (k === 'C') { calc.acc = null; calc.op = null; calc.entrada = '0'; calc.nuevo = true; }
+  else if (k === 'Backspace') { if (!calc.nuevo) { calc.entrada = calc.entrada.length > 1 && calc.entrada !== '-0' ? calc.entrada.slice(0, -1) : '0'; if (calc.entrada === '-') calc.entrada = '0'; } }
+  else if (k === 'neg') { if (calc.entrada !== '0') calc.entrada = calc.entrada.startsWith('-') ? calc.entrada.slice(1) : `-${calc.entrada}`; }
+  else if (k === '%') { const v = calc.acc !== null && calc.op ? (calc.acc * ent()) / 100 : ent() / 100; calc.entrada = String(redondeaCalc(v)); calc.nuevo = false; }
+  else if (k in OPS_CALC) {
+    if (calc.op && !calc.nuevo) { calc.acc = redondeaCalc(calcAplicar(calc.acc, calc.op, ent())); calc.entrada = String(calc.acc); } else if (calc.acc === null || !calc.op) calc.acc = ent();
+    calc.op = k; calc.nuevo = true;
+  } else if (k === '=') {
+    if (calc.op) { const r = redondeaCalc(calcAplicar(calc.acc, calc.op, ent())); calc.entrada = Number.isFinite(r) ? String(r) : 'Error'; calc.acc = null; calc.op = null; calc.nuevo = true; }
+  }
+  if (calc.entrada === 'Error' && k !== 'C') { /* se queda hasta borrar */ }
+  pintarCalculadora();
+}
+function pintarCalculadora() {
+  const d = $('#calculadora');
+  if (!d) return;
+  const err = calc.entrada === 'Error';
+  $('#calc-pantalla').textContent = err ? 'Error' : (() => { const [e, f] = calc.entrada.split('.'); return `${Number(e.replace('-', '')) ? Number(e.replace('-', '')).toLocaleString('en-US') : '0'}${f !== undefined ? `.${f}` : ''}`.replace(/^/, calc.entrada.startsWith('-') ? '-' : ''); })();
+  $('#calc-previa').textContent = calc.op && calc.acc !== null ? `${calc.acc.toLocaleString('en-US')} ${OPS_CALC[calc.op]}` : '';
+  if (err) calc.entrada = '0', calc.nuevo = true, calc.acc = null, calc.op = null;
+}
+function abrirCalculadora() {
+  if ($('#calculadora')) return;
+  calc.abierta = true;
+  const teclas = [['C', 'C'], ['neg', '±'], ['%', '%'], ['/', '÷'], ['7', '7'], ['8', '8'], ['9', '9'], ['*', '×'], ['4', '4'], ['5', '5'], ['6', '6'], ['-', '−'], ['1', '1'], ['2', '2'], ['3', '3'], ['+', '+'], ['0', '0'], ['.', '.'], ['Backspace', '⌫'], ['=', '=']];
+  const d = document.createElement('div');
+  d.id = 'calculadora';
+  d.setAttribute('role', 'dialog');
+  d.setAttribute('aria-label', 'Calculadora');
+  d.style.cssText = 'position:fixed;z-index:50;width:244px;background:var(--superficie);color:var(--texto);border:1px solid var(--borde);border-radius:14px;box-shadow:0 10px 40px rgba(0,0,0,.35);user-select:none;touch-action:none';
+  d.innerHTML = `<div id="calc-barra" style="display:flex;align-items:center;justify-content:space-between;padding:8px 10px;cursor:move;border-bottom:1px solid var(--borde)"><b style="display:inline-flex;gap:6px;align-items:center">${ico('calc')}Calculadora</b><button type="button" id="calc-cerrar" class="btn btn-icono" aria-label="Cerrar la calculadora" title="Cerrar">${ico('x')}</button></div>
+    <div style="padding:10px"><div id="calc-previa" style="min-height:18px;text-align:right;font-size:13px;color:var(--texto-2)"></div><div id="calc-pantalla" aria-live="polite" style="text-align:right;font-size:28px;font-weight:700;padding:2px 4px 8px;overflow:hidden;white-space:nowrap">0</div>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px">${teclas.map(([k, t]) => `<button type="button" class="btn" data-calc="${k}" tabindex="-1" style="padding:10px 0;justify-content:center;font-size:17px;${/[+\-*/=]/.test(k) ? 'background:var(--acento);color:var(--acento-texto);border-color:var(--acento)' : ''}">${t}</button>`).join('')}</div></div>`;
+  document.body.appendChild(d);
+  // No se roba el foco: así el cursor sigue en la búsqueda o en el campo que se estaba usando.
+  d.addEventListener('mousedown', (ev) => { if (!ev.target.closest('#calc-barra')) ev.preventDefault(); });
+  for (const b of d.querySelectorAll('[data-calc]')) b.addEventListener('click', () => calcTecla(b.dataset.calc));
+  $('#calc-cerrar').addEventListener('click', cerrarCalculadora);
+  // Mover: se arrastra por la barra y se mantiene dentro de la ventana.
+  const colocar = (x, y) => {
+    const w = d.offsetWidth, h = d.offsetHeight;
+    calc.pos = { x: Math.max(0, Math.min(window.innerWidth - w, x)), y: Math.max(0, Math.min(window.innerHeight - h, y)) };
+    d.style.left = `${calc.pos.x}px`; d.style.top = `${calc.pos.y}px`;
+  };
+  colocar(calc.pos?.x ?? window.innerWidth - 270, calc.pos?.y ?? 90);
+  $('#calc-barra').addEventListener('pointerdown', (ev) => {
+    if (ev.target.closest('#calc-cerrar')) return;
+    const dx = ev.clientX - calc.pos.x, dy = ev.clientY - calc.pos.y;
+    const mover = (e) => colocar(e.clientX - dx, e.clientY - dy);
+    const soltar = () => { window.removeEventListener('pointermove', mover); window.removeEventListener('pointerup', soltar); };
+    window.addEventListener('pointermove', mover);
+    window.addEventListener('pointerup', soltar);
+  });
+  window.addEventListener('resize', calc.reubicar = () => colocar(calc.pos.x, calc.pos.y));
+  pintarCalculadora();
+  $('#btn-calculadora')?.setAttribute('aria-pressed', 'true');
+}
+function cerrarCalculadora() {
+  $('#calculadora')?.remove();
+  if (calc.reubicar) window.removeEventListener('resize', calc.reubicar);
+  calc.abierta = false;
+  $('#btn-calculadora')?.setAttribute('aria-pressed', 'false');
+}
+
 function pintarNav() {
   // En la página de prueba (una sola ventana) se puede pasar de la caja a Administración y volver; en la app real cada sesión es la suya.
   const cambia = !!window.__POS_CAMBIAR_SESION__;
   const items = S.sesion.rol === 'cajero' ? [...S.sesion.nav, ...(cambia ? ['administracion'] : [])] : [...S.sesion.nav, ...(cambia ? ['volver_caja'] : [])];
   $('#nav').innerHTML = items.map((v) => `<button type="button" data-vista="${v}" title="${NAV[v][0]}" ${v === ({ descuentos: 'promociones', dolares: 'cortes', entregas: 'almacen', conteo_limbo: 'inventario' }[S.vista] ?? S.vista) ? 'aria-current="page"' : ''}>${ico(NAV[v][1])}<span>${NAV[v][0]}</span></button>`).join('');
+  // Calculadora de la caja: ventana flotante que no bloquea nada (se abre desde el menú lateral y se cierra con su X).
+  if (S.sesion.rol === 'cajero') {
+    $('#nav').insertAdjacentHTML('beforeend', `<button type="button" id="btn-calculadora" title="Calculadora" aria-pressed="${calc.abierta ? 'true' : 'false'}">${ico('calc')}<span>Calculadora</span></button>`);
+    $('#btn-calculadora').addEventListener('click', () => (calc.abierta ? cerrarCalculadora() : abrirCalculadora()));
+  }
   for (const b of $('#nav').querySelectorAll('button[data-vista]')) {
     b.addEventListener('click', () => {
       if (b.dataset.vista === 'administracion') return window.__POS_CAMBIAR_SESION__('admin');

@@ -46,7 +46,7 @@ describe('[navegador real — Chromium con Playwright, UI sobre SQLite]', { time
     assert.equal(await chip('hub'), 'Conectado');
     assert.equal(await chip('pendientes'), '0');
     // navegación según permisos: un cajero NO ve Administración ni Reportes
-    assert.deepEqual(await page.$$eval('#nav button', (b) => b.map((x) => x.textContent)), ['Venta', 'Retiro', 'Historial', 'Corte de caja', 'Tarjetas de regalo']);
+    assert.deepEqual(await page.$$eval('#nav button', (b) => b.map((x) => x.textContent)), ['Venta', 'Retiro', 'Historial', 'Corte de caja', 'Tarjetas de regalo', 'Calculadora']);
     // tabla: columnas separadas y en el orden pedido
     assert.deepEqual(await page.$$eval('#tabla-venta thead th:not(:last-child)', (h) => h.map((x) => x.textContent)),
       ['Item #', 'Código', 'Descripción', 'Marca', 'Estilo', 'Lote', 'Cant.', 'Precio', 'Desc.', 'Importe']);
@@ -314,7 +314,7 @@ describe('[navegador real — Chromium con Playwright, UI sobre SQLite]', { time
       assert.equal(await page.evaluate(() => (document.querySelector('.encabezado .logo') as HTMLImageElement).naturalWidth > 50), true, 'el logo cargó');
       const texto = (await page.textContent('body'))!;
       assert.doesNotMatch(texto, /apartado/i, 'no hay botones ni referencias a apartados');
-      assert.equal(await page.locator('#nav button svg').count(), tienda === 'DUO' ? 5 : 4, 'cada opción de navegación tiene su icono (la Caja 2 no tiene Tarjetas de regalo)');
+      assert.equal(await page.locator('#nav button svg').count(), tienda === 'DUO' ? 6 : 5, 'cada opción de navegación (y la calculadora) tiene su icono (la Caja 2 no tiene Tarjetas de regalo)');
       const sinIcono = await page.$$eval('button:not(.btn-icono):not([type=submit])', (bs) => bs.filter((b) => !b.querySelector('svg') && !/^[−+]$/.test(b.textContent!.trim())).map((b) => b.textContent!.trim()));
       assert.deepEqual(sinIcono, [], 'todo botón visible lleva icono');
       assert.equal(await page.locator('#btn-editar-catalogo').count(), 0, 'Editar catálogo ya no existe en la venta');

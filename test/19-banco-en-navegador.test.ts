@@ -1577,6 +1577,69 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     assert.deepEqual(errores.filter((e) => !/401|403|Failed to load resource/.test(e)), []);
   });
 
+  it('B25 calculadora: ventana flotante y movible desde el menú lateral que sigue abierta mientras se vende y se cierra con su X', async (t) => {
+    execFileSync(process.execPath, [join(RAIZ, 'scripts', 'construir-prueba.mjs')], { stdio: 'pipe' });
+    const browser = await chromium.launch({ executablePath: chromiumPath, args: ['--no-sandbox'] });
+    t.after(() => browser.close());
+    const page = await (await browser.newContext({ viewport: { width: 1440, height: 900 }, colorScheme: 'light' })).newPage();
+    const errores: string[] = [];
+    page.on('pageerror', (e) => errores.push(String(e)));
+    page.on('console', (m) => { if (m.type() === 'error') errores.push(m.text()); });
+    await page.goto(`file://${HTML}`);
+    await page.waitForSelector('#scan');
+    assert.equal(await page.locator('#calculadora').count(), 0);
+    await page.click('#btn-calculadora');
+    await page.waitForSelector('#calculadora');
+    const tecla = async (...ks: string[]) => { for (const k of ks) await page.click(`#calculadora [data-calc="${k}"]`); };
+    await tecla('1', '2', '*', '3', '+', '4', '=');
+    assert.equal(await page.textContent('#calc-pantalla'), '40');
+    await tecla('C', '1', '0', '/', '4', '=');
+    assert.equal(await page.textContent('#calc-pantalla'), '2.5');
+    await tecla('C', '2', '0', '0', '+', '1', '5', '%', '=');
+    assert.equal(await page.textContent('#calc-pantalla'), '230', 'el % de un sumando es sobre el primer número');
+    await tecla('C', '1', '/', '0', '=');
+    assert.equal(await page.textContent('#calc-pantalla'), 'Error');
+    await tecla('C', '1', '2', '3', '4', '5', '6');
+    assert.equal(await page.textContent('#calc-pantalla'), '123,456');
+    await tecla('Backspace', 'neg');
+    assert.equal(await page.textContent('#calc-pantalla'), '-12,345');
+    // se mueve arrastrando la barra y no se sale de la ventana
+    const antes = (await page.locator('#calculadora').boundingBox())!;
+    await page.mouse.move(antes.x + 60, antes.y + 15);
+    await page.mouse.down(); await page.mouse.move(antes.x - 300, antes.y + 200, { steps: 5 }); await page.mouse.up();
+    const despues = (await page.locator('#calculadora').boundingBox())!;
+    assert.ok(Math.abs(despues.x - (antes.x - 360)) < 4 && Math.abs(despues.y - (antes.y + 185)) < 4, 'se movió con el mouse');
+    await page.mouse.move(despues.x + 60, despues.y + 15); await page.mouse.down(); await page.mouse.move(-500, -500, { steps: 3 }); await page.mouse.up();
+    const borde = (await page.locator('#calculadora').boundingBox())!;
+    assert.ok(borde.x >= 0 && borde.y >= 0, 'queda dentro de la ventana');
+    await page.mouse.move(borde.x + 60, borde.y + 15); await page.mouse.down(); await page.mouse.move(1150, 250, { steps: 4 }); await page.mouse.up(); // se deja a un lado, sin tapar el menú
+    // con la calculadora abierta todo el POS sigue funcionando: se escribe en la búsqueda, se vende y se cambia de pantalla
+    await page.click('#scan');
+    await tecla('7');
+    assert.equal(await page.inputValue('#scan'), '', 'las teclas de la calculadora no escriben en la búsqueda');
+    assert.equal(await page.evaluate(() => document.activeElement?.id), 'scan', 'la calculadora no roba el foco');
+    await page.fill('#scan', '7501234567890'); await page.press('#scan', 'Enter');
+    await page.waitForSelector('#cuerpo tr[data-linea]');
+    await page.fill('#recibido', '120'); await page.click('#btn-cobrar');
+    await page.waitForSelector('#dlg-ticket[open] #ticket-texto');
+    await page.click('#btn-nueva');
+    await page.click('#nav button[data-vista="ventas"]');
+    await page.waitForSelector('#tabla-ventas');
+    await page.click('#nav button[data-vista="venta"]');
+    await page.waitForSelector('#scan');
+    assert.equal(await page.locator('#calculadora').count(), 1, 'sigue abierta al cambiar de pantalla');
+    assert.equal(await page.textContent('#calc-pantalla'), '-123,457', 'conserva lo que tenía (incluida la tecla 7 de la prueba)');
+    assert.equal(await page.getAttribute('#btn-calculadora', 'aria-pressed'), 'true');
+    // se cierra con la X (y el botón del menú la vuelve a abrir)
+    await page.click('#calc-cerrar');
+    assert.equal(await page.locator('#calculadora').count(), 0);
+    await page.click('#btn-calculadora');
+    await page.waitForSelector('#calculadora');
+    await page.click('#btn-calculadora');
+    assert.equal(await page.locator('#calculadora').count(), 0);
+    assert.deepEqual(errores.filter((e) => !/401|403|Failed to load resource/.test(e)), []);
+  });
+
   it('B20 cierre por inactividad: aviso un minuto antes, «Seguir trabajando» renueva, al cerrarse la venta queda en espera y se vuelve al inicio de sesión', async (t) => {
     execFileSync(process.execPath, [join(RAIZ, 'scripts', 'construir-prueba.mjs')], { stdio: 'pipe' });
     const browser = await chromium.launch({ executablePath: chromiumPath, args: ['--no-sandbox'] });

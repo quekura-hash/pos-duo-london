@@ -662,3 +662,7 @@ Se quitaron de la pantalla de venta el título «Nueva venta», el texto «Venta
 ## 45. Créditos: cancelados
 
 Decisión del propietario: **no habrá créditos** (cargos a crédito de empleadas ni clientes Gold, ni abonos). Se quitó el botón «Créditos» (deshabilitado, «Próximamente») de Administración y quedan sin objeto las políticas P-04 (reparto del límite de crédito) y P-05 (abono duplicado) y las menciones a «cargo de crédito» de las secciones 1 y 2. No se confunde con el **crédito por cambio** de la sección 42, que sí existe y es solo el valor de las piezas que regresa la clienta dentro de una venta.
+
+## 46. Calculadora en el menú lateral
+
+Las sesiones de caja tienen el botón **Calculadora** al final del menú lateral. Abre una ventana **flotante, no modal** (suma, resta, multiplicación, división, %, ±, borrar, retroceso y punto decimal; hasta 15 dígitos; la división entre cero muestra «Error»): se **mueve arrastrando su barra** (no se sale de la ventana), **no roba el foco** (el cursor sigue en la búsqueda o en el campo que se usaba) y se queda abierta al cambiar de pantalla, vender, cobrar o abrir otros diálogos hasta que se cierre con su **X** (o con el botón del menú, que alterna). Conserva lo que tenía y su posición mientras la página siga abierta. No está en Administración. Verificado en navegador (B25).
