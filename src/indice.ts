@@ -3,6 +3,7 @@ import { CAMPOS_TIENDA, CONFIG_SESION_INICIAL, type ConfigSesion, type DatosTien
 import { aplicarPermiso, aplicarTarjeta, type PerdidaDocumental, type TarjetaRegalo, type TipoCambio } from './proyecciones.ts';
 import type { Repo } from './repo.ts';
 import type { Promocion } from './promociones.ts';
+import type { ReglaRecompensa } from './recompensas.ts';
 import type { Cajero, Supervisor } from './supervisores.ts';
 import { anioDeCodigo, claveDeEscaneo, clavesDeCatalogo } from './codigos.ts';
 import { LIMBO, type Articulo } from './tipos.ts';
@@ -42,6 +43,7 @@ export class Indice {
   private permisos = new Map<string, Set<string>>();
   private deptos: Departamento[] = copiarBase();
   private promos = new Map<string, Promocion>();
+  private recompensasMap = new Map<string, ReglaRecompensa>();
   private supervisoresMap = new Map<string, Supervisor>();
   private cajerosMap = new Map<string, Cajero>();
   private cfgSesion: ConfigSesion = { ...CONFIG_SESION_INICIAL };
@@ -54,7 +56,7 @@ export class Indice {
   private reiniciar() {
     this.seq = 0;
     this.cat = new Map(); this.porCodigo = new Map(); this.porAlterno = new Map(); this.porClave = new Map(); this.porItemNo = new Map(); this.texto = new Map();
-    this.stock = new Map(); this.enLimbo = new Set(); this.faltantesTienda = new Map(); this.marcas = new Map(); this.cubiertas = new Map(); this.perdidas = new Map(); this.tarjetas = new Map(); this.tipos = new Map(); this.permisos = new Map(); this.deptos = copiarBase(); this.promos = new Map(); this.supervisoresMap = new Map(); this.cajerosMap = new Map(); this.cfgSesion = { ...CONFIG_SESION_INICIAL }; this.datosTienda = new Map();
+    this.stock = new Map(); this.enLimbo = new Set(); this.faltantesTienda = new Map(); this.marcas = new Map(); this.cubiertas = new Map(); this.perdidas = new Map(); this.tarjetas = new Map(); this.tipos = new Map(); this.permisos = new Map(); this.deptos = copiarBase(); this.promos = new Map(); this.recompensasMap = new Map(); this.supervisoresMap = new Map(); this.cajerosMap = new Map(); this.cfgSesion = { ...CONFIG_SESION_INICIAL }; this.datosTienda = new Map();
   }
 
   actualizar() {
@@ -89,6 +91,7 @@ export class Indice {
     if (o.tipo.startsWith('giftcard.')) aplicarTarjeta(this.tarjetas, o);
     if (o.tipo === 'permiso.asignado') aplicarPermiso(this.permisos, o);
     if (o.tipo === 'promo.guardada') this.promos.set(p.id, p as Promocion);
+    if (o.tipo === 'recompensa.guardada') this.recompensasMap.set(p.id, p as ReglaRecompensa);
     if (o.tipo === 'config.negocio') { const x = this.datosTienda.get(p.tienda) ?? {}; for (const c of CAMPOS_TIENDA) if (typeof p[c] === 'string') x[c] = p[c]; this.datosTienda.set(p.tienda, x); }
     if (o.tipo === 'supervisor.guardado') this.supervisoresMap.set(p.id, p as Supervisor);
     if (o.tipo === 'config.sesion') this.cfgSesion = { caja_min: p.caja_min, admin_min: p.admin_min };
@@ -275,6 +278,11 @@ export class Indice {
   promociones(): Promocion[] {
     this.actualizar();
     return [...this.promos.values()];
+  }
+  /** Reglas de recompensa (cupones que se imprimen en el ticket) configuradas en Administración. */
+  recompensas(): ReglaRecompensa[] {
+    this.actualizar();
+    return [...this.recompensasMap.values()];
   }
   /** Datos de cada tienda editados en Administración (nombre, razón social, RFC, dirección, ciudad, teléfono, política de devolución). */
   datosDeTienda(): Map<string, DatosTienda> {

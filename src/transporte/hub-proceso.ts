@@ -3,6 +3,7 @@ import { Hub, type Ctx } from '../nodos.ts';
 import { crearPoliticasEnsayo } from '../politicas.ts';
 import { localizarVentas } from '../consultas.ts';
 import { devueltoPorLinea, ventas } from '../proyecciones.ts';
+import { buscarRecompensa } from '../recompensas.ts';
 import { SqliteRepo } from '../repo.ts';
 
 // Proceso del hub de una tienda: HTTP en 127.0.0.1, almacenamiento SQLite persistente.
@@ -37,6 +38,7 @@ function rpc(metodo: string, args: any[]) {
   switch (metodo) {
     case 'arrendar': return hub.arrendar(args[0], args[1], args[2]);
     case 'anclas': return hub.anclas(args[0]);
+    case 'consultarRecompensa': return buscarRecompensa(ventas(repo.ops()), args[0]);
     case 'consultarVenta': return ventas(repo.ops()).get(args[0]) ?? null;
     case 'devuelto': return [...devueltoPorLinea(repo.ops(), args[0])];
     case 'reservar': return hub.reservar(args[0], args[1], args[2], args[3] ?? []);

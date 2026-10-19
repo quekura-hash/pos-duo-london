@@ -6,10 +6,11 @@ import { ErrorDominio } from '../errores.ts';
 import type { Impresora } from '../impresion.ts';
 import type { Caja } from '../nodos.ts';
 import { estadoPromo, type Promocion } from '../promociones.ts';
-import { CAMPOS_EDITABLES, catalogo, historialArticulo, nombresTienda, datosTiendas, departamentos as proyDepartamentos, promocionesDe, supervisoresDe, cajerosDe, administradoresDe, configSesionDe, permisos as proyPermisos, tarjetasRegalo, tiposDeCambio, tipoCambioVigente, ventas, type TipoCambio } from '../proyecciones.ts';
+import { CAMPOS_EDITABLES, catalogo, historialArticulo, nombresTienda, datosTiendas, departamentos as proyDepartamentos, promocionesDe, recompensasDe, supervisoresDe, cajerosDe, administradoresDe, configSesionDe, permisos as proyPermisos, tarjetasRegalo, tiposDeCambio, tipoCambioVigente, ventas, type TipoCambio } from '../proyecciones.ts';
 import { hojaDescuentos, hojaEntregas, hojaDolares, hojaInventario, leerInventario, PERFIL_CONFIRMADO, type Hoja } from '../inventario.ts';
 import { LOGOS_TICKET } from '../logos-ticket.ts';
 import { aplicarDatosTienda, codigoTicket, construirTicket, construirTicketRegalo, formatoMXN, NEGOCIOS, renderTextoEscPos, renderTicketDevolucionTexto, renderTicketRetiroTexto, renderTicketEscPos, renderTicketTexto, type NegocioCfg } from '../ticket.ts';
+import type { ReglaRecompensa } from '../recompensas.ts';
 import { hashClave, nombreClave, type Perfil, type RolAdmin } from '../supervisores.ts';
 import { LIMBO, type Actor, type Articulo, type Linea, type Op, type Venta } from '../tipos.ts';
 import { fechaLocal } from '../util.ts';
@@ -643,7 +644,7 @@ export class ServicioAdmin {
   readonly cajas: { tienda: string; caja: number }[];
   private inv?: FuenteInventario;
   private central?: { fijarTipoCambio(tasa: number, usuario: string, versionBase: number, confirmarVariacion?: boolean): import('../nodos.ts').ResultadoTipoCambio; asignarPermiso(usuario: string, permiso: string, valor: boolean, por: string): Op; guardarDepto(c: import('../departamentos.ts').CambioDepto, por: string): { ok: true; op: Op } | { ok: false; error: import('../departamentos.ts').ErrorDepto };
-    guardarDatosTienda: import('../nodos.ts').Central['guardarDatosTienda']; editarArticulo: import('../nodos.ts').Central['editarArticulo']; guardarPromocion: import('../nodos.ts').Central['guardarPromocion']; guardarSupervisor: import('../nodos.ts').Central['guardarSupervisor']; guardarCajero: import('../nodos.ts').Central['guardarCajero']; guardarAdmin: import('../nodos.ts').Central['guardarAdmin']; guardarConfigSesion: import('../nodos.ts').Central['guardarConfigSesion']; recordarSacarAPiso: import('../nodos.ts').Central['recordarSacarAPiso']; resolverFaltante: import('../nodos.ts').Central['resolverFaltante']; contarLimbo: import('../nodos.ts').Central['contarLimbo']; corregirEntrada: import('../nodos.ts').Central['corregirEntrada']; altaLote: import('../nodos.ts').Central['altaLote']; entregar: import('../nodos.ts').Central['entregar'] };
+    guardarDatosTienda: import('../nodos.ts').Central['guardarDatosTienda']; editarArticulo: import('../nodos.ts').Central['editarArticulo']; guardarPromocion: import('../nodos.ts').Central['guardarPromocion']; guardarRecompensa: import('../nodos.ts').Central['guardarRecompensa']; guardarSupervisor: import('../nodos.ts').Central['guardarSupervisor']; guardarCajero: import('../nodos.ts').Central['guardarCajero']; guardarAdmin: import('../nodos.ts').Central['guardarAdmin']; guardarConfigSesion: import('../nodos.ts').Central['guardarConfigSesion']; recordarSacarAPiso: import('../nodos.ts').Central['recordarSacarAPiso']; resolverFaltante: import('../nodos.ts').Central['resolverFaltante']; contarLimbo: import('../nodos.ts').Central['contarLimbo']; corregirEntrada: import('../nodos.ts').Central['corregirEntrada']; altaLote: import('../nodos.ts').Central['altaLote']; entregar: import('../nodos.ts').Central['entregar'] };
   constructor(o: { actor: Extract<Actor, { rol: 'admin' }>; fuente: () => Op[]; cajas: { tienda: string; caja: number }[]; inventario?: FuenteInventario; central?: ServicioAdmin['central']; reloj?: { now(): string } }) {
     this.central = o.central;
     this.actor = o.actor;
@@ -861,6 +862,23 @@ export class ServicioAdmin {
     const articulos: Record<string, ReturnType<ServicioAdmin['vistaArticulo']>> = {};
     for (const p of promos) for (const id of p.alcance?.item_ids ?? []) { const a = cat.get(id); if (a) articulos[id] = this.vistaArticulo(a); }
     return { hoy, tiendas: this.tiendasInfo(), articulos, promociones: promos.map((p) => ({ ...p, estado: estadoPromo(p, hoy), usos: usos.get(p.id) ?? 0 })) };
+  }
+  /** Reglas de recompensa (cupones que se imprimen en el ticket), con cuántos cupones se han regalado y canjeado de cada una. */
+  recompensas() {
+    const ops = this.fuente();
+    const vs = [...ventas(ops).values()];
+    const regaladas = new Map<string, number>(), canjeadas = new Map<string, number>();
+    const emitidas = new Map<string, string>(); // código → regla
+    for (const v of vs) if (v.estado === 'confirmada') for (const e of v.recompensas ?? []) { regaladas.set(e.regla_id, (regaladas.get(e.regla_id) ?? 0) + 1); emitidas.set(e.codigo, e.regla_id); }
+    for (const v of vs) if (v.estado === 'confirmada') for (const cod of new Set(v.lineas.flatMap((l) => (l.descuento_detalle ?? []).filter((d) => d.tipo === 'cupon').map((d) => d.ref)))) { const r = emitidas.get(cod); if (r) canjeadas.set(r, (canjeadas.get(r) ?? 0) + 1); }
+    const hoy = fechaLocal(new Date().toISOString());
+    return { hoy, tiendas: this.tiendasInfo(), recompensas: recompensasDe(ops).map((r) => ({ ...r, regaladas: regaladas.get(r.id) ?? 0, canjeadas: canjeadas.get(r.id) ?? 0, estado: !r.activa ? 'inactiva' : r.inicio && hoy < r.inicio ? 'programada' : r.fin && hoy > r.fin ? 'vencida' : 'activa' })) };
+  }
+  guardarRecompensa(r: ReglaRecompensa) {
+    if (!this.central) throw new ErrorDominio('SIN_CENTRAL', 'esta sesión no tiene acceso al servicio central');
+    const g = this.central.guardarRecompensa(r, this.actor.usuario);
+    if (!g.ok) throw new ErrorDominio(g.error.codigo === 'NO_EXISTE' ? 'NO_ENCONTRADO' : 'RECOMPENSA_INVALIDA', g.error.mensaje, { motivo: g.error.codigo });
+    return { ...this.recompensas(), guardada: g.regla };
   }
   guardarPromocion(p: Promocion) {
     if (!this.central) throw new ErrorDominio('SIN_CENTRAL', 'esta sesión no tiene acceso al servicio central');

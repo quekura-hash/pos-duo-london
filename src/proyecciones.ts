@@ -76,6 +76,7 @@ export function ventas(ops: Op[]): Map<string, Venta> {
         sale_id: p.sale_id, tienda: p.tienda, caja: p.caja, folio: p.folio, cajero: p.cajero,
         ocurrio_en: o.ocurrio_en, lineas: p.lineas, total: p.total, pagos: p.pagos, estado: 'confirmada',
         ...(p.vendedora !== undefined ? { vendedora_id: p.vendedora_id ?? null, vendedora: p.vendedora } : {}),
+        ...(p.recompensas?.length ? { recompensas: p.recompensas } : {}),
       });
     }
   }
@@ -448,4 +449,10 @@ export function historialArticulo(ops: Op[], itemId: string): EventoArticulo[] {
   }
   // más reciente primero; a igual hora, el que ocurrió después en la bitácora
   return ev.map((e, i) => ({ e, i })).sort((a, b) => b.e.ocurrio_en.localeCompare(a.e.ocurrio_en) || b.i - a.i).map((x) => x.e);
+}
+
+export function recompensasDe(ops: Op[]): import('./recompensas.ts').ReglaRecompensa[] {
+  const m = new Map<string, import('./recompensas.ts').ReglaRecompensa>();
+  for (const o of ops) if (o.tipo === 'recompensa.guardada') m.set(o.payload.id, o.payload);
+  return [...m.values()];
 }

@@ -1768,6 +1768,61 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     assert.deepEqual(errores.filter((e) => !/401|403|Failed to load resource/.test(e)), []);
   });
 
+  it('B28 recompensas: Administración crea la regla, el ticket muestra el cupón con QR y se canjea escaneando el código', async (t) => {
+    execFileSync(process.execPath, [join(RAIZ, 'scripts', 'construir-prueba.mjs')], { stdio: 'pipe' });
+    const browser = await chromium.launch({ executablePath: chromiumPath, args: ['--no-sandbox'] });
+    t.after(() => browser.close());
+    const page = await (await browser.newContext({ viewport: { width: 1440, height: 900 }, colorScheme: 'light' })).newPage();
+    const errores: string[] = [];
+    page.on('pageerror', (e) => errores.push(String(e)));
+    page.on('console', (m) => { if (m.type() === 'error') errores.push(m.text()); });
+    await page.goto(`file://${HTML}`);
+    await page.waitForSelector('#scan');
+    await page.selectOption('#sesion-prueba', 'admin');
+    await page.click('#nav button[data-vista="promociones"]');
+    await page.click('#btn-recompensas');
+    await page.waitForSelector('#dlg-recompensas[open]');
+    await page.click('#rec-nueva');
+    await page.fill('#rc-nombre', 'Gana $50 en tu próxima compra');
+    await page.check('.rc-tienda[value="DUO"]');
+    await page.fill('#rc-compra', '1000');
+    await page.fill('#rc-valor', '50');
+    await page.fill('#rc-minimo', '500');
+    await page.fill('#rc-dias', '30');
+    await page.click('#rc-guardar');
+    await page.waitForSelector('#tabla-recompensas tr[data-rec]');
+    assert.match((await page.textContent('#tabla-recompensas tr[data-rec]'))!, /Gana \$50.*\$1,000\.00.*\$50\.00 de descuento.*compra mínima \$500\.00.*30 días.*activa.*0 \/ 0/);
+    await page.click('#rec-cerrar');
+    // una compra de $1,798 (2 jeans) gana el cupón; una de $899 no
+    await page.selectOption('#sesion-prueba', 'DUO/1');
+    await page.waitForSelector('#scan');
+    await page.fill('#scan', '0002026090782'); await page.press('#scan', 'Enter');
+    await page.waitForSelector('#cuerpo tr[data-linea]');
+    await page.fill('#recibido', '899'); await page.click('#btn-cobrar');
+    await page.waitForSelector('#dlg-ticket[open] #ticket-texto');
+    assert.equal(await page.locator('[data-cupon-ganado]').count(), 0, '$899 no alcanza');
+    await page.click('#btn-nueva');
+    await page.fill('#scan', '0002026090782'); await page.press('#scan', 'Enter');
+    await page.waitForSelector('#cuerpo tr[data-linea]');
+    await page.click('#cuerpo tr[data-linea] [data-accion="mas"]');
+    await page.waitForFunction(() => document.querySelector('#total')!.textContent === '$1,798.00');
+    await page.fill('#recibido', '1798'); await page.click('#btn-cobrar');
+    await page.waitForSelector('#dlg-ticket[open] [data-cupon-ganado]');
+    const codigo = (await page.getAttribute('[data-cupon-ganado]', 'data-cupon-ganado'))!;
+    assert.match(codigo, /^RC-DUO1-\d{6}-1$/);
+    assert.match((await page.textContent('#ticket-texto'))!, /¡TE GANASTE UN CUPÓN![\s\S]*\$50\.00 de descuento en tu próxima compra[\s\S]*Compra mínima: \$500\.00[\s\S]*Código: RC-DUO1/);
+    const oscuros = await page.$eval('canvas[data-qr]', (c: any) => { const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data; let n = 0; for (let i = 0; i < d.length; i += 4) if (d[i] < 60) n++; return n; });
+    assert.ok(oscuros > 500, 'el QR se dibujó');
+    await page.click('#btn-nueva');
+    // se canjea escaneando el código (el lector escribe el texto y Enter)
+    await page.fill('#scan', '0002026090782'); await page.press('#scan', 'Enter');
+    await page.waitForSelector('#cuerpo tr[data-linea]');
+    await page.fill('#scan', codigo); await page.press('#scan', 'Enter');
+    await page.waitForFunction(() => /aplicado: -\$50\.00/.test(document.querySelector('#mensaje')!.textContent!));
+    assert.equal(await page.textContent('#total'), '$849.00');
+    assert.deepEqual(errores.filter((e) => !/401|403|Failed to load resource/.test(e)), []);
+  });
+
   it('B20 cierre por inactividad: aviso un minuto antes, «Seguir trabajando» renueva, al cerrarse la venta queda en espera y se vuelve al inicio de sesión', async (t) => {
     execFileSync(process.execPath, [join(RAIZ, 'scripts', 'construir-prueba.mjs')], { stdio: 'pipe' });
     const browser = await chromium.launch({ executablePath: chromiumPath, args: ['--no-sandbox'] });

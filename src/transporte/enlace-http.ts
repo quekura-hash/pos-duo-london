@@ -43,6 +43,9 @@ export class EnlaceHttp implements Enlace {
     const r = this.rpc<[string, { qty: number; importe: number }][]>('devuelto', [saleId]);
     return r.alcanzado ? new Map(r.valor ?? []) : null;
   }
+  consultarRecompensa(codigo: string) {
+    return this.rpc<import('../recompensas.ts').EstadoRecompensa>('consultarRecompensa', [codigo]).valor;
+  }
   reservar(ref: string, caja: number, lineas: { item_id: string; qty: number }[], tarjetas: { codigo: string; monto: number }[] = []): ResultadoReserva | null {
     return this.rpc<ResultadoReserva>('reservar', [ref, caja, lineas, tarjetas]).valor;
   }

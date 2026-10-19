@@ -45,3 +45,10 @@ export function aMXN(centavos: number): string {
   const a = Math.abs(centavos);
   return `${neg ? '-' : ''}${Math.floor(a / 100)}.${String(a % 100).padStart(2, '0')}`;
 }
+
+/** Suma días a una fecha local AAAA-MM-DD (sin zona horaria: calendario puro). */
+export function addDias(fecha: string, dias: number): string {
+  const d = new Date(`${fecha}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + dias);
+  return d.toISOString().slice(0, 10);
+}

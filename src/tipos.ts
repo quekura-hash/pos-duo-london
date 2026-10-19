@@ -86,6 +86,8 @@ export interface Venta {
   /** Quién atendió la venta: `vendedora_id` null y `vendedora` «Autocompra» = nadie ayudó a la clienta. Ausentes en ventas anteriores. */
   vendedora_id?: string | null;
   vendedora?: string;
+  /** Cupones de recompensa regalados en este ticket (cada uno con su código único). */
+  recompensas?: import('./recompensas.ts').RecompensaEmitida[];
   /** Avisos del arbitraje del hub al confirmar (p. ej. sobreventa). No forman parte de la operación persistida. */
   avisos?: string[];
 }

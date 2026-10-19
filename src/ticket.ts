@@ -82,6 +82,8 @@ export interface LineaTicket {
   tarjeta_regalo?: boolean;
 }
 export interface Ticket {
+  /** Cupones de recompensa que se imprimen al final (cada uno con su QR). */
+  recompensas?: import('./recompensas.ts').RecompensaEmitida[];
   /** Quién atendió la venta (no se imprime si fue «Autocompra» o no se registró). */
   vendio?: string;
   negocio: string;
@@ -121,7 +123,7 @@ export function construirTicket(v: Venta, cfg: NegocioCfg = NEGOCIOS[v.tienda]!,
   const local = new Date(Date.parse(v.ocurrio_en) - 7 * 3600_000).toISOString();
   const [y, mo, d] = fechaLocal(v.ocurrio_en).split('-');
   return {
-    negocio: cfg.nombre, tienda: v.tienda, caja: v.caja, cajero: v.cajero, vendio: v.vendedora_id ? v.vendedora : undefined,
+    negocio: cfg.nombre, tienda: v.tienda, caja: v.caja, cajero: v.cajero, vendio: v.vendedora_id ? v.vendedora : undefined, recompensas: v.recompensas,
     fecha: `${d}/${mo}/${y}`, hora: local.slice(11, 16), folio: v.folio, codigo_ticket: codigoTicket(v.tienda, v.caja, v.folio, negocios),
     lineas: v.lineas.map((l) => ({
       item_no: l.item_no, codigo: l.codigo, descripcion: l.descripcion, marca: l.marca, estilo: l.estilo, lote: l.lote,
@@ -254,7 +256,38 @@ export function renderTicketTexto(t: Ticket): string {
   if (t.leyendas.length) L.push('');
   for (const leyenda of t.leyendas) L.push(...envolver(leyenda, c).map((x) => centrar(x, c)));
   L.push(centrar(t.codigo_ticket, c));
+  for (const r of t.recompensas ?? []) L.push('', ...textoCupon(r, t));
   return L.join('\n') + '\n';
+}
+
+const fechaCorta = (iso: string) => iso.split('-').reverse().join('/');
+/** Texto del cupón de recompensa impreso al final del ticket (el QR va aparte). */
+export function textoCupon(r: import('./recompensas.ts').RecompensaEmitida, t: Pick<Ticket, 'columnas' | 'negocio'>): string[] {
+  const c = t.columnas;
+  const premio = r.pct !== undefined ? `${r.pct}% de descuento` : `${formatoMXN(r.monto!)} de descuento`;
+  return [
+    '='.repeat(c), centrar('¡TE GANASTE UN CUPÓN!', c), ...envolver(r.nombre, c).map((x) => centrar(x, c)),
+    ...envolver(`${premio} en tu próxima compra`, c).map((x) => centrar(x, c)),
+    ...(r.minimo > 0 ? [centrar(`Compra mínima: ${formatoMXN(r.minimo)}`, c)] : []),
+    centrar(`Válido del ${fechaCorta(r.valido_desde)} al ${fechaCorta(r.valido_hasta)}`, c),
+    ...envolver(`Solo en ${t.negocio}. Un solo uso, no acumulable con otras promociones.`, c).map((x) => centrar(x, c)),
+    centrar(`Código: ${r.codigo}`, c), '='.repeat(c),
+  ];
+}
+
+/** QR nativo de la impresora (GS ( k, modelo 2). NO validado con una impresora real. */
+export function qrEscPos(texto: string): number[] {
+  const d = aCP858(texto);
+  const n = d.length + 3;
+  return [
+    0x1b, 0x61, 1,
+    0x1d, 0x28, 0x6b, 4, 0, 0x31, 0x41, 0x32, 0, // modelo 2
+    0x1d, 0x28, 0x6b, 3, 0, 0x31, 0x43, 6, // tamaño del módulo
+    0x1d, 0x28, 0x6b, 3, 0, 0x31, 0x45, 0x31, // corrección de errores M
+    0x1d, 0x28, 0x6b, n & 255, n >> 8, 0x31, 0x50, 0x30, ...d, // guardar datos
+    0x1d, 0x28, 0x6b, 3, 0, 0x31, 0x51, 0x30, // imprimir
+    0x0a, 0x1b, 0x61, 0,
+  ];
 }
 
 // ── ESC/POS (Epson TM-T20II según lectura fotográfica de la etiqueta; NO validado en equipo real) ──
@@ -278,12 +311,15 @@ export function renderTicketEscPos(t: Ticket, opts: { abrirCajon?: boolean; logo
   b.push(0x1b, 0x74, 19); // ESC t 19: página de códigos PC858 (acentos del español)
   if (opts.abrirCajon) b.push(0x1b, 0x70, 0x00, 25, 250); // ESC p: pulso al cajón
   if (opts.logo) b.push(...rasterEscPos(opts.logo)); // logo de la tienda arriba, centrado (GS v 0)
-  b.push(...aCP858(renderTicketTexto(t).replace(/\n$/, '')), 0x0a);
+  b.push(...aCP858(renderTicketTexto({ ...t, recompensas: undefined }).replace(/\n$/, '')), 0x0a);
   const datos = aCP858(`{B${t.codigo_ticket}`); // Code128 juego B
   b.push(0x1b, 0x61, 1); // centrar
   b.push(0x1d, 0x68, 80, 0x1d, 0x77, 2, 0x1d, 0x48, 0); // alto, ancho, sin texto HRI (ya va impreso)
   b.push(0x1d, 0x6b, 73, datos.length, ...datos); // GS k 73 n d1..dn
-  b.push(0x0a, 0x0a, 0x0a);
+  b.push(0x0a);
+  // Cupones de recompensa: al final del MISMO ticket, cada uno con su texto y su QR (el código es lo que lee el lector 2D).
+  for (const r of t.recompensas ?? []) { b.push(0x0a, ...aCP858(textoCupon(r, t).join('\n')), 0x0a, ...qrEscPos(r.codigo)); }
+  b.push(0x0a, 0x0a);
   b.push(0x1d, 0x56, 66, 0); // GS V 66 0: avance y corte parcial
   return Uint8Array.from(b);
 }

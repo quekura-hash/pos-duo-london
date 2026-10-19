@@ -1,5 +1,6 @@
 import type { BusquedaVentas, VentaLocalizada } from './consultas.ts';
 import { ErrorDominio } from './errores.ts';
+import { buscarRecompensa, esCodigoRecompensa, promoDeRecompensa, recompensasGanadas, validarRegla, type EstadoRecompensa, type ReglaRecompensa } from './recompensas.ts';
 import { calcularDescuentos, normCodigo, repartir, validarPromocion, type ErrorPromo, type Promocion, type ResultadoDescuentos } from './promociones.ts';
 import { mezclarPerfil, claveAdminValida, claveValida, hashClave, nombreClave, supervisorPorClave, type Cajero, type Perfil, type RolAdmin, type Supervisor } from './supervisores.ts';
 import { correccionesEntradas } from './almacen.ts';
@@ -10,7 +11,7 @@ import { DENOMINACIONES_USD, esImporteEnBilletesUsd, superaUmbralTasa, totalDeno
 import { TASA_SIN_VERIFICAR_OMISION, type Politicas } from './politicas.ts';
 import { Indice } from './indice.ts';
 import { localizarVentas } from './consultas.ts';
-import { CAMPOS_EDITABLES, CAMPOS_TIENDA, type CampoEditable, departamentos, promocionesDe, supervisoresDe, cajerosDe, administradoresDe, efectivoDeVenta, movimientosCaja, tipoCambioVigente, catalogo, devoluciones, devueltoPorLinea, existenciaVerificada, intentos, perdidasDocumentales, stock, ventas, type Devolucion, type ExistenciaVerificada, type Intento, type PerdidaDocumental, type TarjetaRegalo, type TipoCambio } from './proyecciones.ts';
+import { CAMPOS_EDITABLES, CAMPOS_TIENDA, type CampoEditable, departamentos, promocionesDe, recompensasDe, supervisoresDe, cajerosDe, administradoresDe, efectivoDeVenta, movimientosCaja, tipoCambioVigente, catalogo, devoluciones, devueltoPorLinea, existenciaVerificada, intentos, perdidasDocumentales, stock, ventas, type Devolucion, type ExistenciaVerificada, type Intento, type PerdidaDocumental, type TarjetaRegalo, type TipoCambio } from './proyecciones.ts';
 import type { Repo } from './repo.ts';
 import { validarOpEntrante } from './reglas.ts';
 import { LIMBO, type Articulo, type CajaCfg, type Linea, type Op, type Pago, type Venta } from './tipos.ts';
@@ -42,6 +43,8 @@ export interface Enlace {
   bloqueItemNo(k: number): { desde: number; hasta: number } | null;
   consultarVenta(saleId: string): Venta | null;
   devueltoAutoritativo(saleId: string): Map<string, { qty: number; importe: number }> | null;
+  /** Qué sabe el hub de un cupón de recompensa (emisión, canje, cancelación) con las ventas de las dos cajas. null = sin hub. */
+  consultarRecompensa(codigo: string): EstadoRecompensa | null;
   /** Arbitraje del hub sobre existencias. null = el hub no respondió. Idempotente por `ref`. */
   reservar(ref: string, caja: number, lineas: { item_id: string; qty: number }[], tarjetas?: TarjetaApartada[]): ResultadoReserva | null;
   liberar(ref: string): void;
@@ -93,7 +96,7 @@ interface Reserva {
 const esMovimientoLimbo = (op: Op) => op.tipo === 'inv.movement' && op.payload.tienda === LIMBO;
 const BROADCAST_TIENDA = new Set(['alm.recibida', 'inv.movement', 'inv.conteo', 'inv.verificacion_pendiente', 'doc.perdida_posible', 'item.created', 'item.item_no_assigned', 'giftcard.emitida', 'giftcard.recarga', 'giftcard.uso', 'giftcard.reintegro']);
 // Lo que el central baja a hubs y cajas (catálogo y resoluciones administrativas).
-const CATALOGO = new Set(['item.created', 'item.item_no_assigned', 'item.codigo_corregido', 'doc.perdida_resuelta', 'giftcard.emitida', 'giftcard.recarga', 'giftcard.uso', 'giftcard.reintegro', 'config.tipo_cambio', 'permiso.asignado', 'depto.alta', 'depto.editado', 'alm.entrega', 'alm.faltante', 'promo.guardada', 'supervisor.guardado', 'cajero.guardado', 'config.sesion', 'config.negocio', 'item.editado']);
+const CATALOGO = new Set(['item.created', 'item.item_no_assigned', 'item.codigo_corregido', 'doc.perdida_resuelta', 'giftcard.emitida', 'giftcard.recarga', 'giftcard.uso', 'giftcard.reintegro', 'config.tipo_cambio', 'permiso.asignado', 'depto.alta', 'depto.editado', 'alm.entrega', 'alm.faltante', 'promo.guardada', 'recompensa.guardada', 'supervisor.guardado', 'cajero.guardado', 'config.sesion', 'config.negocio', 'item.editado']);
 
 // ───────────────────────────── Hub ─────────────────────────────
 
@@ -410,6 +413,16 @@ export class Central {
     if (!r.ok) return r;
     this.emitirAdmin('promo.guardada', { ...r.promo, por });
     return r;
+  }
+  /** Alta o edición de una regla de recompensa (cupón regalado en el ticket). Se propaga a todas las cajas. */
+  guardarRecompensa(r: ReglaRecompensa, por: string): { ok: true; regla: ReglaRecompensa } | { ok: false; error: { codigo: 'DATOS_INVALIDOS' | 'NO_EXISTE'; mensaje: string } } {
+    const otras = recompensasDe(this.repo.ops());
+    if (r.id && !otras.some((o) => o.id === r.id)) return { ok: false, error: { codigo: 'NO_EXISTE', mensaje: 'la recompensa no existe' } };
+    const id = r.id || `rec-${uuid().slice(0, 8)}`;
+    const v = validarRegla({ ...r, id }, this.ctx.tiendas);
+    if (!v.ok) return { ok: false, error: { codigo: 'DATOS_INVALIDOS', mensaje: v.mensaje } };
+    this.emitirAdmin('recompensa.guardada', { ...v.regla, por });
+    return { ok: true, regla: v.regla };
   }
   /** Alta o edición de un supervisor que autoriza descuentos con clave numérica. La clave se guarda con sal y hash. */
   guardarSupervisor(d: { id?: string; id_nuevo?: string; nombre?: string; clave?: string; activo?: boolean }, por: string): { ok: true; supervisor: Omit<Supervisor, 'sal' | 'hash'> } | { ok: false; error: { codigo: 'DATOS_INVALIDOS' | 'CLAVE_REPETIDA' | 'NO_EXISTE'; mensaje: string } } {
@@ -1115,11 +1128,15 @@ export class Caja {
    * nueva (o vencida) y un cambio de cantidades se reflejan en el total que se cobra, y nunca queda un descuento viejo.
    */
   private recalcular(c: Carrito): void {
-    const promos = this.idx.promociones();
+    let promos = this.idx.promociones();
     const conDetalle = c.lineas.some((l) => l.descuento_detalle !== undefined);
     if (!promos.length && !c.cupon && !conDetalle) { delete c.descuentos; return; }
     const hoy = fechaLocal(this.ctx.reloj.now());
+    // Un cupón de recompensa (RC-…) se arma con lo que se sabe de su emisión: vale una sola vez y solo en la tienda que lo regaló.
+    const rc = c.cupon && esCodigoRecompensa(c.cupon) ? this.estadoRecompensa(c.cupon) : null;
+    if (rc?.emitida) promos = [...promos, promoDeRecompensa(rc.emitida)];
     const usos = (codigo: string) => {
+      if (rc?.emitida && rc.emitida.codigo === codigo) return rc.canjeada || rc.cancelada ? 1 : 0;
       const p = promos.find((x) => x.tipo === 'cupon' && x.codigo === codigo);
       if (!p) return 0;
       let n = 0;
@@ -1129,6 +1146,13 @@ export class Caja {
     const r = calcularDescuentos(c.lineas, promos, c.cupon ?? null, hoy, usos, this.tienda);
     c.lineas = r.lineas;
     c.descuentos = { aplicadas: r.aplicadas, cupon: r.cupon };
+  }
+  /** Emisión, canje y cancelación de un cupón de recompensa según las ventas de esta caja y las del hub (las dos cajas de la tienda). */
+  estadoRecompensa(codigo: string): EstadoRecompensa {
+    const cod = codigo.trim().toUpperCase();
+    const local = buscarRecompensa(ventas(this.opsVentas()), cod);
+    const remoto = this.enlace.consultarRecompensa(cod);
+    return { emitida: local.emitida ?? remoto?.emitida ?? null, canjeada: local.canjeada || !!remoto?.canjeada, cancelada: local.cancelada || !!remoto?.cancelada };
   }
   abrirCarrito(): string {
     const id = uuid();
@@ -1291,6 +1315,11 @@ export class Caja {
     this.exigirSinCobroPendiente(c);
     const cod = normCodigo(codigo);
     if (!cod) throw new ErrorDominio('DATOS_REQUERIDOS', 'falta el código del cupón');
+    if (esCodigoRecompensa(cod)) {
+      const e = this.estadoRecompensa(cod);
+      if (!e.emitida) throw new ErrorDominio('CUPON_NO_APLICA', this.enlace.hubAlcanzable() ? 'el cupón no existe' : 'no se pudo verificar el cupón: sin conexión con el hub (si lo regalaron en la otra caja, espere a que se sincronice)', { codigo: cod });
+      if (e.cancelada) throw new ErrorDominio('CUPON_NO_APLICA', 'ese cupón se anuló: se canceló la venta que lo regaló', { codigo: cod });
+    }
     c.cupon = cod;
     this.recalcular(c);
     const r = c.descuentos?.cupon ?? { codigo: cod, nombre: cod, monto: 0, aplicado: false, motivo: 'el cupón no existe' };
@@ -1714,8 +1743,12 @@ export class Caja {
       this.ctx.fallo?.('tras_folio');
       const limbo = this.repartoLimbo(c.lineas);
       const lineas = c.lineas.map((l) => (limbo.get(l.linea_id) ? { ...l, de_limbo: limbo.get(l.linea_id) } : l));
+      // Recompensas: con lo que la clienta PAGA (mercancía, ya con descuentos y crédito de cambio) se gana el cupón impreso al final del ticket.
+      const pagadoMerc = Math.max(0, c.lineas.filter((l) => !l.tarjeta_regalo).reduce((a, l) => a + l.importe, 0) - credito);
+      const recompensas = recompensasGanadas(this.idx.recompensas(), this.tienda, this.caja, folio, fechaLocal(this.ctx.reloj.now()), pagadoMerc);
       const op = this.emitir('sale.confirmed', {
         sale_id: c.id, tienda: this.tienda, caja: this.caja, folio, cajero, lineas, total, pagos,
+        ...(recompensas.length ? { recompensas } : {}),
         ...(c.cambio ? { cambio_de: { sale_id: c.cambio.sale_id, folio: c.cambio.folio_origen } } : {}),
         ...(c.vendedora ? { vendedora_id: c.vendedora.id, vendedora: c.vendedora.alias } : {}),
       }, `sale:${c.id}`);

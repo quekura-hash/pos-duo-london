@@ -4,6 +4,7 @@ import { localizarVentas } from './consultas.ts';
 import { Caja, Central, Hub, type Anclas, type Ctx, type Enlace } from './nodos.ts';
 import type { Politicas } from './politicas.ts';
 import { devueltoPorLinea, ventas } from './proyecciones.ts';
+import { buscarRecompensa } from './recompensas.ts';
 import { MemoriaRepo, SqliteRepo, type Repo } from './repo.ts';
 import type { Articulo, CajaCfg, Op } from './tipos.ts';
 import { Indice } from './indice.ts';
@@ -182,6 +183,10 @@ export class Mundo {
         if (!w.hubArriba(t, n)) return null;
         const a = localizarVentas(w.hub(t).repo.ops(), t, q);
         return a;
+      },
+      consultarRecompensa(codigo) {
+        if (!w.hubArriba(t, n)) return null;
+        return buscarRecompensa(ventas(w.hub(t).repo.ops()), codigo);
       },
       devueltoAutoritativo(saleId) {
         if (!w.hubArriba(t, n)) return null;

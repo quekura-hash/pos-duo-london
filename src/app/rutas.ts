@@ -133,6 +133,8 @@ export async function atender(o: { cajero?: ServicioCaja; admin?: ServicioAdmin 
       case 'GET /api/admin/articulos': return ok(exigirAdmin().buscarArticulos(q.get('q') ?? '', Math.min(200, Number(q.get('limite')) || 30), Number(q.get('desde')) || 0, q.get('todos') === '1'));
       case 'POST /api/admin/articulos': return ok(exigirAdmin().editarArticulo(String(b.item_id ?? ''), b.cambios ?? {}));
       case 'GET /api/admin/articulo/historial': return ok(exigirAdmin().historialArticulo(q.get('item_id') ?? ''));
+      case 'GET /api/admin/recompensas': return ok(exigirAdmin().recompensas());
+      case 'POST /api/admin/recompensas': return ok(exigirAdmin().guardarRecompensa(b as any));
       case 'GET /api/admin/promociones': return ok(exigirAdmin().promociones());
       case 'POST /api/admin/promociones': return ok(exigirAdmin().guardarPromocion(b as any));
       case 'GET /api/admin/cajeros': return ok(exigirAdmin().cajeros());
