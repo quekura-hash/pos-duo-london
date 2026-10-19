@@ -1,7 +1,7 @@
 import type { BusquedaVentas, VentaLocalizada } from './consultas.ts';
 import { ErrorDominio } from './errores.ts';
 import { calcularDescuentos, normCodigo, repartir, validarPromocion, type ErrorPromo, type Promocion, type ResultadoDescuentos } from './promociones.ts';
-import { claveValida, hashClave, supervisorPorClave, type Supervisor } from './supervisores.ts';
+import { claveValida, hashClave, nombreClave, supervisorPorClave, type Cajero, type Supervisor } from './supervisores.ts';
 import { BILLETES_RETIRO_MXN, BILLETES_RETIRO_USD, efectivoDeVentaEnCaja, MINIMO_RETIRO, UMBRAL_AVISO_RETIRO, type RetiroRegistrado } from './retiros.ts';
 import { DESTINOS_FALTANTE_ESPECIALES, existenciaAlmacen, faltantes, fechaValida, recepcionesPendientes, type Faltante, type AltaManual, type RecepcionPendiente } from './almacen.ts';
 import { slug, validarCambioDepto, type CambioDepto, type ErrorDepto } from './departamentos.ts';
@@ -9,7 +9,7 @@ import { DENOMINACIONES_USD, esImporteEnBilletesUsd, superaUmbralTasa, totalDeno
 import { TASA_SIN_VERIFICAR_OMISION, type Politicas } from './politicas.ts';
 import { Indice } from './indice.ts';
 import { localizarVentas } from './consultas.ts';
-import { CAMPOS_EDITABLES, CAMPOS_TIENDA, type CampoEditable, departamentos, promocionesDe, supervisoresDe, efectivoDeVenta, movimientosCaja, tipoCambioVigente, catalogo, devoluciones, devueltoPorLinea, existenciaVerificada, intentos, perdidasDocumentales, stock, ventas, type Devolucion, type ExistenciaVerificada, type Intento, type PerdidaDocumental, type TarjetaRegalo, type TipoCambio } from './proyecciones.ts';
+import { CAMPOS_EDITABLES, CAMPOS_TIENDA, type CampoEditable, departamentos, promocionesDe, supervisoresDe, cajerosDe, efectivoDeVenta, movimientosCaja, tipoCambioVigente, catalogo, devoluciones, devueltoPorLinea, existenciaVerificada, intentos, perdidasDocumentales, stock, ventas, type Devolucion, type ExistenciaVerificada, type Intento, type PerdidaDocumental, type TarjetaRegalo, type TipoCambio } from './proyecciones.ts';
 import type { Repo } from './repo.ts';
 import { validarOpEntrante } from './reglas.ts';
 import { LIMBO, type Articulo, type CajaCfg, type Linea, type Op, type Pago, type Venta } from './tipos.ts';
@@ -92,7 +92,7 @@ interface Reserva {
 const esMovimientoLimbo = (op: Op) => op.tipo === 'inv.movement' && op.payload.tienda === LIMBO;
 const BROADCAST_TIENDA = new Set(['alm.recibida', 'inv.movement', 'inv.conteo', 'inv.verificacion_pendiente', 'doc.perdida_posible', 'item.created', 'item.item_no_assigned', 'giftcard.emitida', 'giftcard.recarga', 'giftcard.uso', 'giftcard.reintegro']);
 // Lo que el central baja a hubs y cajas (catálogo y resoluciones administrativas).
-const CATALOGO = new Set(['item.created', 'item.item_no_assigned', 'item.codigo_corregido', 'doc.perdida_resuelta', 'giftcard.emitida', 'giftcard.recarga', 'giftcard.uso', 'giftcard.reintegro', 'config.tipo_cambio', 'permiso.asignado', 'depto.alta', 'depto.editado', 'alm.entrega', 'alm.faltante', 'promo.guardada', 'supervisor.guardado', 'config.negocio', 'item.editado']);
+const CATALOGO = new Set(['item.created', 'item.item_no_assigned', 'item.codigo_corregido', 'doc.perdida_resuelta', 'giftcard.emitida', 'giftcard.recarga', 'giftcard.uso', 'giftcard.reintegro', 'config.tipo_cambio', 'permiso.asignado', 'depto.alta', 'depto.editado', 'alm.entrega', 'alm.faltante', 'promo.guardada', 'supervisor.guardado', 'cajero.guardado', 'config.negocio', 'item.editado']);
 
 // ───────────────────────────── Hub ─────────────────────────────
 
@@ -430,6 +430,24 @@ export class Central {
     const id = actual?.id ?? `sup-${uuid().slice(0, 8)}`;
     this.emitirAdmin('supervisor.guardado', { id, nombre, activo, sal, hash, por });
     return { ok: true, supervisor: { id, nombre, activo } };
+  }
+
+  /** Alta o edición de un cajero con clave propia (4 a 8 dígitos). El nombre es el del usuario de la caja y no se repite. */
+  guardarCajero(d: { id?: string; nombre?: string; clave?: string; activo?: boolean }, por: string): { ok: true; cajero: Omit<Cajero, 'sal' | 'hash'> } | { ok: false; error: { codigo: 'DATOS_INVALIDOS' | 'NOMBRE_REPETIDO' | 'NO_EXISTE'; mensaje: string } } {
+    const lista = cajerosDe(this.repo.ops());
+    const actual = d.id ? lista.find((c) => c.id === d.id) : undefined;
+    if (d.id && !actual) return { ok: false, error: { codigo: 'NO_EXISTE', mensaje: 'el cajero no existe' } };
+    const nombre = (d.nombre ?? actual?.nombre ?? '').trim().replace(/\s+/g, ' ');
+    if (!nombre) return { ok: false, error: { codigo: 'DATOS_INVALIDOS', mensaje: 'falta el nombre del cajero' } };
+    if (lista.some((c) => c.id !== actual?.id && nombreClave(c.nombre) === nombreClave(nombre))) return { ok: false, error: { codigo: 'NOMBRE_REPETIDO', mensaje: 'ya hay un cajero con ese nombre' } };
+    if (!actual && !claveValida(d.clave)) return { ok: false, error: { codigo: 'DATOS_INVALIDOS', mensaje: 'la clave lleva de 4 a 8 dígitos' } };
+    if (d.clave !== undefined && d.clave !== '' && !claveValida(d.clave)) return { ok: false, error: { codigo: 'DATOS_INVALIDOS', mensaje: 'la clave lleva de 4 a 8 dígitos' } };
+    const activo = d.activo ?? actual?.activo ?? true;
+    let sal = actual?.sal ?? uuid(), hash = actual?.hash ?? '';
+    if (d.clave) { sal = uuid(); hash = hashClave(sal, d.clave); }
+    const id = actual?.id ?? `caj-${uuid().slice(0, 8)}`;
+    this.emitirAdmin('cajero.guardado', { id, nombre, activo, sal, hash, por });
+    return { ok: true, cajero: { id, nombre, activo } };
   }
 
   /** Recordatorio interno de almacén: fecha para sacar el artículo a piso (null la quita). Solo del central, no viaja a las tiendas. */
@@ -803,6 +821,46 @@ export class Caja {
         this.emitir('inv.movement', { item_id: art.item_id, tienda: this.tienda, delta: d.existencia_inicial, tipo: 'existencia_inicial', doc: `alta:${art.item_id}` }, `mov:alta:${art.item_id}`);
       }
     });
+    return art;
+  }
+  /**
+   * Confirma con la clave PROPIA del cajero (la del usuario de la sesión, no la de otro): un tercero no puede hacer la operación a su nombre.
+   * Cinco claves equivocadas seguidas bloquean al cajero 5 minutos en esta caja (una clave de 4 dígitos no debe poder adivinarse probando).
+   */
+  verificarClaveCajero(usuario: string, clave: string): Cajero {
+    const llave = `clavefallos:${nombreClave(usuario)}`;
+    const fallos = this.repo.kvGet<{ n: number; hasta: number }>(llave) ?? { n: 0, hasta: 0 };
+    const ahora = Date.parse(this.ctx.reloj.now());
+    if (fallos.hasta > ahora) throw new ErrorDominio('CLAVE_BLOQUEADA', `demasiados intentos con una clave equivocada: espere ${Math.ceil((fallos.hasta - ahora) / 60000)} minuto(s)`);
+    const cajero = this.idx.cajeros().find((c) => c.activo && nombreClave(c.nombre) === nombreClave(usuario));
+    if (!cajero) throw new ErrorDominio('CAJERO_SIN_CLAVE', `«${usuario}» no tiene una clave registrada: pida a Administración que la dé de alta en Configuración → Cajeros`);
+    if (!claveValida(clave) || cajero.hash !== hashClave(cajero.sal, clave)) {
+      const n = fallos.n + 1;
+      this.repo.kvSet(llave, n >= 5 ? { n: 0, hasta: ahora + 5 * 60000 } : { n, hasta: 0 });
+      throw new ErrorDominio('CLAVE_INVALIDA', 'la clave no es correcta');
+    }
+    this.repo.kvSet(llave, { n: 0, hasta: 0 });
+    return cajero;
+  }
+  /** Departamentos activos (para elegir al dar de alta un artículo en la caja). */
+  departamentosActivos(): string[] {
+    return this.idx.departamentos().filter((d) => d.activo).map((d) => d.nombre);
+  }
+  /**
+   * Alta de un artículo desde la caja, autorizada con la clave del propio cajero. Llega al catálogo de todas las tiendas (item.created se
+   * reparte) y queda un registro de quién lo dio de alta. Rechaza un código que ya existe (exacto o su forma corta/UPC completo).
+   */
+  altaArticuloAutorizada(d: { codigo: string; marca?: string; descripcion: string; estilo?: string; lote?: string; departamento: string; precio: number }, usuario: string, clave: string): Articulo {
+    const cajero = this.verificarClaveCajero(usuario, clave);
+    const codigo = String(d.codigo ?? '').trim();
+    const descripcion = String(d.descripcion ?? '').trim();
+    if (!codigo) throw new ErrorDominio('DATOS_REQUERIDOS', 'falta el código del artículo');
+    if (!descripcion) throw new ErrorDominio('DATOS_REQUERIDOS', 'falta la descripción');
+    if (!Number.isInteger(d.precio) || d.precio <= 0) throw new ErrorDominio('DATOS_REQUERIDOS', 'el precio debe ser mayor que 0');
+    if (!this.departamentosActivos().includes(d.departamento)) throw new ErrorDominio('DATOS_REQUERIDOS', 'elija un departamento de la lista');
+    if (this.idx.buscarCodigo(codigo).length || this.idx.buscarCodigoAproximado(codigo).length) throw new ErrorDominio('CODIGO_EXISTE', `el código ${codigo} ya existe en el catálogo`);
+    const art = this.altaArticulo({ codigo, marca: String(d.marca ?? '').trim(), descripcion, estilo: String(d.estilo ?? '').trim(), lote: String(d.lote ?? '').trim(), departamento: d.departamento, precio: d.precio });
+    this.emitir('articulo.alta_autorizada', { item_id: art.item_id, cajero: cajero.nombre, tienda: this.tienda, caja: this.caja }, `alta_aut:${art.item_id}`);
     return art;
   }
   /** Entregas del almacén a esta tienda que nadie ha confirmado todavía. */

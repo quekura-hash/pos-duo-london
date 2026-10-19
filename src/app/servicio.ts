@@ -6,7 +6,7 @@ import { ErrorDominio } from '../errores.ts';
 import type { Impresora } from '../impresion.ts';
 import type { Caja } from '../nodos.ts';
 import { estadoPromo, type Promocion } from '../promociones.ts';
-import { CAMPOS_EDITABLES, catalogo, historialArticulo, nombresTienda, datosTiendas, departamentos as proyDepartamentos, promocionesDe, supervisoresDe, permisos as proyPermisos, tarjetasRegalo, tiposDeCambio, tipoCambioVigente, ventas, type TipoCambio } from '../proyecciones.ts';
+import { CAMPOS_EDITABLES, catalogo, historialArticulo, nombresTienda, datosTiendas, departamentos as proyDepartamentos, promocionesDe, supervisoresDe, cajerosDe, permisos as proyPermisos, tarjetasRegalo, tiposDeCambio, tipoCambioVigente, ventas, type TipoCambio } from '../proyecciones.ts';
 import { hojaDescuentos, hojaEntregas, hojaDolares, hojaInventario, leerInventario, PERFIL_CONFIRMADO, type Hoja } from '../inventario.ts';
 import { LOGOS_TICKET } from '../logos-ticket.ts';
 import { aplicarDatosTienda, codigoTicket, construirTicket, construirTicketRegalo, formatoMXN, NEGOCIOS, renderTextoEscPos, renderTicketDevolucionTexto, renderTicketRetiroTexto, renderTicketEscPos, renderTicketTexto, type NegocioCfg } from '../ticket.ts';
@@ -231,6 +231,15 @@ export class ServicioCaja {
   aplicarDescuento(cartId: string, d: { linea_id?: string | null; tipo: 'pct' | 'monto'; valor: number }, clave: string) {
     const r = this.caja.aplicarDescuentoManual(cartId, d, clave);
     return { ...r, carrito: this.vista(cartId) };
+  }
+  /** Departamentos entre los que se elige al dar de alta un artículo en la caja. */
+  departamentosAlta() {
+    return { departamentos: this.caja.departamentosActivos() };
+  }
+  /** Alta de un artículo desde la venta: pide la clave del propio cajero y agrega el artículo nuevo a la venta en curso. */
+  nuevoArticulo(cartId: string, d: { codigo: string; marca?: string; descripcion: string; estilo?: string; lote?: string; departamento: string; precio: number }, clave: string) {
+    const art = this.caja.altaArticuloAutorizada(d, this.actor.usuario, String(clave ?? ''));
+    return { articulo: { item_id: art.item_id, item_no: art.item_no, codigo: art.codigo, descripcion: art.descripcion }, ...this.agregarArticulo(cartId, art.item_id) };
   }
   quitarDescuento(cartId: string, lineaId?: string | null) {
     this.caja.quitarDescuentoManual(cartId, lineaId);
@@ -481,7 +490,7 @@ export class ServicioAdmin {
   readonly cajas: { tienda: string; caja: number }[];
   private inv?: FuenteInventario;
   private central?: { fijarTipoCambio(tasa: number, usuario: string, versionBase: number, confirmarVariacion?: boolean): import('../nodos.ts').ResultadoTipoCambio; asignarPermiso(usuario: string, permiso: string, valor: boolean, por: string): Op; guardarDepto(c: import('../departamentos.ts').CambioDepto, por: string): { ok: true; op: Op } | { ok: false; error: import('../departamentos.ts').ErrorDepto };
-    guardarDatosTienda: import('../nodos.ts').Central['guardarDatosTienda']; editarArticulo: import('../nodos.ts').Central['editarArticulo']; guardarPromocion: import('../nodos.ts').Central['guardarPromocion']; guardarSupervisor: import('../nodos.ts').Central['guardarSupervisor']; recordarSacarAPiso: import('../nodos.ts').Central['recordarSacarAPiso']; resolverFaltante: import('../nodos.ts').Central['resolverFaltante']; contarLimbo: import('../nodos.ts').Central['contarLimbo']; altaLote: import('../nodos.ts').Central['altaLote']; entregar: import('../nodos.ts').Central['entregar'] };
+    guardarDatosTienda: import('../nodos.ts').Central['guardarDatosTienda']; editarArticulo: import('../nodos.ts').Central['editarArticulo']; guardarPromocion: import('../nodos.ts').Central['guardarPromocion']; guardarSupervisor: import('../nodos.ts').Central['guardarSupervisor']; guardarCajero: import('../nodos.ts').Central['guardarCajero']; recordarSacarAPiso: import('../nodos.ts').Central['recordarSacarAPiso']; resolverFaltante: import('../nodos.ts').Central['resolverFaltante']; contarLimbo: import('../nodos.ts').Central['contarLimbo']; altaLote: import('../nodos.ts').Central['altaLote']; entregar: import('../nodos.ts').Central['entregar'] };
   constructor(o: { actor: Extract<Actor, { rol: 'admin' }>; fuente: () => Op[]; cajas: { tienda: string; caja: number }[]; inventario?: FuenteInventario; central?: ServicioAdmin['central'] }) {
     this.central = o.central;
     this.actor = o.actor;
@@ -701,6 +710,15 @@ export class ServicioAdmin {
     const r = this.central.guardarPromocion(p, this.actor.usuario);
     if (!r.ok) throw new ErrorDominio(r.error.codigo === 'NO_EXISTE' ? 'NO_ENCONTRADO' : 'PROMOCION_INVALIDA', r.error.mensaje, { motivo: r.error.codigo });
     return { ...this.promociones(), guardada: r.promo };
+  }
+  cajeros() {
+    return { cajeros: cajerosDe(this.fuente()).map(({ id, nombre, activo }) => ({ id, nombre, activo })) };
+  }
+  guardarCajero(d: { id?: string; nombre?: string; clave?: string; activo?: boolean }) {
+    if (!this.central) throw new ErrorDominio('SIN_CENTRAL', 'esta sesión no tiene acceso al servicio central');
+    const r = this.central.guardarCajero(d, this.actor.usuario);
+    if (!r.ok) throw new ErrorDominio(r.error.codigo === 'NO_EXISTE' ? 'NO_ENCONTRADO' : 'CAJERO_INVALIDO', r.error.mensaje, { motivo: r.error.codigo });
+    return this.cajeros();
   }
   supervisores() {
     return { supervisores: supervisoresDe(this.fuente()).map(({ id, nombre, activo }) => ({ id, nombre, activo })) };

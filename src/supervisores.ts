@@ -45,6 +45,11 @@ export interface Supervisor { id: string; nombre: string; activo: boolean; sal: 
 export const hashClave = (sal: string, clave: string) => sha256(`${sal}:${clave}`);
 export const claveValida = (c: unknown): c is string => typeof c === 'string' && /^\d{4,8}$/.test(c);
 
+/** Cajero con clave propia: confirma operaciones a su nombre (p. ej. dar de alta un artículo en la caja). La clave se guarda con sal y hash, como la de los supervisores. */
+export interface Cajero { id: string; nombre: string; activo: boolean; sal: string; hash: string }
+/** Los nombres se comparan sin importar mayúsculas, acentos ni espacios de más. */
+export const nombreClave = (n: string) => n.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
+
 /** El supervisor activo cuya clave coincide, o null. */
 export function supervisorPorClave(lista: Supervisor[], clave: string): Supervisor | null {
   if (!claveValida(clave)) return null;

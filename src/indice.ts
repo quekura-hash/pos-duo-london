@@ -3,7 +3,7 @@ import { CAMPOS_TIENDA, type DatosTienda } from './proyecciones.ts';
 import { aplicarPermiso, aplicarTarjeta, type PerdidaDocumental, type TarjetaRegalo, type TipoCambio } from './proyecciones.ts';
 import type { Repo } from './repo.ts';
 import type { Promocion } from './promociones.ts';
-import type { Supervisor } from './supervisores.ts';
+import type { Cajero, Supervisor } from './supervisores.ts';
 import { anioDeCodigo, claveDeEscaneo, clavesDeCatalogo } from './codigos.ts';
 import { LIMBO, type Articulo } from './tipos.ts';
 
@@ -43,6 +43,7 @@ export class Indice {
   private deptos: Departamento[] = copiarBase();
   private promos = new Map<string, Promocion>();
   private supervisoresMap = new Map<string, Supervisor>();
+  private cajerosMap = new Map<string, Cajero>();
   private datosTienda = new Map<string, DatosTienda>();
 
   constructor(repo: Repo) {
@@ -52,7 +53,7 @@ export class Indice {
   private reiniciar() {
     this.seq = 0;
     this.cat = new Map(); this.porCodigo = new Map(); this.porAlterno = new Map(); this.porClave = new Map(); this.porItemNo = new Map(); this.texto = new Map();
-    this.stock = new Map(); this.enLimbo = new Set(); this.faltantesTienda = new Map(); this.marcas = new Map(); this.cubiertas = new Map(); this.perdidas = new Map(); this.tarjetas = new Map(); this.tipos = new Map(); this.permisos = new Map(); this.deptos = copiarBase(); this.promos = new Map(); this.supervisoresMap = new Map(); this.datosTienda = new Map();
+    this.stock = new Map(); this.enLimbo = new Set(); this.faltantesTienda = new Map(); this.marcas = new Map(); this.cubiertas = new Map(); this.perdidas = new Map(); this.tarjetas = new Map(); this.tipos = new Map(); this.permisos = new Map(); this.deptos = copiarBase(); this.promos = new Map(); this.supervisoresMap = new Map(); this.cajerosMap = new Map(); this.datosTienda = new Map();
   }
 
   actualizar() {
@@ -89,6 +90,7 @@ export class Indice {
     if (o.tipo === 'promo.guardada') this.promos.set(p.id, p as Promocion);
     if (o.tipo === 'config.negocio') { const x = this.datosTienda.get(p.tienda) ?? {}; for (const c of CAMPOS_TIENDA) if (typeof p[c] === 'string') x[c] = p[c]; this.datosTienda.set(p.tienda, x); }
     if (o.tipo === 'supervisor.guardado') this.supervisoresMap.set(p.id, p as Supervisor);
+    if (o.tipo === 'cajero.guardado') this.cajerosMap.set(p.id, p as Cajero);
     if (o.tipo.startsWith('depto.')) {
       const cambio = aplicarOpDepto(this.deptos, o);
       if (cambio) for (const a of this.cat.values()) if (a.departamento === cambio.de) { a.departamento = cambio.a; this.texto.set(a.item_id, this.textoDe(a)); }
@@ -276,6 +278,10 @@ export class Indice {
   datosDeTienda(): Map<string, DatosTienda> {
     this.actualizar();
     return new Map([...this.datosTienda].map(([t, d]) => [t, { ...d }]));
+  }
+  cajeros(): Cajero[] {
+    this.actualizar();
+    return [...this.cajerosMap.values()];
   }
   supervisores(): Supervisor[] {
     this.actualizar();

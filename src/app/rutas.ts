@@ -38,6 +38,8 @@ export async function atender(o: { cajero?: ServicioCaja; admin?: ServicioAdmin 
       case 'POST /api/venta/actual': { const c = exigirCajero(); const cart = c.carritoActual(); return ok({ cart, carrito: c.vista(cart) }); }
       case 'POST /api/venta/nueva': { const c = exigirCajero(); const cart = c.nuevaVenta(); return ok({ cart, carrito: c.vista(cart) }); }
       case 'POST /api/venta/escanear': return ok(exigirCajero().escanear(b.cart, String(b.codigo ?? '')));
+      case 'GET /api/venta/departamentos': return ok(exigirCajero().departamentosAlta());
+      case 'POST /api/venta/nuevo-articulo': return ok(exigirCajero().nuevoArticulo(b.cart, { codigo: String(b.codigo ?? ''), marca: b.marca, descripcion: String(b.descripcion ?? ''), estilo: b.estilo, lote: b.lote, departamento: String(b.departamento ?? ''), precio: Number(b.precio) }, String(b.clave ?? '')));
       case 'POST /api/venta/agregar': return ok(exigirCajero().agregarArticulo(b.cart, b.item_id));
       case 'POST /api/venta/cupon': return ok(exigirCajero().aplicarCupon(b.cart, String(b.codigo ?? '')));
       case 'POST /api/venta/cupon/quitar': return ok(exigirCajero().quitarCupon(b.cart));
@@ -105,6 +107,8 @@ export async function atender(o: { cajero?: ServicioCaja; admin?: ServicioAdmin 
       case 'GET /api/admin/articulo/historial': return ok(exigirAdmin().historialArticulo(q.get('item_id') ?? ''));
       case 'GET /api/admin/promociones': return ok(exigirAdmin().promociones());
       case 'POST /api/admin/promociones': return ok(exigirAdmin().guardarPromocion(b as any));
+      case 'GET /api/admin/cajeros': return ok(exigirAdmin().cajeros());
+      case 'POST /api/admin/cajeros': return ok(exigirAdmin().guardarCajero({ id: b.id, nombre: b.nombre, clave: b.clave === undefined ? undefined : String(b.clave), activo: b.activo === undefined ? undefined : !!b.activo }));
       case 'GET /api/admin/supervisores': return ok(exigirAdmin().supervisores());
       case 'POST /api/admin/supervisores': return ok(exigirAdmin().guardarSupervisor({ id: b.id, nombre: b.nombre, clave: b.clave === undefined ? undefined : String(b.clave), activo: b.activo === undefined ? undefined : !!b.activo }));
       case 'GET /api/admin/almacen': return ok(exigirAdmin().almacen());

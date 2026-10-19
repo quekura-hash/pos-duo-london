@@ -1035,6 +1035,61 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     assert.equal(await page.locator('#cuerpo tr[data-linea]').count(), 1);
     assert.deepEqual(errores, []);
   });
+
+  it('B16 nuevo artículo desde la venta: Administración registra la clave del cajero, la caja pide esa clave y el artículo llega a todas las tiendas', async (t) => {
+    execFileSync(process.execPath, [join(RAIZ, 'scripts', 'construir-prueba.mjs')], { stdio: 'pipe' });
+    const browser = await chromium.launch({ executablePath: chromiumPath, args: ['--no-sandbox'] });
+    t.after(() => browser.close());
+    const page = await (await browser.newContext({ viewport: { width: 1440, height: 900 }, colorScheme: 'light' })).newPage();
+    const errores: string[] = [];
+    page.on('pageerror', (e) => errores.push(String(e)));
+    page.on('console', (m) => { if (m.type() === 'error') errores.push(m.text()); });
+    await page.goto(`file://${HTML}`);
+    await page.waitForSelector('[data-chip="pie-usuario"]');
+    const usuario = ((await page.textContent('[data-chip="pie-usuario"]'))!).replace(/^Usuario:\s*/, '').trim();
+    // sin clave registrada no se puede
+    await page.click('#btn-nuevo-articulo');
+    await page.waitForSelector('#dlg-nuevo-articulo[open]');
+    await page.fill('#na-codigo', '202610555'); await page.fill('#na-descripcion', 'PANTIMEDIAS'); await page.fill('#na-precio', '189'); await page.fill('#na-clave', '1234');
+    await page.click('#na-guardar');
+    await page.waitForFunction(() => /no tiene una clave registrada/.test(document.querySelector('#msg-na')!.textContent!));
+    await page.click('#na-cerrar');
+    // Administración registra la clave del cajero
+    await page.selectOption('#sesion-prueba', 'admin');
+    await page.click('#nav button[data-vista="configuracion"]');
+    await page.click('#cfg-tab-cajeros');
+    await page.waitForSelector('#form-cajero');
+    await page.fill('#caj-nombre', usuario); await page.fill('#caj-clave', '1234');
+    await page.click('#btn-caj');
+    await page.waitForSelector('#tabla-cajeros tr[data-cajero]');
+    await page.screenshot({ path: join(RAIZ, 'docs', 'capturas', '48-cajeros.png') });
+    // la caja: búsqueda sin resultados → ofrecer el alta con el código ya escrito
+    await page.selectOption('#sesion-prueba', 'DUO/1');
+    await page.waitForSelector('#scan');
+    await page.fill('#scan', '202610555'); await page.press('#scan', 'Enter');
+    await page.waitForSelector('#btn-alta-desde-busqueda');
+    await page.click('#btn-alta-desde-busqueda');
+    await page.waitForSelector('#dlg-nuevo-articulo[open]');
+    assert.equal(await page.inputValue('#na-codigo'), '202610555');
+    await page.fill('#na-descripcion', 'PANTIMEDIAS'); await page.fill('#na-marca', 'DUESANG'); await page.fill('#na-precio', '189');
+    await page.screenshot({ path: join(RAIZ, 'docs', 'capturas', '49-nuevo-articulo.png') });
+    await page.fill('#na-clave', '9999');
+    await page.click('#na-guardar');
+    await page.waitForFunction(() => /la clave no es correcta/.test(document.querySelector('#msg-na')!.textContent!));
+    assert.equal(await page.inputValue('#na-clave'), '', 'una clave equivocada se borra');
+    await page.fill('#na-clave', '1234');
+    await page.click('#na-guardar');
+    await page.waitForSelector('#cuerpo tr[data-linea]');
+    assert.match((await page.textContent('#cuerpo tr[data-linea]'))!, /PANTIMEDIAS/);
+    assert.equal(await page.textContent('#total'), '$189.00');
+    // llega a London
+    await page.selectOption('#sesion-prueba', 'LON/1');
+    await page.waitForSelector('#scan');
+    await page.fill('#scan', '202610555'); await page.press('#scan', 'Enter');
+    await page.waitForSelector('#cuerpo tr[data-linea]');
+    assert.match((await page.textContent('#cuerpo tr[data-linea]'))!, /PANTIMEDIAS/);
+    assert.deepEqual(errores, []);
+  });
 });
 
 const REAL = process.env.POS_INVENTARIO_REAL;

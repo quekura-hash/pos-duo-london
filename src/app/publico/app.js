@@ -176,7 +176,7 @@ async function vistaVenta() {
               <button class="btn btn-icono" type="submit" aria-label="Buscar" title="Buscar" style="border:0;background:none">${ico('search')}</button>
             </form>
             <button class="btn" id="btn-limpiar-busqueda" type="button" title="Borra el texto y los resultados de la búsqueda (la venta no se toca). Atajo: Esc">${ico('x')}<span>Limpiar búsqueda</span></button>
-            ${pronto('btn-nuevo-articulo', 'plus', 'Nuevo artículo', 'btn-acento')}
+            <button class="btn btn-acento" id="btn-nuevo-articulo" type="button" title="Dar de alta un artículo que no está en el catálogo (pide su clave)">${ico('plus')}<span>Nuevo artículo</span></button>
           </div>
           <div id="mensaje" class="mensaje" role="status" aria-live="polite"></div>
           <div id="resultados"></div>
@@ -222,6 +222,7 @@ async function vistaVenta() {
   // Limpia solo la búsqueda (texto, resultados y mensaje); los artículos de la venta no se tocan.
   const limpiarBusqueda = () => { $('#scan').value = ''; $('#resultados').innerHTML = ''; const m = $('#mensaje'); m.textContent = ''; m.className = 'mensaje'; $('#scan').focus(); };
   $('#btn-limpiar-busqueda').addEventListener('click', limpiarBusqueda);
+  $('#btn-nuevo-articulo').addEventListener('click', () => abrirNuevoArticulo(/^[0-9A-Za-z-]{5,}$/.test($('#scan').value.trim()) ? $('#scan').value.trim() : ''));
   $('#scan').addEventListener('keydown', (ev) => { if (ev.key === 'Escape') { ev.preventDefault(); limpiarBusqueda(); } });
   $('#btn-regalo').addEventListener('click', () => { S.conRegalo = !S.conRegalo; $('#btn-regalo').setAttribute('aria-pressed', S.conRegalo ? 'true' : 'false'); msg(S.conRegalo ? 'Al cobrar se imprimirá también el ticket de regalo (sin precios).' : 'Sin ticket de regalo.', 'aviso'); });
   $('#btn-descuento').addEventListener('click', abrirDescuento);
@@ -506,7 +507,12 @@ async function escanear() {
 
 async function buscarTexto(texto, limite = 20) {
   const { resultados, total } = await api(`/api/buscar?q=${encodeURIComponent(texto)}&limite=${limite}`);
-  if (!resultados.length) return msg(`No se encontró «${texto}» por código, Item # ni texto.`, 'error');
+  if (!resultados.length) {
+    msg(`No se encontró «${texto}» por código, Item # ni texto.`, 'error');
+    $('#resultados').innerHTML = `<button class="btn" type="button" id="btn-alta-desde-busqueda">${ico('plus')}<span>Dar de alta este artículo</span></button>`;
+    $('#btn-alta-desde-busqueda').addEventListener('click', () => abrirNuevoArticulo(/^[0-9A-Za-z-]{5,}$/.test(texto) ? texto : ''));
+    return;
+  }
   msg(total > resultados.length ? `${total} resultados para «${texto}»; se muestran los ${resultados.length} más relevantes. Escriba más palabras (o el precio) para acotar, o pulse «Mostrar más».` : `${total} resultado(s) para «${texto}». Elija el artículo.`, 'aviso');
   $('#resultados').innerHTML = `<div class="tabla-cont"><table class="tabla-resultados"><thead><tr><th>Item #</th><th>Código</th><th>Descripción</th><th>Marca</th><th>Estilo</th><th>Lote</th><th>Departamento</th><th class="num">Precio</th><th class="num">Existencia</th><th></th></tr></thead><tbody>${resultados.map((r) => `
     <tr data-item="${r.item_id}"><td>${esc(r.item_no ?? 'pendiente')}</td><td>${r.codigo ? esc(r.codigo) : '<em>(sin código)</em>'}${r.codigo_alterno ? `<br><small>alterno ${esc(r.codigo_alterno)}</small>` : ''}</td><td>${esc(r.descripcion)}</td><td>${esc(r.marca)}</td><td>${esc(r.estilo)}</td><td>${esc(r.lote)}</td><td>${esc(r.departamento)}</td><td class="num">${mxn(r.precio)}</td>
@@ -517,6 +523,41 @@ async function buscarTexto(texto, limite = 20) {
     $('#btn-mostrar-mas').addEventListener('click', () => buscarTexto(texto, Math.min(200, limite + 40)));
   }
   engancharAgregar();
+}
+/** Alta de un artículo desde la venta: pide la clave del propio cajero y lo agrega a la venta; llega al catálogo de todas las tiendas. */
+async function abrirNuevoArticulo(codigo = '') {
+  let deptos = [];
+  try { deptos = (await api('/api/venta/departamentos')).departamentos; } catch (e) { return msg(e.message, 'error'); }
+  const d = dialogo('dlg-nuevo-articulo');
+  d.setAttribute('aria-labelledby', 'na-titulo');
+  const campo = (id, rotulo, valor = '', extra = '') => `<div class="campo"><label for="${id}">${rotulo}</label><input id="${id}" class="texto" value="${esc(valor)}" ${extra}></div>`;
+  d.innerHTML = `<h2 id="na-titulo" style="margin-top:0">Nuevo artículo</h2>
+    <p class="nota" style="margin-top:0">Queda en el catálogo de todas las tiendas y se agrega a esta venta. Pide la clave de quien da de alta.</p>
+    <form id="form-nuevo-articulo" autocomplete="off">
+      ${campo('na-codigo', 'Código (el de la etiqueta)', codigo, 'spellcheck="false"')}${campo('na-descripcion', 'Descripción', '', 'maxlength="60"')}${campo('na-marca', 'Marca (opcional)', '', 'maxlength="40"')}${campo('na-estilo', 'Estilo (opcional)', '', 'maxlength="40"')}${campo('na-lote', 'Lote (opcional)', '', 'maxlength="20"')}
+      <div class="campo"><label for="na-depto">Departamento</label><select id="na-depto" style="width:100%;padding:10px;border:2px solid var(--borde);border-radius:10px;background:var(--superficie)">${deptos.map((n) => `<option>${esc(n)}</option>`).join('')}</select></div>
+      ${campo('na-precio', 'Precio de venta (MXN)', '', 'inputmode="decimal"')}
+      <div class="campo"><label for="na-clave">Su clave (${esc(S.sesion.usuario)})</label><input id="na-clave" type="password" inputmode="numeric" autocomplete="off" placeholder="••••"></div>
+      <div id="msg-na" class="mensaje" role="status" aria-live="polite"></div>
+      <div class="filas"><button class="btn" type="button" id="na-cerrar">Cancelar</button><button class="btn btn-primario" type="submit" id="na-guardar" style="width:auto;flex:1">${ico('check')}<span>Dar de alta y agregar a la venta</span></button></div>
+    </form>`;
+  $('#na-cerrar').addEventListener('click', () => d.close());
+  $('#form-nuevo-articulo').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const m = $('#msg-na');
+    const precio = parseMXN($('#na-precio').value);
+    if (!$('#na-codigo').value.trim()) { m.className = 'mensaje error'; m.textContent = 'Escriba o escanee el código de la etiqueta.'; return; }
+    if (!$('#na-descripcion').value.trim()) { m.className = 'mensaje error'; m.textContent = 'Escriba la descripción.'; return; }
+    if (!precio || precio <= 0) { m.className = 'mensaje error'; m.textContent = 'Escriba un precio mayor que 0.'; return; }
+    $('#na-guardar').disabled = true;
+    try {
+      const r = await api('/api/venta/nuevo-articulo', { cart: S.cart, codigo: $('#na-codigo').value, descripcion: $('#na-descripcion').value, marca: $('#na-marca').value, estilo: $('#na-estilo').value, lote: $('#na-lote').value, departamento: $('#na-depto').value, precio, clave: $('#na-clave').value });
+      S.carrito = r.carrito; S.sel = r.linea.linea_id; d.close(); $('#resultados').innerHTML = '';
+      msg(`Artículo dado de alta y agregado: ${r.linea.descripcion} ${r.linea.marca}`.trim() + ` · Item # ${r.articulo.item_no ?? 'pendiente'}`, 'ok'); pintarCarrito();
+    } catch (e) { $('#na-guardar').disabled = false; $('#na-clave').value = ''; m.className = 'mensaje error'; m.textContent = e.message; $('#na-clave').focus(); }
+  });
+  d.showModal();
+  $(codigo ? '#na-descripcion' : '#na-codigo').focus();
 }
 function engancharAgregar() {
   for (const b of $('#resultados').querySelectorAll('[data-agregar]')) {
@@ -2060,7 +2101,7 @@ async function abrirPromo(p, preset) {
 
 // ── Configuración: Tiendas, Departamentos y Tipo de cambio en una sola entrada ──
 const cuerpoVista = () => $('#config-cuerpo') ?? $('#vista');
-const TABS_CONFIG = [['tiendas', 'Tiendas', 'store'], ['departamentos', 'Departamentos', 'box'], ['tipo_cambio', 'Tipo de cambio', 'refresh']];
+const TABS_CONFIG = [['tiendas', 'Tiendas', 'store'], ['departamentos', 'Departamentos', 'box'], ['tipo_cambio', 'Tipo de cambio', 'refresh'], ['cajeros', 'Cajeros', 'user']];
 async function vistaConfiguracion(tab) {
   tab = tab ?? S.configTab ?? 'tiendas';
   S.configTab = tab;
@@ -2068,7 +2109,35 @@ async function vistaConfiguracion(tab) {
     <div class="filas" role="tablist" aria-label="Configuración" style="margin-bottom:12px">${TABS_CONFIG.map(([id, rotulo, icono]) => `<button class="btn" type="button" role="tab" id="cfg-tab-${id}" data-tab="${id}" aria-selected="${id === tab}" style="${id === tab ? 'background:var(--acento);color:var(--acento-texto);border-color:var(--acento)' : ''}">${ico(icono)}<span>${rotulo}</span></button>`).join('')}</div>
     <div id="config-cuerpo" role="tabpanel"></div>`;
   for (const b of $('#vista').querySelectorAll('[role="tab"]')) b.addEventListener('click', () => vistaConfiguracion(b.dataset.tab));
-  await ({ tiendas: vistaTiendas, departamentos: vistaDepartamentos, tipo_cambio: vistaTipoCambio })[tab]();
+  await ({ tiendas: vistaTiendas, departamentos: vistaDepartamentos, tipo_cambio: vistaTipoCambio, cajeros: vistaCajeros })[tab]();
+}
+
+// ── Cajeros: nombre (el del usuario de la caja) y clave propia ──
+async function vistaCajeros() {
+  const { cajeros } = await api('/api/admin/cajeros');
+  cuerpoVista().innerHTML = `<div class="titulo-vista">${ico('user')}<h1>Cajeros</h1></div>
+    <p class="nota">Cada cajero tiene su propia clave (4 a 8 dígitos) para confirmar operaciones a su nombre, como dar de alta un artículo en la caja. El nombre debe ser el del usuario con el que entra a la caja. La clave no se puede volver a ver: si se olvida, se cambia.</p>
+    <div id="msg-cajeros" class="mensaje" role="status" aria-live="polite"></div>
+    <div class="tabla-cont"><table id="tabla-cajeros"><thead><tr><th>Nombre</th><th>Estado</th><th>Nueva clave</th><th></th></tr></thead><tbody>
+    ${cajeros.map((x) => `<tr data-cajero="${esc(x.id)}"><td>${esc(x.nombre)}</td><td>${x.activo ? 'Activo' : 'Desactivado'}</td><td><input type="password" inputmode="numeric" class="c-clave" placeholder="dejar vacío = no cambiar" aria-label="Nueva clave de ${esc(x.nombre)}" style="padding:4px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie)"></td>
+      <td class="filas" style="flex-wrap:nowrap"><button class="btn c-guardar" type="button">${ico('check')}<span>Cambiar clave</span></button><button class="btn c-activo" type="button">${x.activo ? 'Desactivar' : 'Activar'}</button></td></tr>`).join('') || '<tr><td colspan="4" class="vacio">Aún no hay cajeros con clave: sin ella nadie puede dar de alta artículos en la caja.</td></tr>'}</tbody></table></div>
+    <form id="form-cajero" class="filas" style="margin-top:12px;align-items:flex-end"><div class="campo"><label for="caj-nombre">Nombre del cajero</label><input id="caj-nombre" class="texto" maxlength="40"></div><div class="campo"><label for="caj-clave">Clave</label><input id="caj-clave" type="password" inputmode="numeric" autocomplete="off"></div>
+      <button class="btn btn-primario" id="btn-caj" type="submit" style="width:auto">${ico('plus')}<span>Agregar cajero</span></button></form>`;
+  const msgC = (t, tipo = 'error') => { const m = $('#msg-cajeros'); m.className = `mensaje ${tipo}`; m.textContent = t; };
+  $('#form-cajero').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    try { await api('/api/admin/cajeros', { nombre: $('#caj-nombre').value, clave: $('#caj-clave').value }); await vistaCajeros(); msgC('Cajero agregado.', 'ok'); } catch (e) { msgC(e.message); }
+  });
+  for (const tr of $('#tabla-cajeros').querySelectorAll('tr[data-cajero]')) {
+    const id = tr.dataset.cajero;
+    const activo = cajeros.find((c) => c.id === id).activo;
+    tr.querySelector('.c-guardar').addEventListener('click', async () => {
+      const clave = tr.querySelector('.c-clave').value;
+      if (!clave) return msgC('Escriba la nueva clave.');
+      try { await api('/api/admin/cajeros', { id, clave }); await vistaCajeros(); msgC('Clave cambiada.', 'ok'); } catch (e) { msgC(e.message); }
+    });
+    tr.querySelector('.c-activo').addEventListener('click', async () => { try { await api('/api/admin/cajeros', { id, activo: !activo }); await vistaCajeros(); } catch (e) { msgC(e.message); } });
+  }
 }
 
 // ── Tiendas: nombre comercial, datos del ticket y política de devolución ──
