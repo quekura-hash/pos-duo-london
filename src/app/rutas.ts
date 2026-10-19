@@ -79,6 +79,10 @@ export async function atender(o: { cajero?: ServicioCaja; admin?: ServicioAdmin 
       case 'POST /api/retiro': return ok(await exigirCajero().registrarRetiro({ retiro_id: String(b.retiro_id ?? ''), mxn: b.mxn ?? {}, usd: b.usd ?? {}, clave: b.clave === undefined ? undefined : String(b.clave) }));
       case 'POST /api/retiro/reimprimir': return ok(await exigirCajero().reimprimirRetiro(String(b.retiro_id ?? '')));
       case 'POST /api/venta/anular': return ok(exigirCajero().anularVenta(b.cart, String(b.motivo ?? 'anulada')));
+      case 'POST /api/venta/cambio/iniciar': return ok(exigirCajero().iniciarCambio(b.cart, String(b.sale_id ?? ''), b.renglones ?? []));
+      case 'POST /api/venta/cambio/quitar': return ok(exigirCajero().quitarCambio(b.cart));
+      case 'GET /api/venta/autorizadores-efectivo': return ok(exigirCajero().autorizadoresEfectivo());
+      case 'POST /api/venta/cambio/devolver-dinero': return ok(await exigirCajero().devolverEfectivoCambio(b.cart, b.autoriza));
       case 'GET /api/venta/autorizadores': return ok(exigirCajero().autorizadores());
       case 'POST /api/venta/cancelar': return ok(exigirCajero().cancelarVenta(b.sale_id, String(b.motivo ?? 'cancelada'), b.autoriza));
       case 'POST /api/venta/cobrar-tarjeta': return ok(await exigirCajero().cobrarTarjetaManual(b.cart, { importe: b.importe === undefined || b.importe === null ? undefined : Number(b.importe), autorizacion: String(b.autorizacion ?? ''), marca: b.marca, ultimos4: b.ultimos4 }));

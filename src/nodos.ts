@@ -659,6 +659,16 @@ export class Central {
 
 // ───────────────────────────── Caja ─────────────────────────────
 
+export interface CambioEnCurso {
+  sale_id: string;
+  folio_origen: number;
+  renglones: { linea_id: string; qty: number }[];
+  /** Lo que se regresa, tal como se vendió (para mostrarlo en negativo). */
+  lineas: { linea_id: string; item_id: string; item_no: string | null; codigo: string; descripcion: string; marca: string; estilo: string; qty: number; precio_unit: number; importe: number }[];
+  /** Importe realmente pagado por esas piezas (descuento incluido). */
+  credito: number;
+}
+
 interface Carrito {
   id: string;
   lineas: Linea[];
@@ -670,6 +680,8 @@ interface Carrito {
   cupon?: string;
   /** Resultado del último cálculo de promociones y cupón (solo para mostrar). */
   descuentos?: { aplicadas: ResultadoDescuentos['aplicadas']; cupon: ResultadoDescuentos['cupon'] };
+  /** Cambio en curso: piezas que la clienta regresa de una venta anterior; su importe es un crédito que se descuenta de lo que se lleve en ESTA venta. */
+  cambio?: CambioEnCurso;
   /** Venta en espera: el cliente se fue un momento y la caja atiende a otro. No reserva existencias; se recalcula al retomarla. */
   espera?: { desde: string; nota: string; por: string };
 }
@@ -919,11 +931,11 @@ export class Caja {
    * Autorización de OTRA persona: otro cajero activo o un supervisor activo (por su clave de caja) con su nombre y su clave. Quien hace la operación
    * no puede autorizarse a sí mismo. Las claves equivocadas se cuentan por autorizador (5 fallos = 5 minutos de bloqueo). Devuelve el nombre registrado.
    */
-  verificarAutorizador(usuarioActual: string, autoriza: { nombre: string; clave: string } | undefined): string | null {
+  verificarAutorizador(usuarioActual: string, autoriza: { nombre: string; clave: string } | undefined, permitirPropio = false): string | null {
     if (!this.controlesConClave()) return null; // sin cajeros registrados no hay a quién pedirle clave: la caja trabaja abierta
     const nombre = String(autoriza?.nombre ?? '').trim();
     if (!nombre || !autoriza?.clave) throw new ErrorDominio('AUTORIZACION_REQUERIDA', 'esta operación necesita la clave de otra Vendedora-Cajera o de un supervisor');
-    if (nombreClave(nombre) === nombreClave(usuarioActual)) throw new ErrorDominio('AUTORIZADOR_INVALIDO', 'la autorización debe darla otra persona, no quien hace la operación');
+    if (!permitirPropio && nombreClave(nombre) === nombreClave(usuarioActual)) throw new ErrorDominio('AUTORIZADOR_INVALIDO', 'la autorización debe darla otra persona, no quien hace la operación');
     if (this.idx.cajeros().some((c) => c.activo && nombreClave(c.nombre) === nombreClave(nombre))) return this.verificarClaveCajero(nombre, String(autoriza.clave)).nombre;
     const sup = this.idx.supervisores().find((s) => s.activo && nombreClave(s.nombre) === nombreClave(nombre));
     if (!sup) throw new ErrorDominio('AUTORIZADOR_INVALIDO', `«${nombre}» no es un cajero ni un supervisor activo con clave`);
@@ -940,8 +952,8 @@ export class Caja {
     return sup.nombre;
   }
   /** Quién puede autorizar al cajero actual: los demás cajeros activos y los supervisores activos. */
-  autorizadoresPosibles(usuarioActual: string): { nombre: string; tipo: 'cajero' | 'supervisor' }[] {
-    const otro = (n: string) => nombreClave(n) !== nombreClave(usuarioActual);
+  autorizadoresPosibles(usuarioActual: string, incluirPropio = false): { nombre: string; tipo: 'cajero' | 'supervisor' }[] {
+    const otro = (n: string) => incluirPropio || nombreClave(n) !== nombreClave(usuarioActual);
     return [...this.idx.cajeros().filter((c) => c.activo && otro(c.nombre)).map((c) => ({ nombre: c.nombre, tipo: 'cajero' as const })), ...this.idx.supervisores().filter((s) => s.activo && otro(s.nombre)).map((s) => ({ nombre: s.nombre, tipo: 'supervisor' as const }))];
   }
   /** Minutos de inactividad que cierran la sesión de la caja (0 = nunca). */
@@ -1349,6 +1361,10 @@ export class Caja {
   }
 
   // ── cobro en efectivo / mixto ──
+  /** Lo que se cobra: los artículos de la venta menos el crédito del cambio (negativo = saldo a favor de la clienta). */
+  private totalNeto(c: Carrito): number {
+    return c.lineas.reduce((a, l) => a + l.importe, 0) - (c.cambio?.credito ?? 0);
+  }
   private exigirSinCobroPendiente(c: Carrito) {
     if (!c.intent_id) return;
     const i = intentos(this.opsDe('card.intent', 'card.intent_resuelto')).get(c.intent_id);
@@ -1437,7 +1453,7 @@ export class Caja {
     const t = this.idx.tarjeta(cod);
     if (!t) throw new ErrorDominio('TARJETA_INEXISTENTE', `la tarjeta ${cod} no está dada de alta`);
     const c = this.cartGet(cartId);
-    const total = c.lineas.reduce((a, l) => a + l.importe, 0);
+    const total = this.totalNeto(c);
     if (Date.parse(t.vigente_hasta) <= Date.parse(this.ctx.reloj.now())) throw new ErrorDominio('TARJETA_VENCIDA', `la tarjeta ${cod} venció el ${t.vigente_hasta.slice(0, 10)}`);
     if (t.saldo <= 0) throw new ErrorDominio('SALDO_INSUFICIENTE', `la tarjeta ${cod} no tiene saldo`, { saldo: 0 });
     const aplicado = Math.min(t.saldo, total);
@@ -1451,18 +1467,21 @@ export class Caja {
     return this.cobrar(cartId, pagos, cajero);
   }
 
-  cobrar(cartId: string, pagos: Pago[], cajero = 'cajero'): Venta {
+  cobrar(cartId: string, pagos: Pago[], cajero = 'cajero', opts: { devolverEfectivo?: { monto: number; autorizo: string | null } } = {}): Venta {
     const previa = this.repo.getOp(`sale:${cartId}`);
     if (previa) return ventas([previa]).get(cartId)!; // doble clic / reintento: misma venta, mismo folio
     const c = this.cartGet(cartId);
     this.exigirSinCobroPendiente(c);
+    if (this.totalNeto(c) < 0 && !opts.devolverEfectivo) throw new ErrorDominio('SALDO_A_FAVOR', 'la clienta tiene saldo a favor: se le entrega en efectivo con «No hay cambio posible, devolver dinero»');
     const hubOk = this.enlace.hubAlcanzable();
     if (!hubOk && this.ctx.politicas.P01_hub_no_disponible === 'bloquear_ventas_nuevas') {
       throw new ErrorDominio('VENTA_BLOQUEADA', 'hub no disponible (P-01 en ensayo: bloquear_ventas_nuevas); el carrito se conserva');
     }
     if (c.lineas.length === 0) throw new ErrorDominio('CARRITO_VACIO', cartId);
-    const total = c.lineas.reduce((a, l) => a + l.importe, 0);
-    this.validarPagos(pagos, total);
+    const total = this.totalNeto(c);
+    if (opts.devolverEfectivo) {
+      if (pagos.length > 0 || total !== -opts.devolverEfectivo.monto) throw new ErrorDominio('PAGO_INVALIDO', 'el saldo a favor no coincide con la devolución en efectivo');
+    } else this.validarPagos(pagos, total);
     if (pagos.some((p) => p.metodo === 'tarjeta')) {
       // Un cobro con tarjeta solo entra por un intento persistido y resuelto (iniciarCobroTarjeta/resolverIntento).
       throw new ErrorDominio('TARJETA_REQUIERE_INTENTO', 'el cobro con tarjeta debe pasar por un intento registrado antes de usar la terminal');
@@ -1508,7 +1527,7 @@ export class Caja {
     }
     try {
       this.renovarSiHaceFalta();
-      const v = this.confirmar(c, pagos, cajero);
+      const v = this.confirmar(c, pagos, cajero, opts.devolverEfectivo);
       return avisos.length ? { ...v, avisos } : v;
     } catch (e) {
       if (reservado) this.enlace.liberar(c.id);
@@ -1547,7 +1566,7 @@ export class Caja {
     const previa = this.repo.getOp(`sale:${cartId}`);
     if (previa) return ventas([previa]).get(cartId)!;
     const c = this.cartGet(cartId);
-    const total = c.lineas.reduce((a, l) => a + l.importe, 0);
+    const total = this.totalNeto(c);
     if (total === 0 && c.lineas.length) return this.cobrar(cartId, [], cajero); // descuento del 100 %: venta registrada sin cobro
     if (!Number.isInteger(recibido) || recibido < total) {
       throw new ErrorDominio('EFECTIVO_INSUFICIENTE', `el efectivo recibido no cubre el total`, { recibido, total });
@@ -1644,7 +1663,7 @@ export class Caja {
     const previa = this.repo.getOp(`sale:${cartId}`);
     if (previa) return ventas([previa]).get(cartId)!;
     const c = this.cartGet(cartId);
-    const total = c.lineas.reduce((a, l) => a + l.importe, 0);
+    const total = this.totalNeto(c);
     return this.cobrar(cartId, [this.pagoEfectivo(cartId, total, e)], cajero);
   }
 
@@ -1659,8 +1678,11 @@ export class Caja {
   }
 
   /** Una sola transacción: folio + venta + movimientos + cola de salida. Todo o nada. */
-  private confirmar(c: Carrito, pagos: Pago[], cajero: string): Venta {
+  private confirmar(c: Carrito, pagos: Pago[], cajero: string, devolverEfectivo?: { monto: number; autorizo: string | null }): Venta {
     const total = c.lineas.reduce((a, l) => a + l.importe, 0);
+    // El crédito del cambio liquida parte (o todo) el total como un pago más; el resto lo paga la clienta con los pagos recibidos.
+    const credito = c.cambio ? Math.min(c.cambio.credito, total) : 0;
+    if (credito > 0) pagos = [{ metodo: 'credito_cambio', monto: credito, folio_origen: c.cambio!.folio_origen }, ...pagos];
     return this.repo.tx(() => {
       const folio = this.siguienteFolio();
       this.ctx.fallo?.('tras_folio');
@@ -1668,6 +1690,7 @@ export class Caja {
       const lineas = c.lineas.map((l) => (limbo.get(l.linea_id) ? { ...l, de_limbo: limbo.get(l.linea_id) } : l));
       const op = this.emitir('sale.confirmed', {
         sale_id: c.id, tienda: this.tienda, caja: this.caja, folio, cajero, lineas, total, pagos,
+        ...(c.cambio ? { cambio_de: { sale_id: c.cambio.sale_id, folio: c.cambio.folio_origen } } : {}),
       }, `sale:${c.id}`);
       this.ctx.fallo?.('tras_venta');
       for (const p of pagos) {
@@ -1684,6 +1707,7 @@ export class Caja {
         if (deLimbo > 0) this.emitir('inv.movement', { item_id: l.item_id, tienda: LIMBO, delta: -deLimbo, tipo: 'venta', doc: c.id, caja: this.caja, origen_tienda: this.tienda }, `mov:${c.id}:${l.linea_id}:limbo`);
         if (l.qty - deLimbo > 0) this.emitir('inv.movement', { item_id: l.item_id, tienda: this.tienda, delta: -(l.qty - deLimbo), tipo: 'venta', doc: c.id, caja: this.caja }, `mov:${c.id}:${l.linea_id}`);
       }
+      if (c.cambio) this.registrarDevolucionDeCambio(c, cajero, c.lineas.length > 0 ? c.id : null, devolverEfectivo);
       this.ctx.fallo?.('tras_movimientos');
       this.repo.kvSet(`cart:${c.id}`, { ...c, estado: 'confirmado' });
       return ventas([op]).get(c.id)!;
@@ -1745,7 +1769,7 @@ export class Caja {
     if (otros.length > 0 && this.ctx.politicas.P12_tarjeta_con_pendiente === 'bloquear_solo_tarjeta') {
       throw new ErrorDominio('TARJETA_BLOQUEADA', 'hay un cobro con tarjeta pendiente de conciliar (P-12 en ensayo); efectivo y devoluciones siguen disponibles');
     }
-    const total = c.lineas.reduce((a, l) => a + l.importe, 0);
+    const total = this.totalNeto(c);
     const intent_id = uuid();
     this.repo.tx(() => {
       this.emitir('card.intent', { intent_id, cart_id: cartId, tienda: this.tienda, caja: this.caja, importe: importe ?? total }, `intent:${intent_id}`);
@@ -1770,7 +1794,7 @@ export class Caja {
     const c = this.cartGet(cartId);
     this.exigirAbierto(c);
     if (c.lineas.length === 0) throw new ErrorDominio('CARRITO_VACIO', cartId);
-    const total = c.lineas.reduce((a, l) => a + l.importe, 0);
+    const total = this.totalNeto(c);
     if (total <= 0) throw new ErrorDominio('PAGO_INVALIDO', 'la venta no tiene importe que cobrar con tarjeta');
     const importe = d.importe ?? total;
     if (!Number.isInteger(importe) || importe <= 0 || importe > total) throw new ErrorDominio('PAGO_INVALIDO', 'el importe de la tarjeta debe ser mayor que 0 y no exceder el total');
@@ -1802,7 +1826,7 @@ export class Caja {
     const c = this.cartGet(i.cart_id);
     if (r.resultado === 'aprobado') {
       if (!r.autorizacion) throw new ErrorDominio('DATOS_REQUERIDOS', 'falta autorización del comprobante');
-      const total = c.lineas.reduce((a, l) => a + l.importe, 0);
+      const total = this.totalNeto(c);
       const extra = r.efectivo_adicional ?? 0;
       if (i.importe + extra !== total) throw new ErrorDominio('PAGO_INVALIDO', 'tarjeta + efectivo no suman el total');
       const pagos: Pago[] = [{ metodo: 'tarjeta', monto: i.importe, autorizacion: r.autorizacion, marca: r.marca, ultimos4: r.ultimos4 }];
@@ -1872,11 +1896,8 @@ export class Caja {
   }
 
   // ── devoluciones ──
-  devolver(d: { sale_id: string; renglones: { linea_id: string; qty: number }[]; motivo: string; devolucion_id?: string; ventaSnapshot?: Venta; cajero?: string; autoriza?: { nombre: string; clave: string } }): Devolucion {
-    const id = d.devolucion_id ?? uuid();
-    const previa = this.repo.getOp(`ret:${id}`);
-    if (previa) return { ...previa.payload, ocurrio_en: previa.ocurrio_en };
-    const autorizo = this.verificarAutorizador(d.cajero ?? 'cajero', d.autoriza); // una devolución la autoriza otra persona
+  /** Valida qué piezas de una venta se regresan y cuánto vale cada una (descuento incluido). Solo en la caja donde se vendió (P-03). */
+  private validarRenglonesDevolucion(d: { sale_id: string; renglones: { linea_id: string; qty: number }[]; ventaSnapshot?: Venta }) {
     const local = this.opsDe('sale.confirmed', 'sale.cancelled', 'return.registered');
     let venta = ventas(local).get(d.sale_id) ?? null;
     let verificacion = 'local';
@@ -1913,7 +1934,15 @@ export class Caja {
       const importe = r.qty + ya === l.qty ? l.importe - yaImporte : Math.floor((l.importe * r.qty) / l.qty);
       lineas.push({ linea_id: r.linea_id, item_id: l.item_id, qty: r.qty, importe });
     }
-    const importe = lineas.reduce((a, l) => a + l.importe, 0);
+    return { venta, verificacion, lineas, importe: lineas.reduce((a, l) => a + l.importe, 0), local };
+  }
+
+  devolver(d: { sale_id: string; renglones: { linea_id: string; qty: number }[]; motivo: string; devolucion_id?: string; ventaSnapshot?: Venta; cajero?: string; autoriza?: { nombre: string; clave: string } }): Devolucion {
+    const id = d.devolucion_id ?? uuid();
+    const previa = this.repo.getOp(`ret:${id}`);
+    if (previa) return { ...previa.payload, ocurrio_en: previa.ocurrio_en };
+    const autorizo = this.verificarAutorizador(d.cajero ?? 'cajero', d.autoriza); // una devolución la autoriza otra persona
+    const { venta, verificacion, lineas, importe, local } = this.validarRenglonesDevolucion(d);
     // Cada método de pago se devuelve por su propia vía y NUNCA por más de lo que pagó: tarjeta de regalo → al saldo de la misma tarjeta;
     // tarjeta bancaria → reverso a esa tarjeta (no sale efectivo); efectivo (pesos o con dólares) → SOLO en pesos y con los importes
     // originales de la venta, sin recalcular con el tipo de cambio de hoy. Parcial: proporcional; la última devolución absorbe el redondeo.
@@ -1937,6 +1966,81 @@ export class Caja {
       return o;
     });
     return { ...op.payload, ocurrio_en: op.ocurrio_en };
+  }
+
+  // ── cambios: las piezas que regresa la clienta quedan como crédito (en negativo) dentro de una venta nueva ──
+  /** Empieza un cambio en esta venta: valida las piezas y deja su importe como crédito. No mueve inventario ni dinero hasta cobrar. */
+  iniciarCambio(cartId: string, saleId: string, renglones: { linea_id: string; qty: number }[]): CambioEnCurso {
+    const c = this.cartGet(cartId);
+    this.exigirAbierto(c); this.exigirSinCobroPendiente(c);
+    if (c.cambio) throw new ErrorDominio('CAMBIO_YA_INICIADO', 'esta venta ya lleva un cambio: termínelo o quítelo antes de empezar otro');
+    if (!renglones.length) throw new ErrorDominio('DATOS_REQUERIDOS', 'indique cuántas piezas se cambian');
+    const r = this.validarRenglonesDevolucion({ sale_id: saleId, renglones });
+    c.cambio = {
+      sale_id: saleId, folio_origen: r.venta.folio, renglones: renglones.map((x) => ({ linea_id: x.linea_id, qty: x.qty })), credito: r.importe,
+      lineas: r.lineas.map((dl) => {
+        const l = r.venta.lineas.find((x) => x.linea_id === dl.linea_id)!;
+        return { linea_id: l.linea_id, item_id: l.item_id, item_no: l.item_no, codigo: l.codigo, descripcion: l.descripcion, marca: l.marca, estilo: l.estilo, qty: dl.qty, precio_unit: l.precio_unit, importe: dl.importe };
+      }),
+    };
+    this.repo.tx(() => { this.repo.kvSet(`cart:${cartId}`, c); });
+    return c.cambio;
+  }
+  quitarCambio(cartId: string): void {
+    const c = this.cartGet(cartId);
+    this.exigirAbierto(c); this.exigirSinCobroPendiente(c);
+    delete c.cambio;
+    this.repo.tx(() => { this.repo.kvSet(`cart:${cartId}`, c); });
+  }
+  /**
+   * Deja registradas las piezas que regresaron (dentro de la misma transacción que la venta, o sola si la clienta no se llevó nada). La devolución
+   * consume folio de la serie (P-08) y NO regresa dinero salvo el saldo en efectivo autorizado; `reembolsos` vacío = todo se usó como crédito.
+   */
+  private registrarDevolucionDeCambio(c: Carrito, cajero: string, ventaCambioId: string | null, devolverEfectivo?: { monto: number; autorizo: string | null }): Devolucion {
+    const cambio = c.cambio!;
+    const id = `cambio-${c.id}`;
+    const r = this.validarRenglonesDevolucion({ sale_id: cambio.sale_id, renglones: cambio.renglones });
+    if (r.importe !== cambio.credito) throw new ErrorDominio('CAMBIO_DESACTUALIZADO', 'las piezas del cambio ya se devolvieron en otra operación: empiece el cambio de nuevo');
+    const efectivo = devolverEfectivo?.monto ?? 0;
+    const folio = this.siguienteFolio();
+    const o = this.emitir('return.registered', {
+      devolucion_id: id, sale_id: cambio.sale_id, tienda: this.tienda, caja: this.caja, folio,
+      tienda_origen: r.venta.tienda, caja_origen: r.venta.caja, folio_origen: r.venta.folio,
+      lineas: r.lineas, importe: r.importe, reembolsos: efectivo > 0 ? [{ metodo: 'efectivo', monto: efectivo }] : [],
+      motivo: 'cambio', cajero, verificacion: r.verificacion, por_cambio: true, ...(ventaCambioId ? { venta_cambio: ventaCambioId } : {}),
+      ...(devolverEfectivo?.autorizo ? { autorizado_por: devolverEfectivo.autorizo } : {}),
+    }, `ret:${id}`);
+    for (const l of r.lineas) this.emitir('inv.movement', { item_id: l.item_id, tienda: this.tienda, delta: l.qty, tipo: 'devolucion', doc: id, caja: this.caja }, `mov:${id}:${l.linea_id}`);
+    return { ...o.payload, reembolsos: o.payload.reembolsos, ocurrio_en: o.ocurrio_en };
+  }
+  /**
+   * «No hay cambio posible, devolver dinero»: lo que queda a favor de la clienta (o todo, si no se llevó nada) se entrega en efectivo. La misma
+   * Vendedora-Cajera u otra autoriza con su clave. Si hay artículos en la venta se cobran con el crédito en el mismo paso.
+   */
+  devolverEfectivoDeCambio(cartId: string, cajero: string, autoriza?: { nombre: string; clave: string }): { venta: Venta | null; devolucion: Devolucion } {
+    const ya = this.repo.getOp(`ret:cambio-${cartId}`);
+    if (ya) {
+      const vp = this.repo.getOp(`sale:${cartId}`);
+      return { venta: vp ? ventas([vp]).get(cartId)! : null, devolucion: { ...ya.payload, ocurrio_en: ya.ocurrio_en } };
+    }
+    const c = this.cartGet(cartId);
+    this.exigirAbierto(c); this.exigirSinCobroPendiente(c);
+    if (!c.cambio) throw new ErrorDominio('SIN_CAMBIO', 'esta venta no lleva un cambio');
+    const neto = this.totalNeto(c);
+    if (neto >= 0) throw new ErrorDominio('SIN_SALDO_A_FAVOR', 'la clienta no tiene saldo a favor: se cobra la diferencia');
+    const autorizo = this.verificarAutorizador(cajero, autoriza, true);
+    const dev = { monto: -neto, autorizo };
+    this.renovarSiHaceFalta();
+    let venta: Venta | null = null;
+    if (c.lineas.length > 0) venta = this.cobrar(cartId, [], cajero, { devolverEfectivo: dev });
+    else {
+      this.repo.tx(() => {
+        this.registrarDevolucionDeCambio(c, cajero, null, dev);
+        this.repo.kvSet(`cart:${c.id}`, { ...c, estado: 'confirmado' });
+      });
+    }
+    const op = this.repo.getOp(`ret:cambio-${cartId}`)!;
+    return { venta, devolucion: { ...op.payload, ocurrio_en: op.ocurrio_en } };
   }
 
   // ── efectivo y corte (solo con datos de ESTA caja) ──

@@ -490,7 +490,7 @@ describe('[navegador real — Chromium con Playwright, UI sobre SQLite]', { time
     await page.click('#form-buscar-venta button[type="submit"]');
     await page.waitForFunction(() => document.querySelectorAll('[data-venta-ajena]').length === 1 && document.querySelectorAll('[data-venta-propia]').length === 0);
     assert.match((await page.textContent('#bv-msg'))!, /Historial de ventas de MASCADA/);
-    // devolver una pieza de la venta propia (jeans)
+    // cambiar una pieza de la venta propia (jeans): queda en negativo en la venta; sin artículos nuevos se devuelve el dinero (caja sin claves: no se pide)
     await page.fill('#bv-codigo', '');
     await page.fill('#bv-folio', '1');
     await page.click('#form-buscar-venta button[type="submit"]');
@@ -499,12 +499,24 @@ describe('[navegador real — Chromium con Playwright, UI sobre SQLite]', { time
     await page.waitForFunction(() => /Indique cuántas piezas/.test(document.querySelector('[data-venta-propia] [data-msg]')!.textContent!));
     await page.fill('[data-venta-propia] input[data-linea]', '1');
     await page.screenshot({ path: join(CAPTURAS, '14-cambio-o-devolucion.png') });
-    await page.fill('[data-venta-propia] [data-motivo]', 'talla');
     await page.click('[data-venta-propia] button[type="submit"]');
-    await page.waitForSelector('#dlg-ticket[open]');
-    assert.match((await page.textContent('#resumen-devolucion'))!, /Folio 000004.*devuelto \$899\.00.*efectivo \$899\.00/);
-    assert.match((await page.textContent('#ticket-texto'))!, /DEVOLUCIÓN[\s\S]*Venta original: D1-000001[\s\S]*TOTAL DEVUELTO +\$899\.00/);
-    await page.click('#btn-cerrar');
+    await page.waitForSelector('#cuerpo tr.fila-cambio');
+    assert.match((await page.textContent('#cuerpo tr.fila-cambio'))!, /JEANS[\s\S]*-1[\s\S]*-\$899\.00/);
+    assert.equal(await page.textContent('#dd-cambio'), '-$899.00');
+    assert.equal(await page.isDisabled('#btn-cobrar'), true, 'con saldo a favor no se cobra');
+    assert.equal(await page.textContent('#btn-devolver-dinero'), 'No hay cambio posible, devolver dinero');
+    await page.click('#btn-devolver-dinero');
+    await page.waitForSelector('#dlg-devolver-dinero[open]');
+    assert.equal(await page.locator('#dd-clave').count(), 0, 'sin Vendedoras-Cajeras registradas no hay a quién pedir clave');
+    await page.click('#form-devolver-dinero button[type="submit"]');
+    await page.waitForSelector('#dlg-ticket[open] #resumen-devolucion');
+    assert.match((await page.textContent('#resumen-devolucion'))!, /Folio 000004.*efectivo entregado \$899\.00/);
+    assert.match((await page.textContent('#ticket-texto'))!, /CAMBIO[\s\S]*Venta original: D1-000001[\s\S]*CRÉDITO POR CAMBIO +\$899\.00[\s\S]*Reembolso en efectivo MXN +\$899\.00/);
+    await page.click('#btn-nueva');
+    await page.click('#nav button[data-vista="devolucion"]').catch(() => {});
+    await page.click('#btn-devolucion');
+    await page.fill('#bv-folio', '1');
+    await page.click('#form-buscar-venta button[type="submit"]');
     await page.waitForFunction(() => (document.querySelector('[data-venta-propia] input[data-linea]') as HTMLInputElement | null)?.disabled === true);
     assert.equal(ctx.m.caja('DUO', 1).estadoFolios().ultimo, 4, 'la devolución y la venta de tarjeta/recarga consumieron la misma serie');
     void v1; void v2;

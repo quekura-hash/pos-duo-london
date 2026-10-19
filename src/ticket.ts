@@ -126,7 +126,7 @@ export function construirTicket(v: Venta, cfg: NegocioCfg = NEGOCIOS[v.tienda]!,
       qty: l.qty, precio_unit: l.precio_unit, descuento: l.descuento, importe: l.importe, descuentos: l.descuento_detalle?.map((d) => ({ tipo: d.tipo, nombre: d.nombre, monto: d.monto })), tarjeta_regalo: l.tarjeta_regalo ? true : undefined,
     })),
     total: v.total,
-    pagos: v.pagos.map((p) => ({ etiqueta: p.metodo === 'efectivo' ? 'Efectivo MXN' : p.metodo === 'efectivo_usd' ? 'Efectivo (dólares)' : p.metodo === 'tarjeta_regalo' ? 'Tarjeta de regalo' : 'Tarjeta', monto: p.monto, recibido: p.recibido, cambio: p.cambio, tarjeta: p.tarjeta, saldo_despues: p.saldo_despues, autorizacion: p.autorizacion, marca: p.marca, ultimos4: p.ultimos4, dolares: p.metodo === 'efectivo_usd' ? { usd: p.usd!, tasa: p.tasa!, version: p.tasa_version!, equivalente: p.equivalente!, pesos: p.pesos_recibidos!, cambio: p.cambio_mxn! } : undefined })),
+    pagos: v.pagos.map((p) => ({ etiqueta: p.metodo === 'efectivo' ? 'Efectivo MXN' : p.metodo === 'efectivo_usd' ? 'Efectivo (dólares)' : p.metodo === 'tarjeta_regalo' ? 'Tarjeta de regalo' : p.metodo === 'credito_cambio' ? `Crédito por cambio (folio ${String(p.folio_origen ?? 0).padStart(6, '0')})` : 'Tarjeta', monto: p.monto, recibido: p.recibido, cambio: p.cambio, tarjeta: p.tarjeta, saldo_despues: p.saldo_despues, autorizacion: p.autorizacion, marca: p.marca, ultimos4: p.ultimos4, dolares: p.metodo === 'efectivo_usd' ? { usd: p.usd!, tasa: p.tasa!, version: p.tasa_version!, equivalente: p.equivalente!, pesos: p.pesos_recibidos!, cambio: p.cambio_mxn! } : undefined })),
     encabezado: encabezadoDe(cfg), telefono: cfg.telefono ?? '', leyendas: cfg.leyendas, columnas: cfg.columnas, reimpresion,
   };
 }
@@ -299,7 +299,7 @@ export function renderTicketDevolucionTexto(d: Devolucion, v: Venta, cfg: Negoci
   const regla = '-'.repeat(c);
   const local = new Date(Date.parse(d.ocurrio_en) - 7 * 3600_000).toISOString();
   const [y, mo, dd] = fechaLocal(d.ocurrio_en).split('-');
-  const L: string[] = [centrar(cfg.nombre, c), ...encabezadoDe(cfg).flatMap((x) => envolver(x, c).map((y) => centrar(y, c))), centrar(`Tienda ${d.tienda} - Caja ${d.caja}`, c), centrar('DEVOLUCIÓN', c)];
+  const L: string[] = [centrar(cfg.nombre, c), ...encabezadoDe(cfg).flatMap((x) => envolver(x, c).map((y) => centrar(y, c))), centrar(`Tienda ${d.tienda} - Caja ${d.caja}`, c), centrar(d.por_cambio ? 'CAMBIO' : 'DEVOLUCIÓN', c)];
   L.push(`Vendedora-Cajera: ${d.cajero}`.slice(0, c), `Fecha: ${dd}/${mo}/${y}  Hora: ${local.slice(11, 16)}`, `Folio: ${String(d.folio ?? 0).padStart(6, '0')}`);
   L.push(`Venta original: ${codigoTicket(v.tienda, v.caja, v.folio, negocios)}`, regla);
   for (const dl of d.lineas) {
@@ -307,8 +307,9 @@ export function renderTicketDevolucionTexto(d: Devolucion, v: Venta, cfg: Negoci
     L.push(...renglonArticulo({ ...l, qty: dl.qty, tarjeta_regalo: !!l.tarjeta_regalo }, c));
     L.push(...renglonIdentificacion({ ...l, qty: dl.qty, tarjeta_regalo: !!l.tarjeta_regalo }, dl.importe, c, false));
   }
-  L.push(regla, dos('TOTAL DEVUELTO', formatoMXN(d.importe), c));
+  L.push(regla, dos(d.por_cambio ? 'CRÉDITO POR CAMBIO' : 'TOTAL DEVUELTO', formatoMXN(d.importe), c));
   for (const r of d.reembolsos) L.push(dos(r.metodo === 'efectivo' ? 'Reembolso en efectivo MXN' : r.metodo === 'tarjeta' ? 'Reverso a tarjeta bancaria' : `A tarjeta de regalo ${r.tarjeta}`, formatoMXN(r.monto), c));
+  if (d.autorizado_por && d.reembolsos.some((r) => r.metodo === 'efectivo')) L.push(...envolver(`Devolución de efectivo autorizada por ${d.autorizado_por}`, c));
   L.push(regla, centrar(codigoTicket(d.tienda, d.caja, d.folio ?? 0, negocios), c));
   return L.join('\n') + '\n';
 }

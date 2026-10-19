@@ -4,7 +4,7 @@
 /** Almacén virtual del catálogo inicial: su existencia se descuenta directamente al vender en cualquier tienda o caja. */
 export const LIMBO = 'LIMBO';
 export const NOMBRE_LIMBO = 'El Limbo';
-export type Metodo = 'efectivo' | 'efectivo_usd' | 'tarjeta' | 'tarjeta_regalo';
+export type Metodo = 'efectivo' | 'efectivo_usd' | 'tarjeta' | 'tarjeta_regalo' | 'credito_cambio';
 
 export interface Op {
   op_id: string;
@@ -41,6 +41,8 @@ export interface Pago {
   pesos_recibidos?: number;
   /** Cambio entregado en PESOS por todo el efectivo de este cobro. */
   cambio_mxn?: number;
+  /** Solo `credito_cambio`: folio de la venta cuyas piezas regresó la clienta; su importe liquida parte de esta venta. */
+  folio_origen?: number;
 }
 
 export interface Linea {

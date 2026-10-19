@@ -103,6 +103,10 @@ export interface Devolucion {
   motivo: string;
   cajero: string;
   folio_origen: number;
+  /** Cambio: las piezas se usaron como crédito de otra venta (`venta_cambio`); `reembolsos` solo trae el saldo entregado en efectivo. */
+  por_cambio?: boolean;
+  venta_cambio?: string;
+  autorizado_por?: string;
 }
 
 export function devoluciones(ops: Op[]): Devolucion[] {

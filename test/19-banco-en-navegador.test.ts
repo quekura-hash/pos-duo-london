@@ -1232,7 +1232,7 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     assert.deepEqual(errores.filter((e) => !/401|403|Failed to load resource/.test(e)), []);
   });
 
-  it('B19 claves en la caja: el retiro pide la propia, cancelar una venta cobrada y devolver piden la de otra persona', async (t) => {
+  it('B19 claves en la caja: el retiro pide la propia; el historial ya no cancela ventas; el cambio no pide clave y la devolución de efectivo la pide (la misma cajera u otra)', async (t) => {
     execFileSync(process.execPath, [join(RAIZ, 'scripts', 'construir-prueba.mjs')], { stdio: 'pipe' });
     const browser = await chromium.launch({ executablePath: chromiumPath, args: ['--no-sandbox'] });
     t.after(() => browser.close());
@@ -1276,37 +1276,46 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     await page.click('#btn-retirar');
     await page.waitForSelector('#dlg-retiro-ticket[open]');
     await page.click('#ret-tk-cerrar');
-    // cancelar la venta cobrada: pide motivo y la clave de otra persona
+    // el historial ya no cancela ventas cobradas: ofrece «Aceptar cambio»
     await page.click('#nav button[data-vista="ventas"]');
-    await page.waitForSelector(`#tabla-ventas tr[data-folio="${folio}"] [data-cancelar]`);
-    await page.click(`#tabla-ventas tr[data-folio="${folio}"] [data-cancelar]`);
-    await page.waitForSelector('#dlg-autorizacion[open]');
-    assert.deepEqual(await page.$$eval('#aut-quien option', (o) => o.map((x) => x.textContent)), ['Rosa'], 'Lupe no puede autorizarse a sí misma');
-    await page.screenshot({ path: join(RAIZ, 'docs', 'capturas', '55-autorizacion.png') });
-    await page.click('#form-autorizacion button[type=submit]');
-    await page.waitForFunction(() => /Escriba el motivo/.test(document.querySelector('#msg-aut')!.textContent!));
-    await page.fill('#aut-motivo', 'error de captura'); await page.fill('#aut-clave', '0000');
-    await page.click('#form-autorizacion button[type=submit]');
-    await page.waitForFunction(() => /no es correcta/.test(document.querySelector('#mensaje-hist')?.textContent ?? ''));
-    await page.click(`#tabla-ventas tr[data-folio="${folio}"] [data-cancelar]`);
-    await page.waitForSelector('#dlg-autorizacion[open]');
-    await page.fill('#aut-motivo', 'error de captura'); await page.fill('#aut-clave', '8765');
-    await page.click('#form-autorizacion button[type=submit]');
-    await page.waitForFunction(() => /Venta cancelada/.test(document.querySelector('#mensaje-hist')?.textContent ?? ''));
-    assert.match((await page.textContent(`#tabla-ventas tr[data-folio="${folio}"]`))!, /cancelada/);
-    // devolución: otra venta; pide la clave de otra persona
+    await page.waitForSelector(`#tabla-ventas tr[data-folio="${folio}"] [data-cambio]`);
+    assert.equal(await page.locator('[data-cancelar]').count(), 0, 'no hay botón de cancelar venta en el historial');
+    assert.equal((await page.textContent(`#tabla-ventas tr[data-folio="${folio}"] [data-cambio]`))!.trim(), 'Aceptar cambio');
+    await page.click(`#tabla-ventas tr[data-folio="${folio}"] [data-cambio]`);
+    await page.waitForSelector('form[data-sale] input[data-linea]'); // la venta ya viene buscada por folio
+    await page.fill('form[data-sale] input[data-linea]', '1');
+    await page.click('form[data-sale] button[type=submit]'); // el cambio no pide clave
+    await page.waitForSelector('#cuerpo tr.fila-cambio');
+    // cambio por un artículo más barato: queda saldo a favor y el dinero solo sale con clave
+    await page.fill('#scan', '7501234567890'); await page.press('#scan', 'Enter');
+    await page.waitForSelector('#saldo-favor-monto');
+    assert.equal(await page.textContent('#saldo-favor-monto'), '$779.00');
+    await page.click('#btn-devolver-dinero');
+    await page.waitForSelector('#dlg-devolver-dinero[open]');
+    await page.fill('#dd-clave', '0000');
+    await page.click('#form-devolver-dinero button[type=submit]');
+    await page.waitForFunction(() => /no es correcta/.test(document.querySelector('#msg-dd')!.textContent!));
+    assert.equal(await page.inputValue('#dd-quien'), 'Lupe', 'por omisión autoriza la misma Vendedora-Cajera');
+    await page.fill('#dd-clave', '4321'); // la misma cajera con su propia clave
+    await page.click('#form-devolver-dinero button[type=submit]');
+    await page.waitForSelector('#dlg-ticket[open] #resumen-devolucion');
+    assert.match((await page.textContent('#resumen-devolucion'))!, /efectivo entregado \$779\.00.*autorizada por Lupe/);
+    assert.match((await page.textContent('#ticket-texto'))!, /Devolución de efectivo autorizada por Lupe/);
+    // otra Vendedora-Cajera también puede autorizar
+    await page.click('#btn-nueva');
+    await page.click('#nav button[data-vista="ventas"]');
     const folio2 = await vender();
-    await page.click('#nav button[data-vista="venta"]');
-    await page.click('#btn-devolucion');
-    await page.fill('#bv-folio', String(folio2));
-    await page.click('#form-buscar-venta button[type=submit]');
+    await page.click('#nav button[data-vista="ventas"]');
+    await page.click(`#tabla-ventas tr[data-folio="${folio2}"] [data-cambio]`);
     await page.waitForSelector('form[data-sale] input[data-linea]');
     await page.fill('form[data-sale] input[data-linea]', '1');
     await page.click('form[data-sale] button[type=submit]');
-    await page.waitForSelector('#dlg-autorizacion[open]');
-    await page.fill('#aut-clave', '8765');
-    await page.click('#form-autorizacion button[type=submit]');
-    await page.waitForSelector('#resumen-devolucion');
+    await page.waitForSelector('#btn-devolver-dinero');
+    await page.click('#btn-devolver-dinero');
+    await page.selectOption('#dd-quien', 'Rosa'); await page.fill('#dd-clave', '8765');
+    await page.click('#form-devolver-dinero button[type=submit]');
+    await page.waitForSelector('#dlg-ticket[open] #resumen-devolucion');
+    assert.match((await page.textContent('#resumen-devolucion'))!, /autorizada por Rosa/);
     assert.deepEqual(errores.filter((e) => !/401|403|Failed to load resource/.test(e)), []);
   });
 
@@ -1366,6 +1375,48 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     await page.click('#btn-cancelar-venta');
     await page.click('#cv-si');
     await page.waitForFunction(() => document.querySelectorAll('#cuerpo tr[data-linea], #cuerpo tr[data-id]').length === 0 && /\$0\.00/.test(document.querySelector('#total')!.textContent!));
+    assert.deepEqual(errores.filter((e) => !/401|403|Failed to load resource/.test(e)), []);
+  });
+
+  it('B22 cambio por un artículo más caro: la pieza queda en negativo, el crédito se descuenta y se cobra solo la diferencia', async (t) => {
+    execFileSync(process.execPath, [join(RAIZ, 'scripts', 'construir-prueba.mjs')], { stdio: 'pipe' });
+    const browser = await chromium.launch({ executablePath: chromiumPath, args: ['--no-sandbox'] });
+    t.after(() => browser.close());
+    const page = await (await browser.newContext({ viewport: { width: 1440, height: 900 }, colorScheme: 'light' })).newPage();
+    const errores: string[] = [];
+    page.on('pageerror', (e) => errores.push(String(e)));
+    page.on('console', (m) => { if (m.type() === 'error') errores.push(m.text()); });
+    await page.goto(`file://${HTML}`);
+    await page.waitForSelector('[data-chip="tienda"]');
+    await page.selectOption('#sesion-prueba', 'DUO/1');
+    await page.waitForSelector('#scan');
+    assert.equal((await page.textContent('#btn-devolucion'))!.trim(), 'Hacer Cambio');
+    assert.equal(await page.locator('#btn-editar-catalogo').count(), 0);
+    // venta original: mascada $120
+    await page.fill('#scan', '7501234567890'); await page.press('#scan', 'Enter');
+    await page.waitForSelector('#cuerpo tr[data-linea]');
+    await page.fill('#recibido', '120'); await page.click('#btn-cobrar');
+    await page.waitForSelector('#dlg-ticket[open]');
+    await page.click('#btn-nueva');
+    // hacer cambio: la mascada regresa y se lleva una bolsa de $450
+    await page.click('#btn-devolucion');
+    await page.fill('#bv-folio', '1');
+    await page.click('#form-buscar-venta button[type="submit"]');
+    await page.waitForSelector('[data-venta-propia] input[data-linea]');
+    await page.fill('[data-venta-propia] input[data-linea]', '1');
+    await page.click('[data-venta-propia] button[type="submit"]');
+    await page.waitForSelector('#cuerpo tr.fila-cambio');
+    await page.fill('#scan', '0000000000017'); await page.press('#scan', 'Enter');
+    await page.waitForFunction(() => document.querySelector('#total')!.textContent === '$330.00');
+    assert.equal(await page.textContent('#dd-cambio'), '-$120.00');
+    assert.equal(await page.locator('#saldo-favor').isHidden(), true);
+    await page.fill('#recibido', '400');
+    await page.click('#btn-cobrar');
+    await page.waitForSelector('#dlg-ticket[open] #ticket-texto');
+    const tk = (await page.textContent('#ticket-texto'))!;
+    assert.match(tk, /BOLSA/);
+    assert.match(tk, /Crédito por cambio \(folio 000001\)/);
+    assert.match(await page.textContent('#dlg-cambio') ?? '', /\$70\.00/);
     assert.deepEqual(errores.filter((e) => !/401|403|Failed to load resource/.test(e)), []);
   });
 

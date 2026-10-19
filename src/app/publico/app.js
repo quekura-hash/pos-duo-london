@@ -199,7 +199,7 @@ async function vistaVenta() {
         </section>
         <div class="acciones-inf" id="acciones-inf">
           <button class="btn" id="btn-buscar-ticket" type="button" title="Abre el historial de ventas de esta caja">${ico('search')}<span>Buscar ticket</span></button>
-          <button class="btn" id="btn-devolucion" type="button" title="Buscar la venta y devolver (solo en la caja donde se vendió)">${ico('undo')}<span>Cambio o devolución</span></button><button class="btn" id="btn-descuento" type="button" title="Descuento autorizado por un supervisor con su clave">${ico('percent')}<span>Aplicar descuento</span></button><button class="btn" id="btn-cupon" type="button" title="Capturar o escanear un cupón de descuento">${ico('gift')}<span>Cupón</span></button><button class="btn" id="btn-espera" type="button" title="Guardar esta venta y atender a otro cliente, o retomar una venta guardada">${ico('pause')}<span id="txt-espera">Venta en espera</span></button><button class="btn btn-peligro" id="btn-cancelar-venta" type="button" title="Cancelar la venta en curso (aún sin cobrar)">${ico('trash')}<span>Cancelar venta</span></button>
+          <button class="btn" id="btn-devolucion" type="button" title="Buscar la venta y cambiar piezas (solo en la caja donde se vendió)">${ico('undo')}<span>Hacer Cambio</span></button><button class="btn" id="btn-descuento" type="button" title="Descuento autorizado por un supervisor con su clave">${ico('percent')}<span>Aplicar descuento</span></button><button class="btn" id="btn-cupon" type="button" title="Capturar o escanear un cupón de descuento">${ico('gift')}<span>Cupón</span></button><button class="btn" id="btn-espera" type="button" title="Guardar esta venta y atender a otro cliente, o retomar una venta guardada">${ico('pause')}<span id="txt-espera">Venta en espera</span></button><button class="btn btn-peligro" id="btn-cancelar-venta" type="button" title="Cancelar la venta en curso (aún sin cobrar)">${ico('trash')}<span>Cancelar venta</span></button>
         </div>
       </div>
       <aside class="panel resumen" aria-label="Resumen y cobro">
@@ -208,7 +208,9 @@ async function vistaVenta() {
         <dl>
           <dt>Importe</dt><dd id="brutas">$0.00</dd>
           <dt>Descuentos</dt><dd id="descuentos">$0.00</dd>
+          <dt id="dt-cambio" hidden>Crédito por cambio</dt><dd id="dd-cambio" hidden>$0.00</dd>
         </dl>
+        <div id="saldo-favor" class="mensaje aviso" role="status" hidden><span id="saldo-favor-texto"></span><br><button type="button" id="btn-devolver-dinero" style="background:none;border:0;padding:4px 0 0;color:var(--texto-2);font-size:12px;text-decoration:underline;cursor:pointer;display:inline-flex;gap:4px;align-items:center">${ico('cash')}<span>No hay cambio posible, devolver dinero</span></button></div>
         <div id="promos-aplicadas" aria-live="polite"></div>
         <div class="total"><span>TOTAL</span><b id="total">$0.00</b></div>
         <div class="mxn">MXN</div>
@@ -242,6 +244,7 @@ async function vistaVenta() {
   $('#btn-quitar').addEventListener('click', () => S.sel && accionLinea(S.sel, 'quitar'));
   $('#btn-buscar-ticket').addEventListener('click', () => ir('ventas'));
   $('#btn-devolucion').addEventListener('click', () => ir('devolucion'));
+  $('#btn-devolver-dinero').addEventListener('click', abrirDevolverDinero);
   for (const b of $('#formas').querySelectorAll('button[data-forma]:not(:disabled)')) b.addEventListener('click', () => elegirForma(b.dataset.forma));
   pintarPago();
   pintarCarrito();
@@ -391,11 +394,24 @@ function pintarCarrito() {
   $('#descuentos').textContent = c.descuentos ? `-${mxn(c.descuentos)}` : mxn(0);
   pintarPromos();
   $('#total').textContent = mxn(c.total);
+  const cb = c.cambio;
+  $('#dt-cambio').hidden = $('#dd-cambio').hidden = !cb;
+  if (cb) $('#dd-cambio').textContent = `-${mxn(cb.credito)}`;
+  $('#saldo-favor').hidden = !(cb && cb.saldo_favor > 0);
+  if (cb && cb.saldo_favor > 0) $('#saldo-favor-texto').innerHTML = `Saldo a favor de la clienta: <b id="saldo-favor-monto">${mxn(cb.saldo_favor)}</b>. Agregue más artículos o devuélvale el dinero.`;
   const cuerpo = $('#cuerpo');
-  if (!c.lineas.length) {
+  // Las piezas que regresa la clienta (cambio) van en negativo: son el crédito que se descuenta de lo que se lleva.
+  const filasCambio = cb ? cb.lineas.map((l) => `
+      <tr class="fila-cambio" data-cambio-linea="${l.linea_id}" style="color:var(--error)">
+        <td data-col="item_no">${esc(l.item_no ?? 'pendiente')}</td><td data-col="codigo">${esc(l.codigo)}</td><td class="desc" data-col="descripcion">${esc(l.descripcion)} <small>(cambio · folio ${String(cb.folio_origen).padStart(6, '0')})</small></td>
+        <td data-col="marca">${esc(l.marca)}</td><td data-col="estilo">${esc(l.estilo)}</td><td data-col="lote"></td>
+        <td class="num" data-col="cantidad"><b>-${l.qty}</b></td><td class="num" data-col="precio">${mxn(l.precio_unit)}</td><td class="num" data-col="descuento"></td><td class="num" data-col="importe"><b>-${mxn(l.importe)}</b></td>
+        <td><button class="btn btn-icono" type="button" data-quitar-cambio aria-label="Quitar el cambio de la venta" title="Quitar el cambio de la venta">${ico('x')}</button></td>
+      </tr>`).join('') : '';
+  if (!c.lineas.length && !cb) {
     cuerpo.innerHTML = `<tr><td colspan="11" class="vacio">Escanee un artículo para comenzar la venta.</td></tr>`;
   } else {
-    cuerpo.innerHTML = c.lineas.map((l) => `
+    cuerpo.innerHTML = filasCambio + c.lineas.map((l) => `
       <tr data-linea="${l.linea_id}" aria-selected="${S.sel === l.linea_id}">
         <td data-col="item_no">${esc(l.item_no ?? 'pendiente')}</td><td data-col="codigo">${esc(l.codigo)}</td><td class="desc" data-col="descripcion">${esc(l.descripcion)}${l.editado ? ' <small class="nota" title="Precio o descripción editados solo en esta venta">(editado)</small>' : ''}</td>
         <td data-col="marca">${esc(l.marca)}</td><td data-col="estilo">${esc(l.estilo)}</td><td data-col="lote">${esc(l.lote)}</td>
@@ -404,6 +420,7 @@ function pintarCarrito() {
         <td><button class="btn btn-icono" type="button" data-accion="quitar" aria-label="Quitar ${esc(l.descripcion)} de la venta" title="Quitar de la venta">${ico('x')}</button></td>
       </tr>`).join('');
   }
+  for (const b of cuerpo.querySelectorAll('[data-quitar-cambio]')) b.addEventListener('click', quitarCambio);
   for (const tr of cuerpo.querySelectorAll('tr[data-linea]')) {
     tr.addEventListener('click', (ev) => {
       const id = tr.dataset.linea;
@@ -481,8 +498,9 @@ function recalcular() {
     pintarCambio(total, c);
     if ($('#btn-exacto')) $('#btn-exacto').disabled = !hay;
   }
-  $('#btn-cobrar').disabled = !ok;
-  $('#txt-cobrar').textContent = hay && total === 0 && S.forma !== 'regalo' ? 'REGISTRAR VENTA SIN COBRO' : `COBRAR ${mxn(total)}`;
+  const saldo = S.carrito.cambio?.saldo_favor ?? 0; // con saldo a favor no se cobra: se agregan artículos o se devuelve el dinero
+  $('#btn-cobrar').disabled = !ok || saldo > 0;
+  $('#txt-cobrar').textContent = S.carrito.cambio && hay && total === 0 && saldo === 0 ? 'CONFIRMAR CAMBIO' : hay && total === 0 && S.forma !== 'regalo' ? 'REGISTRAR VENTA SIN COBRO' : `COBRAR ${mxn(total)}`;
 }
 
 async function escanear() {
@@ -757,19 +775,9 @@ async function vistaCorte() {
 async function vistaVentas() {
   const j = await api('/api/ventas');
   $('#vista').innerHTML = `<div class="titulo-vista">${ico('clock')}<h1>Historial de mi caja</h1></div><div id="mensaje-hist" class="mensaje" role="status" aria-live="polite"></div><div class="panel"><div class="tabla-cont"><table id="tabla-ventas"><thead><tr><th>Folio</th><th>Fecha</th><th>Vendedora-Cajera</th><th class="num">Total</th><th>Estado</th><th>Impresiones</th><th></th></tr></thead><tbody>
-    ${j.ventas.length ? j.ventas.map((r) => `<tr data-folio="${r.folio}"><td>${String(r.folio).padStart(6, '0')}</td><td>${esc(r.fecha_local)}</td><td>${esc(r.cajero)}</td><td class="num">${mxn(r.total)}</td><td><span class="insignia ${r.estado}">${esc(r.estado)}</span></td><td>${r.impresiones}${r.ultima_impresion === 'error' ? ' (última falló)' : ''}</td><td><button class="btn" type="button" data-ver="${r.sale_id}">${ico('receipt')}<span>Ver ticket</span></button>${r.estado === 'confirmada' ? ` <button class="btn" type="button" data-cancelar="${r.sale_id}" title="Cancela la venta ya cobrada: la autoriza otra persona">${ico('x')}<span>Cancelar venta</span></button>` : ''}</td></tr>`).join('') : '<tr><td colspan="7" class="vacio">Sin ventas hoy en esta caja.</td></tr>'}
+    ${j.ventas.length ? j.ventas.map((r) => `<tr data-folio="${r.folio}"><td>${String(r.folio).padStart(6, '0')}</td><td>${esc(r.fecha_local)}</td><td>${esc(r.cajero)}</td><td class="num">${mxn(r.total)}</td><td><span class="insignia ${r.estado}">${esc(r.estado)}</span></td><td>${r.impresiones}${r.ultima_impresion === 'error' ? ' (última falló)' : ''}</td><td><button class="btn" type="button" data-ver="${r.sale_id}">${ico('receipt')}<span>Ver ticket</span></button>${r.estado === 'confirmada' ? ` <button class="btn" type="button" data-cambio="${r.folio}" title="La clienta regresa piezas de esta venta y se lleva otras">${ico('undo')}<span>Aceptar cambio</span></button>` : ''}</td></tr>`).join('') : '<tr><td colspan="7" class="vacio">Sin ventas hoy en esta caja.</td></tr>'}
     </tbody></table></div></div>`;
-  for (const b of $('#vista').querySelectorAll('[data-cancelar]')) {
-    b.addEventListener('click', async () => {
-      try {
-        const aut = await pedirAutorizacion({ titulo: 'Cancelar la venta', texto: 'Se cancela una venta ya cobrada: el cobro y el cambio quedan registrados y se suma la salida de dinero. La autoriza otra persona (otra Vendedora-Cajera o un supervisor) con su clave.', conMotivo: true, boton: 'Cancelar la venta' });
-        if (aut === null) return;
-        await api('/api/venta/cancelar', { sale_id: b.dataset.cancelar, motivo: aut.motivo, ...(aut.autoriza ? { autoriza: aut.autoriza } : {}) });
-        await vistaVentas();
-        const m = $('#mensaje-hist'); if (m) { m.className = 'mensaje ok'; m.textContent = 'Venta cancelada.'; }
-      } catch (e) { const m = $('#mensaje-hist'); if (m) { m.className = 'mensaje error'; m.textContent = e.message; } else msg(e.message, 'error'); }
-    });
-  }
+  for (const b of $('#vista').querySelectorAll('[data-cambio]')) b.addEventListener('click', async () => { S.buscarFolio = b.dataset.cambio; await ir('devolucion'); });
   for (const b of $('#vista').querySelectorAll('[data-ver]')) {
     b.addEventListener('click', async () => {
       const t = await api(`/api/ticket?sale_id=${b.dataset.ver}`);
@@ -1014,12 +1022,12 @@ async function vistaTarjetas() {
   });
 }
 
-// ── Cambio o devolución: se busca la venta de la tienda, pero solo se devuelve en la caja donde se hizo ──
+// ── Hacer cambio: se busca la venta de la tienda, pero solo se cambia en la caja donde se hizo ──
 async function vistaDevolucion() {
   const hoy = S.estado.fecha_local;
-  $('#vista').innerHTML = `<div class="titulo-vista">${ico('undo')}<h1>Cambio o devolución</h1></div>
+  $('#vista').innerHTML = `<div class="titulo-vista">${ico('undo')}<h1>Hacer cambio</h1></div>
     <section class="panel" aria-label="Buscar la venta">
-      <p class="nota" style="margin-top:0">Busque por fecha y hora, escaneando el artículo, o por folio. La devolución se hace <b>solo en la caja donde se vendió</b>; si la venta es de la otra caja se le indica cuál. Cada devolución lleva folio de la misma serie que las ventas.</p>
+      <p class="nota" style="margin-top:0">Busque por fecha y hora, escaneando el artículo, o por folio. El cambio se hace <b>solo en la caja donde se vendió</b>; si la venta es de la otra caja se le indica cuál. Las piezas que regresa la clienta pasan a la venta en negativo, como crédito para lo que se lleve.</p>
       <form id="form-buscar-venta" class="filtros" autocomplete="off">
         <label>Fecha <input type="date" id="bv-fecha" value="${hoy}"></label>
         <label>Desde <input type="time" id="bv-desde" value="00:00"></label>
@@ -1034,7 +1042,8 @@ async function vistaDevolucion() {
     <div id="bv-resultados"></div>`;
   $('#bv-volver').addEventListener('click', () => ir('venta'));
   $('#form-buscar-venta').addEventListener('submit', async (ev) => { ev.preventDefault(); await buscarVentasDev(); });
-  $('#bv-codigo').focus();
+  if (S.buscarFolio) { $('#bv-folio').value = S.buscarFolio; S.buscarFolio = null; await buscarVentasDev(); }
+  else $('#bv-codigo').focus();
 }
 async function buscarVentasDev() {
   const m = $('#bv-msg');
@@ -1049,41 +1058,8 @@ async function buscarVentasDev() {
     m.className = r.hub ? 'mensaje' : 'mensaje aviso';
     m.textContent = r.hub ? (r.articulo ? `Historial de ventas de ${r.articulo.descripcion} ${r.articulo.marca}.` : '') : 'Sin conexión con el hub: solo se muestran las ventas de esta caja.';
     $('#bv-resultados').innerHTML = r.resultados.length ? r.resultados.map((v) => ventaDevHtml(v)).join('') : '<div class="panel vacio" id="bv-vacio">No se encontró ninguna venta con esos datos.</div>';
-    for (const f of $('#bv-resultados').querySelectorAll('form[data-sale]')) f.addEventListener('submit', (ev) => { ev.preventDefault(); devolverVenta(f); });
+    for (const f of $('#bv-resultados').querySelectorAll('form[data-sale]')) f.addEventListener('submit', (ev) => { ev.preventDefault(); aceptarCambio(f); });
   } catch (e) { m.className = 'mensaje error'; m.textContent = e.message; }
-}
-/**
- * Pide la autorización de OTRA persona (otra Vendedora-Cajera o un supervisor: su nombre y su clave) y, si se pide, el motivo. Si todavía no hay cajeros
- * registrados (la caja trabaja abierta) no hay a quién pedirla. Devuelve { motivo, autoriza } o null si se cancela.
- */
-async function pedirAutorizacion({ titulo, texto, conMotivo = false, boton = 'Autorizar' }) {
-  const a = await api('/api/venta/autorizadores');
-  if (!a.pide_clave && !conMotivo) return { autoriza: undefined };
-  const d = dialogo('dlg-autorizacion');
-  d.setAttribute('aria-labelledby', 'aut-titulo');
-  d.innerHTML = `<h2 id="aut-titulo" style="margin-top:0">${esc(titulo)}</h2><p class="nota" style="margin-top:0">${esc(texto)}</p>
-    <form id="form-autorizacion" autocomplete="off">
-      ${conMotivo ? '<div class="campo"><label for="aut-motivo">Motivo</label><input id="aut-motivo" class="texto" maxlength="120" placeholder="Obligatorio"></div>' : ''}
-      ${a.pide_clave ? `<div class="campo"><label for="aut-quien">Autoriza (otra Vendedora-Cajera o supervisor)</label><select id="aut-quien" style="width:100%;padding:10px;border:2px solid var(--borde);border-radius:10px;background:var(--superficie)">${a.autorizadores.map((x) => `<option value="${esc(x.nombre)}">${esc(x.nombre)}${x.tipo === 'supervisor' ? ' (supervisor)' : ''}</option>`).join('')}</select></div>
-      <div class="campo"><label for="aut-clave">Su clave</label><input id="aut-clave" type="password" inputmode="numeric" autocomplete="off" placeholder="••••"></div>` : ''}
-      <div id="msg-aut" class="mensaje" role="alert"></div>
-      <div class="filas"><button class="btn" type="button" id="aut-no">Cancelar</button><button class="btn btn-primario" type="submit" style="width:auto;flex:1">${ico('check')}<span>${esc(boton)}</span></button></div></form>`;
-  return new Promise((fin) => {
-    let listo = false;
-    const cerrar = (v) => { if (listo) return; listo = true; d.close(); fin(v); };
-    $('#aut-no').addEventListener('click', () => cerrar(null));
-    d.addEventListener('cancel', () => cerrar(null), { once: true });
-    $('#form-autorizacion').addEventListener('submit', (ev) => {
-      ev.preventDefault();
-      const m = $('#msg-aut');
-      const motivo = conMotivo ? $('#aut-motivo').value.trim() : '';
-      if (conMotivo && !motivo) { m.className = 'mensaje error'; m.textContent = 'Escriba el motivo.'; return; }
-      if (a.pide_clave && (!$('#aut-quien').value || !$('#aut-clave').value)) { m.className = 'mensaje error'; m.textContent = a.autorizadores.length ? 'Elija quién autoriza y teclee su clave.' : 'No hay otra Vendedora-Cajera o supervisor registrado que pueda autorizar.'; return; }
-      cerrar({ motivo, autoriza: a.pide_clave ? { nombre: $('#aut-quien').value, clave: $('#aut-clave').value } : undefined });
-    });
-    d.showModal();
-    ($(conMotivo ? '#aut-motivo' : '#aut-clave') ?? $('#aut-no')).focus();
-  });
 }
 function ventaDevHtml(v) {
   const cab = `<div class="cab" style="display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center"><b>${esc(v.codigo_ticket)}</b><span>${esc(fechaHora(v.ocurrio_en))}</span><span class="insignia">Caja ${v.caja}</span>${v.propia && v.total !== null ? `<span>Total ${mxn(v.total)}</span>` : ''}</div>`;
@@ -1094,35 +1070,80 @@ function ventaDevHtml(v) {
   }
   return `<section class="panel" data-venta-propia="${esc(v.sale_id)}" style="margin-top:12px">${cab}
     <form data-sale="${esc(v.sale_id)}" autocomplete="off">
-      <div class="tabla-cont"><table><thead><tr><th>Artículo</th><th class="num">Vendidas</th><th class="num">Ya devueltas</th><th class="num">Importe</th><th class="num">Devolver</th></tr></thead><tbody>
+      <div class="tabla-cont"><table><thead><tr><th>Artículo</th><th class="num">Vendidas</th><th class="num">Ya cambiadas</th><th class="num">Importe</th><th class="num">Cambiar</th></tr></thead><tbody>
       ${v.lineas.map((l) => {
         const max = l.tarjeta_regalo ? 0 : l.qty - (l.devuelto ?? 0);
         return `<tr><td>${esc(l.descripcion)}${l.marca ? ` · ${esc(l.marca)}` : ''}${l.item_no ? ` · Item # ${esc(l.item_no)}` : ''}</td><td class="num">${l.qty}</td><td class="num">${l.devuelto ?? 0}</td><td class="num">${mxn(l.importe ?? 0)}</td>
         <td class="num">${l.tarjeta_regalo ? '<small>no se devuelve</small>' : `<input type="number" min="0" max="${max}" value="0" ${max === 0 ? 'disabled' : ''} data-linea="${esc(l.linea_id)}" style="width:64px;text-align:right;padding:4px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie)" aria-label="Piezas a devolver de ${esc(l.descripcion)}">`}</td></tr>`;
       }).join('')}</tbody></table></div>
-      <div class="filas" style="margin-top:10px;align-items:center"><input class="texto" data-motivo placeholder="Motivo (talla, defecto, cambio de opinión…)" style="flex:3;min-width:200px;padding:8px;border:1px solid var(--borde);border-radius:8px;background:var(--superficie)" aria-label="Motivo">
-        <button class="btn btn-primario" type="submit" style="width:auto;flex:1">${ico('undo')}<span>Devolver</span></button></div>
+      <div class="filas" style="margin-top:10px;align-items:center"><span class="nota" style="flex:3;min-width:200px;margin:0">No devuelve dinero: lo regresado queda como crédito en la venta.</span>
+        <button class="btn btn-primario" type="submit" style="width:auto;flex:1">${ico('check')}<span>Aceptar cambio</span></button></div>
       <div class="mensaje" data-msg role="status"></div>
     </form></section>`;
 }
-async function devolverVenta(form) {
+async function aceptarCambio(form) {
   const m = form.querySelector('[data-msg]');
   const renglones = [...form.querySelectorAll('input[data-linea]')].map((i) => ({ linea_id: i.dataset.linea, qty: Number(i.value) })).filter((x) => x.qty > 0);
-  if (!renglones.length) { m.className = 'mensaje error'; m.textContent = 'Indique cuántas piezas se devuelven.'; return; }
+  if (!renglones.length) { m.className = 'mensaje error'; m.textContent = 'Indique cuántas piezas se cambian.'; return; }
   try {
-    const aut = await pedirAutorizacion({ titulo: 'Autorizar la devolución', texto: 'Una devolución la autoriza otra persona: otra Vendedora-Cajera o un supervisor, con su clave.' });
-    if (aut === null) return;
-    const r = await api('/api/venta/devolver', { sale_id: form.dataset.sale, renglones, motivo: form.querySelector('[data-motivo]').value.trim() || 'devolución', ...(aut.autoriza ? { autoriza: aut.autoriza } : {}) });
-    const d = r.devolucion;
-    const dlg = $('#dlg-ticket');
-    dlg.innerHTML = `<h2 id="dlg-titulo" style="margin:0 0 4px">Devolución registrada</h2>
-      <p style="margin:0" id="resumen-devolucion">Folio <b>${String(d.folio).padStart(6, '0')}</b> · devuelto <b>${mxn(d.importe)}</b>${d.reembolsos.map((x) => ` · ${x.metodo === 'efectivo' ? 'efectivo' : x.metodo === 'tarjeta' ? 'reverso a la tarjeta bancaria (hágalo en la terminal)' : `a la tarjeta ${esc(x.tarjeta)}`} <b>${mxn(x.monto)}</b>`).join('')}</p>
-      <div class="mensaje ${r.impresion.ok ? 'ok' : 'error'}" id="estado-impresion" role="status">${r.impresion.ok ? 'Ticket enviado a la impresora.' : `La impresora falló: ${esc(r.impresion.error)}. La devolución SÍ quedó guardada.`}</div>
-      ${logoTicketHtml()}<pre class="ticket" id="ticket-texto" tabindex="0">${esc(r.ticket_texto)}</pre>
-      <div class="filas"><button class="btn btn-primario" id="btn-cerrar" type="button">${ico('check')}<span>Listo</span></button></div>`;
-    dlg.showModal();
-    $('#btn-cerrar').addEventListener('click', async () => { dlg.close(); await buscarVentasDev(); await pintarEncabezado(); });
+    if (!S.cart) { const r = await api('/api/venta/actual', {}); S.cart = r.cart; S.carrito = r.carrito; }
+    const r = await api('/api/venta/cambio/iniciar', { cart: S.cart, sale_id: form.dataset.sale, renglones });
+    S.carrito = r.carrito; S.sel = null;
+    await ir('venta');
+    msg('Cambio aceptado: las piezas quedaron en negativo. Escanee los artículos por los que cambia.');
   } catch (e) { m.className = 'mensaje error'; m.textContent = e.message; }
+}
+async function quitarCambio() {
+  try { const r = await api('/api/venta/cambio/quitar', { cart: S.cart }); S.carrito = r.carrito; pintarCarrito(); msg('Cambio quitado de la venta.'); }
+  catch (e) { msg(e.message, 'error'); }
+}
+/** «No hay cambio posible, devolver dinero»: el saldo sale en efectivo; la misma Vendedora-Cajera u otra (o un supervisor) lo autoriza con su clave. */
+async function abrirDevolverDinero() {
+  const monto = S.carrito.cambio?.saldo_favor ?? 0;
+  if (!(monto > 0)) return;
+  const a = await api('/api/venta/autorizadores-efectivo');
+  const d = dialogo('dlg-devolver-dinero');
+  d.setAttribute('aria-labelledby', 'dd-titulo');
+  d.innerHTML = `<h2 id="dd-titulo" style="margin-top:0">Devolver dinero</h2>
+    <p id="dd-texto" style="font-size:17px">No hay cambio posible: se entregan <b>${mxn(monto)}</b> en efectivo a la clienta.</p>
+    <form id="form-devolver-dinero" autocomplete="off">
+      ${a.pide_clave ? `<p class="nota" style="margin-top:0">Devolución de efectivo autorizada por quien teclee aquí su clave (la misma Vendedora-Cajera, otra o un supervisor).</p>
+      <div class="campo"><label for="dd-quien">Autoriza</label><select id="dd-quien" style="width:100%;padding:10px;border:2px solid var(--borde);border-radius:10px;background:var(--superficie)">${a.autorizadores.map((x) => `<option value="${esc(x.nombre)}" ${x.nombre === a.actual ? 'selected' : ''}>${esc(x.nombre)}${x.tipo === 'supervisor' ? ' (supervisor)' : ''}</option>`).join('')}</select></div>
+      <div class="campo"><label for="dd-clave">Su clave</label><input id="dd-clave" type="password" inputmode="numeric" autocomplete="off" placeholder="••••"></div>` : ''}
+      <div id="msg-dd" class="mensaje" role="alert"></div>
+      <div class="filas"><button class="btn" type="button" id="dd-no">Cancelar</button><button class="btn btn-peligro" type="submit" id="dd-ok" style="width:auto;flex:1">${ico('cash')}<span>Devolver ${mxn(monto)}</span></button></div>
+    </form>`;
+  $('#dd-no').addEventListener('click', () => d.close());
+  $('#form-devolver-dinero').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const m = $('#msg-dd');
+    if (a.pide_clave && (!$('#dd-quien').value || !$('#dd-clave').value)) { m.className = 'mensaje error'; m.textContent = 'Elija quién autoriza y teclee su clave.'; return; }
+    try {
+      const r = await api('/api/venta/cambio/devolver-dinero', { cart: S.cart, ...(a.pide_clave ? { autoriza: { nombre: $('#dd-quien').value, clave: $('#dd-clave').value } } : {}) });
+      d.close();
+      mostrarDevolucionEfectivo(r);
+    } catch (e) { m.className = 'mensaje error'; m.textContent = e.message; const c = $('#dd-clave'); if (c) c.value = ''; }
+  });
+  d.showModal();
+  ($('#dd-clave') ?? $('#dd-no')).focus();
+}
+function mostrarDevolucionEfectivo(r) {
+  const d = r.devolucion;
+  const efectivo = d.reembolsos.filter((x) => x.metodo === 'efectivo').reduce((acc, x) => acc + x.monto, 0);
+  const dlg = $('#dlg-ticket');
+  dlg.innerHTML = `<h2 id="dlg-titulo" style="margin:0 0 4px">Devolución de efectivo registrada</h2>
+    <p style="margin:0" id="resumen-devolucion">Folio <b>${String(d.folio).padStart(6, '0')}</b> · efectivo entregado <b>${mxn(efectivo)}</b>${d.autorizado_por ? ` · devolución de efectivo autorizada por <b id="dd-autorizo">${esc(d.autorizado_por)}</b>` : ''}${r.venta ? ` · venta del cambio folio <b>${String(r.venta.folio).padStart(6, '0')}</b>` : ''}</p>
+    <div class="mensaje ${r.impresion.ok ? 'ok' : 'error'}" id="estado-impresion" role="status">${r.impresion.ok ? 'Ticket enviado a la impresora.' : `La impresora falló: ${esc(r.impresion.error)}. La devolución SÍ quedó guardada.`}</div>
+    ${logoTicketHtml()}<pre class="ticket" id="ticket-texto" tabindex="0">${esc(r.ticket_texto)}</pre>
+    <div class="filas"><button class="btn btn-primario" id="btn-nueva" type="button" style="width:auto;flex:1">${ico('plus')}<span>Nueva venta</span></button></div>`;
+  dlg.showModal();
+  $('#btn-nueva').addEventListener('click', async () => {
+    dlg.close();
+    const n = await api('/api/venta/nueva', {});
+    S.cart = n.cart; S.carrito = n.carrito; S.sel = null;
+    await ir('venta');
+    await pintarEncabezado();
+  });
 }
 
 // ── tipo de cambio del dólar (barra izquierda) ──

@@ -31,7 +31,10 @@ export interface VistaCarrito {
   piezas: number;
   ventas_brutas: number;
   descuentos: number;
+  /** Lo que se cobra ahora (ya sin el crédito del cambio; nunca negativo). */
   total: number;
+  /** Cambio en curso: piezas que regresa la clienta (se muestran en negativo) y su crédito. `saldo_favor` es lo que sobra si el crédito supera la venta. */
+  cambio: { sale_id: string; folio_origen: number; credito: number; aplicado: number; saldo_favor: number; lineas: { linea_id: string; item_id: string; item_no: string | null; codigo: string; descripcion: string; marca: string; estilo: string; qty: number; precio_unit: number; importe: number }[] } | null;
   /** Promociones aplicadas y estado del cupón de esta venta. */
   promos: { promo_id: string; nombre: string; tipo: string; monto: number }[];
   cupon: { codigo: string; nombre: string; monto: number; aplicado: boolean; motivo?: string } | null;
@@ -266,7 +269,11 @@ export class ServicioCaja {
       id: c.id, lineas: c.lineas, piezas: c.lineas.reduce((a, l) => a + l.qty, 0),
       ventas_brutas: c.lineas.reduce((a, l) => a + l.qty * l.precio_unit, 0),
       descuentos: c.lineas.reduce((a, l) => a + l.descuento, 0),
-      total: c.lineas.reduce((a, l) => a + l.importe, 0),
+      total: Math.max(0, c.lineas.reduce((a, l) => a + l.importe, 0) - (c.cambio?.credito ?? 0)),
+      cambio: c.cambio ? (() => {
+        const bruto = c.lineas.reduce((a, l) => a + l.importe, 0);
+        return { sale_id: c.cambio.sale_id, folio_origen: c.cambio.folio_origen, credito: c.cambio.credito, aplicado: Math.min(c.cambio.credito, bruto), saldo_favor: Math.max(0, c.cambio.credito - bruto), lineas: c.cambio.lineas };
+      })() : null,
       promos: c.descuentos?.aplicadas ?? [], cupon: c.descuentos?.cupon ?? null,
       tasa: c.tasa ? { version: c.tasa.version, tasa: c.tasa.tasa, texto: formatoTasa(c.tasa.tasa), hay_nueva: (this.caja.tipoCambio()?.version ?? 0) > c.tasa.version } : null,
       existencias: Object.fromEntries(c.lineas.map((l) => { const e = this.caja.existenciaVerificada(l.item_id); return [l.item_id, { saldo: e.saldo, verificada: e.verificada, limbo: this.caja.saldoLimbo(l.item_id) }]; })),
@@ -458,6 +465,34 @@ export class ServicioCaja {
         lineas: (v.lineas_detalle ?? v.lineas).map((l: any) => ({ linea_id: l.linea_id, item_id: l.item_id, descripcion: l.descripcion, qty: l.qty, devuelto: l.devuelto ?? null, importe: l.importe ?? null, marca: l.marca ?? null, item_no: l.item_no ?? null, codigo: l.codigo ?? null, tarjeta_regalo: !!l.tarjeta_regalo })),
       })),
     };
+  }
+  /** Cambio: las piezas que regresa la clienta quedan en negativo como crédito de ESTA venta. Sin clave; el dinero solo sale con «devolver dinero». */
+  iniciarCambio(cartId: string, saleId: string, renglones: { linea_id: string; qty: number }[]) {
+    this.caja.iniciarCambio(cartId, saleId, renglones);
+    return { carrito: this.vista(cartId) };
+  }
+  quitarCambio(cartId: string) {
+    this.caja.quitarCambio(cartId);
+    return { carrito: this.vista(cartId) };
+  }
+  /** Quién puede autorizar la devolución de efectivo de un cambio: cualquier Vendedora-Cajera (incluida quien atiende) o supervisor. */
+  autorizadoresEfectivo() {
+    return { pide_clave: this.caja.controlesConClave(), actual: this.actor.usuario, autorizadores: this.caja.controlesConClave() ? this.caja.autorizadoresPosibles(this.actor.usuario, true) : [] };
+  }
+  /** «No hay cambio posible, devolver dinero»: entrega en efectivo el saldo del cambio, con la clave de quien lo autoriza. */
+  async devolverEfectivoCambio(cartId: string, autoriza?: { nombre: string; clave: string }) {
+    const { venta, devolucion: d } = this.caja.devolverEfectivoDeCambio(cartId, this.actor.usuario, autoriza);
+    const origen = ventas(this.caja.opsVentas()).get(d.sale_id)!;
+    const texto = renderTicketDevolucionTexto(d, origen, this.negociosVivos()[origen.tienda]!, this.negociosVivos());
+    let impresion: { ok: boolean; error?: string };
+    try {
+      await this.impresora.imprimir({ ref: `dev:${d.devolucion_id}`, texto, bytes: renderTextoEscPos(texto, { abrirCajon: d.reembolsos.some((r) => r.metodo === 'efectivo') }) });
+      impresion = { ok: true };
+    } catch (e) {
+      impresion = { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+    const cobro = venta ? await this.finalizarCobro(venta) : null;
+    return { devolucion: d, ticket_texto: texto, impresion, venta: cobro?.venta ?? null, ticket_venta: cobro?.ticket_texto ?? null, impresion_venta: cobro?.impresion ?? null };
   }
   async devolver(saleId: string, renglones: { linea_id: string; qty: number }[], motivo: string, autoriza?: { nombre: string; clave: string }) {
     const d = this.caja.devolver({ sale_id: saleId, renglones, motivo, cajero: this.actor.usuario, autoriza });
