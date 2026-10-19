@@ -56,7 +56,7 @@ porAlmacen('Retiro de efectivo de la caja', (alm) => {
     assert.match(r.ticket_texto, /8 x \$1,000\.00\s+\$8,000\.00/);
     assert.match(r.ticket_texto, /1 x \$500\.00\s+\$500\.00/);
     assert.match(r.ticket_texto, /TOTAL RETIRADO \(MXN\)\s+\$8,500\.00/);
-    assert.match(r.ticket_texto, /Cajero: Ana/);
+    assert.match(r.ticket_texto, /Vendedora-Cajera: Ana/);
     assert.match(r.ticket_texto, /Firma de quien retira/);
     // el retiro descuenta del efectivo esperado del corte
     const corte = ctx.m.caja('DUO', 1).corteEnVivo(r.retiro.fecha);

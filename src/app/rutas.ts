@@ -19,7 +19,7 @@ export async function atender(o: { cajero?: ServicioCaja; admin?: ServicioAdmin 
   const ok = (cuerpo: object): Respuesta => ({ status: 200, json: { ok: true, ...cuerpo } });
   try {
     const exigirCajero = () => {
-      if (!C) throw new ErrorDominio('PROHIBIDO', 'esta sesión no es de cajero');
+      if (!C) throw new ErrorDominio('PROHIBIDO', 'esta sesión no es de caja');
       if (!C.autenticada()) throw new ErrorDominio('NO_AUTENTICADO', 'inicie sesión con su usuario y clave');
       return C;
     };

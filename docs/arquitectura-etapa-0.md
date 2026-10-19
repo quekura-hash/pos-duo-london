@@ -606,3 +606,7 @@ Resuelve el pendiente de la sección 36. Un cajero puede vender, cobrar, hacer r
 - **Cancelar venta** tiene botón en el **Historial** («Cancelar venta», con motivo obligatorio); antes solo existía en el motor.
 - **Se activan en cuanto hay cajeros con clave registrados.** Mientras no haya ninguno, la caja trabaja abierta (así se monta la tienda) y estas operaciones no piden clave; igual que el inicio de sesión.
 - **Verificado**: pruebas AU1–AU3 (ambos almacenes: sin cajeros, retiro con la propia clave, cancelación y devolución con otra persona o supervisor, no autorizarse a sí mismo, bloqueo) y de navegador (B19: retiro, cancelación y devolución con sus diálogos).
+
+## 38. Nombre del rol «Vendedora-Cajera»
+
+El rol que en las secciones anteriores se llama «cajero» se muestra como **Vendedora-Cajera** (singular; plural «Vendedoras-Cajeras») en pantallas, ticket (línea «Vendedora-Cajera: …» de ventas, devoluciones y retiros), encabezados de reportes y Excel, y mensajes. Es solo el **nombre visible**: los registros, las rutas y los códigos internos (`cajero`, `cajero.guardado`, `/api/admin/cajeros`) no cambian, así que no afecta lo ya guardado. Donde este documento diga «cajero» léase Vendedora-Cajera.

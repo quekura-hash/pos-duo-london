@@ -307,7 +307,7 @@ export function hojaInventario(
 /** Detalle de cobros con dólares listo para Excel: importes como texto decimal exacto (sin coma flotante). */
 export function hojaDolares(r: import('./consultas.ts').ReporteDolares): Hoja {
   const usd = (c: number) => aMXN(c);
-  const encabezados = ['Tienda', 'Caja', 'Folio', 'Fecha', 'Hora', 'Cajero', 'USD recibidos', 'Tipo de cambio (MXN por USD)', 'Versión de la tasa', 'Equivalente MXN (tasa de la operación)', 'Pesos recibidos', 'Cambio entregado MXN', 'Total de la venta MXN', 'Estado'];
+  const encabezados = ['Tienda', 'Caja', 'Folio', 'Fecha', 'Hora', 'Vendedora-Cajera', 'USD recibidos', 'Tipo de cambio (MXN por USD)', 'Versión de la tasa', 'Equivalente MXN (tasa de la operación)', 'Pesos recibidos', 'Cambio entregado MXN', 'Total de la venta MXN', 'Estado'];
   const filas: Hoja['filas'] = r.filas.map((f) => [f.tienda, f.caja, f.folio, f.fecha_local, f.hora, f.cajero, usd(f.usd), formatoTasa(f.tasa), f.tasa_version, aMXN(f.equivalente), aMXN(f.pesos_recibidos), aMXN(f.cambio_mxn), aMXN(f.total_venta), f.estado]);
   filas.push([], ['TOTAL (sin cancelados)', '', '', '', '', '', usd(r.usd), '', '', aMXN(r.equivalente_historico), '', '', '', '']);
   return { nombre: 'Dólares recibidos', encabezados, filas, textoCols: [3, 4, 6, 7, 9, 10, 11, 12] };
@@ -317,7 +317,7 @@ export function hojaDolares(r: import('./consultas.ts').ReporteDolares): Hoja {
 export function hojaDescuentos(r: import('./consultas.ts').ReporteDescuentos): Hoja {
   const pct = (bp: number) => `${(bp / 100).toFixed(2)} %`;
   const tipo = { promo: 'Promoción', cupon: 'Cupón', manual: 'Manual (supervisor)' } as const;
-  const encabezados = ['Tienda', 'Caja', 'Folio', 'Fecha', 'Hora', 'Cajero', 'Tipo', 'Concepto', 'Supervisor que autorizó', 'Importe de la venta', 'Descuento', '% de la venta', 'Estado'];
+  const encabezados = ['Tienda', 'Caja', 'Folio', 'Fecha', 'Hora', 'Vendedora-Cajera', 'Tipo', 'Concepto', 'Supervisor que autorizó', 'Importe de la venta', 'Descuento', '% de la venta', 'Estado'];
   const filas: Hoja['filas'] = r.filas.map((f) => [f.tienda, f.caja, f.folio, f.fecha_local, f.hora, f.cajero, tipo[f.tipo], f.concepto, f.supervisor ?? '', aMXN(f.importe_venta), aMXN(f.monto), pct(f.pct_bp), f.estado]);
   filas.push([], ['TOTAL (sin cancelados)', '', '', '', '', '', '', '', '', '', aMXN(r.resumen.monto), '', '']);
   return { nombre: 'Descuentos', encabezados, filas, textoCols: [3, 4, 6, 7, 8, 9, 10, 11] };

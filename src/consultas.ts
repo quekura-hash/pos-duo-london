@@ -33,7 +33,7 @@ function cajasPermitidas(actor: Actor, f: Filtro): RefCaja[] | 'todas' {
   if (actor.rol === 'cajero') {
     const propia = { tienda: actor.tienda, caja: actor.caja };
     if (f.cajas && f.cajas.some((c) => !mismaCaja(c, propia))) {
-      throw new ErrorDominio('PROHIBIDO', `el cajero ${actor.usuario} solo consulta su propia caja`);
+      throw new ErrorDominio('PROHIBIDO', `la Vendedora-Cajera ${actor.usuario} solo consulta su propia caja`);
     }
     return [propia];
   }
@@ -132,7 +132,7 @@ export function cortesPorCaja(actor: Actor, ops: Op[], f: Filtro = {}): FilaCort
 export function aFilasExportables(filas: FilaVenta[]) {
   return filas.map((r) => ({
     Tienda: r.tienda, Caja: r.caja, Folio: r.folio, Fecha: r.fecha_local,
-    Cajero: r.cajero, 'Total MXN': aMXN(r.total), Estado: r.estado,
+    'Vendedora-Cajera': r.cajero, 'Total MXN': aMXN(r.total), Estado: r.estado,
   }));
 }
 

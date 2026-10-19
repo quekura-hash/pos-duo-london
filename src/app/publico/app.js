@@ -112,7 +112,7 @@ async function pintarEncabezado() {
     <div class="datos">
       <span class="chip-top" data-chip="tienda">${ico('store')}<span>Tienda: <b>${esc(e.negocio)}</b></span></span>
       <span class="chip-top" data-chip="caja">${ico('caja')}<span>CAJA <b>${e.caja}</b></span></span>
-      <span class="chip-top" data-chip="usuario">${ico('user')}<span>Cajero(a): <b>${esc(e.usuario)}</b></span></span>
+      <span class="chip-top" data-chip="usuario">${ico('user')}<span>Vendedora-Cajera: <b>${esc(e.usuario)}</b></span></span>
       <span class="sincro ${sincro[0]}" data-chip="sincro">${sincro[1]}</span>
       <span class="chip-top" data-chip="fecha">${ico('calendar')}<b>${fechaCorta(e.ahora)}</b></span>
       ${S.sesion.requiere_login ? `<button class="btn" type="button" id="btn-salir" title="Cerrar la sesión">${ico('x')}<span>Cerrar sesión</span></button>` : ''}
@@ -755,13 +755,13 @@ async function vistaCorte() {
 // ── ventas de la caja ──
 async function vistaVentas() {
   const j = await api('/api/ventas');
-  $('#vista').innerHTML = `<div class="titulo-vista">${ico('clock')}<h1>Historial de mi caja</h1></div><div id="mensaje-hist" class="mensaje" role="status" aria-live="polite"></div><div class="panel"><div class="tabla-cont"><table id="tabla-ventas"><thead><tr><th>Folio</th><th>Fecha</th><th>Cajero</th><th class="num">Total</th><th>Estado</th><th>Impresiones</th><th></th></tr></thead><tbody>
+  $('#vista').innerHTML = `<div class="titulo-vista">${ico('clock')}<h1>Historial de mi caja</h1></div><div id="mensaje-hist" class="mensaje" role="status" aria-live="polite"></div><div class="panel"><div class="tabla-cont"><table id="tabla-ventas"><thead><tr><th>Folio</th><th>Fecha</th><th>Vendedora-Cajera</th><th class="num">Total</th><th>Estado</th><th>Impresiones</th><th></th></tr></thead><tbody>
     ${j.ventas.length ? j.ventas.map((r) => `<tr data-folio="${r.folio}"><td>${String(r.folio).padStart(6, '0')}</td><td>${esc(r.fecha_local)}</td><td>${esc(r.cajero)}</td><td class="num">${mxn(r.total)}</td><td><span class="insignia ${r.estado}">${esc(r.estado)}</span></td><td>${r.impresiones}${r.ultima_impresion === 'error' ? ' (última falló)' : ''}</td><td><button class="btn" type="button" data-ver="${r.sale_id}">${ico('receipt')}<span>Ver ticket</span></button>${r.estado === 'confirmada' ? ` <button class="btn" type="button" data-cancelar="${r.sale_id}" title="Cancela la venta ya cobrada: la autoriza otra persona">${ico('x')}<span>Cancelar venta</span></button>` : ''}</td></tr>`).join('') : '<tr><td colspan="7" class="vacio">Sin ventas hoy en esta caja.</td></tr>'}
     </tbody></table></div></div>`;
   for (const b of $('#vista').querySelectorAll('[data-cancelar]')) {
     b.addEventListener('click', async () => {
       try {
-        const aut = await pedirAutorizacion({ titulo: 'Cancelar la venta', texto: 'Se cancela una venta ya cobrada: el cobro y el cambio quedan registrados y se suma la salida de dinero. La autoriza otra persona (otro cajero o un supervisor) con su clave.', conMotivo: true, boton: 'Cancelar la venta' });
+        const aut = await pedirAutorizacion({ titulo: 'Cancelar la venta', texto: 'Se cancela una venta ya cobrada: el cobro y el cambio quedan registrados y se suma la salida de dinero. La autoriza otra persona (otra Vendedora-Cajera o un supervisor) con su clave.', conMotivo: true, boton: 'Cancelar la venta' });
         if (aut === null) return;
         await api('/api/venta/cancelar', { sale_id: b.dataset.cancelar, motivo: aut.motivo, ...(aut.autoriza ? { autoriza: aut.autoriza } : {}) });
         await vistaVentas();
@@ -805,7 +805,7 @@ async function vistaReportes() {
     if (!sel.length) return void ($('#resultado').innerHTML = '<div class="mensaje error">Seleccione al menos una caja.</div>');
     const { reporte: r } = await api('/api/admin/reporte', { cajas: sel, desde: $('#desde').value, hasta: $('#hasta').value });
     $('#resultado').innerHTML = `<div class="panel"><p class="nota">Cada venta conserva tienda, caja y folio originales; el reporte no renumera.</p>
-      <div class="tabla-cont"><table id="tabla-reporte"><thead><tr><th>Tienda</th><th>Caja</th><th>Folio</th><th>Fecha</th><th>Cajero</th><th class="num">Total</th><th>Estado</th></tr></thead><tbody>
+      <div class="tabla-cont"><table id="tabla-reporte"><thead><tr><th>Tienda</th><th>Caja</th><th>Folio</th><th>Fecha</th><th>Vendedora-Cajera</th><th class="num">Total</th><th>Estado</th></tr></thead><tbody>
       ${r.filas.map((f) => `<tr><td>${esc(f.tienda)}</td><td>${f.caja}</td><td>${String(f.folio).padStart(6, '0')}</td><td>${esc(f.fecha_local)}</td><td>${esc(f.cajero)}</td><td class="num">${mxn(f.total)}</td><td>${esc(f.estado)}</td></tr>`).join('') || '<tr><td colspan="7" class="vacio">Sin ventas en el periodo.</td></tr>'}</tbody></table></div>
       <h2>Desglose por caja</h2><table id="tabla-por-caja"><thead><tr><th>Tienda</th><th>Caja</th><th class="num">Tickets</th><th class="num">Total</th></tr></thead><tbody>
       ${r.porCaja.map((c) => `<tr><td>${esc(c.tienda)}</td><td>${c.caja}</td><td class="num">${c.tickets}</td><td class="num">${mxn(c.total)}</td></tr>`).join('')}
@@ -1052,7 +1052,7 @@ async function buscarVentasDev() {
   } catch (e) { m.className = 'mensaje error'; m.textContent = e.message; }
 }
 /**
- * Pide la autorización de OTRA persona (otro cajero o un supervisor: su nombre y su clave) y, si se pide, el motivo. Si todavía no hay cajeros
+ * Pide la autorización de OTRA persona (otra Vendedora-Cajera o un supervisor: su nombre y su clave) y, si se pide, el motivo. Si todavía no hay cajeros
  * registrados (la caja trabaja abierta) no hay a quién pedirla. Devuelve { motivo, autoriza } o null si se cancela.
  */
 async function pedirAutorizacion({ titulo, texto, conMotivo = false, boton = 'Autorizar' }) {
@@ -1063,7 +1063,7 @@ async function pedirAutorizacion({ titulo, texto, conMotivo = false, boton = 'Au
   d.innerHTML = `<h2 id="aut-titulo" style="margin-top:0">${esc(titulo)}</h2><p class="nota" style="margin-top:0">${esc(texto)}</p>
     <form id="form-autorizacion" autocomplete="off">
       ${conMotivo ? '<div class="campo"><label for="aut-motivo">Motivo</label><input id="aut-motivo" class="texto" maxlength="120" placeholder="Obligatorio"></div>' : ''}
-      ${a.pide_clave ? `<div class="campo"><label for="aut-quien">Autoriza (otro cajero o supervisor)</label><select id="aut-quien" style="width:100%;padding:10px;border:2px solid var(--borde);border-radius:10px;background:var(--superficie)">${a.autorizadores.map((x) => `<option value="${esc(x.nombre)}">${esc(x.nombre)}${x.tipo === 'supervisor' ? ' (supervisor)' : ''}</option>`).join('')}</select></div>
+      ${a.pide_clave ? `<div class="campo"><label for="aut-quien">Autoriza (otra Vendedora-Cajera o supervisor)</label><select id="aut-quien" style="width:100%;padding:10px;border:2px solid var(--borde);border-radius:10px;background:var(--superficie)">${a.autorizadores.map((x) => `<option value="${esc(x.nombre)}">${esc(x.nombre)}${x.tipo === 'supervisor' ? ' (supervisor)' : ''}</option>`).join('')}</select></div>
       <div class="campo"><label for="aut-clave">Su clave</label><input id="aut-clave" type="password" inputmode="numeric" autocomplete="off" placeholder="••••"></div>` : ''}
       <div id="msg-aut" class="mensaje" role="alert"></div>
       <div class="filas"><button class="btn" type="button" id="aut-no">Cancelar</button><button class="btn btn-primario" type="submit" style="width:auto;flex:1">${ico('check')}<span>${esc(boton)}</span></button></div></form>`;
@@ -1077,7 +1077,7 @@ async function pedirAutorizacion({ titulo, texto, conMotivo = false, boton = 'Au
       const m = $('#msg-aut');
       const motivo = conMotivo ? $('#aut-motivo').value.trim() : '';
       if (conMotivo && !motivo) { m.className = 'mensaje error'; m.textContent = 'Escriba el motivo.'; return; }
-      if (a.pide_clave && (!$('#aut-quien').value || !$('#aut-clave').value)) { m.className = 'mensaje error'; m.textContent = a.autorizadores.length ? 'Elija quién autoriza y teclee su clave.' : 'No hay otro cajero o supervisor registrado que pueda autorizar.'; return; }
+      if (a.pide_clave && (!$('#aut-quien').value || !$('#aut-clave').value)) { m.className = 'mensaje error'; m.textContent = a.autorizadores.length ? 'Elija quién autoriza y teclee su clave.' : 'No hay otra Vendedora-Cajera o supervisor registrado que pueda autorizar.'; return; }
       cerrar({ motivo, autoriza: a.pide_clave ? { nombre: $('#aut-quien').value, clave: $('#aut-clave').value } : undefined });
     });
     d.showModal();
@@ -1109,7 +1109,7 @@ async function devolverVenta(form) {
   const renglones = [...form.querySelectorAll('input[data-linea]')].map((i) => ({ linea_id: i.dataset.linea, qty: Number(i.value) })).filter((x) => x.qty > 0);
   if (!renglones.length) { m.className = 'mensaje error'; m.textContent = 'Indique cuántas piezas se devuelven.'; return; }
   try {
-    const aut = await pedirAutorizacion({ titulo: 'Autorizar la devolución', texto: 'Una devolución la autoriza otra persona: otro cajero o un supervisor, con su clave.' });
+    const aut = await pedirAutorizacion({ titulo: 'Autorizar la devolución', texto: 'Una devolución la autoriza otra persona: otra Vendedora-Cajera o un supervisor, con su clave.' });
     if (aut === null) return;
     const r = await api('/api/venta/devolver', { sale_id: form.dataset.sale, renglones, motivo: form.querySelector('[data-motivo]').value.trim() || 'devolución', ...(aut.autoriza ? { autoriza: aut.autoriza } : {}) });
     const d = r.devolucion;
@@ -1258,7 +1258,7 @@ async function vistaDolares() {
     const q = `desde=${$('#usd-desde').value}&hasta=${$('#usd-hasta').value}`;
     const { reporte: r } = await api(`/api/admin/dolares?${q}`);
     $('#resultado-usd').innerHTML = `<div class="panel"><p class="nota" style="margin-top:0">Dólares FÍSICOS recibidos. El equivalente en MXN usa la tasa de cada operación, no la última del día. El cambio se entrega en pesos.</p>
-      <div class="tabla-cont"><table id="tabla-dolares"><thead><tr><th>Tienda</th><th>Caja</th><th>Folio</th><th>Fecha</th><th>Cajero</th><th class="num">USD</th><th class="num">Tasa</th><th class="num">Equivalente MXN</th><th class="num">Pesos recibidos</th><th class="num">Cambio MXN</th><th>Estado</th></tr></thead><tbody>
+      <div class="tabla-cont"><table id="tabla-dolares"><thead><tr><th>Tienda</th><th>Caja</th><th>Folio</th><th>Fecha</th><th>Vendedora-Cajera</th><th class="num">USD</th><th class="num">Tasa</th><th class="num">Equivalente MXN</th><th class="num">Pesos recibidos</th><th class="num">Cambio MXN</th><th>Estado</th></tr></thead><tbody>
       ${r.filas.map((f) => `<tr data-folio="${f.folio}"><td>${esc(f.tienda)}</td><td>${f.caja}</td><td>${String(f.folio).padStart(6, '0')}</td><td>${esc(f.fecha_local)} ${esc(f.hora)}</td><td>${esc(f.cajero)}</td><td class="num">${usd(f.usd)}</td><td class="num">${(f.tasa / 10000).toFixed(2)} (v${f.tasa_version})</td><td class="num">${mxn(f.equivalente)}</td><td class="num">${mxn(f.pesos_recibidos)}</td><td class="num">${mxn(f.cambio_mxn)}</td><td>${esc(f.estado)}</td></tr>`).join('') || '<tr><td colspan="11" class="vacio">Sin cobros con dólares en el periodo.</td></tr>'}</tbody></table></div>
       <h2>Por caja</h2><table id="tabla-dolares-caja"><thead><tr><th>Tienda</th><th>Caja</th><th class="num">Cobros</th><th class="num">USD físicos</th><th class="num">Equivalente histórico MXN</th></tr></thead><tbody>
       ${r.porCaja.map((c) => `<tr><td>${esc(c.tienda)}</td><td>${c.caja}</td><td class="num">${c.cobros}</td><td class="num">${usd(c.usd)}</td><td class="num">${mxn(c.equivalente_historico)}</td></tr>`).join('')}
@@ -1327,7 +1327,7 @@ async function vistaRetiro() {
       <div class="mensaje" id="ret-estado" role="status" aria-live="polite"></div>
       <button class="btn btn-primario" id="btn-retirar" type="button" disabled>${ico('printer')}<span>Registrar retiro e imprimir</span></button></section>
     <section class="panel" style="margin-top:12px"><h2 style="margin-top:0">Retiros de hoy</h2>
-      <table id="tabla-retiros"><thead><tr><th>Retiro</th><th>Hora</th><th>Cajero</th><th class="num">Pesos</th><th class="num">Dólares</th><th class="num">Total (MXN)</th><th></th></tr></thead><tbody>
+      <table id="tabla-retiros"><thead><tr><th>Retiro</th><th>Hora</th><th>Vendedora-Cajera</th><th class="num">Pesos</th><th class="num">Dólares</th><th class="num">Total (MXN)</th><th></th></tr></thead><tbody>
       ${e.retiros.map((r) => `<tr data-retiro="${esc(r.retiro_id)}"><td>${esc(r.folio_retiro)}</td><td>${esc(hora(r.ocurrio_en))}</td><td>${esc(r.usuario)}</td><td class="num">${mxn(r.mxn.total)}</td><td class="num">${usd(r.usd.total)}</td><td class="num">${mxn(r.equivalente_mxn)}</td><td><button class="btn btn-reimp-retiro" type="button">${ico('printer')}<span>Reimprimir</span></button></td></tr>`).join('') || '<tr><td colspan="7" class="vacio">Sin retiros hoy.</td></tr>'}</tbody></table>
       <div id="msg-retiros" class="mensaje" role="status" aria-live="polite"></div></section>`;
   const cant = (el) => { const n = Number(el.value); return el.value.trim() === '' ? 0 : n; };
@@ -1529,7 +1529,7 @@ async function vistaDescuentos() {
       <div class="panel" style="margin-top:12px"><h2 style="margin-top:0">Por promoción o cupón</h2>
         <table id="tabla-desc-promos"><thead><tr><th>Tipo</th><th>Nombre</th><th class="num">Tickets</th><th class="num">Monto</th></tr></thead><tbody>
         ${r.porPromocion.map((x) => `<tr data-ref="${esc(x.ref)}"><td>${NOM_TIPO_DESC[x.tipo]}</td><td>${esc(x.concepto)}</td><td class="num">${x.tickets}</td><td class="num">${mxn(x.monto)}</td></tr>`).join('') || '<tr><td colspan="4" class="vacio">Sin promociones ni cupones aplicados en el periodo.</td></tr>'}</tbody></table></div>
-      <div class="panel" style="margin-top:12px"><h2 style="margin-top:0">Detalle por ticket</h2><div class="tabla-cont"><table id="tabla-desc-detalle"><thead><tr><th>Tienda</th><th>Caja</th><th>Folio</th><th>Fecha</th><th>Cajero</th><th>Tipo</th><th>Concepto</th><th>Autorizó</th><th class="num">Venta</th><th class="num">Descuento</th><th class="num">% venta</th><th>Estado</th></tr></thead><tbody>
+      <div class="panel" style="margin-top:12px"><h2 style="margin-top:0">Detalle por ticket</h2><div class="tabla-cont"><table id="tabla-desc-detalle"><thead><tr><th>Tienda</th><th>Caja</th><th>Folio</th><th>Fecha</th><th>Vendedora-Cajera</th><th>Tipo</th><th>Concepto</th><th>Autorizó</th><th class="num">Venta</th><th class="num">Descuento</th><th class="num">% venta</th><th>Estado</th></tr></thead><tbody>
         ${r.filas.map((f) => `<tr data-folio="${f.folio}" data-tipo="${f.tipo}"><td>${esc(f.tienda)}</td><td>${f.caja}</td><td>${String(f.folio).padStart(6, '0')}</td><td>${esc(f.fecha_local)} ${esc(f.hora)}</td><td>${esc(f.cajero)}</td><td>${NOM_TIPO_DESC[f.tipo]}</td><td>${esc(f.concepto)}</td><td>${esc(f.supervisor ?? '')}</td><td class="num">${mxn(f.importe_venta)}</td><td class="num">${mxn(f.monto)}</td><td class="num">${pctBp(f.pct_bp)}</td><td>${f.estado === 'cancelada' ? '<span class="insignia cancelada">cancelada</span>' : 'confirmada'}</td></tr>`).join('') || '<tr><td colspan="12" class="vacio">Sin descuentos en el periodo.</td></tr>'}</tbody></table></div></div>`;
   };
   $('#btn-volver-promos').addEventListener('click', () => ir('promociones'));
@@ -2217,7 +2217,7 @@ async function vistaCajeros() {
   const [{ cajeros }, { administradores }] = await Promise.all([api('/api/admin/cajeros'), api('/api/admin/administradores')]);
   cuerpoVista().innerHTML = `<div class="titulo-vista">${ico('user')}<h1>Usuarios</h1></div>
     <section class="panel" id="panel-admins" style="margin-bottom:12px"><h2 style="margin-top:0">Supervisores y almacenistas (entran a Administración)</h2>
-      <p class="nota" style="margin-top:0">${administradores.some((a) => a.activo) ? '<b>Supervisor</b>: ve todo Administración y autoriza operaciones en la caja con su clave de caja (4 a 8 dígitos). <b>Almacenista</b>: solo Inventario y Almacén, y no cambia precios. Entran con su usuario y contraseña (6 a 40 caracteres), que solo viven en el servidor central. Los cajeros no entran a Administración.' : '<b>Esta consola está abierta: cualquiera que la abra puede entrar.</b> Cree el primer usuario (debe ser supervisor) para que pida usuario y contraseña. Quien lo crea queda dentro.'}</p>
+      <p class="nota" style="margin-top:0">${administradores.some((a) => a.activo) ? '<b>Supervisor</b>: ve todo Administración y autoriza operaciones en la caja con su clave de caja (4 a 8 dígitos). <b>Almacenista</b>: solo Inventario y Almacén, y no cambia precios. Entran con su usuario y contraseña (6 a 40 caracteres), que solo viven en el servidor central. Las Vendedoras-Cajeras no entran a Administración.' : '<b>Esta consola está abierta: cualquiera que la abra puede entrar.</b> Cree el primer usuario (debe ser supervisor) para que pida usuario y contraseña. Quien lo crea queda dentro.'}</p>
       <div id="msg-admins" class="mensaje" role="status" aria-live="polite"></div>
       <div class="tabla-cont"><table id="tabla-admins"><thead><tr><th>Nombre</th><th>Rol</th><th>Estado</th><th>Nueva contraseña</th><th>Clave de caja</th><th></th></tr></thead><tbody>
       ${administradores.map((x) => `<tr data-admin="${esc(x.id)}" data-rol="${x.rol}"><td>${esc(x.nombre)}</td><td>${x.rol === 'almacenista' ? 'Almacenista' : 'Supervisor'}</td><td>${x.activo ? 'Activo' : 'Desactivado'}</td><td><input type="password" class="a-clave" placeholder="dejar vacío = no cambiar" aria-label="Nueva contraseña de ${esc(x.nombre)}" style="padding:4px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie)"></td><td>${x.rol === 'supervisor' ? `<input type="password" inputmode="numeric" class="a-clave-caja" placeholder="${x.clave_caja ? 'dejar vacío = no cambiar' : 'sin clave: no autoriza en la caja'}" aria-label="Clave de caja de ${esc(x.nombre)}" style="padding:4px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie)">` : '—'}</td>
@@ -2226,13 +2226,13 @@ async function vistaCajeros() {
         <div class="campo"><label for="adm-rol">Rol</label><select id="adm-rol" style="padding:10px;border:2px solid var(--borde);border-radius:10px;background:var(--superficie)"><option value="supervisor">Supervisor</option><option value="almacenista" ${administradores.length ? '' : 'disabled'}>Almacenista</option></select></div>
         <div class="campo" id="adm-caja-campo"><label for="adm-clave-caja">Clave de caja (4 a 8 dígitos)</label><input id="adm-clave-caja" type="password" inputmode="numeric" autocomplete="off"></div>
         <button class="btn btn-primario" id="btn-adm" type="submit" style="width:auto">${ico('plus')}<span>Agregar usuario</span></button></form></section>
-    <h2>Cajeros</h2>
-    <p class="nota">Cada cajero tiene su propia clave (4 a 8 dígitos) para confirmar operaciones a su nombre, como dar de alta un artículo en la caja. El nombre debe ser el del usuario con el que entra a la caja. La clave no se puede volver a ver: si se olvida, se cambia.</p>
+    <h2>Vendedoras-Cajeras</h2>
+    <p class="nota">Cada Vendedora-Cajera tiene su propia clave (4 a 8 dígitos) para confirmar operaciones a su nombre, como dar de alta un artículo en la caja. El nombre debe ser el del usuario con el que entra a la caja. La clave no se puede volver a ver: si se olvida, se cambia.</p>
     <div id="msg-cajeros" class="mensaje" role="status" aria-live="polite"></div>
     <div class="tabla-cont"><table id="tabla-cajeros"><thead><tr><th>Nombre</th><th>Estado</th><th>Nueva clave</th><th></th></tr></thead><tbody>
     ${cajeros.map((x) => `<tr data-cajero="${esc(x.id)}"><td>${esc(x.nombre)}</td><td>${x.activo ? 'Activo' : 'Desactivado'}</td><td><input type="password" inputmode="numeric" class="c-clave" placeholder="dejar vacío = no cambiar" aria-label="Nueva clave de ${esc(x.nombre)}" style="padding:4px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie)"></td>
-      <td class="filas" style="flex-wrap:nowrap"><button class="btn c-guardar" type="button">${ico('check')}<span>Cambiar clave</span></button><button class="btn c-activo" type="button">${x.activo ? 'Desactivar' : 'Activar'}</button></td></tr>`).join('') || '<tr><td colspan="4" class="vacio">Aún no hay cajeros con clave: sin ella nadie puede dar de alta artículos en la caja.</td></tr>'}</tbody></table></div>
-    <form id="form-cajero" class="filas" style="margin-top:12px;align-items:flex-end"><div class="campo"><label for="caj-nombre">Nombre del cajero</label><input id="caj-nombre" class="texto" maxlength="40"></div><div class="campo"><label for="caj-clave">Clave</label><input id="caj-clave" type="password" inputmode="numeric" autocomplete="off"></div>
+      <td class="filas" style="flex-wrap:nowrap"><button class="btn c-guardar" type="button">${ico('check')}<span>Cambiar clave</span></button><button class="btn c-activo" type="button">${x.activo ? 'Desactivar' : 'Activar'}</button></td></tr>`).join('') || '<tr><td colspan="4" class="vacio">Aún no hay Vendedoras-Cajeras con clave: sin ella nadie puede dar de alta artículos en la caja.</td></tr>'}</tbody></table></div>
+    <form id="form-cajero" class="filas" style="margin-top:12px;align-items:flex-end"><div class="campo"><label for="caj-nombre">Nombre de la Vendedora-Cajera</label><input id="caj-nombre" class="texto" maxlength="40"></div><div class="campo"><label for="caj-clave">Clave</label><input id="caj-clave" type="password" inputmode="numeric" autocomplete="off"></div>
       <button class="btn btn-primario" id="btn-caj" type="submit" style="width:auto">${ico('plus')}<span>Agregar cajero</span></button></form>`;
   $('#adm-rol').addEventListener('change', () => { $('#adm-caja-campo').hidden = $('#adm-rol').value !== 'supervisor'; });
   const msgA = (t, tipo = 'error') => { const m = $('#msg-admins'); m.className = `mensaje ${tipo}`; m.textContent = t; };
@@ -2261,7 +2261,7 @@ async function vistaCajeros() {
   const msgC = (t, tipo = 'error') => { const m = $('#msg-cajeros'); m.className = `mensaje ${tipo}`; m.textContent = t; };
   $('#form-cajero').addEventListener('submit', async (ev) => {
     ev.preventDefault();
-    try { await api('/api/admin/cajeros', { nombre: $('#caj-nombre').value, clave: $('#caj-clave').value }); await vistaCajeros(); msgC('Cajero agregado.', 'ok'); } catch (e) { msgC(e.message); }
+    try { await api('/api/admin/cajeros', { nombre: $('#caj-nombre').value, clave: $('#caj-clave').value }); await vistaCajeros(); msgC('Vendedora-Cajera agregada.', 'ok'); } catch (e) { msgC(e.message); }
   });
   for (const tr of $('#tabla-cajeros').querySelectorAll('tr[data-cajero]')) {
     const id = tr.dataset.cajero;
@@ -2372,7 +2372,7 @@ function abrirImagenCupon(p) {
   d.innerHTML = `<h2 id="img-titulo" style="margin-top:0">Imagen del cupón ${esc(p.codigo)}</h2>
     <div style="text-align:center"><canvas id="img-cupon" style="max-width:100%;max-height:52vh;border-radius:12px"></canvas></div>
     <label style="display:block;margin-top:8px">Texto para acompañar el mensaje (WhatsApp, correo, redes)<textarea id="img-texto" readonly rows="6" style="width:100%;padding:8px;border:1px solid var(--borde);border-radius:8px;background:var(--superficie);color:var(--texto)">${esc(textoCupon(p))}</textarea></label>
-    <p class="nota">El QR contiene <code>CUPON:${esc(p.codigo)}</code>. Para leerlo en caja hace falta un lector de códigos 2D (un láser de barras normal no lo lee): si no, el cajero escribe el código.</p>
+    <p class="nota">El QR contiene <code>CUPON:${esc(p.codigo)}</code>. Para leerlo en caja hace falta un lector de códigos 2D (un láser de barras normal no lo lee): si no, la Vendedora-Cajera escribe el código.</p>
     <div id="msg-img" class="mensaje" role="status" aria-live="polite"></div>
     <div class="filas"><button class="btn" type="button" id="img-cerrar">Cerrar</button><button class="btn" type="button" id="img-copiar">Copiar texto</button><button class="btn" type="button" id="img-qr">${ico('download')}<span>Solo el QR (PNG)</span></button><button class="btn btn-primario" type="button" id="img-png" style="width:auto;flex:1">${ico('download')}<span>Descargar imagen (PNG)</span></button></div>`;
   const cv = tarjetaCupon(p);
@@ -2454,7 +2454,7 @@ function pintarLogin() {
   const lista = S.sesion.cajeros ?? [];
   $('#vista').innerHTML = `<section class="panel" id="login" style="max-width:420px;margin:40px auto"><h1 style="margin-top:0">${ico('user')} Iniciar sesión</h1>
     <form id="form-login" autocomplete="off">
-      <div class="campo"><label for="lg-usuario">${admin ? 'Usuario' : 'Cajero(a)'}</label>${!admin && lista.length <= 15 ? `<select id="lg-usuario" style="width:100%;padding:10px;border:2px solid var(--borde);border-radius:10px;background:var(--superficie)">${lista.map((n) => `<option>${esc(n)}</option>`).join('')}</select>` : '<input id="lg-usuario" class="texto" autocomplete="username">'}</div>
+      <div class="campo"><label for="lg-usuario">${admin ? 'Usuario' : 'Vendedora-Cajera'}</label>${!admin && lista.length <= 15 ? `<select id="lg-usuario" style="width:100%;padding:10px;border:2px solid var(--borde);border-radius:10px;background:var(--superficie)">${lista.map((n) => `<option>${esc(n)}</option>`).join('')}</select>` : '<input id="lg-usuario" class="texto" autocomplete="username">'}</div>
       <div class="campo"><label for="lg-clave">${admin ? 'Contraseña' : 'Clave'}</label><input id="lg-clave" type="password" ${admin ? '' : 'inputmode="numeric"'} autocomplete="current-password" placeholder="${admin ? '' : '••••'}"></div>
       <div id="msg-login" class="mensaje" role="alert"></div>
       <button class="btn btn-primario" type="submit" id="lg-entrar">${ico('check')}<span>Entrar</span></button></form></section>`;

@@ -34,7 +34,7 @@ porAlmacen('Ticket de regalo: la mercancía sin precios y con el código de la c
     assert.match(txt, /TELÉFONO 534-0607/);
     assert.match(txt, /NO HAY CAMBIOS SIN RECIBO/);
     assert.match(txt, /Para cambios presente este ticket/);
-    assert.doesNotMatch(txt, /\$|TOTAL|Efectivo|Recibido|Cambio|Cajero|2x1|Descuento|Folio:/, 'ni un precio, descuento, pago ni cajero');
+    assert.doesNotMatch(txt, /\$|TOTAL|Efectivo|Recibido|Cambio|Vendedora-Cajera|2x1|Descuento|Folio:/, 'ni un precio, descuento, pago ni cajero');
     // mismo ancho de papel
     assert.ok(txt.split('\n').every((x) => x.length <= 42));
     // impresión: logo arriba, código de barras de la compra y SIN abrir el cajón

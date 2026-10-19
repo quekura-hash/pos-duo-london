@@ -216,7 +216,7 @@ export function renderTicketTexto(t: Ticket): string {
   L.push(centrar(t.negocio, c));
   for (const x of t.encabezado) L.push(...envolver(x, c).map((y) => centrar(y, c)));
   L.push(centrar(`Tienda ${t.tienda} - Caja ${t.caja}`, c));
-  L.push(`Cajero: ${t.cajero}`, `Fecha: ${t.fecha}  Hora: ${t.hora}`, `Folio: ${String(t.folio).padStart(6, '0')}`);
+  L.push(`Vendedora-Cajera: ${t.cajero}`.slice(0, c), `Fecha: ${t.fecha}  Hora: ${t.hora}`, `Folio: ${String(t.folio).padStart(6, '0')}`);
   if (t.reimpresion > 0) L.push(centrar(`*** REIMPRESIÓN ${t.reimpresion} ***`, c));
   L.push(regla);
   for (const l of t.lineas) {
@@ -300,7 +300,7 @@ export function renderTicketDevolucionTexto(d: Devolucion, v: Venta, cfg: Negoci
   const local = new Date(Date.parse(d.ocurrio_en) - 7 * 3600_000).toISOString();
   const [y, mo, dd] = fechaLocal(d.ocurrio_en).split('-');
   const L: string[] = [centrar(cfg.nombre, c), ...encabezadoDe(cfg).flatMap((x) => envolver(x, c).map((y) => centrar(y, c))), centrar(`Tienda ${d.tienda} - Caja ${d.caja}`, c), centrar('DEVOLUCIÓN', c)];
-  L.push(`Cajero: ${d.cajero}`, `Fecha: ${dd}/${mo}/${y}  Hora: ${local.slice(11, 16)}`, `Folio: ${String(d.folio ?? 0).padStart(6, '0')}`);
+  L.push(`Vendedora-Cajera: ${d.cajero}`.slice(0, c), `Fecha: ${dd}/${mo}/${y}  Hora: ${local.slice(11, 16)}`, `Folio: ${String(d.folio ?? 0).padStart(6, '0')}`);
   L.push(`Venta original: ${codigoTicket(v.tienda, v.caja, v.folio, negocios)}`, regla);
   for (const dl of d.lineas) {
     const l = v.lineas.find((x) => x.linea_id === dl.linea_id)!;
@@ -332,7 +332,7 @@ export function renderTicketRetiroTexto(r: RetiroRegistrado, cfg: NegocioCfg, re
   for (const x of encabezadoDe(cfg)) L.push(...envolver(x, c).map((y2) => centrar(y2, c)));
   L.push(centrar(`Tienda ${r.tienda} - Caja ${r.caja}`, c), '', centrar('*** RETIRO DE EFECTIVO ***', c));
   if (reimpresion > 0) L.push(centrar(`REIMPRESIÓN ${reimpresion}`, c));
-  L.push('', `Retiro: ${r.folio_retiro}`, `Fecha: ${dd}/${mo}/${y}  ${local.slice(11, 16)}`, `Cajero: ${r.usuario}`, regla);
+  L.push('', `Retiro: ${r.folio_retiro}`, `Fecha: ${dd}/${mo}/${y}  ${local.slice(11, 16)}`, `Vendedora-Cajera: ${r.usuario}`.slice(0, c), regla);
   const denoms = (d: Record<string, number>, valor: (k: number) => number, fmt: (v: number) => string) => Object.keys(d).map(Number).sort((a, b) => b - a)
     .map((k) => dos(`${d[String(k)]} x ${fmt(valor(k))}`, fmt(valor(k) * d[String(k)]!), c));
   if (r.mxn.total > 0) L.push('PESOS', ...denoms(r.mxn.denominaciones, (k) => k, formatoMXN), dos('Total pesos', formatoMXN(r.mxn.total), c));

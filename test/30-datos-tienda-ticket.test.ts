@@ -34,7 +34,7 @@ porAlmacen('Datos de la tienda y política de devolución en el ticket', (alm) =
     const d = (await vender(ctx, 'DUO')).v.ticket_texto;
     for (const x of ['DÚO New York', 'AV. LIBERTAD entre calles 8 y 9 #803', 'San Luis Río Colorado, Sonora', 'KARINA PALAFOX VILLALOBOS', 'RFC: PAVK-781208-TB9', 'TELÉFONO 534-0607', 'PÓLIZA DE DEVOLUCIÓN', 'NO HAY CAMBIOS SIN RECIBO', 'No hacemos devoluciones de efectivo', 'NI DEVOLUCIONES SIN EXCEPCIÓN']) assert.ok(d.includes(x), x);
     assert.ok(d.indexOf('London') < 0);
-    assert.ok(d.indexOf('RFC') < d.indexOf('Cajero'), 'el encabezado va arriba, antes de los datos de la venta');
+    assert.ok(d.indexOf('RFC') < d.indexOf('Vendedora-Cajera'), 'el encabezado va arriba, antes de los datos de la venta');
     assert.ok(d.indexOf('TELÉFONO') > d.indexOf('TOTAL'), 'el teléfono y la política van al pie');
     const l = (await vender(ctx, 'LON')).v.ticket_texto;
     assert.doesNotMatch(l, /RFC|TELÉFONO|PÓLIZA/);

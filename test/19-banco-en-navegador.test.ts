@@ -1156,7 +1156,7 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     await page.fill('#recibido', '1000');
     await page.click('#btn-cobrar');
     await page.waitForSelector('#dlg-ticket[open]');
-    assert.match((await page.textContent('#ticket-texto'))!, /Cajero: Lupe/);
+    assert.match((await page.textContent('#ticket-texto'))!, /Vendedora-Cajera: Lupe/);
     await page.click('#btn-nueva');
     await page.click('#btn-salir');
     await page.waitForSelector('#form-login');

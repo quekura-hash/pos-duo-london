@@ -437,9 +437,9 @@ export class Central {
   guardarCajero(d: { id?: string; nombre?: string; clave?: string; activo?: boolean }, por: string): { ok: true; cajero: Omit<Cajero, 'sal' | 'hash'> } | { ok: false; error: { codigo: 'DATOS_INVALIDOS' | 'NOMBRE_REPETIDO' | 'NO_EXISTE'; mensaje: string } } {
     const lista = cajerosDe(this.repo.ops());
     const actual = d.id ? lista.find((c) => c.id === d.id) : undefined;
-    if (d.id && !actual) return { ok: false, error: { codigo: 'NO_EXISTE', mensaje: 'el cajero no existe' } };
+    if (d.id && !actual) return { ok: false, error: { codigo: 'NO_EXISTE', mensaje: 'la Vendedora-Cajera no existe' } };
     const nombre = (d.nombre ?? actual?.nombre ?? '').trim().replace(/\s+/g, ' ');
-    if (!nombre) return { ok: false, error: { codigo: 'DATOS_INVALIDOS', mensaje: 'falta el nombre del cajero' } };
+    if (!nombre) return { ok: false, error: { codigo: 'DATOS_INVALIDOS', mensaje: 'falta el nombre de la Vendedora-Cajera' } };
     if ([...lista.filter((c) => c.id !== actual?.id), ...administradoresDe(this.repo.ops())].some((c) => nombreClave(c.nombre) === nombreClave(nombre))) return { ok: false, error: { codigo: 'NOMBRE_REPETIDO', mensaje: 'ya hay un usuario con ese nombre' } };
     if (!actual && !claveValida(d.clave)) return { ok: false, error: { codigo: 'DATOS_INVALIDOS', mensaje: 'la clave lleva de 4 a 8 dígitos' } };
     if (d.clave !== undefined && d.clave !== '' && !claveValida(d.clave)) return { ok: false, error: { codigo: 'DATOS_INVALIDOS', mensaje: 'la clave lleva de 4 a 8 dígitos' } };
@@ -895,7 +895,7 @@ export class Caja {
     const ahora = Date.parse(this.ctx.reloj.now());
     if (fallos.hasta > ahora) throw new ErrorDominio('CLAVE_BLOQUEADA', `demasiados intentos con una clave equivocada: espere ${Math.ceil((fallos.hasta - ahora) / 60000)} minuto(s)`);
     const cajero = this.idx.cajeros().find((c) => c.activo && nombreClave(c.nombre) === nombreClave(usuario));
-    if (!cajero) throw new ErrorDominio('CAJERO_SIN_CLAVE', `«${usuario}» no tiene una clave registrada: pida a Administración que la dé de alta en Configuración → Cajeros`);
+    if (!cajero) throw new ErrorDominio('CAJERO_SIN_CLAVE', `«${usuario}» no tiene una clave registrada: pida a Administración que la dé de alta en Configuración → Usuarios`);
     if (!claveValida(clave) || cajero.hash !== hashClave(cajero.sal, clave)) {
       const n = fallos.n + 1;
       this.repo.kvSet(llave, n >= 5 ? { n: 0, hasta: ahora + 5 * 60000 } : { n, hasta: 0 });
@@ -915,7 +915,7 @@ export class Caja {
   verificarAutorizador(usuarioActual: string, autoriza: { nombre: string; clave: string } | undefined): string | null {
     if (!this.controlesConClave()) return null; // sin cajeros registrados no hay a quién pedirle clave: la caja trabaja abierta
     const nombre = String(autoriza?.nombre ?? '').trim();
-    if (!nombre || !autoriza?.clave) throw new ErrorDominio('AUTORIZACION_REQUERIDA', 'esta operación necesita la clave de otro cajero o de un supervisor');
+    if (!nombre || !autoriza?.clave) throw new ErrorDominio('AUTORIZACION_REQUERIDA', 'esta operación necesita la clave de otra Vendedora-Cajera o de un supervisor');
     if (nombreClave(nombre) === nombreClave(usuarioActual)) throw new ErrorDominio('AUTORIZADOR_INVALIDO', 'la autorización debe darla otra persona, no quien hace la operación');
     if (this.idx.cajeros().some((c) => c.activo && nombreClave(c.nombre) === nombreClave(nombre))) return this.verificarClaveCajero(nombre, String(autoriza.clave)).nombre;
     const sup = this.idx.supervisores().find((s) => s.activo && nombreClave(s.nombre) === nombreClave(nombre));
