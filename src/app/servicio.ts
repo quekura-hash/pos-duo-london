@@ -471,7 +471,12 @@ export class ServicioCaja {
     };
   }
   /** «Abrir caja»: manda el pulso al cajón por la impresora sin hacer una venta. Siempre queda registrado (quién, cuándo, motivo y si salió). */
-  async abrirCajon(motivo?: string) {
+  async abrirCajon(motivo?: string, clave?: string) {
+    // Con Vendedoras-Cajeras registradas pide la clave de la propia persona (5 fallos = 5 minutos de bloqueo, como en un retiro).
+    if (this.caja.controlesConClave()) {
+      if (!clave) throw new ErrorDominio('CLAVE_INVALIDA', 'para abrir la caja teclee su clave');
+      this.caja.verificarClaveCajero(this.actor.usuario, String(clave));
+    }
     try {
       await this.impresora.imprimir({ ref: `cajon-${Date.now()}`, texto: '', bytes: new Uint8Array([0x1b, 0x70, 0x00, 25, 250]) });
     } catch (e) {

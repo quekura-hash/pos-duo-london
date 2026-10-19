@@ -1284,6 +1284,16 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     await page.click('#btn-retirar');
     await page.waitForSelector('#dlg-retiro-ticket[open]');
     await page.click('#ret-tk-cerrar');
+    // abrir caja: pide la clave de la propia persona
+    await page.click('#nav button[data-vista="venta"]');
+    await page.click('#btn-abrir-caja');
+    await page.waitForSelector('#dlg-abrir-caja[open]');
+    await page.fill('#ac-clave', '8765'); // la de Rosa no vale a nombre de Lupe
+    await page.click('#form-abrir-caja button[type=submit]');
+    await page.waitForFunction(() => /no es correcta/.test(document.querySelector('#msg-ac')!.textContent!));
+    await page.fill('#ac-clave', '4321');
+    await page.click('#form-abrir-caja button[type=submit]');
+    await page.waitForFunction(() => /Caja abierta/.test(document.querySelector('#mensaje')!.textContent!));
     // el historial ya no cancela ventas cobradas: ofrece «Aceptar cambio»
     await page.click('#nav button[data-vista="ventas"]');
     await page.waitForSelector(`#tabla-ventas tr[data-folio="${folio}"] [data-cambio]`);

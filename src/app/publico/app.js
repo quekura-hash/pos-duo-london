@@ -403,7 +403,11 @@ async function vistaVenta() {
   $('#btn-espera').addEventListener('click', () => abrirEspera());
   $('#btn-cancelar-venta').addEventListener('click', abrirCancelarVenta);
   $('#btn-abrir-caja').addEventListener('click', async () => {
-    try { await api('/api/caja/abrir', {}); msg('Caja abierta (queda registrado en el corte).'); } catch (e) { msg(e.message, 'error'); }
+    try {
+      const a = await api('/api/venta/autorizadores');
+      if (a.pide_clave) return abrirClaveCaja(); // con Vendedoras-Cajeras registradas: su propia clave
+      await api('/api/caja/abrir', {}); msg('Caja abierta (queda registrado en el corte).');
+    } catch (e) { msg(e.message, 'error'); }
     $('#scan').focus();
   });
   $('#btn-editar-venta').addEventListener('click', () => abrirEditarLinea());
@@ -1802,6 +1806,24 @@ function abrirCupon() {
   });
   d.showModal();
   $('#cup-codigo').focus();
+}
+/** «Abrir caja»: pide la clave de la propia Vendedora-Cajera y abre el cajón sin vender. */
+function abrirClaveCaja() {
+  const d = dialogo('dlg-abrir-caja');
+  d.setAttribute('aria-labelledby', 'ac-titulo');
+  d.innerHTML = `<h2 id="ac-titulo" style="margin-top:0">Abrir caja</h2>
+    <p class="nota" style="margin-top:0">Teclee su clave, ${esc(S.sesion.usuario ?? '')}. La apertura queda registrada a su nombre.</p>
+    <form id="form-abrir-caja" autocomplete="off"><div class="campo"><label for="ac-clave">Su clave</label><input id="ac-clave" type="password" inputmode="numeric" autocomplete="off" placeholder="••••"></div>
+      <div id="msg-ac" class="mensaje" role="alert"></div>
+      <div class="filas"><button class="btn" type="button" id="ac-no">Cancelar</button><button class="btn btn-primario" type="submit" style="width:auto;flex:1">${ico('cash')}<span>Abrir caja</span></button></div></form>`;
+  $('#ac-no').addEventListener('click', () => { d.close(); $('#scan').focus(); });
+  $('#form-abrir-caja').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    try { await api('/api/caja/abrir', { clave: $('#ac-clave').value }); d.close(); msg('Caja abierta (queda registrado en el corte).'); $('#scan').focus(); }
+    catch (e) { const m = $('#msg-ac'); m.className = 'mensaje error'; m.textContent = e.message; $('#ac-clave').value = ''; }
+  });
+  d.showModal();
+  $('#ac-clave').focus();
 }
 /** Cancelar la venta en curso (sin cobrar): solo pide confirmación, nunca clave. */
 function abrirCancelarVenta() {

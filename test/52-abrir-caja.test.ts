@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { it } from 'node:test';
-import { appCajero, api } from './ayudas/app.ts';
+import { appAdmin, appCajero, api } from './ayudas/app.ts';
 import { nuevoMundo, politica, porAlmacen } from './ayudas/comun.ts';
 
 porAlmacen('Abrir caja sin venta', (alm) => {
@@ -27,5 +27,26 @@ porAlmacen('Abrir caja sin venta', (alm) => {
     const ops = ctx.m.caja('DUO', 1).ops().filter((o) => o.tipo === 'cash.cajon_abierto');
     assert.deepEqual(ops.map((o) => o.payload.resultado), ['ok', 'error']);
     assert.equal((await corte()).aperturas_cajon_sin_venta, 1);
+  });
+
+  it('AC2 con Vendedoras-Cajeras registradas pide la clave de la propia persona: la de otra o ninguna no abren y no se registra nada', async (t) => {
+    const ctx = nuevoMundo(alm, politica());
+    t.after(ctx.limpiar);
+    const adm = await appAdmin(ctx); t.after(() => adm.cerrar());
+    const caja = await appCajero(ctx, 'DUO', 1, 'Ana'); t.after(() => caja.cerrar());
+    await api(adm.url, '/api/admin/cajeros', { nombre: 'Lupe', clave: '4321' });
+    await api(adm.url, '/api/admin/cajeros', { nombre: 'Rosa', clave: '8765' });
+    ctx.m.pump(); ctx.m.pump(); ctx.m.pump();
+    await api(caja.url, '/api/login', { usuario: 'Lupe', clave: '4321' });
+    const abrir = (clave?: string) => api(caja.url, '/api/caja/abrir', clave === undefined ? {} : { clave });
+    assert.equal((await abrir()).json.error.codigo, 'CLAVE_INVALIDA');
+    assert.equal((await abrir('8765')).json.error.codigo, 'CLAVE_INVALIDA', 'la clave de Rosa no vale a nombre de Lupe');
+    assert.equal(ctx.m.caja('DUO', 1).ops().filter((o) => o.tipo === 'cash.cajon_abierto').length, 0);
+    assert.equal(readdirSync(caja.s.impresora.dir).length, 0, 'sin clave correcta el cajón no se abre');
+    assert.equal((await abrir('4321')).status, 200);
+    assert.equal(readdirSync(caja.s.impresora.dir).filter((f) => f.endsWith('.bin')).length, 1);
+    // cinco claves equivocadas bloquean
+    for (let i = 0; i < 5; i++) await abrir('0000');
+    assert.equal((await abrir('4321')).json.error.codigo, 'CLAVE_BLOQUEADA');
   });
 });

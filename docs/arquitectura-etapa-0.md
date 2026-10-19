@@ -679,7 +679,7 @@ Las sesiones de caja tienen el botón **Calculadora** al final del menú lateral
 
 ## 48. Abrir caja sin venta
 
-Botón **«Abrir caja»** en la fila inferior de la pantalla de venta: manda el pulso al cajón (ESC p) por la impresora, sin imprimir nada ni hacer una venta. No pide clave. **Siempre queda registrado** (`cash.cajon_abierto`: quién, cuándo, motivo opcional y si salió); si la impresora falla se avisa («no se pudo abrir la caja») y el intento queda como error. El corte del día cuenta las **aperturas del cajón sin venta** exitosas (solo informativo: no mueve el efectivo esperado). El cajón sigue abriéndose solo al cobrar en efectivo. No validado con impresora ni cajón reales. Verificado: AC1 y B27.
+Botón **«Abrir caja»** en la fila inferior de la pantalla de venta: manda el pulso al cajón (ESC p) por la impresora, sin imprimir nada ni hacer una venta. **Con Vendedoras-Cajeras registradas pide la clave de la propia persona** (la de otra no vale; 5 fallos = 5 minutos de bloqueo, como un retiro); sin ellas la caja trabaja abierta y no la pide. **Siempre queda registrado** (`cash.cajon_abierto`: quién, cuándo, motivo opcional y si salió); si la impresora falla se avisa («no se pudo abrir la caja») y el intento queda como error. El corte del día cuenta las **aperturas del cajón sin venta** exitosas (solo informativo: no mueve el efectivo esperado). El cajón sigue abriéndose solo al cobrar en efectivo. No validado con impresora ni cajón reales. Verificado: AC1 y B27.
 
 ## 49. Recompensas: cupón impreso al final del ticket
 
