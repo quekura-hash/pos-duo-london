@@ -138,16 +138,14 @@ const folioTexto = () => (S.ultimoFolio ? `Folio ${String(S.ultimoFolio).padStar
 
 // ── navegación ──
 const NAV = {
-  venta: ['Venta', 'cart'], retiro: ['Retiro', 'cash'], ventas: ['Historial', 'clock'], creditos: ['Créditos', 'card'], corte: ['Corte de caja', 'chart'],
+  venta: ['Venta', 'cart'], retiro: ['Retiro', 'cash'], ventas: ['Historial', 'clock'], corte: ['Corte de caja', 'chart'],
   tarjetas: ['Tarjetas de regalo', 'gift'], reportes: ['Reportes', 'chart'], cortes: ['Cortes', 'cash'], dolares: ['Dólares recibidos', 'dollar'], descuentos: ['Descuentos', 'percent'], entregas: ['Entregas de almacén', 'warehouse'], inventario: ['Inventario', 'box'], departamentos: ['Departamentos', 'box'], almacen: ['Almacén', 'warehouse'], promociones: ['Promociones', 'percent'], tiendas: ['Tiendas', 'store'], configuracion: ['Configuración', 'gear'], administracion: ['Administración', 'gear'], volver_caja: ['Caja', 'caja'], tipo_cambio: ['Tipo de cambio', 'refresh'],
 };
 function pintarNav() {
   // En la página de prueba (una sola ventana) se puede pasar de la caja a Administración y volver; en la app real cada sesión es la suya.
   const cambia = !!window.__POS_CAMBIAR_SESION__;
-  const items = S.sesion.rol === 'cajero' ? [...S.sesion.nav, ...(cambia ? ['administracion'] : [])] : [...S.sesion.nav, ...(S.sesion.rol_usuario === 'almacenista' ? [] : ['creditos']), ...(cambia ? ['volver_caja'] : [])]; // Créditos vive en Administración, no en la venta
-  $('#nav').innerHTML = items.map((v) => v === 'creditos'
-    ? `<button type="button" data-proximamente="creditos" disabled title="Próximamente" aria-label="Créditos (próximamente)">${ico(NAV[v][1])}<span>${NAV[v][0]}</span></button>`
-    : `<button type="button" data-vista="${v}" title="${NAV[v][0]}" ${v === ({ descuentos: 'promociones', dolares: 'cortes', entregas: 'almacen', conteo_limbo: 'inventario' }[S.vista] ?? S.vista) ? 'aria-current="page"' : ''}>${ico(NAV[v][1])}<span>${NAV[v][0]}</span></button>`).join('');
+  const items = S.sesion.rol === 'cajero' ? [...S.sesion.nav, ...(cambia ? ['administracion'] : [])] : [...S.sesion.nav, ...(cambia ? ['volver_caja'] : [])];
+  $('#nav').innerHTML = items.map((v) => `<button type="button" data-vista="${v}" title="${NAV[v][0]}" ${v === ({ descuentos: 'promociones', dolares: 'cortes', entregas: 'almacen', conteo_limbo: 'inventario' }[S.vista] ?? S.vista) ? 'aria-current="page"' : ''}>${ico(NAV[v][1])}<span>${NAV[v][0]}</span></button>`).join('');
   for (const b of $('#nav').querySelectorAll('button[data-vista]')) {
     b.addEventListener('click', () => {
       if (b.dataset.vista === 'administracion') return window.__POS_CAMBIAR_SESION__('admin');

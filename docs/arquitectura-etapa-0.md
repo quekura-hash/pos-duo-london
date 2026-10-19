@@ -417,7 +417,7 @@ P-06 (pantalla de folio), P-15 (respaldos cifrados a Drive), P-17 (cupones como 
 
 ## 19. Promociones, cupones y descuentos con clave [P]
 
-Decisiones del propietario (punto 5): sin desglose de IVA en el ticket (el precio del catálogo es el final); los cupones y certificados del sistema viejo quedan **obsoletos** (la importación los omite y avisa cuántos: «Cupón o certificado del sistema anterior (no se importa)»); Créditos salió del menú de venta y queda en Administración (deshabilitado, «Próximamente»).
+Decisiones del propietario (punto 5): sin desglose de IVA en el ticket (el precio del catálogo es el final); los cupones y certificados del sistema viejo quedan **obsoletos** (la importación los omite y avisa cuántos: «Cupón o certificado del sistema anterior (no se importa)»).
 
 - **Promociones** (Administración → Promociones; se guardan como `promo.guardada` en el central y viajan a todas las cajas).
   - **Por tienda**: cada promoción o cupón vale solo en la(s) tienda(s) que se elijan; lo de London no aplica en DÚO y viceversa. En una tienda equivocada el cupón responde «no es válido en esta tienda».
@@ -448,7 +448,7 @@ Decisiones del propietario (punto 5): sin desglose de IVA en el ticket (el preci
 
 ## 21. Menú de Administración
 
-Reportes · Cortes (con el botón «Dólares recibidos») · Inventario · Almacén · Promociones (con el botón «Reporte de promociones») · Tarjetas de regalo · **Configuración** · Créditos (próximamente) · Caja (solo en la página de prueba). **Configuración** reúne en pestañas **Tiendas** (nombre comercial editable), **Departamentos** y **Tipo de cambio** (con sus permisos). El tipo de cambio sigue editándose también con el lápiz de la barra lateral.
+Reportes · Cortes (con el botón «Dólares recibidos») · Inventario · Almacén · Promociones (con el botón «Reporte de promociones») · Tarjetas de regalo · **Configuración** · Caja (solo en la página de prueba). **Configuración** reúne en pestañas **Tiendas** (nombre comercial editable), **Departamentos** y **Tipo de cambio** (con sus permisos). El tipo de cambio sigue editándose también con el lápiz de la barra lateral.
 
 ## 22. Datos de la tienda y logo en el ticket [P]
 
@@ -658,3 +658,7 @@ Se quitaron de la pantalla de venta el título «Nueva venta», el texto «Venta
 - **Recuperación automática**: solo con la política P-06 aceptada y el techo concedido registrado en el hub/central; aparece el botón «Recuperar automáticamente». Hoy P-06 sigue sin valor aprobado en producción: por omisión solo existe la confirmación manual.
 - **Pendiente**: el escaneo de un ticket con folio mayor existe en el motor (cerco) pero todavía no hay un lugar en la pantalla para escanear un ticket y dispararlo; la prueba lo simula con `__POS_TICKET_ESCANEADO__`.
 - **Verificado**: pruebas FO1–FO4 (ambos almacenes) y de navegador B24.
+
+## 45. Créditos: cancelados
+
+Decisión del propietario: **no habrá créditos** (cargos a crédito de empleadas ni clientes Gold, ni abonos). Se quitó el botón «Créditos» (deshabilitado, «Próximamente») de Administración y quedan sin objeto las políticas P-04 (reparto del límite de crédito) y P-05 (abono duplicado) y las menciones a «cargo de crédito» de las secciones 1 y 2. No se confunde con el **crédito por cambio** de la sección 42, que sí existe y es solo el valor de las piezas que regresa la clienta dentro de una venta.
