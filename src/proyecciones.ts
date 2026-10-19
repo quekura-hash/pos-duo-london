@@ -371,7 +371,7 @@ export type CampoEditable = (typeof CAMPOS_EDITABLES)[number];
 
 export interface EventoArticulo {
   ocurrio_en: string;
-  tipo: 'alta' | 'cambio' | 'almacen_entrada' | 'almacen_entrega' | 'recepcion' | 'venta' | 'venta_cancelada' | 'devolucion' | 'conteo';
+  tipo: 'alta' | 'cambio' | 'almacen_correccion' | 'almacen_entrada' | 'almacen_entrega' | 'recepcion' | 'venta' | 'venta_cancelada' | 'devolucion' | 'conteo';
   /** Magnitudes en crudo; el texto lo arma quien lo muestra. */
   datos: Record<string, unknown>;
   por: string;
@@ -379,6 +379,7 @@ export interface EventoArticulo {
 /** Historia de un artículo: alta, cambios del catálogo, movimientos del almacén, ventas, cancelaciones, devoluciones y conteos. Más reciente primero. */
 export function historialArticulo(ops: Op[], itemId: string): EventoArticulo[] {
   const ev: EventoArticulo[] = [];
+  const entradas = new Map<string, { qty: number; pedimento: string | null }>();
   const ventasDe = new Map<string, { tienda: string; caja: number; folio: number; lineas: { item_id: string; qty: number; importe: number }[] }>();
   for (const o of ops) {
     const p = o.payload;
@@ -390,7 +391,14 @@ export function historialArticulo(ops: Op[], itemId: string): EventoArticulo[] {
         if (p.item_id === itemId) ev.push({ ocurrio_en: o.ocurrio_en, tipo: 'cambio', datos: { cambios: p.cambios }, por: p.por ?? '' });
         break;
       case 'alm.entrada':
-        if (p.item_id === itemId) ev.push({ ocurrio_en: o.ocurrio_en, tipo: 'almacen_entrada', datos: { qty: p.qty, pedimento: p.pedimento, fuente: p.fuente }, por: p.por ?? '' });
+        if (p.item_id === itemId) { ev.push({ ocurrio_en: o.ocurrio_en, tipo: 'almacen_entrada', datos: { qty: p.qty, pedimento: p.pedimento, fuente: p.fuente }, por: p.por ?? '' }); entradas.set(p.entrada_id, { qty: p.qty, pedimento: p.pedimento ?? null }); }
+        break;
+      case 'alm.correccion':
+        if (p.item_id === itemId) {
+          const e = entradas.get(p.entrada_id);
+          ev.push({ ocurrio_en: o.ocurrio_en, tipo: 'almacen_correccion', datos: { qty: p.qty, qty_antes: e?.qty, pedimento: p.pedimento, pedimento_antes: e?.pedimento, motivo: p.motivo }, por: p.por ?? '' });
+          if (e) { if (p.qty !== undefined) e.qty = p.qty; if (p.pedimento !== undefined) e.pedimento = p.pedimento; }
+        }
         break;
       case 'alm.entrega':
         if (p.item_id === itemId) ev.push({ ocurrio_en: o.ocurrio_en, tipo: 'almacen_entrega', datos: { qty: p.qty, tienda: p.tienda, exceso: !!p.exceso }, por: p.por ?? '' });

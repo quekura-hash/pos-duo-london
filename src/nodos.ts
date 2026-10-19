@@ -2,6 +2,7 @@ import type { BusquedaVentas, VentaLocalizada } from './consultas.ts';
 import { ErrorDominio } from './errores.ts';
 import { calcularDescuentos, normCodigo, repartir, validarPromocion, type ErrorPromo, type Promocion, type ResultadoDescuentos } from './promociones.ts';
 import { claveValida, hashClave, nombreClave, supervisorPorClave, type Cajero, type Supervisor } from './supervisores.ts';
+import { correccionesEntradas } from './almacen.ts';
 import { BILLETES_RETIRO_MXN, BILLETES_RETIRO_USD, efectivoDeVentaEnCaja, MINIMO_RETIRO, UMBRAL_AVISO_RETIRO, type RetiroRegistrado } from './retiros.ts';
 import { DESTINOS_FALTANTE_ESPECIALES, existenciaAlmacen, faltantes, fechaValida, recepcionesPendientes, type Faltante, type AltaManual, type RecepcionPendiente } from './almacen.ts';
 import { slug, validarCambioDepto, type CambioDepto, type ErrorDepto } from './departamentos.ts';
@@ -507,7 +508,7 @@ export class Central {
     if (!tiendas.length || tiendas.some(([, q]) => !Number.isInteger(q) || q < 0)) return { ok: false, motivo: 'cantidad_invalida' };
     if (tiendas.some(([t]) => !this.ctx.tiendas.includes(t))) return { ok: false, motivo: 'tienda_invalida' };
     if (!d.etiqueta_precio || !d.etiqueta_costura) return { ok: false, motivo: 'etiquetas_pendientes' };
-    const disponible = existenciaAlmacen(this.repo.opsDeTipos(['alm.entrada', 'alm.entrega', 'alm.faltante'])).get(d.item_id)?.existencia ?? 0;
+    const disponible = existenciaAlmacen(this.repo.opsDeTipos(['alm.entrada', 'alm.entrega', 'alm.faltante', 'alm.correccion'])).get(d.item_id)?.existencia ?? 0;
     // Reintento de una entrega ya registrada (misma referencia): se confirma sin moverla otra vez ni pedir confirmación.
     if (d.ref && tiendas.every(([t]) => this.repo.tieneOp(`alm.entrega:${d.ref}:${t}`))) return { ok: true, existencia_almacen: disponible, ops: [] };
     const pedido = tiendas.reduce((a, [, q]) => a + q, 0);
@@ -523,6 +524,31 @@ export class Central {
     return { ok: true, existencia_almacen: disponible - (ops.length ? pedido : 0), ops };
   }
 
+  /**
+   * Corrige una entrada de almacén mal capturada (cantidad y/o pedimento) con motivo obligatorio. La entrada original no se edita: queda una
+   * corrección que la reemplaza (el último registro manda; corregir a 0 equivale a anularla). Si la corrección deja la existencia del almacén en
+   * negativo (ya se entregaron piezas de más) pide confirmación explícita. `correccion_id` hace que reintentar no repita nada.
+   */
+  corregirEntrada(d: { correccion_id: string; entrada_id: string; qty?: number; pedimento?: string | null; motivo: string; confirmar_negativo?: boolean }, por: string):
+    { ok: true; existencia: number } | { ok: false; motivo: 'deja_negativo'; existencia: number } {
+    if (!d.correccion_id) throw new ErrorDominio('DATOS_REQUERIDOS', 'falta la referencia de la corrección');
+    const ops = this.repo.opsDeTipos(['alm.entrada', 'alm.entrega', 'alm.faltante', 'alm.correccion']);
+    const entrada = ops.find((o) => o.tipo === 'alm.entrada' && o.payload.entrada_id === d.entrada_id);
+    if (!entrada) throw new ErrorDominio('ENTRADA_INEXISTENTE', 'esa entrada de almacén no existe');
+    const itemId = entrada.payload.item_id as string;
+    if (this.repo.tieneOp(`alm.correccion:${d.correccion_id}`)) return { ok: true, existencia: existenciaAlmacen(ops).get(itemId)?.existencia ?? 0 };
+    const motivo = String(d.motivo ?? '').trim();
+    if (!motivo) throw new ErrorDominio('DATOS_REQUERIDOS', 'escriba el motivo de la corrección');
+    if (d.qty === undefined && d.pedimento === undefined) throw new ErrorDominio('DATOS_REQUERIDOS', 'indique la cantidad o el pedimento correctos');
+    if (d.qty !== undefined && (!Number.isInteger(d.qty) || d.qty < 0)) throw new ErrorDominio('CANTIDAD_INVALIDA', 'la cantidad es un entero de 0 o más');
+    const pedimento = d.pedimento === undefined ? undefined : (String(d.pedimento ?? '').trim() || null);
+    const actual = existenciaAlmacen(ops).get(itemId)?.existencia ?? 0;
+    const previa = correccionesEntradas(ops).get(d.entrada_id)?.qty ?? entrada.payload.qty;
+    const resultante = actual - previa + (d.qty ?? previa);
+    if (resultante < 0 && actual >= 0 && !d.confirmar_negativo) return { ok: false, motivo: 'deja_negativo', existencia: resultante };
+    this.emitirUna('alm.correccion', { entrada_id: d.entrada_id, item_id: itemId, ...(d.qty !== undefined ? { qty: d.qty } : {}), ...(pedimento !== undefined ? { pedimento } : {}), motivo, por }, `alm.correccion:${d.correccion_id}`, false);
+    return { ok: true, existencia: resultante };
+  }
   /**
    * Ubica las piezas faltantes de una entrega: `destinos` es el TOTAL por destino (`almacen`, `perdida` o una tienda). Guardar de nuevo
    * corrige lo anterior (el último valor reemplaza). La suma no puede exceder lo que faltó. Las piezas ubicadas en el almacén o en una

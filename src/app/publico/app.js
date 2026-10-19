@@ -1695,6 +1695,50 @@ async function vistaAlmacen() {
   $('#alm-solo').addEventListener('change', (ev) => { S.alm.solo = ev.target.checked; pintarAlmacen(); });
   pintarAlmacen();
 }
+/** Entradas de almacén de un artículo: ver cada una y corregir la que se capturó mal (cantidad y/o pedimento, con motivo). */
+async function abrirEntradas(itemId) {
+  const { entradas } = await api(`/api/admin/almacen/entradas?item_id=${encodeURIComponent(itemId)}`);
+  const it = S.alm.items.find((x) => x.item_id === itemId);
+  const d = dialogo('dlg-entradas');
+  d.setAttribute('aria-labelledby', 'ent-titulo');
+  d.innerHTML = `<h2 id="ent-titulo" style="margin-top:0">Entradas de ${esc(it?.descripcion ?? '')} ${esc(it?.marca ?? '')}</h2>
+    <p class="nota" style="margin-top:0">Si una entrada se capturó mal, corríjala aquí con el motivo. La captura original no se borra: queda en el historial del artículo. Corregir a 0 equivale a anularla.</p>
+    <div class="tabla-cont"><table id="tabla-entradas"><thead><tr><th>Fecha</th><th>Lote / archivo</th><th class="num">Piezas</th><th>Pedimento</th><th>Capturó</th><th>Corrección</th><th></th></tr></thead><tbody>
+    ${entradas.map((e) => `<tr data-entrada="${esc(e.entrada_id)}"><td>${esc(e.ocurrio_en.slice(0, 10))}</td><td>${esc(e.lote_doc)}${e.fuente ? ` · ${esc(e.fuente)}` : ''}</td><td class="num">${e.qty}${e.corregida ? ` <small class="nota">(era ${e.qty_original})</small>` : ''}</td><td>${esc(e.pedimento ?? '—')}</td><td>${esc(e.por)}</td><td>${e.corregida ? `${esc(e.motivo)} · ${esc(e.corregida_por)}` : '—'}</td><td><button class="btn ent-corregir" type="button">${ico('pencil')}<span>Corregir</span></button></td></tr>`).join('') || '<tr><td colspan="7" class="vacio">Este artículo no tiene entradas de almacén.</td></tr>'}</tbody></table></div>
+    <div id="ent-form" hidden></div>
+    <div id="msg-ent" class="mensaje" role="status" aria-live="polite"></div>
+    <div class="filas"><button class="btn" type="button" id="ent-cerrar">Cerrar</button></div>`;
+  $('#ent-cerrar').addEventListener('click', () => d.close());
+  for (const b of d.querySelectorAll('.ent-corregir')) b.addEventListener('click', () => {
+    const e = entradas.find((x) => x.entrada_id === b.closest('tr').dataset.entrada);
+    const f = $('#ent-form');
+    f.hidden = false;
+    f.innerHTML = `<h3>Corregir la entrada de ${esc(e.ocurrio_en.slice(0, 10))} (${esc(e.lote_doc)})</h3>
+      <div class="campo"><label for="ent-qty">Piezas correctas</label><input id="ent-qty" type="number" min="0" step="1" value="${e.qty}"></div>
+      <div class="campo"><label for="ent-ped">Pedimento correcto</label><input id="ent-ped" class="texto" value="${esc(e.pedimento ?? '')}"></div>
+      <div class="campo"><label for="ent-motivo">Motivo de la corrección</label><input id="ent-motivo" class="texto" maxlength="120" placeholder="Obligatorio"></div>
+      <div class="filas"><button class="btn" type="button" id="ent-cancelar">Cancelar</button><button class="btn btn-primario" type="button" id="ent-guardar" style="width:auto;flex:1">${ico('check')}<span>Guardar corrección</span></button></div>`;
+    $('#ent-cancelar').addEventListener('click', () => { f.hidden = true; });
+    const correccionId = uuid();
+    const guardar = async (confirmar) => {
+      const m = $('#msg-ent');
+      try {
+        const cuerpo = { correccion_id: correccionId, entrada_id: e.entrada_id, motivo: $('#ent-motivo').value, confirmar_negativo: !!confirmar };
+        if ($('#ent-qty').value.trim() !== '' && Number($('#ent-qty').value) !== e.qty) cuerpo.qty = Number($('#ent-qty').value);
+        if ($('#ent-ped').value.trim() !== (e.pedimento ?? '')) cuerpo.pedimento = $('#ent-ped').value.trim();
+        const r = await api('/api/admin/almacen/corregir-entrada', cuerpo);
+        S.alm.items = r.almacen.items; pintarAlmacen(); pintarAvisoPiso(r.almacen.avisos);
+        await abrirEntradas(itemId);
+        const n = $('#msg-ent'); n.className = 'mensaje ok'; n.textContent = `Entrada corregida. En el almacén quedan ${r.existencia} pieza(s).`;
+      } catch (err) {
+        m.className = 'mensaje error'; m.textContent = err.message;
+        if (err.codigo === 'CONFIRMACION_REQUERIDA') m.insertAdjacentHTML('beforeend', ` <button class="btn" type="button" id="ent-confirmar-negativo">Aplicar de todos modos</button>`), $('#ent-confirmar-negativo').addEventListener('click', () => guardar(true));
+      }
+    };
+    $('#ent-guardar').addEventListener('click', () => guardar(false));
+  });
+  if (!d.open) d.showModal();
+}
 /** Piezas faltantes: la tienda recibió menos de lo entregado. Cada renglón se actualiza o corrige con lo que se fue encontrando. */
 function pintarFaltantes() {
   const el = $('#panel-faltantes');
@@ -1744,13 +1788,14 @@ function pintarAlmacen() {
     ${a.tiendas.map((t) => `<td><input type="number" min="0" step="1" class="q-${esc(t)}" data-tienda="${esc(t)}" aria-label="Piezas para ${esc(TIENDAS_ALM[t] ?? t)}" style="width:70px;padding:4px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie);text-align:right"></td>`).join('')}
     <td data-col="pendiente">${Object.entries(i.pendiente_por_tienda).map(([t, n]) => `${esc(TIENDAS_ALM[t] ?? t)}: ${n}`).join(' · ') || '—'}</td>
     <td class="celda-piso"><input type="date" class="f-piso" value="${esc(i.sacar_a_piso ?? '')}" aria-label="Fecha para sacar a piso"> ${marcaPiso(i) ? `<span class="marca-piso ${marcaPiso(i).tono}" data-col="marca-piso">${esc(marcaPiso(i).texto)}</span>` : ''}</td>
-    <td><button class="btn btn-entregar" type="button">${ico('check')}<span>Entregar</span></button></td></tr>`).join('')
+    <td class="filas" style="flex-wrap:nowrap"><button class="btn btn-entregar" type="button">${ico('check')}<span>Entregar</span></button><button class="btn btn-entradas" type="button" title="Ver las entradas de este artículo y corregir una mal capturada">${ico('pencil')}<span>Entradas</span></button></td></tr>`).join('')
     || `<tr><td colspan="${12 + a.tiendas.length}" class="vacio">${a.items.length ? 'Nada coincide con el filtro.' : 'El almacén está vacío. Use «Alta Lote de inventario» o «Alta manual».'}</td></tr>`;
   $('#alm-pie').textContent = visibles.length > lim.length ? `Se muestran ${lim.length} de ${visibles.length}. Use el buscador para acotar.` : `${visibles.length} artículo(s).`;
   for (const tr of $('#alm-cuerpo').querySelectorAll('tr[data-item]')) {
     // Escribir una cantidad para una tienda marca solas las dos etiquetas (el almacén las pone al preparar la entrega).
     for (const inp of tr.querySelectorAll('input[type=number]')) inp.addEventListener('input', () => { if (Number(inp.value) > 0) { tr.querySelector('.et-precio').checked = true; tr.querySelector('.et-costura').checked = true; } });
     tr.querySelector('.btn-entregar').addEventListener('click', () => entregarFila(tr, false));
+    tr.querySelector('.btn-entradas').addEventListener('click', () => abrirEntradas(tr.dataset.item));
     tr.querySelector('.f-piso').addEventListener('change', (ev) => fijarPiso(tr.dataset.item, ev.target.value));
   }
 }

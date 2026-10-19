@@ -17,11 +17,15 @@ export interface ExistenciaAlmacen { item_id: string; recibido: number; entregad
 export function existenciaAlmacen(ops: Op[]): Map<string, ExistenciaAlmacen> {
   const m = new Map<string, ExistenciaAlmacen>();
   const de = (id: string) => { let x = m.get(id); if (!x) m.set(id, (x = { item_id: id, recibido: 0, entregado: 0, recuperado: 0, existencia: 0, pedimentos: [], entregas: [] })); return x; };
+  const corr = correccionesEntradas(ops);
   for (const o of ops) {
     if (o.tipo === 'alm.entrada') {
       const x = de(o.payload.item_id);
-      x.recibido += o.payload.qty;
-      if (o.payload.pedimento && !x.pedimentos.includes(o.payload.pedimento)) x.pedimentos.push(o.payload.pedimento);
+      const c = corr.get(o.payload.entrada_id);
+      const qty = c?.qty ?? o.payload.qty;
+      const pedimento = c && c.pedimento !== undefined ? c.pedimento : o.payload.pedimento;
+      x.recibido += qty;
+      if (pedimento && !x.pedimentos.includes(pedimento)) x.pedimentos.push(pedimento);
     } else if (o.tipo === 'alm.entrega') {
       const x = de(o.payload.item_id);
       x.entregado += o.payload.qty;
@@ -31,6 +35,36 @@ export function existenciaAlmacen(ops: Op[]): Map<string, ExistenciaAlmacen> {
   for (const r of resolucionesFaltantes(ops).values()) if (r.destino === 'almacen' && r.qty > 0) de(r.item_id).recuperado += r.qty;
   for (const x of m.values()) x.existencia = x.recibido - x.entregado + x.recuperado;
   return m;
+}
+
+/** Corrección de una entrada mal capturada: el último registro por entrada manda (cantidad y/o pedimento). La entrada original nunca se edita. */
+export interface CorreccionEntrada { entrada_id: string; qty?: number; pedimento?: string | null; motivo: string; por: string; ocurrio_en: string }
+export function correccionesEntradas(ops: Op[]): Map<string, CorreccionEntrada> {
+  const m = new Map<string, CorreccionEntrada>();
+  for (const o of ops) {
+    if (o.tipo !== 'alm.correccion') continue;
+    const previa = m.get(o.payload.entrada_id);
+    m.set(o.payload.entrada_id, {
+      entrada_id: o.payload.entrada_id, qty: o.payload.qty ?? previa?.qty, pedimento: o.payload.pedimento !== undefined ? o.payload.pedimento : previa?.pedimento,
+      motivo: o.payload.motivo, por: o.payload.por ?? '', ocurrio_en: o.ocurrio_en,
+    });
+  }
+  return m;
+}
+export interface EntradaConCorreccion extends EntradaAlmacen { por: string; qty_original: number; pedimento_original: string | null; corregida: boolean; motivo: string | null; corregida_por: string | null; corregida_en: string | null }
+/** Entradas de un artículo con su corrección vigente (la más reciente primero). */
+export function entradasDeArticulo(ops: Op[], itemId: string): EntradaConCorreccion[] {
+  const corr = correccionesEntradas(ops);
+  const l: EntradaConCorreccion[] = [];
+  for (const o of ops) {
+    if (o.tipo !== 'alm.entrada' || o.payload.item_id !== itemId) continue;
+    const c = corr.get(o.payload.entrada_id);
+    l.push({
+      entrada_id: o.payload.entrada_id, item_id: itemId, qty: c?.qty ?? o.payload.qty, pedimento: c && c.pedimento !== undefined ? c.pedimento : (o.payload.pedimento ?? null), lote_doc: o.payload.lote_doc ?? '', fuente: o.payload.fuente ?? '', ocurrio_en: o.ocurrio_en,
+      por: o.payload.por ?? '', qty_original: o.payload.qty, pedimento_original: o.payload.pedimento ?? null, corregida: !!c, motivo: c?.motivo ?? null, corregida_por: c?.por ?? null, corregida_en: c?.ocurrio_en ?? null,
+    });
+  }
+  return l.reverse();
 }
 
 // ── piezas faltantes: la tienda recibe menos de lo entregado y Administración las ubica o las da por perdidas ──

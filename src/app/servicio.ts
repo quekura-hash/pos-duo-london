@@ -1,5 +1,5 @@
 import { cortesPorCaja, descuentosPorCaja, dolaresPorCaja, reporteConsolidado, ventasPorCaja, type Filtro } from '../consultas.ts';
-import { DIAS_URGENTE, diasHasta, existenciaAlmacen, faltantes, recepcionesPendientes, recordatoriosPiso, reporteEntregas, revisarAlta, type AltaManual } from '../almacen.ts';
+import { DIAS_URGENTE, diasHasta, entradasDeArticulo, existenciaAlmacen, faltantes, recepcionesPendientes, recordatoriosPiso, reporteEntregas, revisarAlta, type AltaManual } from '../almacen.ts';
 import { DEPARTAMENTOS_BASE, resolverDepartamento } from '../departamentos.ts';
 import { formatoTasa } from '../dinero.ts';
 import { ErrorDominio } from '../errores.ts';
@@ -490,7 +490,7 @@ export class ServicioAdmin {
   readonly cajas: { tienda: string; caja: number }[];
   private inv?: FuenteInventario;
   private central?: { fijarTipoCambio(tasa: number, usuario: string, versionBase: number, confirmarVariacion?: boolean): import('../nodos.ts').ResultadoTipoCambio; asignarPermiso(usuario: string, permiso: string, valor: boolean, por: string): Op; guardarDepto(c: import('../departamentos.ts').CambioDepto, por: string): { ok: true; op: Op } | { ok: false; error: import('../departamentos.ts').ErrorDepto };
-    guardarDatosTienda: import('../nodos.ts').Central['guardarDatosTienda']; editarArticulo: import('../nodos.ts').Central['editarArticulo']; guardarPromocion: import('../nodos.ts').Central['guardarPromocion']; guardarSupervisor: import('../nodos.ts').Central['guardarSupervisor']; guardarCajero: import('../nodos.ts').Central['guardarCajero']; recordarSacarAPiso: import('../nodos.ts').Central['recordarSacarAPiso']; resolverFaltante: import('../nodos.ts').Central['resolverFaltante']; contarLimbo: import('../nodos.ts').Central['contarLimbo']; altaLote: import('../nodos.ts').Central['altaLote']; entregar: import('../nodos.ts').Central['entregar'] };
+    guardarDatosTienda: import('../nodos.ts').Central['guardarDatosTienda']; editarArticulo: import('../nodos.ts').Central['editarArticulo']; guardarPromocion: import('../nodos.ts').Central['guardarPromocion']; guardarSupervisor: import('../nodos.ts').Central['guardarSupervisor']; guardarCajero: import('../nodos.ts').Central['guardarCajero']; recordarSacarAPiso: import('../nodos.ts').Central['recordarSacarAPiso']; resolverFaltante: import('../nodos.ts').Central['resolverFaltante']; contarLimbo: import('../nodos.ts').Central['contarLimbo']; corregirEntrada: import('../nodos.ts').Central['corregirEntrada']; altaLote: import('../nodos.ts').Central['altaLote']; entregar: import('../nodos.ts').Central['entregar'] };
   constructor(o: { actor: Extract<Actor, { rol: 'admin' }>; fuente: () => Op[]; cajas: { tienda: string; caja: number }[]; inventario?: FuenteInventario; central?: ServicioAdmin['central'] }) {
     this.central = o.central;
     this.actor = o.actor;
@@ -680,6 +680,7 @@ export class ServicioAdmin {
       switch (e.tipo) {
         case 'alta': evento = 'Alta en el catálogo'; detalle = `Origen: ${d.origen ?? '—'} · código ${d.codigo || '(sin código)'} · precio ${formatoMXN(d.precio ?? 0)}`; break;
         case 'cambio': evento = 'Cambio en el catálogo'; detalle = Object.entries(d.cambios as Record<string, { antes: unknown; despues: unknown }>).map(([k, c]) => `${NOM[k] ?? k}: ${val(k, c.antes)} → ${val(k, c.despues)}`).join(' · '); break;
+        case 'almacen_correccion': evento = 'Corrección de una entrada al almacén'; detalle = `${d.qty !== undefined ? `cantidad ${d.qty_antes} → ${d.qty}` : ''}${d.pedimento !== undefined ? ` pedimento «${d.pedimento_antes ?? ''}» → «${d.pedimento ?? ''}»` : ''} · ${String(d.motivo ?? '')}`.trim(); break;
         case 'almacen_entrada': evento = 'Entrada al almacén'; detalle = `${pza(d.qty)}${d.pedimento ? ` · pedimento ${d.pedimento}` : ''} · ${String(d.fuente ?? '')}`; break;
         case 'almacen_entrega': evento = 'Entrega a tienda'; detalle = `${pza(d.qty)} para ${t(d.tienda)}${d.exceso ? ' · más de lo registrado en el almacén' : ''}`; break;
         case 'recepcion': evento = 'Recepción confirmada'; detalle = `${pza(d.qty)} en ${t(d.tienda)} (caja ${d.caja})`; break;
@@ -758,6 +759,17 @@ export class ServicioAdmin {
       const a = cat.get(f.item_id);
       return { ...f, item_no: a?.item_no ?? null, codigo: a?.codigo ?? '', descripcion: a?.descripcion ?? f.item_id, marca: a?.marca ?? '' };
     }).sort((x, y) => Number(x.estado === 'resuelto') - Number(y.estado === 'resuelto') || y.reportada_en.localeCompare(x.reportada_en));
+  }
+  /** Entradas de almacén de un artículo (con su corrección vigente) para revisarlas o corregirlas. */
+  entradasAlmacen(itemId: string) {
+    return { entradas: entradasDeArticulo(this.fuente(), itemId) };
+  }
+  /** Corrige una entrada de almacén mal capturada (cantidad y/o pedimento). */
+  corregirEntrada(d: { correccion_id: string; entrada_id: string; qty?: number; pedimento?: string | null; motivo: string; confirmar_negativo?: boolean }) {
+    if (!this.central) throw new ErrorDominio('SIN_CENTRAL', 'esta sesión no tiene acceso al servicio central');
+    const r = this.central.corregirEntrada(d, this.actor.usuario);
+    if (!r.ok) throw new ErrorDominio('CONFIRMACION_REQUERIDA', `con esta corrección el almacén quedaría en ${r.existencia} pieza(s): ya se entregaron piezas de más`, { existencia: r.existencia });
+    return { existencia: r.existencia, almacen: this.almacen() };
   }
   /** Ubica (o corrige) las piezas faltantes de una entrega: total por destino (almacen, perdida o tienda). */
   resolverFaltante(entregaId: string, destinos: Record<string, number>) {

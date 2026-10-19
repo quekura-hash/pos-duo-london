@@ -344,6 +344,20 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     await page.click('#tabla-faltantes .btn-guardar-faltante');
     await page.waitForFunction(() => document.querySelectorAll('#tabla-faltantes tr.faltante-pendiente').length === 0);
     assert.match((await page.textContent('#n-faltantes'))!, /0 por ubicar/);
+    // corregir una entrada mal capturada: el lote de 24 en realidad era de 30
+    await page.uncheck('#alm-solo');
+    await page.click(`${fila} .btn-entradas`);
+    await page.waitForSelector('#dlg-entradas[open] #tabla-entradas tr[data-entrada]');
+    await page.click('#tabla-entradas .ent-corregir');
+    await page.fill('#ent-qty', '30');
+    await page.click('#ent-guardar');
+    await page.waitForFunction(() => /Escriba el motivo|motivo/i.test(document.querySelector('#msg-ent')!.textContent!));
+    await page.fill('#ent-motivo', 'el lote traía 30 piezas');
+    await page.click('#ent-guardar');
+    await page.waitForFunction(() => /Entrada corregida/.test(document.querySelector('#msg-ent')!.textContent!));
+    assert.match((await page.textContent('#tabla-entradas tr[data-entrada]'))!, /30.*era 24.*el lote traía 30 piezas/);
+    await page.screenshot({ path: join(RAIZ, 'docs', 'capturas', '50-corregir-entrada.png') });
+    await page.click('#ent-cerrar');
     assert.deepEqual(errores, []);
   });
   it('B4 lo que se hace en la página (alta de almacén, departamento) se conserva al recargar', async (t) => {

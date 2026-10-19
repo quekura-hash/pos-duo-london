@@ -117,6 +117,8 @@ export async function atender(o: { cajero?: ServicioCaja; admin?: ServicioAdmin 
       case 'POST /api/admin/almacen/piso': return ok(exigirAdmin().fijarSacarAPiso(String(b.item_id ?? ''), b.fecha ? String(b.fecha) : null));
       case 'POST /api/admin/almacen/manual': return ok(exigirAdmin().altaManual(b));
       case 'POST /api/admin/almacen/faltante': return ok(exigirAdmin().resolverFaltante(String(b.entrega_id ?? ''), Object.fromEntries(Object.entries(b.destinos ?? {}).map(([k, v]) => [k, Number(v)]))));
+      case 'GET /api/admin/almacen/entradas': return ok(exigirAdmin().entradasAlmacen(q.get('item_id') ?? ''));
+      case 'POST /api/admin/almacen/corregir-entrada': return ok(exigirAdmin().corregirEntrada({ correccion_id: String(b.correccion_id ?? ''), entrada_id: String(b.entrada_id ?? ''), qty: b.qty === undefined || b.qty === null || b.qty === '' ? undefined : Number(b.qty), pedimento: b.pedimento === undefined ? undefined : b.pedimento, motivo: String(b.motivo ?? ''), confirmar_negativo: !!b.confirmar_negativo }));
       case 'POST /api/admin/almacen/entregar': return ok(exigirAdmin().entregarAlmacen({ item_id: String(b.item_id ?? ''), destinos: b.destinos ?? {}, etiqueta_precio: !!b.etiqueta_precio, etiqueta_costura: !!b.etiqueta_costura, confirmar_exceso: !!b.confirmar_exceso, ref: b.ref }));
       case 'GET /api/recepciones': return ok({ recepciones: exigirCajero().recepcionesPendientes() });
       case 'POST /api/recepciones/confirmar': return ok(exigirCajero().confirmarRecepcion(String(b.entrega_id ?? ''), b.qty === undefined || b.qty === null ? undefined : Number(b.qty)));

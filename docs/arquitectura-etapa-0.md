@@ -554,3 +554,12 @@ Reportes · Cortes (con el botón «Dólares recibidos») · Inventario · Almac
 - **Claves de cajero**: Administración → Configuración → **Cajeros** (nombre = el del usuario de la caja, clave de 4 a 8 dígitos, guardada con sal y hash como la de los supervisores; se puede cambiar, desactivar y reactivar; no se repiten nombres). *Prototipo: todavía no hay inicio de sesión con usuario y contraseña, así que la clave solo confirma esta operación; el usuario de la sesión lo da la caja.*
 - **Resultado**: el artículo llega al **catálogo de todas las tiendas** (`item.created` se reparte), se agrega a la venta en curso y queda el registro `articulo.alta_autorizada` (quién, tienda y caja). Se rechaza un código que ya existe, incluida su forma corta o UPC completo, y precio 0, sin descripción o departamento fuera de lista. El Item # lo asigna la política vigente (P-07, en ensayo). Sin existencia inicial: se vende con la regla de P-02.
 - **Verificado**: pruebas AA1–AA4 (ambos almacenes) y de navegador (B16: alta de la clave en Administración, alta en la caja con clave errónea y correcta, el artículo aparece en London).
+
+## 34. Corrección de una entrada de almacén mal capturada [P]
+
+- **Dónde**: Administración → Almacén → botón **Entradas** de cada artículo: lista sus entradas (fecha, lote o archivo, piezas, pedimento, quién capturó y la corrección vigente) con **Corregir**.
+- **Qué se corrige**: la cantidad y/o el pedimento, con **motivo obligatorio**. La entrada original no se edita ni se borra: queda una corrección (`alm.correccion`) que la reemplaza; la más reciente manda, y una corrección que solo toca la cantidad conserva el pedimento ya corregido. Corregir a 0 equivale a anularla.
+- **Efecto**: la existencia del almacén y los pedimentos se calculan con la corrección; las entregas siguientes se comparan contra la existencia corregida. Si la corrección deja el almacén en **negativo** (ya se entregaron piezas de más) se pide confirmación («Aplicar de todos modos»). Corregir hacia arriba no la pide. Reintentar la misma corrección no repite nada.
+- **Trazabilidad**: en el historial del artículo aparece «Corrección de una entrada al almacén» con la cantidad o el pedimento antes y después y el motivo.
+- **No incluido**: corregir la descripción, el precio o el departamento (eso se hace en Inventario) ni mover piezas ya entregadas a una tienda (para eso están las piezas faltantes y el conteo).
+- **Verificado**: pruebas CE1–CE2 (ambos almacenes) y de navegador (continuación de B3: corregir un lote de 24 a 30 con motivo).
