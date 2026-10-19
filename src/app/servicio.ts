@@ -10,7 +10,7 @@ import { CAMPOS_EDITABLES, catalogo, historialArticulo, nombresTienda, datosTien
 import { hojaDescuentos, hojaEntregas, hojaDolares, hojaInventario, leerInventario, PERFIL_CONFIRMADO, type Hoja } from '../inventario.ts';
 import { LOGOS_TICKET } from '../logos-ticket.ts';
 import { aplicarDatosTienda, codigoTicket, construirTicket, construirTicketRegalo, formatoMXN, NEGOCIOS, renderTextoEscPos, renderTicketDevolucionTexto, renderTicketRetiroTexto, renderTicketEscPos, renderTicketTexto, type NegocioCfg } from '../ticket.ts';
-import { hashClave, nombreClave } from '../supervisores.ts';
+import { hashClave, nombreClave, type RolAdmin } from '../supervisores.ts';
 import { LIMBO, type Actor, type Articulo, type Linea, type Op, type Venta } from '../tipos.ts';
 import { fechaLocal } from '../util.ts';
 
@@ -517,6 +517,8 @@ export class ServicioAdmin {
   readonly actor: Extract<Actor, { rol: 'admin' }>;
   private usuarioInicial: string;
   private autenticado = false;
+  /** Rol de quien inició sesión (null con la consola abierta o antes de entrar: se trata como supervisor). */
+  private rolUsuario: RolAdmin | null = null;
   private fallos = new Map<string, { n: number; hasta: number }>();
   private fuente: () => Op[];
   readonly cajas: { tienda: string; caja: number }[];
@@ -692,6 +694,7 @@ export class ServicioAdmin {
   /** Edita un artículo del catálogo (marca, descripción, estilo, lote, departamento, precio en pesos). */
   editarArticulo(itemId: string, cambios: Record<string, unknown>) {
     if (!this.central) throw new ErrorDominio('SIN_CENTRAL', 'esta sesión no tiene acceso al servicio central');
+    if ('precio' in cambios && this.rol() !== 'supervisor') throw new ErrorDominio('PROHIBIDO', 'solo un supervisor puede cambiar el precio de un artículo');
     const lim: Record<string, string | number> = {};
     for (const k of CAMPOS_EDITABLES) if (k in cambios) lim[k] = k === 'precio' ? Number(cambios[k]) : String(cambios[k] ?? '');
     const a = this.central.editarArticulo(itemId, lim, this.actor.usuario);
@@ -757,7 +760,7 @@ export class ServicioAdmin {
   }
   sesionInfo() {
     const dentro = this.autenticada();
-    return { requiere_login: this.requiereLogin(), autenticado: dentro, usuario: dentro ? this.actor.usuario : null, sin_administradores: !this.requiereLogin() };
+    return { requiere_login: this.requiereLogin(), autenticado: dentro, usuario: dentro ? this.actor.usuario : null, rol_usuario: dentro ? this.rol() : null, sin_administradores: !this.requiereLogin() };
   }
   /** Cinco contraseñas equivocadas seguidas bloquean ese usuario 5 minutos. */
   iniciarSesion(usuario: string, clave: string) {
@@ -774,24 +777,36 @@ export class ServicioAdmin {
     }
     this.fallos.delete(llave);
     this.actor.usuario = a.nombre;
+    this.rolUsuario = a.rol ?? 'supervisor';
     this.autenticado = true;
     return this.sesionInfo();
   }
   cerrarSesion() {
     this.autenticado = false;
     this.actor.usuario = this.usuarioInicial;
+    this.rolUsuario = null;
     return this.sesionInfo();
   }
-  administradores() {
-    return { administradores: administradoresDe(this.fuente()).map(({ id, nombre, activo }) => ({ id, nombre, activo })) };
+  rol(): RolAdmin { return this.rolUsuario ?? 'supervisor'; }
+  /** Pantallas de Administración que ve cada rol (el almacenista solo trabaja Inventario y Almacén). */
+  nav(): string[] {
+    return this.rol() === 'almacenista' ? ['inventario', 'almacen'] : ['reportes', 'cortes', 'inventario', 'almacen', 'promociones', 'tarjetas', 'configuracion'];
   }
-  guardarAdmin(d: { id?: string; nombre?: string; clave?: string; activo?: boolean }) {
+  /** ¿El rol de la sesión puede llamar a esta ruta de Administración? El supervisor, todo; el almacenista, solo lo de Inventario y Almacén. */
+  puede(metodo: string, ruta: string): boolean {
+    if (this.rol() === 'supervisor') return true;
+    return /^(GET|POST) \/api\/admin\/(almacen|limbo)(\/|$)/.test(`${metodo} ${ruta}`) || /^GET \/api\/admin\/(inventario|entregas|articulos|articulo\/historial|departamentos|tipo-cambio)$/.test(`${metodo} ${ruta}`) || `${metodo} ${ruta}` === 'POST /api/admin/articulos';
+  }
+  administradores() {
+    return { administradores: administradoresDe(this.fuente()).map(({ id, nombre, activo, rol }) => ({ id, nombre, activo, rol: rol ?? 'supervisor', clave_caja: supervisoresDe(this.fuente()).some((s) => s.id === `sup-${id.slice(4)}`) })) };
+  }
+  guardarAdmin(d: { id?: string; nombre?: string; clave?: string; activo?: boolean; rol?: RolAdmin; clave_caja?: string }) {
     if (!this.central) throw new ErrorDominio('SIN_CENTRAL', 'esta sesión no tiene acceso al servicio central');
     const abierta = !this.requiereLogin();
     const r = this.central.guardarAdmin(d, this.actor.usuario);
     if (!r.ok) throw new ErrorDominio(r.error.codigo === 'NO_EXISTE' ? 'NO_ENCONTRADO' : 'ADMIN_INVALIDO', r.error.mensaje, { motivo: r.error.codigo });
     // Quien crea al primer administrador desde la consola abierta queda dentro como ese administrador: no se queda fuera de su propia pantalla.
-    if (abierta && r.admin.activo) { this.autenticado = true; this.actor.usuario = r.admin.nombre; }
+    if (abierta && r.admin.activo) { this.autenticado = true; this.actor.usuario = r.admin.nombre; this.rolUsuario = r.admin.rol; }
     return this.administradores();
   }
   cajeros() {

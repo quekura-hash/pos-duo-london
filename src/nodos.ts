@@ -1,7 +1,7 @@
 import type { BusquedaVentas, VentaLocalizada } from './consultas.ts';
 import { ErrorDominio } from './errores.ts';
 import { calcularDescuentos, normCodigo, repartir, validarPromocion, type ErrorPromo, type Promocion, type ResultadoDescuentos } from './promociones.ts';
-import { claveAdminValida, claveValida, hashClave, nombreClave, supervisorPorClave, type Cajero, type Supervisor } from './supervisores.ts';
+import { claveAdminValida, claveValida, hashClave, nombreClave, supervisorPorClave, type Cajero, type RolAdmin, type Supervisor } from './supervisores.ts';
 import { correccionesEntradas } from './almacen.ts';
 import { BILLETES_RETIRO_MXN, BILLETES_RETIRO_USD, efectivoDeVentaEnCaja, MINIMO_RETIRO, UMBRAL_AVISO_RETIRO, type RetiroRegistrado } from './retiros.ts';
 import { DESTINOS_FALTANTE_ESPECIALES, existenciaAlmacen, faltantes, fechaValida, recepcionesPendientes, type Faltante, type AltaManual, type RecepcionPendiente } from './almacen.ts';
@@ -412,7 +412,7 @@ export class Central {
     return r;
   }
   /** Alta o edición de un supervisor que autoriza descuentos con clave numérica. La clave se guarda con sal y hash. */
-  guardarSupervisor(d: { id?: string; nombre?: string; clave?: string; activo?: boolean }, por: string): { ok: true; supervisor: Omit<Supervisor, 'sal' | 'hash'> } | { ok: false; error: { codigo: 'DATOS_INVALIDOS' | 'CLAVE_REPETIDA' | 'NO_EXISTE'; mensaje: string } } {
+  guardarSupervisor(d: { id?: string; id_nuevo?: string; nombre?: string; clave?: string; activo?: boolean }, por: string): { ok: true; supervisor: Omit<Supervisor, 'sal' | 'hash'> } | { ok: false; error: { codigo: 'DATOS_INVALIDOS' | 'CLAVE_REPETIDA' | 'NO_EXISTE'; mensaje: string } } {
     const lista = supervisoresDe(this.repo.ops());
     const actual = d.id ? lista.find((s) => s.id === d.id) : undefined;
     if (d.id && !actual) return { ok: false, error: { codigo: 'NO_EXISTE', mensaje: 'el supervisor no existe' } };
@@ -428,7 +428,7 @@ export class Central {
       const otro = supervisorPorClave(lista.filter((s) => s.id !== actual?.id), d.clave);
       if (otro && activo) return { ok: false, error: { codigo: 'CLAVE_REPETIDA', mensaje: 'esa clave ya la usa otro supervisor' } };
     }
-    const id = actual?.id ?? `sup-${uuid().slice(0, 8)}`;
+    const id = actual?.id ?? d.id_nuevo ?? `sup-${uuid().slice(0, 8)}`;
     this.emitirAdmin('supervisor.guardado', { id, nombre, activo, sal, hash, por });
     return { ok: true, supervisor: { id, nombre, activo } };
   }
@@ -455,7 +455,7 @@ export class Central {
    * Alta o edición de un administrador (contraseña de 6 a 40 caracteres). Solo vive en el central: no se reparte a las tiendas ni a las cajas.
    * Los nombres no se repiten entre administradores ni con los cajeros.
    */
-  guardarAdmin(d: { id?: string; nombre?: string; clave?: string; activo?: boolean }, por: string): { ok: true; admin: Omit<Cajero, 'sal' | 'hash'> } | { ok: false; error: { codigo: 'DATOS_INVALIDOS' | 'NOMBRE_REPETIDO' | 'NO_EXISTE'; mensaje: string } } {
+  guardarAdmin(d: { id?: string; nombre?: string; clave?: string; activo?: boolean; rol?: RolAdmin; clave_caja?: string }, por: string): { ok: true; admin: Omit<Cajero, 'sal' | 'hash'> & { rol: RolAdmin } } | { ok: false; error: { codigo: 'DATOS_INVALIDOS' | 'NOMBRE_REPETIDO' | 'NO_EXISTE' | 'ULTIMO_SUPERVISOR'; mensaje: string } } {
     const ops = this.repo.ops();
     const lista = administradoresDe(ops);
     const actual = d.id ? lista.find((c) => c.id === d.id) : undefined;
@@ -469,8 +469,22 @@ export class Central {
     let sal = actual?.sal ?? uuid(), hash = actual?.hash ?? '';
     if (d.clave) { sal = uuid(); hash = hashClave(sal, d.clave); }
     const id = actual?.id ?? `adm-${uuid().slice(0, 8)}`;
-    this.emitirUna('admin.guardado', { id, nombre, activo, sal, hash, por }, `admin.guardado:${uuid()}`, false);
-    return { ok: true, admin: { id, nombre, activo } };
+    const rol: RolAdmin = actual ? (actual.rol ?? 'supervisor') : (d.rol ?? 'supervisor');
+    if (rol !== 'supervisor' && rol !== 'almacenista') return { ok: false, error: { codigo: 'DATOS_INVALIDOS', mensaje: 'el rol es supervisor o almacenista' } };
+    if (!actual && lista.length === 0 && rol !== 'supervisor') return { ok: false, error: { codigo: 'DATOS_INVALIDOS', mensaje: 'el primer usuario de Administración debe ser supervisor: es quien crea a los demás' } };
+    const supervisoresActivos = lista.filter((c) => c.id !== actual?.id && c.activo && (c.rol ?? 'supervisor') === 'supervisor').length + (rol === 'supervisor' && activo ? 1 : 0);
+    if (supervisoresActivos === 0) return { ok: false, error: { codigo: 'ULTIMO_SUPERVISOR', mensaje: 'debe quedar al menos un supervisor activo (es quien administra a los demás)' } };
+    // Un supervisor también autoriza en la caja con una clave numérica: se registra (y se mantiene) como supervisor de caja con el mismo nombre.
+    if (rol === 'supervisor') {
+      const enlazado = `sup-${id.slice(4)}`;
+      const existe = supervisoresDe(ops).some((s) => s.id === enlazado);
+      if (d.clave_caja || existe) {
+        const r = this.guardarSupervisor({ ...(existe ? { id: enlazado } : { id_nuevo: enlazado }), nombre, clave: d.clave_caja || undefined, activo }, por);
+        if (!r.ok) return { ok: false, error: { codigo: 'DATOS_INVALIDOS', mensaje: r.error.mensaje } };
+      }
+    }
+    this.emitirUna('admin.guardado', { id, nombre, activo, sal, hash, rol, por }, `admin.guardado:${uuid()}`, false);
+    return { ok: true, admin: { id, nombre, activo, rol } };
   }
 
   /** Recordatorio interno de almacén: fecha para sacar el artículo a piso (null la quita). Solo del central, no viaja a las tiendas. */

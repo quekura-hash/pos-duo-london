@@ -28,17 +28,19 @@ export async function atender(o: { cajero?: ServicioCaja; admin?: ServicioAdmin 
       if (!A.autenticada()) throw new ErrorDominio('NO_AUTENTICADO', 'inicie sesión con su usuario y contraseña');
       return A;
     };
+    // Cada rol de Administración solo llega a lo suyo (el almacenista, a Inventario y Almacén); sin sesión responde exigirAdmin (401).
+    if (A && url.pathname.startsWith('/api/admin/') && A.autenticada() && !A.puede(metodo, url.pathname)) throw new ErrorDominio('PROHIBIDO', 'su rol no tiene acceso a esta parte de Administración');
     const cajasParam = (v: string | null) => (v ? v.split(',').map((x) => ({ tienda: x.split('/')[0]!, caja: Number(x.split('/')[1]) })) : undefined);
 
     switch (`${metodo} ${url.pathname}`) {
       case 'POST /api/login': return ok(C ? C.iniciarSesion(b.usuario, b.clave) : A ? A.iniciarSesion(b.usuario, b.clave) : (() => { throw new ErrorDominio('PROHIBIDO', 'no hay sesión'); })());
       case 'POST /api/logout': return ok(C ? C.cerrarSesion() : A ? A.cerrarSesion() : (() => { throw new ErrorDominio('PROHIBIDO', 'no hay sesión'); })());
       case 'GET /api/admin/administradores': return ok(exigirAdmin().administradores());
-      case 'POST /api/admin/administradores': return ok(exigirAdmin().guardarAdmin({ id: b.id, nombre: b.nombre, clave: b.clave === undefined ? undefined : String(b.clave), activo: b.activo === undefined ? undefined : !!b.activo }));
+      case 'POST /api/admin/administradores': return ok(exigirAdmin().guardarAdmin({ id: b.id, nombre: b.nombre, clave: b.clave === undefined ? undefined : String(b.clave), activo: b.activo === undefined ? undefined : !!b.activo, rol: b.rol, clave_caja: b.clave_caja === undefined ? undefined : String(b.clave_caja) }));
       case 'GET /api/sesion':
         return ok(C
           ? { rol: 'cajero', ...C.sesionInfo(), usuario: C.autenticada() ? C.actor.usuario : null, tienda: C.caja.tienda, caja: C.caja.caja, nav: ['venta', 'retiro', 'ventas', 'corte', ...(C.caja.cfg.metodos.includes('tarjeta_regalo') ? ['tarjetas'] : [])] }
-          : { rol: 'admin', ...A!.sesionInfo(), usuario: A!.autenticada() ? A!.actor.usuario : null, cajas: A!.cajas, nav: ['reportes', 'cortes', 'inventario', 'almacen', 'promociones', 'tarjetas', 'configuracion'] });
+          : { rol: 'admin', ...A!.sesionInfo(), usuario: A!.autenticada() ? A!.actor.usuario : null, cajas: A!.cajas, nav: A!.nav() });
       // ── cajero ──
       case 'GET /api/estado': return ok({ estado: exigirCajero().estado() });
       case 'POST /api/venta/actual': { const c = exigirCajero(); const cart = c.carritoActual(); return ok({ cart, carrito: c.vista(cart) }); }

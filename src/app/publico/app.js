@@ -95,7 +95,7 @@ async function pintarEncabezado() {
   if (S.sesion.rol === 'admin') {
     h.innerHTML = `<div class="logos"><img class="logo" src="${logoDe('DUO')}" alt="DÚO New York"><img class="logo" src="${logoDe('LON')}" alt="London Love"></div>
       <div class="titulo">Administración</div>
-      <div class="datos"><span class="chip-top" data-chip="usuario">${ico('user')}<span>Usuario: <b>${esc(S.sesion.usuario)}</b></span></span><span class="chip-top" data-chip="rol">${ico('gear')}<b>Administración</b></span>
+      <div class="datos"><span class="chip-top" data-chip="usuario">${ico('user')}<span>Usuario: <b>${esc(S.sesion.usuario)}</b></span></span><span class="chip-top" data-chip="rol">${ico('gear')}<b>Administración${S.sesion.requiere_login && S.sesion.rol_usuario ? ` · ${S.sesion.rol_usuario === 'almacenista' ? 'Almacenista' : 'Supervisor'}` : ''}</b></span>
       <span class="chip-top" data-chip="alcance">${ico('store')}<span>Una, varias o todas las cajas</span></span>${S.sesion.requiere_login ? `<button class="btn" type="button" id="btn-salir" title="Cerrar la sesión">${ico('x')}<span>Cerrar sesión</span></button>` : ''}</div>`;
     pie.innerHTML = `<span>Usuario: ${esc(S.sesion.usuario)}</span><span>Administración · consolida cajas y tiendas</span><span>Precios en MXN</span>`;
     await pintarTipoCambio();
@@ -141,7 +141,7 @@ const NAV = {
 function pintarNav() {
   // En la página de prueba (una sola ventana) se puede pasar de la caja a Administración y volver; en la app real cada sesión es la suya.
   const cambia = !!window.__POS_CAMBIAR_SESION__;
-  const items = S.sesion.rol === 'cajero' ? [...S.sesion.nav, ...(cambia ? ['administracion'] : [])] : [...S.sesion.nav, 'creditos', ...(cambia ? ['volver_caja'] : [])]; // Créditos vive en Administración, no en la venta
+  const items = S.sesion.rol === 'cajero' ? [...S.sesion.nav, ...(cambia ? ['administracion'] : [])] : [...S.sesion.nav, ...(S.sesion.rol_usuario === 'almacenista' ? [] : ['creditos']), ...(cambia ? ['volver_caja'] : [])]; // Créditos vive en Administración, no en la venta
   $('#nav').innerHTML = items.map((v) => v === 'creditos'
     ? `<button type="button" data-proximamente="creditos" disabled title="Próximamente" aria-label="Créditos (próximamente)">${ico(NAV[v][1])}<span>${NAV[v][0]}</span></button>`
     : `<button type="button" data-vista="${v}" title="${NAV[v][0]}" ${v === ({ descuentos: 'promociones', dolares: 'cortes', entregas: 'almacen', conteo_limbo: 'inventario' }[S.vista] ?? S.vista) ? 'aria-current="page"' : ''}>${ico(NAV[v][1])}<span>${NAV[v][0]}</span></button>`).join('');
@@ -882,14 +882,14 @@ async function abrirArticulo(a) {
     <form id="form-articulo" autocomplete="off">
       ${campo('art-descripcion', 'Descripción', a.descripcion)}${campo('art-marca', 'Marca', a.marca)}${campo('art-estilo', 'Estilo', a.estilo)}${campo('art-lote', 'Lote', a.lote)}
       <div class="campo"><label for="art-depto">Departamento</label><select id="art-depto" style="width:100%;padding:10px;border:2px solid var(--borde);border-radius:10px;background:var(--superficie)">${deptos.map((n) => `<option ${n === a.departamento ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></div>
-      ${campo('art-precio', 'Precio de venta (MXN)', centavosAPesos(a.precio), 'inputmode="decimal"')}
-      <p class="nota">Un cambio de precio vale para las ventas siguientes; lo ya vendido conserva el suyo. Queda registrado en el historial.</p>
+      ${campo('art-precio', 'Precio de venta (MXN)', centavosAPesos(a.precio), `inputmode="decimal" ${S.sesion.rol_usuario === 'almacenista' ? 'readonly title="Solo un supervisor cambia precios"' : ''}`)}
+      <p class="nota">${S.sesion.rol_usuario === 'almacenista' ? 'El precio solo lo cambia un supervisor. ' : ''}Un cambio de precio vale para las ventas siguientes; lo ya vendido conserva el suyo. Queda registrado en el historial.</p>
       <div id="msg-art" class="mensaje" role="status" aria-live="polite"></div>
-      <div class="filas"><button class="btn" type="button" id="art-cerrar">Cerrar</button><button class="btn" type="button" id="art-historial">${ico('clock')}<span>Historial</span></button><button class="btn" type="button" id="art-promo">${ico('percent')}<span>Crear promoción</span></button><button class="btn btn-primario" type="submit" id="art-guardar" style="width:auto;flex:1">${ico('check')}<span>Guardar cambios</span></button></div>
+      <div class="filas"><button class="btn" type="button" id="art-cerrar">Cerrar</button><button class="btn" type="button" id="art-historial">${ico('clock')}<span>Historial</span></button>${S.sesion.rol_usuario === 'almacenista' ? '' : `<button class="btn" type="button" id="art-promo">${ico('percent')}<span>Crear promoción</span></button>`}<button class="btn btn-primario" type="submit" id="art-guardar" style="width:auto;flex:1">${ico('check')}<span>Guardar cambios</span></button></div>
     </form>
     <div id="art-hist" class="tabla-cont" hidden></div>`;
   $('#art-cerrar').addEventListener('click', () => d.close());
-  $('#art-promo').addEventListener('click', async () => { d.close(); S.hoyPromo = S.hoyPromo ?? new Date(Date.now() - 7 * 3600e3).toISOString().slice(0, 10); await abrirPromo(null, { item: a }); });
+  if ($('#art-promo')) $('#art-promo').addEventListener('click', async () => { d.close(); S.hoyPromo = S.hoyPromo ?? new Date(Date.now() - 7 * 3600e3).toISOString().slice(0, 10); await abrirPromo(null, { item: a }); });
   $('#art-historial').addEventListener('click', async () => {
     const h = $('#art-hist');
     if (!h.hidden) { h.hidden = true; return; }
@@ -902,10 +902,11 @@ async function abrirArticulo(a) {
   $('#form-articulo').addEventListener('submit', async (ev) => {
     ev.preventDefault();
     const m = $('#msg-art');
-    const precio = parseMXN($('#art-precio').value);
+    const soloLectura = S.sesion.rol_usuario === 'almacenista'; // el almacenista no cambia precios
+    const precio = soloLectura ? a.precio : parseMXN($('#art-precio').value);
     if (precio === null) { m.className = 'mensaje error'; m.textContent = 'Escriba el precio en pesos (por ejemplo 899 o 899.50).'; return; }
     try {
-      const r = await api('/api/admin/articulos', { item_id: a.item_id, cambios: { descripcion: $('#art-descripcion').value, marca: $('#art-marca').value, estilo: $('#art-estilo').value, lote: $('#art-lote').value, departamento: $('#art-depto').value, precio } });
+      const r = await api('/api/admin/articulos', { item_id: a.item_id, cambios: { descripcion: $('#art-descripcion').value, marca: $('#art-marca').value, estilo: $('#art-estilo').value, lote: $('#art-lote').value, departamento: $('#art-depto').value, ...(soloLectura ? {} : { precio }) } });
       d.close();
       await cargarListaInventario();
       const mm = $('#inv-msg'); mm.className = 'mensaje ok'; mm.textContent = `Artículo ${r.articulo.item_no ?? ''} guardado.`;
@@ -2167,14 +2168,16 @@ async function vistaConfiguracion(tab) {
 async function vistaCajeros() {
   const [{ cajeros }, { administradores }] = await Promise.all([api('/api/admin/cajeros'), api('/api/admin/administradores')]);
   cuerpoVista().innerHTML = `<div class="titulo-vista">${ico('user')}<h1>Usuarios</h1></div>
-    <section class="panel" id="panel-admins" style="margin-bottom:12px"><h2 style="margin-top:0">Administradores</h2>
-      <p class="nota" style="margin-top:0">${administradores.some((a) => a.activo) ? 'Entran a esta consola con su usuario y contraseña (6 a 40 caracteres). Sus datos solo viven en el servidor central, no en las cajas.' : '<b>Esta consola está abierta: cualquiera que la abra puede entrar.</b> Cree un administrador para que pida usuario y contraseña. Quien lo crea queda dentro como ese administrador.'}</p>
+    <section class="panel" id="panel-admins" style="margin-bottom:12px"><h2 style="margin-top:0">Supervisores y almacenistas (entran a Administración)</h2>
+      <p class="nota" style="margin-top:0">${administradores.some((a) => a.activo) ? '<b>Supervisor</b>: ve todo Administración y autoriza operaciones en la caja con su clave de caja (4 a 8 dígitos). <b>Almacenista</b>: solo Inventario y Almacén, y no cambia precios. Entran con su usuario y contraseña (6 a 40 caracteres), que solo viven en el servidor central. Los cajeros no entran a Administración.' : '<b>Esta consola está abierta: cualquiera que la abra puede entrar.</b> Cree el primer usuario (debe ser supervisor) para que pida usuario y contraseña. Quien lo crea queda dentro.'}</p>
       <div id="msg-admins" class="mensaje" role="status" aria-live="polite"></div>
-      <div class="tabla-cont"><table id="tabla-admins"><thead><tr><th>Nombre</th><th>Estado</th><th>Nueva contraseña</th><th></th></tr></thead><tbody>
-      ${administradores.map((x) => `<tr data-admin="${esc(x.id)}"><td>${esc(x.nombre)}</td><td>${x.activo ? 'Activo' : 'Desactivado'}</td><td><input type="password" class="a-clave" placeholder="dejar vacío = no cambiar" aria-label="Nueva contraseña de ${esc(x.nombre)}" style="padding:4px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie)"></td>
-        <td class="filas" style="flex-wrap:nowrap"><button class="btn a-guardar" type="button">${ico('check')}<span>Cambiar contraseña</span></button><button class="btn a-activo" type="button">${x.activo ? 'Desactivar' : 'Activar'}</button></td></tr>`).join('') || '<tr><td colspan="4" class="vacio">Aún no hay administradores.</td></tr>'}</tbody></table></div>
+      <div class="tabla-cont"><table id="tabla-admins"><thead><tr><th>Nombre</th><th>Rol</th><th>Estado</th><th>Nueva contraseña</th><th>Clave de caja</th><th></th></tr></thead><tbody>
+      ${administradores.map((x) => `<tr data-admin="${esc(x.id)}" data-rol="${x.rol}"><td>${esc(x.nombre)}</td><td>${x.rol === 'almacenista' ? 'Almacenista' : 'Supervisor'}</td><td>${x.activo ? 'Activo' : 'Desactivado'}</td><td><input type="password" class="a-clave" placeholder="dejar vacío = no cambiar" aria-label="Nueva contraseña de ${esc(x.nombre)}" style="padding:4px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie)"></td><td>${x.rol === 'supervisor' ? `<input type="password" inputmode="numeric" class="a-clave-caja" placeholder="${x.clave_caja ? 'dejar vacío = no cambiar' : 'sin clave: no autoriza en la caja'}" aria-label="Clave de caja de ${esc(x.nombre)}" style="padding:4px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie)">` : '—'}</td>
+        <td class="filas" style="flex-wrap:nowrap"><button class="btn a-guardar" type="button">${ico('check')}<span>Guardar cambios</span></button><button class="btn a-activo" type="button">${x.activo ? 'Desactivar' : 'Activar'}</button></td></tr>`).join('') || '<tr><td colspan="6" class="vacio">Aún no hay usuarios de Administración.</td></tr>'}</tbody></table></div>
       <form id="form-admin" class="filas" style="margin-top:12px;align-items:flex-end"><div class="campo"><label for="adm-nombre">Nombre</label><input id="adm-nombre" class="texto" maxlength="40" autocomplete="off"></div><div class="campo"><label for="adm-clave">Contraseña</label><input id="adm-clave" type="password" autocomplete="new-password"></div>
-        <button class="btn btn-primario" id="btn-adm" type="submit" style="width:auto">${ico('plus')}<span>Agregar administrador</span></button></form></section>
+        <div class="campo"><label for="adm-rol">Rol</label><select id="adm-rol" style="padding:10px;border:2px solid var(--borde);border-radius:10px;background:var(--superficie)"><option value="supervisor">Supervisor</option><option value="almacenista" ${administradores.length ? '' : 'disabled'}>Almacenista</option></select></div>
+        <div class="campo" id="adm-caja-campo"><label for="adm-clave-caja">Clave de caja (4 a 8 dígitos)</label><input id="adm-clave-caja" type="password" inputmode="numeric" autocomplete="off"></div>
+        <button class="btn btn-primario" id="btn-adm" type="submit" style="width:auto">${ico('plus')}<span>Agregar usuario</span></button></form></section>
     <h2>Cajeros</h2>
     <p class="nota">Cada cajero tiene su propia clave (4 a 8 dígitos) para confirmar operaciones a su nombre, como dar de alta un artículo en la caja. El nombre debe ser el del usuario con el que entra a la caja. La clave no se puede volver a ver: si se olvida, se cambia.</p>
     <div id="msg-cajeros" class="mensaje" role="status" aria-live="polite"></div>
@@ -2183,12 +2186,13 @@ async function vistaCajeros() {
       <td class="filas" style="flex-wrap:nowrap"><button class="btn c-guardar" type="button">${ico('check')}<span>Cambiar clave</span></button><button class="btn c-activo" type="button">${x.activo ? 'Desactivar' : 'Activar'}</button></td></tr>`).join('') || '<tr><td colspan="4" class="vacio">Aún no hay cajeros con clave: sin ella nadie puede dar de alta artículos en la caja.</td></tr>'}</tbody></table></div>
     <form id="form-cajero" class="filas" style="margin-top:12px;align-items:flex-end"><div class="campo"><label for="caj-nombre">Nombre del cajero</label><input id="caj-nombre" class="texto" maxlength="40"></div><div class="campo"><label for="caj-clave">Clave</label><input id="caj-clave" type="password" inputmode="numeric" autocomplete="off"></div>
       <button class="btn btn-primario" id="btn-caj" type="submit" style="width:auto">${ico('plus')}<span>Agregar cajero</span></button></form>`;
+  $('#adm-rol').addEventListener('change', () => { $('#adm-caja-campo').hidden = $('#adm-rol').value !== 'supervisor'; });
   const msgA = (t, tipo = 'error') => { const m = $('#msg-admins'); m.className = `mensaje ${tipo}`; m.textContent = t; };
   $('#form-admin').addEventListener('submit', async (ev) => {
     ev.preventDefault();
     const eraAbierta = !administradores.some((a) => a.activo);
     try {
-      await api('/api/admin/administradores', { nombre: $('#adm-nombre').value, clave: $('#adm-clave').value });
+      await api('/api/admin/administradores', { nombre: $('#adm-nombre').value, clave: $('#adm-clave').value, rol: $('#adm-rol').value, ...($('#adm-rol').value === 'supervisor' && $('#adm-clave-caja').value ? { clave_caja: $('#adm-clave-caja').value } : {}) });
       if (eraAbierta) { S.sesion = await api('/api/sesion'); await pintarEncabezado(); }
       await vistaCajeros(); msgA('Administrador agregado.', 'ok');
     } catch (e) { msgA(e.message); }
@@ -2198,8 +2202,9 @@ async function vistaCajeros() {
     const activo = administradores.find((c) => c.id === id).activo;
     tr.querySelector('.a-guardar').addEventListener('click', async () => {
       const clave = tr.querySelector('.a-clave').value;
-      if (!clave) return msgA('Escriba la nueva contraseña.');
-      try { await api('/api/admin/administradores', { id, clave }); await vistaCajeros(); msgA('Contraseña cambiada.', 'ok'); } catch (e) { msgA(e.message); }
+      const claveCaja = tr.querySelector('.a-clave-caja')?.value ?? '';
+      if (!clave && !claveCaja) return msgA('Escriba la nueva contraseña o la nueva clave de caja.');
+      try { await api('/api/admin/administradores', { id, ...(clave ? { clave } : {}), ...(claveCaja ? { clave_caja: claveCaja } : {}) }); await vistaCajeros(); msgA('Cambios guardados.', 'ok'); } catch (e) { msgA(e.message); }
     });
     tr.querySelector('.a-activo').addEventListener('click', async () => {
       try { await api('/api/admin/administradores', { id, activo: !activo }); S.sesion = await api('/api/sesion'); await vistaCajeros(); } catch (e) { msgA(e.message); }

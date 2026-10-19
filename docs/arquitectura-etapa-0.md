@@ -571,3 +571,19 @@ Reportes · Cortes (con el botón «Dólares recibidos») · Inventario · Almac
 - **API**: `POST /api/login`, `POST /api/logout`; `GET /api/sesion` informa `requiere_login`, `autenticado`, el usuario y, en la caja, la lista de cajeros activos. Cualquier otra ruta sin sesión responde 401 `NO_AUTENTICADO` (429 `CLAVE_BLOQUEADA`) y la pantalla vuelve al inicio de sesión. La sesión vive en la memoria del servicio de esa caja o de Administración: reiniciarlo la cierra.
 - **Qué NO es todavía**: no hay cierre automático por inactividad, ni cookies o tokens por navegador (el servicio local de cada caja atiende un solo puesto), ni roles distintos dentro de Administración, ni recuperación de una contraseña olvidada si solo hay un administrador (hoy la salvaguarda es tener dos). El hash es SHA-256 con sal, suficiente para un prototipo pero no un derivador lento de claves.
 - **Verificado**: pruebas IS1–IS4 (ambos almacenes: sesión, 401, bloqueo, desactivación, administradores solo en el central) y de navegador (B16–B17: alta de usuarios, inicio y cierre de sesión en Administración y en la caja, venta a nombre del cajero).
+
+## 36. Roles: cajero, supervisor y almacenista [P]
+
+Reemplaza lo dicho de «administradores» en la sección 35: quien entra a Administración es un **supervisor** o un **almacenista**; **los cajeros no entran** (su usuario y clave de cajero no sirven en Administración).
+
+| Rol | Dónde entra | Qué puede |
+|---|---|---|
+| **Cajero** | solo la caja (usuario y clave de 4 a 8 dígitos) | vender, cobrar, retiros, devoluciones, etc.; da de alta artículos con su propia clave |
+| **Supervisor** | Administración completa (usuario y contraseña de 6 a 40 caracteres) | todo Administración (reportes, cortes, inventario, almacén, promociones, tarjetas, configuración y usuarios) y **autoriza operaciones en la caja** con su **clave de caja** (4 a 8 dígitos): hoy los descuentos |
+| **Almacenista** | solo **Inventario y Almacén** (incluye entregas, piezas faltantes, corrección de entradas, conteo de El Limbo) | editar artículos **sin cambiar el precio**, ver el historial y el dólar del día; sin promociones, reportes, cortes, tarjetas, configuración ni usuarios |
+
+- **Alta** en Configuración → Usuarios (solo supervisores). El **primer usuario debe ser supervisor** (es quien crea a los demás). El rol no cambia después. Siempre debe quedar **al menos un supervisor activo**.
+- **Supervisor ↔ caja**: al crear un supervisor se captura su clave de caja; se registra como supervisor de caja con el **mismo nombre** y se mantiene al editar o desactivar al usuario (desactivarlo invalida su clave de caja). Los supervisores que ya existían por separado en Promociones siguen funcionando.
+- **Cumplimiento en el servidor**: cada ruta de Administración revisa el rol (403 `PROHIBIDO`); el menú del almacenista solo muestra Inventario y Almacén, el campo de precio queda de solo lectura y no ve «Crear promoción». El encabezado muestra el rol.
+- **Pendiente de definir con el propietario**: qué otras operaciones de la caja deben pedir la clave de un supervisor (hoy solo los descuentos). Candidatas: cancelar una venta ya cobrada, devoluciones, retiros, fondo y entradas de efectivo, anular una venta con artículos, cambiar un precio en la venta.
+- **Verificado**: pruebas RO1–RO3 (ambos almacenes) y de navegador (B18: roles, menú del almacenista, precio de solo lectura, cajero rechazado, supervisor completo).

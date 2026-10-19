@@ -1162,6 +1162,66 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     await page.waitForSelector('#form-login');
     assert.deepEqual(errores.filter((e) => !/401|NO_AUTENTICADO|403|Failed to load resource/.test(e)), []);
   });
+
+  it('B18 roles: el almacenista solo ve Inventario y Almacén y no cambia precios; el cajero no entra a Administración; el supervisor ve todo', async (t) => {
+    execFileSync(process.execPath, [join(RAIZ, 'scripts', 'construir-prueba.mjs')], { stdio: 'pipe' });
+    const browser = await chromium.launch({ executablePath: chromiumPath, args: ['--no-sandbox'] });
+    t.after(() => browser.close());
+    const page = await (await browser.newContext({ viewport: { width: 1440, height: 900 }, colorScheme: 'light' })).newPage();
+    const errores: string[] = [];
+    page.on('pageerror', (e) => errores.push(String(e)));
+    page.on('console', (m) => { if (m.type() === 'error') errores.push(m.text()); });
+    await page.goto(`file://${HTML}`);
+    await page.waitForSelector('[data-chip="tienda"]');
+    await page.selectOption('#sesion-prueba', 'admin');
+    await page.click('#nav button[data-vista="configuracion"]');
+    await page.click('#cfg-tab-cajeros');
+    await page.waitForSelector('#form-admin');
+    // el primer usuario debe ser supervisor (la opción de almacenista está desactivada) y registra su clave de caja
+    assert.equal(await page.locator('#adm-rol option[value="almacenista"]').isDisabled(), true);
+    await page.fill('#adm-nombre', 'Edgardo'); await page.fill('#adm-clave', 'clave-segura'); await page.fill('#adm-clave-caja', '2468');
+    await page.click('#btn-adm');
+    await page.waitForFunction(() => document.querySelectorAll('#tabla-admins tr[data-admin]').length === 1);
+    await page.selectOption('#adm-rol', 'almacenista');
+    assert.equal(await page.locator('#adm-caja-campo').isHidden(), true, 'el almacenista no lleva clave de caja');
+    await page.fill('#adm-nombre', 'Gabo'); await page.fill('#adm-clave', 'clave-gabo');
+    await page.click('#btn-adm');
+    await page.waitForFunction(() => document.querySelectorAll('#tabla-admins tr[data-admin]').length === 2);
+    assert.match((await page.textContent('#tabla-admins tr[data-rol="almacenista"]'))!, /Almacenista/);
+    await page.fill('#caj-nombre', 'Lupe'); await page.fill('#caj-clave', '4321');
+    await page.click('#btn-caj');
+    await page.waitForSelector('#tabla-cajeros tr[data-cajero]');
+    await page.screenshot({ path: join(RAIZ, 'docs', 'capturas', '53-roles.png') });
+    // el almacenista
+    await page.click('#btn-salir');
+    await page.waitForSelector('#form-login');
+    await page.fill('#lg-usuario', 'Gabo'); await page.fill('#lg-clave', 'clave-gabo'); await page.click('#lg-entrar');
+    await page.waitForSelector('#nav button[data-vista="inventario"]');
+    assert.deepEqual(await page.$$eval('#nav button', (b) => b.map((x) => x.textContent!.trim())), ['Inventario', 'Almacén', 'Caja']);
+    assert.match((await page.textContent('[data-chip="rol"]'))!, /Almacenista/);
+    await page.waitForSelector('#tabla-inv-lista tr[data-item]');
+    await page.click('#tabla-inv-lista tr[data-item]');
+    await page.waitForSelector('#form-articulo');
+    assert.equal(await page.locator('#art-promo').count(), 0, 'sin «Crear promoción»');
+    assert.equal(await page.getAttribute('#art-precio', 'readonly'), '');
+    await page.fill('#art-marca', 'MARCA GABO');
+    await page.click('#art-guardar');
+    await page.waitForFunction(() => /guardado/.test(document.querySelector('#inv-msg')!.textContent!));
+    await page.screenshot({ path: join(RAIZ, 'docs', 'capturas', '54-almacenista.png') });
+    await page.click('#nav button[data-vista="almacen"]');
+    await page.waitForSelector('#btn-alta-lote');
+    // el cajero no entra a Administración
+    await page.click('#btn-salir');
+    await page.waitForSelector('#form-login');
+    await page.fill('#lg-usuario', 'Lupe'); await page.fill('#lg-clave', '4321'); await page.click('#lg-entrar');
+    await page.waitForFunction(() => /incorrectos/.test(document.querySelector('#msg-login')!.textContent!));
+    // el supervisor ve todo
+    await page.fill('#lg-usuario', 'Edgardo'); await page.fill('#lg-clave', 'clave-segura'); await page.click('#lg-entrar');
+    await page.waitForSelector('#nav button[data-vista="reportes"]');
+    assert.equal(await page.locator('#nav button[data-vista]').count(), 8, '7 pantallas más Caja');
+    assert.match((await page.textContent('[data-chip="rol"]'))!, /Supervisor/);
+    assert.deepEqual(errores.filter((e) => !/401|403|Failed to load resource/.test(e)), []);
+  });
 });
 
 const REAL = process.env.POS_INVENTARIO_REAL;
