@@ -526,3 +526,10 @@ Reportes · Cortes (con el botón «Dólares recibidos») · Inventario · Almac
 - **Regla**: el código exacto siempre manda. Si no hay coincidencia exacta ni por código alterno, se busca por aproximación: el código escaneado sin ceros a la izquierda contra el código del catálogo sin ceros y, si el código del catálogo es un UPC-A (12 dígitos, o 13 con un cero) con **dígito verificador válido**, contra su base sin ese dígito. Solo para códigos numéricos de **8 dígitos o más** (así «17» no encuentra nada por aproximación). Si hay varios candidatos se pregunta cuál (mismo flujo de código ambiguo).
 - **Dónde aplica**: escaneo en la venta, buscador de la venta y Alta Lote (una fila con el código corto de un artículo ya existente con UPC completo se suma a ese artículo en lugar de crear otro). El código guardado en el catálogo no se modifica.
 - **Verificado**: pruebas UPC1–UPC4 (ambos almacenes). Los dígitos verificadores de los códigos de prueba y del archivo real que se revisaron coinciden con esta fórmula.
+
+## 31. Búsqueda por texto en la venta [P]
+
+- **Palabras**: cada palabra escrita debe aparecer (en cualquier orden) en marca, descripción, estilo, lote o departamento. Un número también coincide con el **precio en pesos** («pantimedias 189», «189.00»).
+- **Orden**: primero código, Item # o código alterno exactos; luego los artículos cuya descripción **empieza** con lo escrito, después los que tienen una palabra que empieza así y al final el resto; a igual relevancia, el **Item # más alto (el más reciente) primero**. Antes salían en el orden del catálogo y un artículo nuevo quedaba fuera de los primeros 20.
+- **Cantidad**: se muestran 20 y el botón «Mostrar más resultados» pide 40 más (hasta 200). El mensaje indica el total.
+- **Verificado**: pruebas BT1–BT2 (ambos almacenes).

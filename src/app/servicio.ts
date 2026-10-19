@@ -273,8 +273,8 @@ export class ServicioCaja {
   buscar(texto: string) {
     return this.buscarConTotal(texto).resultados;
   }
-  buscarConTotal(texto: string) {
-    const { resultados, total } = this.caja.buscarConTotal(texto);
+  buscarConTotal(texto: string, limite = 20) {
+    const { resultados, total } = this.caja.buscarConTotal(texto, limite);
     return {
       total,
       resultados: resultados.map((a) => ({

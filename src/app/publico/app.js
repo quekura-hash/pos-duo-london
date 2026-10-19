@@ -499,14 +499,18 @@ async function escanear() {
   inp.focus();
 }
 
-async function buscarTexto(texto) {
-  const { resultados, total } = await api(`/api/buscar?q=${encodeURIComponent(texto)}`);
+async function buscarTexto(texto, limite = 20) {
+  const { resultados, total } = await api(`/api/buscar?q=${encodeURIComponent(texto)}&limite=${limite}`);
   if (!resultados.length) return msg(`No se encontró «${texto}» por código, Item # ni texto.`, 'error');
-  msg(total > resultados.length ? `${total} resultados para «${texto}»; se muestran los primeros ${resultados.length}. Escriba más texto para acotar.` : `${total} resultado(s) para «${texto}». Elija el artículo.`, 'aviso');
+  msg(total > resultados.length ? `${total} resultados para «${texto}»; se muestran los ${resultados.length} más relevantes. Escriba más palabras (o el precio) para acotar, o pulse «Mostrar más».` : `${total} resultado(s) para «${texto}». Elija el artículo.`, 'aviso');
   $('#resultados').innerHTML = `<div class="tabla-cont"><table class="tabla-resultados"><thead><tr><th>Item #</th><th>Código</th><th>Descripción</th><th>Marca</th><th>Estilo</th><th>Lote</th><th>Departamento</th><th class="num">Precio</th><th class="num">Existencia</th><th></th></tr></thead><tbody>${resultados.map((r) => `
     <tr data-item="${r.item_id}"><td>${esc(r.item_no ?? 'pendiente')}</td><td>${r.codigo ? esc(r.codigo) : '<em>(sin código)</em>'}${r.codigo_alterno ? `<br><small>alterno ${esc(r.codigo_alterno)}</small>` : ''}</td><td>${esc(r.descripcion)}</td><td>${esc(r.marca)}</td><td>${esc(r.estilo)}</td><td>${esc(r.lote)}</td><td>${esc(r.departamento)}</td><td class="num">${mxn(r.precio)}</td>
     <td class="num">${r.existencia}${r.existencia_verificada ? '' : ' (sin verificar)'}</td>
     <td>${!r.precio_valido ? '<span class="insignia cancelada" title="Precio en el catálogo: corregirlo antes de vender">Precio no vendible</span>' : `${r.duplicado ? '<span class="insignia" title="Código duplicado: la venta queda marcada para revisión">Código duplicado</span> ' : ''}<button class="btn" type="button" data-agregar="${r.item_id}">${ico('plus')}<span>Agregar</span></button>`}</td></tr>`).join('')}</tbody></table></div>`;
+  if (total > resultados.length && limite < 200) {
+    $('#resultados').insertAdjacentHTML('beforeend', `<button class="btn" type="button" id="btn-mostrar-mas" style="margin-top:8px">${ico('plus')}<span>Mostrar más resultados</span></button>`);
+    $('#btn-mostrar-mas').addEventListener('click', () => buscarTexto(texto, Math.min(200, limite + 40)));
+  }
   engancharAgregar();
 }
 function engancharAgregar() {

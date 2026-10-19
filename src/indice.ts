@@ -193,17 +193,29 @@ export class Indice {
   buscar(q: string, limite: number): { resultados: Articulo[]; total: number } {
     this.actualizar();
     const aprox = claveDeEscaneo(q);
-    const exactos = [...(this.porCodigo.get(q) ?? []), ...(this.porItemNo.get(q) ?? []), ...(this.porAlterno.get(q) ?? []), ...(aprox ? (this.porClave.get(aprox) ?? []) : [])];
+    const exactos = [...new Set([...(this.porCodigo.get(q) ?? []), ...(this.porItemNo.get(q) ?? []), ...(this.porAlterno.get(q) ?? []), ...(aprox ? (this.porClave.get(aprox) ?? []) : [])])];
     const vistos = new Set(exactos.map((a) => a.item_id));
-    const nq = sinAcentos(q);
     const lista: Articulo[] = [...new Set(exactos)];
-    let total = lista.length;
+    // Texto: cada palabra debe aparecer (en cualquier orden); un número también coincide con el precio en pesos («pantimedias 189»).
+    const palabras = sinAcentos(q).split(/\s+/).filter(Boolean);
+    const precios = palabras.map((w) => (/^\d+(\.\d{1,2})?$/.test(w) ? Math.round(Number(w) * 100) : null));
+    const hallados: Articulo[] = [];
     for (const [id, t] of this.texto) {
-      if (vistos.has(id) || !t.includes(nq)) continue;
-      total++;
-      if (lista.length < limite) lista.push(this.cat.get(id)!);
+      if (vistos.has(id)) continue;
+      const a = this.cat.get(id)!;
+      if (palabras.every((w, i) => t.includes(w) || precios[i] === a.precio)) hallados.push(a);
     }
-    return { resultados: lista.slice(0, limite), total };
+    // Primero los que EMPIEZAN con lo escrito (en la descripción), luego los que tienen una palabra que empieza así, y al final el resto;
+    // a igual relevancia, el Item # más alto (el más reciente) primero.
+    const rel = (a: Articulo) => {
+      const d = sinAcentos(a.descripcion);
+      if (d.startsWith(palabras[0] ?? '')) return 0;
+      return palabras.every((w) => d.split(/[^a-z0-9]+/).some((x) => x.startsWith(w))) ? 1 : 2;
+    };
+    const no = (a: Articulo) => (a.item_no !== null && /^\d+$/.test(a.item_no) ? Number(a.item_no) : -1);
+    hallados.sort((x, y) => rel(x) - rel(y) || no(y) - no(x));
+    lista.push(...hallados.slice(0, Math.max(0, limite - lista.length)));
+    return { resultados: lista.slice(0, limite), total: exactos.length + hallados.length };
   }
   /** ¿El artículo pertenece al catálogo inicial (tiene movimientos en El Limbo)? Sus ventas se descuentan de ahí. */
   esDeLimbo(itemId: string): boolean {

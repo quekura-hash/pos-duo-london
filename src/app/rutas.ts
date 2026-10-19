@@ -75,7 +75,7 @@ export async function atender(o: { cajero?: ServicioCaja; admin?: ServicioAdmin 
       case 'POST /api/tarjeta/recargar': return ok(await exigirCajero().recargarTarjetaRegalo(String(b.codigo ?? ''), Number(b.monto), b.recibido === undefined ? undefined : Number(b.recibido), b.ref));
       case 'POST /api/venta/ticket-regalo': return ok(await exigirCajero().ticketRegalo(b.sale_id));
       case 'POST /api/venta/reimprimir': return ok(await exigirCajero().reimprimir(b.sale_id));
-      case 'GET /api/buscar': return ok({ ...exigirCajero().buscarConTotal(q.get('q') ?? '') });
+      case 'GET /api/buscar': return ok({ ...exigirCajero().buscarConTotal(q.get('q') ?? '', Math.min(200, Math.max(1, Number(q.get('limite')) || 20))) });
       case 'GET /api/ventas': {
         const c = exigirCajero();
         // Cualquier intento de pedir otra caja se rechaza con 403; el cajero nunca recibe datos ajenos.
