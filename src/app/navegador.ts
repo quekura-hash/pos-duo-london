@@ -83,6 +83,7 @@ export function crearBanco(opsCatalogo?: Op[], estado?: EstadoBanco) {
 
 export type Banco = ReturnType<typeof crearBanco>;
 
+export { cifrarRespaldo, descifrarRespaldo, nombreRespaldo, sobrantes, esArchivoRespaldo, ErrorRespaldo, CLAVE_MIN } from '../respaldo.ts';
 export { aplicarDepartamentos, DEPARTAMENTOS_BASE, aOperacionesInventario, perfilConCantidad, escribirXlsx, leerInventario, leerXlsx, PERFILES };
 
 let desfaseMs = 0;

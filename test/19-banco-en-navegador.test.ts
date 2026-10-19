@@ -1665,6 +1665,87 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     assert.deepEqual(errores.filter((e) => !/401|403|Failed to load resource/.test(e)), []);
   });
 
+  it('B26 respaldo cifrado: se pide clave, se guarda en la carpeta elegida (o se descarga), no es legible y se restaura con la clave correcta', async (t) => {
+    execFileSync(process.execPath, [join(RAIZ, 'scripts', 'construir-prueba.mjs')], { stdio: 'pipe' });
+    const browser = await chromium.launch({ executablePath: chromiumPath, args: ['--no-sandbox'] });
+    t.after(() => browser.close());
+    const page = await (await browser.newContext({ viewport: { width: 1440, height: 900 }, colorScheme: 'light', acceptDownloads: true })).newPage();
+    const errores: string[] = [];
+    page.on('pageerror', (e) => errores.push(String(e)));
+    page.on('console', (m) => { if (m.type() === 'error') errores.push(m.text()); });
+    // carpeta de OneDrive simulada en memoria (en el equipo real es la carpeta que elige la persona)
+    await page.addInitScript(() => {
+      const archivos = new Map<string, Uint8Array>();
+      (window as any).__ARCHIVOS__ = archivos;
+      class Carpeta {
+        name = 'Respaldos POS (OneDrive)'; kind = 'directory';
+        async queryPermission() { return 'granted'; }
+        async requestPermission() { return 'granted'; }
+        async getFileHandle(n: string) { return { kind: 'file', name: n, createWritable: async () => ({ write: async (b: Uint8Array) => { archivos.set(n, new Uint8Array(b)); }, close: async () => {} }) }; }
+        async removeEntry(n: string) { archivos.delete(n); }
+        values() { const it = [...archivos.keys()].map((name) => ({ kind: 'file', name })); let i = 0; return { next: async () => (i < it.length ? { done: false, value: it[i++] } : { done: true }) }; }
+      }
+      (window as any).showDirectoryPicker = async () => new Carpeta();
+    });
+    await page.goto(`file://${HTML}`);
+    await page.waitForSelector('#scan');
+    // una venta para que haya algo que respaldar
+    await page.fill('#scan', '7501234567890'); await page.press('#scan', 'Enter');
+    await page.waitForSelector('#cuerpo tr[data-linea]');
+    await page.fill('#recibido', '120'); await page.click('#btn-cobrar');
+    await page.waitForSelector('#dlg-ticket[open] #ticket-texto');
+    await page.click('#btn-nueva');
+    assert.match((await page.textContent('#estado-respaldo'))!, /SIN clave|Sin carpeta/);
+    // sin clave: se pide (mínimo 8 caracteres, dos veces); sin carpeta el respaldo se descarga
+    await page.click('#resp-ahora');
+    await page.waitForSelector('#dlg-respaldo[open] #form-resp');
+    await page.fill('#resp-k1', 'corta'); await page.fill('#resp-k2', 'corta');
+    await page.click('#form-resp button[type=submit]');
+    await page.waitForFunction(() => /al menos 8/.test(document.querySelector('#msg-resp')!.textContent!));
+    await page.fill('#resp-k1', 'clave-respaldo-1'); await page.fill('#resp-k2', 'otra-distinta-1');
+    await page.click('#form-resp button[type=submit]');
+    await page.waitForFunction(() => /no coinciden/.test(document.querySelector('#msg-resp')!.textContent!));
+    await page.fill('#resp-k2', 'clave-respaldo-1');
+    await page.click('#form-resp button[type=submit]');
+    await page.waitForFunction(() => /clave guardada/.test(document.querySelector('#estado-respaldo')!.textContent!));
+    const [descarga] = await Promise.all([page.waitForEvent('download'), page.click('#resp-ahora')]);
+    assert.match(descarga.suggestedFilename(), /^respaldo-pos-\d{4}-\d{2}-\d{2}-\d{4}\.posbak$/);
+    const ruta = await descarga.path();
+    const bytes = readFileSync(ruta!);
+    assert.equal(bytes.subarray(0, 7).toString('latin1'), 'POSBAK1');
+    assert.doesNotMatch(bytes.toString('latin1'), /sale\.confirmed|7501234567890|MASCADA/, 'el archivo no es legible sin la clave');
+    await page.waitForFunction(() => /último respaldo: hoy/.test(document.querySelector('#estado-respaldo')!.textContent!));
+    // con carpeta elegida el respaldo se escribe ahí
+    await page.click('#resp-carpeta');
+    await page.waitForFunction(() => /Carpeta: Respaldos POS \(OneDrive\)/.test(document.querySelector('#estado-respaldo')!.textContent!));
+    await page.click('#resp-ahora');
+    await page.waitForFunction(() => (window as any).__ARCHIVOS__.size === 1);
+    assert.match(await page.evaluate(() => [...(window as any).__ARCHIVOS__.keys()][0]), /^respaldo-pos-.*\.posbak$/);
+    // se pierden los datos y se restaura: primero con la clave equivocada, luego con la buena
+    await page.click('#reiniciar');
+    await page.waitForSelector('#scan');
+    await page.click('#nav button[data-vista="ventas"]');
+    await page.waitForSelector('#tabla-ventas');
+    assert.equal(await page.locator('#tabla-ventas tr[data-folio]').count(), 0, 'tras reiniciar no hay ventas');
+    await page.setInputFiles('#resp-archivo', { name: 'respaldo.posbak', mimeType: 'application/octet-stream', buffer: bytes });
+    await page.waitForSelector('#dlg-respaldo[open] #form-resp');
+    await page.fill('#resp-k1', 'clave-equivocada-9');
+    await page.click('#form-resp button[type=submit]');
+    await page.waitForFunction(() => /No se pudo restaurar: la clave no es correcta/.test(document.querySelector('#estado-respaldo')!.textContent!));
+    await page.setInputFiles('#resp-archivo', { name: 'respaldo.posbak', mimeType: 'application/octet-stream', buffer: bytes });
+    await page.waitForSelector('#dlg-respaldo[open] #form-resp');
+    await page.fill('#resp-k1', 'clave-respaldo-1');
+    await page.click('#form-resp button[type=submit]');
+    await page.waitForSelector('#resp-detalle');
+    assert.match((await page.textContent('#resp-detalle'))!, /Respaldo del hoy/);
+    await Promise.all([page.waitForEvent('load'), page.click('#resp-si')]);
+    await page.waitForSelector('#scan');
+    await page.click('#nav button[data-vista="ventas"]');
+    await page.waitForSelector('#tabla-ventas tr[data-folio="1"]');
+    assert.match((await page.textContent('#tabla-ventas tr[data-folio="1"]'))!, /000001.*\$120\.00/);
+    assert.deepEqual(errores.filter((e) => !/401|403|Failed to load resource/.test(e)), []);
+  });
+
   it('B20 cierre por inactividad: aviso un minuto antes, «Seguir trabajando» renueva, al cerrarse la venta queda en espera y se vuelve al inicio de sesión', async (t) => {
     execFileSync(process.execPath, [join(RAIZ, 'scripts', 'construir-prueba.mjs')], { stdio: 'pipe' });
     const browser = await chromium.launch({ executablePath: chromiumPath, args: ['--no-sandbox'] });

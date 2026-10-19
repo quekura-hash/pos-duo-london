@@ -49,6 +49,15 @@ const marcado = `
     <button class="btn" type="button" id="quitar-inv" hidden>Quitar inventario cargado</button>
     <span class="estado-inv" id="estado-inv" role="status" aria-live="polite">Datos de ejemplo (6 artículos). El archivo que importe se lee en este navegador y no se envía a ningún servidor.</span>
   </div>
+  <div class="fila-inv" id="fila-respaldo">
+    <strong>Respaldo cifrado</strong>
+    <button class="btn" type="button" id="resp-carpeta">Elegir carpeta (OneDrive)</button>
+    <button class="btn" type="button" id="resp-clave">Clave del respaldo…</button>
+    <button class="btn btn-primario" type="button" id="resp-ahora">Respaldar ahora</button>
+    <button class="btn" type="button" id="resp-restaurar">Restaurar respaldo…</button>
+    <input type="file" id="resp-archivo" accept=".posbak" hidden>
+    <span class="estado-inv" id="estado-respaldo" role="status" aria-live="polite"></span>
+  </div>
   <details><summary id="resumen-ayuda">Artículos de prueba: qué escanear</summary><div id="ayuda"></div></details>
 </div>
 <div class="app">
@@ -63,7 +72,8 @@ const marcado = `
 </div>
 <dialog id="dlg-ticket" aria-labelledby="dlg-titulo"></dialog>
 <dialog id="dlg-tc" aria-labelledby="tc-titulo"></dialog>
-<dialog id="dlg-importar" aria-labelledby="dlg-imp-titulo"></dialog>`;
+<dialog id="dlg-importar" aria-labelledby="dlg-imp-titulo"></dialog>
+<dialog id="dlg-respaldo" aria-labelledby="resp-titulo"></dialog>`;
 const arranque = readFileSync(join(raiz, 'scripts/arranque-prueba.js'), 'utf8').replace(/<\/script/gi, '<\\/script');
 const piezas = `<title>POS Venta de Prueba</title>
 <style>

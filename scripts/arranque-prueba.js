@@ -168,6 +168,140 @@
     $('#sesion-prueba').value = ctl.sesion;
   };
   window.__POS_LEER_XLSX__ = function (archivo) { return archivo.arrayBuffer().then(function (b) { return PosBanco.leerXlsx(window.ExcelJS, new Uint8Array(b)); }); };
+
+  // ── Respaldo cifrado: a una carpeta (p. ej. la que sincroniza OneDrive) o, si el navegador no deja elegir carpeta, como descarga ──
+  var RESP_CADA_MS = 30 * 60 * 1000; // respaldo automático si hay cambios y pasaron 30 minutos
+  var RESP_CONSERVAR = 30;
+  var resp = { cfg: null, carpeta: null, trabajando: false };
+  function respHora(iso) { var d = new Date(iso); var hoy = new Date(); var hm = ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2); return d.toDateString() === hoy.toDateString() ? 'hoy ' + hm : d.toLocaleDateString('es-MX') + ' ' + hm; }
+  function respEstado(texto, error) { var e = $('#estado-respaldo'); e.textContent = texto; e.style.color = error ? 'var(--error, #b3261e)' : ''; }
+  function respPintar() {
+    var c = resp.cfg || {};
+    var partes = [];
+    partes.push(resp.carpeta ? 'Carpeta: ' + resp.carpeta.name : 'Sin carpeta: se descarga el archivo');
+    partes.push(c.clave ? 'clave guardada' : 'SIN clave');
+    partes.push(c.ultimo ? 'último respaldo: ' + respHora(c.ultimo) : 'aún no hay respaldos');
+    respEstado(partes.join(' · '), !c.clave);
+  }
+  function respGuardarCfg() { return guardar('respaldo-cfg', resp.cfg); }
+  function respCargar() {
+    return Promise.all([leer('respaldo-cfg'), leer('respaldo-carpeta')]).then(function (r) { resp.cfg = r[0] || {}; resp.carpeta = r[1] || null; respPintar(); });
+  }
+  function respDialogoClave(titulo, texto, confirmar) {
+    return new Promise(function (fin) {
+      var d = $('#dlg-respaldo');
+      d.innerHTML = '<h2 id="resp-titulo" style="margin-top:0">' + esc(titulo) + '</h2><p>' + texto + '</p><form id="form-resp" autocomplete="off">' +
+        '<div class="campo"><label for="resp-k1">Clave</label><input id="resp-k1" type="password" autocomplete="new-password"></div>' +
+        (confirmar ? '<div class="campo"><label for="resp-k2">Repita la clave</label><input id="resp-k2" type="password" autocomplete="new-password"></div>' : '') +
+        '<div id="msg-resp" class="mensaje error" role="alert"></div><div class="filas"><button class="btn" type="button" id="resp-no">Cancelar</button><button class="btn btn-primario" type="submit" style="width:auto;flex:1">Aceptar</button></div></form>';
+      var listo = false;
+      function cerrar(v) { if (listo) return; listo = true; d.close(); fin(v); }
+      $('#resp-no').addEventListener('click', function () { cerrar(null); });
+      d.addEventListener('cancel', function () { cerrar(null); }, { once: true });
+      $('#form-resp').addEventListener('submit', function (ev) {
+        ev.preventDefault();
+        var k = $('#resp-k1').value, m = $('#msg-resp');
+        if (k.length < PosBanco.CLAVE_MIN) { m.textContent = 'La clave lleva al menos ' + PosBanco.CLAVE_MIN + ' caracteres.'; return; }
+        if (confirmar && k !== $('#resp-k2').value) { m.textContent = 'Las dos claves no coinciden.'; return; }
+        cerrar(k);
+      });
+      d.showModal(); $('#resp-k1').focus();
+    });
+  }
+  function respPedirClaveNueva() {
+    return respDialogoClave('Clave del respaldo', 'Cifra los respaldos antes de salir de esta computadora: <b>sin esta clave no se pueden abrir</b>. Anótela y guárdela en un lugar seguro (no en OneDrive junto a los respaldos). Se guarda en este navegador para los respaldos automáticos.', true).then(function (k) {
+      if (!k) return null;
+      resp.cfg = resp.cfg || {}; resp.cfg.clave = k;
+      return respGuardarCfg().then(function () { respPintar(); return k; });
+    });
+  }
+  function respElegirCarpeta() {
+    if (!window.showDirectoryPicker) { respEstado('Este navegador no deja elegir una carpeta: el respaldo se descargará como archivo (use Chrome o Edge para elegir la carpeta de OneDrive).', true); return Promise.resolve(); }
+    return window.showDirectoryPicker({ id: 'respaldo-pos', mode: 'readwrite', startIn: 'documents' }).then(function (h) {
+      resp.carpeta = h;
+      return guardar('respaldo-carpeta', h).then(respPintar);
+    }).catch(function (e) {
+      if (e && e.name === 'AbortError') return;
+      respEstado('No se pudo usar esa carpeta (' + (e && e.name === 'SecurityError' ? 'esta ventana no lo permite; abra la página directamente en Chrome o Edge' : (e && e.message)) + '). Se descargará como archivo.', true);
+    });
+  }
+  function respDescargar(nombre, bytes) {
+    var viewer = window.claude && window.claude.use ? window.claude.use('downloads') : Promise.resolve(null);
+    return Promise.resolve(viewer).then(function (d) {
+      if (d) return d.save({ filename: nombre, data: bytes }).then(function () { return 'archivo entregado'; }, function (e) { if (e && e.code === 'declined') throw new Error('descarga cancelada'); throw e; });
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([bytes], { type: 'application/octet-stream' }));
+      a.download = nombre; document.body.appendChild(a); a.click(); a.remove();
+      return 'descarga iniciada';
+    });
+  }
+  // Escribe en la carpeta elegida y borra los respaldos más viejos (se conservan los últimos RESP_CONSERVAR).
+  function respEscribirEnCarpeta(nombre, bytes, pedirPermiso) {
+    var h = resp.carpeta;
+    var perm = h.queryPermission ? h.queryPermission({ mode: 'readwrite' }) : Promise.resolve('granted');
+    return perm.then(function (p) {
+      if (p === 'granted') return p;
+      if (!pedirPermiso) throw Object.assign(new Error('La carpeta necesita permiso: pulse «Respaldar ahora».'), { permiso: true });
+      return h.requestPermission({ mode: 'readwrite' });
+    }).then(function (p) {
+      if (p !== 'granted') throw new Error('sin permiso para escribir en la carpeta');
+      return h.getFileHandle(nombre, { create: true });
+    }).then(function (f) { return f.createWritable(); }).then(function (w) { return w.write(bytes).then(function () { return w.close(); }); }).then(function () {
+      var nombres = [];
+      return (function leer() { var it = h.values(); return (function paso() { return it.next().then(function (r) { if (r.done) return; if (r.value.kind === 'file') nombres.push(r.value.name); return paso(); }); })(); })().then(function () {
+        return Promise.all(PosBanco.sobrantes(nombres, RESP_CONSERVAR).map(function (n) { return h.removeEntry(n).catch(function () {}); }));
+      });
+    });
+  }
+  function respHacer(manual) {
+    if (resp.trabajando) return Promise.resolve();
+    var c = resp.cfg || {};
+    if (!c.clave) { if (!manual) return Promise.resolve(); return respPedirClaveNueva().then(function (k) { return k ? respHacer(true) : undefined; }); }
+    resp.trabajando = true;
+    respEstado('Respaldando…');
+    var f = ctl.estadoParaGuardar();
+    return leer('inventario').then(function (inv) {
+      return PosBanco.cifrarRespaldo({ version: 1, creado: new Date().toISOString(), inventario: inv || null, estado: f.estado || null }, c.clave);
+    }).then(function (bytes) {
+      var nombre = PosBanco.nombreRespaldo(new Date());
+      var destino = resp.carpeta ? respEscribirEnCarpeta(nombre, bytes, manual).then(function () { return 'carpeta ' + resp.carpeta.name; }) : (manual ? respDescargar(nombre, bytes) : Promise.reject(new Error('sin carpeta')));
+      return destino.then(function (donde) { resp.cfg.ultimo = new Date().toISOString(); resp.cfg.version = f.version; resp.cfg.ultimoNombre = nombre; return respGuardarCfg().then(function () { respPintar(); respEstado($('#estado-respaldo').textContent + ' (' + nombre + ' → ' + donde + ')'); }); });
+    }).catch(function (e) {
+      respEstado('El respaldo falló: ' + (e && e.message ? e.message : e) + (resp.carpeta ? '' : ''), true);
+    }).then(function () { resp.trabajando = false; });
+  }
+  function respRestaurar(archivo) {
+    return archivo.arrayBuffer().then(function (buf) {
+      return respDialogoClave('Restaurar respaldo', 'Escriba la clave con que se cifró <b>' + esc(archivo.name) + '</b>.', false).then(function (k) {
+        if (!k) return;
+        return PosBanco.descifrarRespaldo(new Uint8Array(buf), k).then(function (p) {
+          var d = $('#dlg-respaldo');
+          var inv = p.inventario ? esc(p.inventario.nombre || 'inventario importado') : 'datos de ejemplo';
+          d.innerHTML = '<h2 id="resp-titulo" style="margin-top:0">¿Restaurar este respaldo?</h2><p id="resp-detalle">Respaldo del <b>' + esc(respHora(p.creado)) + '</b> · inventario: <b>' + inv + '</b>.</p><p class="mensaje aviso">Esto <b>reemplaza todo</b> lo que hay ahora en este navegador (ventas, altas, inventario). No se puede deshacer.</p><div class="filas"><button class="btn" type="button" id="resp-no">Cancelar</button><button class="btn btn-peligro" type="button" id="resp-si" style="width:auto;flex:1">Sí, restaurar</button></div>';
+          $('#resp-no').addEventListener('click', function () { d.close(); });
+          $('#resp-si').addEventListener('click', function () {
+            Promise.all([p.inventario ? guardar('inventario', p.inventario) : borrar('inventario'), p.estado ? guardar('estado', p.estado) : borrar('estado')]).then(function () { d.close(); location.reload(); });
+          });
+          d.showModal();
+        });
+      }).catch(function (e) { respEstado('No se pudo restaurar: ' + (e && e.message ? e.message : e), true); });
+    });
+  }
+  $('#resp-clave').addEventListener('click', function () { respPedirClaveNueva(); });
+  $('#resp-carpeta').addEventListener('click', function () { respElegirCarpeta(); });
+  $('#resp-ahora').addEventListener('click', function () { respHacer(true); });
+  $('#resp-restaurar').addEventListener('click', function () { $('#resp-archivo').click(); });
+  $('#resp-archivo').addEventListener('change', function (e) { var f = e.target.files[0]; e.target.value = ''; if (f) respRestaurar(f); });
+  respCargar();
+  // Automático: cada minuto se revisa si hay cambios y ya pasaron RESP_CADA_MS desde el último respaldo (solo con carpeta y clave).
+  setInterval(function () {
+    var c = resp.cfg || {};
+    if (!c.clave || !resp.carpeta || resp.trabajando) return;
+    if (c.ultimo && Date.now() - Date.parse(c.ultimo) < RESP_CADA_MS) return;
+    if (ctl.estadoParaGuardar().version === c.version && c.ultimo) return;
+    respHacer(false);
+  }, 60 * 1000);
+  window.__POS_RESPALDAR__ = function () { return respHacer(true); };
   window.POS_PRUEBA = ctl;
   aplicar(); pintarAyuda();
   window.POS_UI.iniciar();
