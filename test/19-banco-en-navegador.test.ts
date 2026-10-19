@@ -248,7 +248,7 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     assert.match((await page.textContent(fila))!, /PED-OCT-1/);
 
     // recordatorio de sacar a piso: morado si faltan más de 7 días, rojo si faltan 7 o menos; aviso en el menú lateral
-    const dia = (n: number) => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10);
+    const dia = (n: number) => new Date(Date.now() - 7 * 3600e3 + n * 86400000).toISOString().slice(0, 10); // fecha local (UTC-7), como la app
     const f2 = '#alm-cuerpo tr[data-codigo="202610002"]';
     await page.fill(`${fila} .f-piso`, dia(30));
     await page.waitForSelector(`${fila}[data-piso="morada"]`);
@@ -425,7 +425,7 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     await page.fill('#pr-cup-valor', '20');
     await page.fill('#pr-minimo', '500');
     await page.uncheck('#pr-sin-fin');
-    await page.fill('#pr-fin', new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10));
+    await page.fill('#pr-fin', new Date(Date.now() - 7 * 3600e3 + 30 * 86400000).toISOString().slice(0, 10));
     await page.click('#pr-guardar');
     await page.waitForSelector('#tabla-promos tr[data-promo] .p-qr');
     assert.match((await page.textContent('#tabla-promos'))!, /Código VERANO20: 20 % de descuento en compras desde \$500\.00/);
@@ -862,6 +862,7 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     await page.fill('#inv-q', '70000001');
     await page.waitForFunction(() => document.querySelectorAll('#tabla-inv-lista tbody tr[data-item]').length === 1);
     assert.equal(await page.textContent('#tabla-inv-lista tr[data-item] [data-col="limbo"]'), '3');
+    assert.equal(await page.locator('#btn-catalogo-inicial').count(), 1, 'Inventario ofrece cargar el catálogo inicial');
     assert.equal(await page.textContent('#tabla-inv-tiendas tr[data-tienda="LIMBO"] td'), 'El Limbo');
     await page.screenshot({ path: join(RAIZ, 'docs', 'capturas', '43-inventario-el-limbo.png') });
     assert.deepEqual(errores, []);

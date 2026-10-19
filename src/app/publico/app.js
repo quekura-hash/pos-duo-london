@@ -764,6 +764,7 @@ async function vistaInventario() {
     <div class="titulo-vista">${ico('box')}<h1>Inventario</h1></div>
     <div class="panel">
       <div class="filas" style="align-items:center;margin-bottom:12px">
+        ${window.__POS_IMPORTAR_INVENTARIO__ ? `<button class="btn btn-primario" id="btn-catalogo-inicial" type="button" style="width:auto" title="Carga el archivo completo de artículos: la cantidad de cada fila queda en El Limbo, que se vende en todas las tiendas y cajas">${ico('upload')}<span>Cargar catálogo inicial (El Limbo)</span></button>` : ''}
         <button class="btn btn-primario" id="btn-exportar" type="button" style="width:auto">${ico('download')}<span>Exportar inventario a Excel</span></button>
         <span id="estado-exportar" role="status" aria-live="polite"></span>
       </div>
@@ -790,6 +791,7 @@ async function vistaInventario() {
     e.textContent = 'Preparando el archivo…';
     try { e.textContent = await exportarInventario(); } catch (err) { e.textContent = `No se pudo exportar: ${err.message}`; }
   });
+  const ci = $('#btn-catalogo-inicial'); if (ci) ci.addEventListener('click', () => window.__POS_IMPORTAR_INVENTARIO__());
   await cargarListaInventario();
 }
 async function cargarListaInventario() {
@@ -829,7 +831,7 @@ async function abrirArticulo(a) {
     </form>
     <div id="art-hist" class="tabla-cont" hidden></div>`;
   $('#art-cerrar').addEventListener('click', () => d.close());
-  $('#art-promo').addEventListener('click', async () => { d.close(); S.hoyPromo = S.hoyPromo ?? new Date().toISOString().slice(0, 10); await abrirPromo(null, { item: a }); });
+  $('#art-promo').addEventListener('click', async () => { d.close(); S.hoyPromo = S.hoyPromo ?? new Date(Date.now() - 7 * 3600e3).toISOString().slice(0, 10); await abrirPromo(null, { item: a }); });
   $('#art-historial').addEventListener('click', async () => {
     const h = $('#art-hist');
     if (!h.hidden) { h.hidden = true; return; }
@@ -1679,6 +1681,7 @@ function abrirAltaLote() {
     <div id="zona-archivo" class="zona-archivo" tabindex="0"><p>Arrastre aquí el archivo de Excel del lote (.xlsx)</p><p>o</p><button class="btn" type="button" id="btn-buscar-archivo">${ico('file')}<span>Buscar en esta computadora</span></button>
       <input type="file" id="archivo-alta" accept=".xlsx" hidden></div>
     <p class="nota">Columnas esperadas: CANTIDAD, DESCRIPCION, ESTILO, MARCA, CODIGO, PRECIO, LOTE, DEPARTAMENTO y, cuando aplique, PEDIMENTO. Revisamos el archivo contra el inventario antes de guardar nada.</p>
+    <p class="nota" id="alta-nota-catalogo"><b>Esto es para mercancía nueva que llega al almacén.</b> Las filas sin cantidad (0), sin código, sin precio o con código repetido no se dan de alta. Para cargar el catálogo completo de la tienda (incluidos los artículos con cantidad 0) use <b>Inventario → Cargar catálogo inicial (El Limbo)</b>.</p>
     <div id="msg-alta" class="mensaje" role="status" aria-live="polite"></div><div class="filas"><button class="btn" type="button" id="alta-cerrar">Cancelar</button></div>`;
   d.innerHTML = base();
   const err = (t) => { const m = $('#msg-alta'); if (m) { m.className = 'mensaje error'; m.textContent = t; } };

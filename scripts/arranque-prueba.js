@@ -130,6 +130,7 @@
     }).catch(function (e) { $('#estado-inv').textContent = 'No se pudo leer el archivo: ' + e.message; });
   }
   $('#importar').addEventListener('click', function () { $('#archivo-inventario').click(); });
+  window.__POS_IMPORTAR_INVENTARIO__ = function () { $('#archivo-inventario').click(); };
   $('#archivo-inventario').addEventListener('change', function (e) { var f = e.target.files[0]; e.target.value = ''; if (f) abrirArchivo(f); });
   $('#quitar-inv').addEventListener('click', function () { Promise.all([borrar('inventario'), borrar('estado')]).then(function () { ctl.quitarInventario(); $('#sesion-prueba').value = ctl.sesion; }); });
 

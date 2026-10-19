@@ -140,7 +140,7 @@ porAlmacen('Almacén: alta de lote, entregas y recepción en tienda', (alm) => {
     const a = admin(ctx);
     a.altaLote({ lote_id: 'L1', filas: [ENC, [24, 'BLUSA', 'B1', 'CAPELLA', '202610001', 349, '1', 'DAMA'], [12, 'PANTALON', 'P1', 'WAX', '202610002', 649, '1', 'DAMA'], [8, 'FALDA', 'F1', 'WAX', '202610003', 300, '1', 'DAMA']] });
     const id = (c: string) => [...catalogo(ctx.m.central.repo.ops()).values()].find((x) => x.codigo === c)!.item_id;
-    const dia = (n: number) => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10);
+    const dia = (n: number) => new Date(Date.now() - 7 * 3600e3 + n * 86400000).toISOString().slice(0, 10); // fecha local (UTC-7), como la app
     assert.deepEqual(a.almacen().avisos, []);
     assert.throws(() => a.fijarSacarAPiso(id('202610001'), '2026-02-31'), { codigo: 'FECHA_INVALIDA' });
     assert.throws(() => a.fijarSacarAPiso(id('202610001'), '12/11/2026'), { codigo: 'FECHA_INVALIDA' });
