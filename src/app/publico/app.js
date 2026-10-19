@@ -363,7 +363,7 @@ async function vistaVenta() {
         </section>
         <div class="acciones-inf" id="acciones-inf">
           <button class="btn" id="btn-buscar-ticket" type="button" title="Abre el historial de ventas de esta caja">${ico('search')}<span>Buscar ticket</span></button>
-          <button class="btn" id="btn-devolucion" type="button" title="Buscar la venta y cambiar piezas (solo en la caja donde se vendió)">${ico('undo')}<span>Hacer Cambio</span></button><button class="btn" id="btn-descuento" type="button" title="Descuento autorizado por un supervisor con su clave">${ico('percent')}<span>Aplicar descuento</span></button><button class="btn" id="btn-cupon" type="button" title="Capturar o escanear un cupón de descuento">${ico('gift')}<span>Cupón</span></button><button class="btn" id="btn-espera" type="button" title="Guardar esta venta y atender a otro cliente, o retomar una venta guardada">${ico('pause')}<span id="txt-espera">Venta en espera</span></button><button class="btn btn-peligro" id="btn-cancelar-venta" type="button" title="Cancelar la venta en curso (aún sin cobrar)">${ico('trash')}<span>Cancelar venta</span></button>
+          <button class="btn" id="btn-devolucion" type="button" title="Buscar la venta y cambiar piezas (solo en la caja donde se vendió)">${ico('undo')}<span>Hacer Cambio</span></button><button class="btn" id="btn-descuento" type="button" title="Descuento autorizado por un supervisor con su clave">${ico('percent')}<span>Aplicar descuento</span></button><button class="btn" id="btn-cupon" type="button" title="Capturar o escanear un cupón de descuento">${ico('gift')}<span>Cupón</span></button><button class="btn" id="btn-espera" type="button" title="Guardar esta venta y atender a otro cliente, o retomar una venta guardada">${ico('pause')}<span id="txt-espera">Venta en espera</span></button><button class="btn" id="btn-abrir-caja" type="button" title="Abre el cajón de dinero sin hacer una venta (queda registrado)">${ico('cash')}<span>Abrir caja</span></button><button class="btn btn-peligro" id="btn-cancelar-venta" type="button" title="Cancelar la venta en curso (aún sin cobrar)">${ico('trash')}<span>Cancelar venta</span></button>
         </div>
       </div>
       <aside class="panel resumen" aria-label="Resumen y cobro">
@@ -402,6 +402,10 @@ async function vistaVenta() {
   $('#btn-cupon').addEventListener('click', () => abrirCupon());
   $('#btn-espera').addEventListener('click', () => abrirEspera());
   $('#btn-cancelar-venta').addEventListener('click', abrirCancelarVenta);
+  $('#btn-abrir-caja').addEventListener('click', async () => {
+    try { await api('/api/caja/abrir', {}); msg('Caja abierta (queda registrado en el corte).'); } catch (e) { msg(e.message, 'error'); }
+    $('#scan').focus();
+  });
   $('#btn-editar-venta').addEventListener('click', () => abrirEditarLinea());
   actualizarEspera();
   revisarAvisoRetiro();
@@ -903,7 +907,7 @@ const FILAS_CORTE = [
   ['usd_equivalente_mxn_historico', 'Equivalente en MXN de los dólares recibidos (tasa de cada operación)', mxn],
   ['conteo_usd', 'Dólares contados (último conteo del día)', (v) => (v ? usd(v.contado) : '—')], ['diferencia_usd', 'Diferencia de dólares (contado − esperado)', (v) => (v === null ? '—' : (v < 0 ? '-' : '') + usd(Math.abs(v)))],
   ['conteo_mxn', 'Pesos contados (último conteo del día)', (v) => (v ? mxn(v.contado) : '—')], ['diferencia_mxn', 'Diferencia de pesos (contado − esperado)', (v) => (v === null ? '—' : mxn(v))],
-  ['ventas_anuladas_antes_de_cobro', 'Ventas anuladas antes de recibir dinero (sin movimiento físico)', (v) => v], ['cancelaciones_posteriores_al_cobro', 'Ventas canceladas después de recibir efectivo (el cobro queda y se suma la salida)', (v) => v], ['billetes_usd_rechazados', 'Billetes en dólares rechazados (dañados o sospechosos)', (v) => v],
+  ['ventas_anuladas_antes_de_cobro', 'Ventas anuladas antes de recibir dinero (sin movimiento físico)', (v) => v], ['cancelaciones_posteriores_al_cobro', 'Ventas canceladas después de recibir efectivo (el cobro queda y se suma la salida)', (v) => v], ['aperturas_cajon_sin_venta', 'Aperturas del cajón sin venta (botón «Abrir caja»)', (v) => v ?? 0], ['billetes_usd_rechazados', 'Billetes en dólares rechazados (dañados o sospechosos)', (v) => v],
   ['folio_inicial', 'Folio inicial (ventas y devoluciones)', (v) => (v ?? '—')], ['folio_final', 'Folio final', (v) => (v ?? '—')], ['tickets_cancelados', 'Tickets cancelados', (v) => v],
 ];
 // Dólares: se cuentan billetes (la clave es el valor en DÓLARES y el importe se calcula en centavos). Pesos: la clave son centavos.

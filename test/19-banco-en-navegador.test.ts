@@ -1746,6 +1746,28 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     assert.deepEqual(errores.filter((e) => !/401|403|Failed to load resource/.test(e)), []);
   });
 
+  it('B27 abrir caja: botón en la venta que abre el cajón sin vender y se ve en el corte', async (t) => {
+    execFileSync(process.execPath, [join(RAIZ, 'scripts', 'construir-prueba.mjs')], { stdio: 'pipe' });
+    const browser = await chromium.launch({ executablePath: chromiumPath, args: ['--no-sandbox'] });
+    t.after(() => browser.close());
+    const page = await (await browser.newContext({ viewport: { width: 1440, height: 900 }, colorScheme: 'light' })).newPage();
+    const errores: string[] = [];
+    page.on('pageerror', (e) => errores.push(String(e)));
+    page.on('console', (m) => { if (m.type() === 'error') errores.push(m.text()); });
+    await page.goto(`file://${HTML}`);
+    await page.waitForSelector('#scan');
+    assert.equal((await page.textContent('#btn-abrir-caja'))!.trim(), 'Abrir caja');
+    await page.click('#btn-abrir-caja');
+    await page.waitForFunction(() => /Caja abierta/.test(document.querySelector('#mensaje')!.textContent!));
+    await page.check('#falla-imp');
+    await page.click('#btn-abrir-caja');
+    await page.waitForFunction(() => /no se pudo abrir la caja/.test(document.querySelector('#mensaje')!.textContent!));
+    await page.click('#nav button[data-vista="corte"]');
+    await page.waitForSelector('[data-campo="aperturas_cajon_sin_venta"], #tabla-corte');
+    assert.match((await page.textContent('body'))!, /Aperturas del cajón sin venta[\s\S]{0,40}1/);
+    assert.deepEqual(errores.filter((e) => !/401|403|Failed to load resource/.test(e)), []);
+  });
+
   it('B20 cierre por inactividad: aviso un minuto antes, «Seguir trabajando» renueva, al cerrarse la venta queda en espera y se vuelve al inicio de sesión', async (t) => {
     execFileSync(process.execPath, [join(RAIZ, 'scripts', 'construir-prueba.mjs')], { stdio: 'pipe' });
     const browser = await chromium.launch({ executablePath: chromiumPath, args: ['--no-sandbox'] });

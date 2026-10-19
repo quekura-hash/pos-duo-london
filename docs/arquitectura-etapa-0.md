@@ -676,3 +676,7 @@ Las sesiones de caja tienen el botón **Calculadora** al final del menú lateral
 - **Restaurar**: «Restaurar respaldo…» → elegir el `.posbak` → clave → resumen (fecha e inventario) y confirmación (**reemplaza todo** lo que hay en ese navegador) → la página se recarga con los datos del respaldo. Clave equivocada o archivo dañado se rechazan sin tocar nada.
 - **Alcance**: sirve para esta versión de prueba (datos en el navegador). La app definitiva con base de datos propia y el respaldo a Drive (P-15) se retoman cuando exista el empaquetado. No se probó con OneDrive real: la prueba automática usa una carpeta simulada; lo que sí está verificado es el cifrado, la rotación y la restauración completa.
 - **Verificado**: pruebas RB1–RB3 (cifrado, clave equivocada, archivo dañado, nombres y rotación) y de navegador B26.
+
+## 48. Abrir caja sin venta
+
+Botón **«Abrir caja»** en la fila inferior de la pantalla de venta: manda el pulso al cajón (ESC p) por la impresora, sin imprimir nada ni hacer una venta. No pide clave. **Siempre queda registrado** (`cash.cajon_abierto`: quién, cuándo, motivo opcional y si salió); si la impresora falla se avisa («no se pudo abrir la caja») y el intento queda como error. El corte del día cuenta las **aperturas del cajón sin venta** exitosas (solo informativo: no mueve el efectivo esperado). El cajón sigue abriéndose solo al cobrar en efectivo. No validado con impresora ni cajón reales. Verificado: AC1 y B27.

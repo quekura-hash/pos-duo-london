@@ -2193,9 +2193,13 @@ export class Caja {
     const conocido = mov.some((m) => m.tipo === 'fondo_inicial');
     return { conocido, disponible: conocido ? mov.reduce((a, m) => a + m.monto, 0) : null };
   }
+  /** Apertura del cajón sin venta (el pulso lo manda la impresora): queda registrada con quién, cuándo y si salió bien. */
+  registrarAperturaCajon(d: { usuario: string; motivo?: string; resultado: 'ok' | 'error'; error?: string }) {
+    this.emitir('cash.cajon_abierto', { tienda: this.tienda, caja: this.caja, usuario: d.usuario, motivo: (d.motivo ?? '').trim().slice(0, 60), resultado: d.resultado, ...(d.error ? { error: d.error } : {}), fecha: fechaLocal(this.ctx.reloj.now()) });
+  }
   /** Corte "en vivo": se calcula SOLO con las operaciones de esta caja y refleja todo lo ocurrido hasta ahora. No se guarda. */
   corteEnVivo(fecha: string) {
-    const ops = this.opsDe('sale.confirmed', 'sale.cancelled', 'sale.voided', 'return.registered', 'cash.movement', 'cash.conteo', 'cash.billete_rechazado');
+    const ops = this.opsDe('sale.confirmed', 'sale.cancelled', 'sale.voided', 'return.registered', 'cash.movement', 'cash.conteo', 'cash.billete_rechazado', 'cash.cajon_abierto');
     const propia = (t: string | null, c: number | null) => t === this.tienda && c === this.caja;
     const vs = [...ventas(ops).values()].filter((v) => propia(v.tienda, v.caja) && fechaLocal(v.ocurrio_en) === fecha);
     const confirmadas = vs.filter((v) => v.estado === 'confirmada');
@@ -2266,6 +2270,7 @@ export class Caja {
       // Detalle por moneda para Administración (columnas separadas). `usd.equivalente_historico_mxn` es contable, no dinero físico.
       mxn, usd: { ...usd, equivalente_historico_mxn: usdEquivalenteHistorico },
       billetes_usd_rechazados: suma(rechazados.map((o) => o.payload.cantidad as number)),
+      aperturas_cajon_sin_venta: ops.filter((o) => o.tipo === 'cash.cajon_abierto' && propia(o.payload.tienda, o.payload.caja) && o.payload.fecha === fecha && o.payload.resultado === 'ok').length,
       folio_inicial: folios.length ? Math.min(...folios) : null, folio_final: folios.length ? Math.max(...folios) : null,
       perdida_documental_abierta: this.perdidasDocumentalesAbiertas().map((x) => x.perdida_id),
     };

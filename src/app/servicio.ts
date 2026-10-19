@@ -469,6 +469,19 @@ export class ServicioCaja {
       })),
     };
   }
+  /** «Abrir caja»: manda el pulso al cajón por la impresora sin hacer una venta. Siempre queda registrado (quién, cuándo, motivo y si salió). */
+  async abrirCajon(motivo?: string) {
+    try {
+      await this.impresora.imprimir({ ref: `cajon-${Date.now()}`, texto: '', bytes: new Uint8Array([0x1b, 0x70, 0x00, 25, 250]) });
+    } catch (e) {
+      const error = e instanceof Error ? e.message : String(e);
+      this.caja.registrarAperturaCajon({ usuario: this.actor.usuario, motivo, resultado: 'error', error });
+      throw new ErrorDominio('CAJON_NO_ABRIO', `no se pudo abrir la caja: ${error}`);
+    }
+    this.caja.registrarAperturaCajon({ usuario: this.actor.usuario, motivo, resultado: 'ok' });
+    return { abierta: true };
+  }
+
   // ── P-06: folios ──
   /** Estado de la serie de folios de esta caja y lo necesario para decidir cómo continuar si está bloqueada. */
   estadoFolios() {
