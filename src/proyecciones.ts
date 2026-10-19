@@ -336,6 +336,11 @@ export function promocionesDe(ops: Op[]): import('./promociones.ts').Promocion[]
   for (const o of ops) if (o.tipo === 'promo.guardada') m.set(o.payload.id, o.payload);
   return [...m.values()];
 }
+export function administradoresDe(ops: Op[]): import('./supervisores.ts').Administrador[] {
+  const m = new Map<string, import('./supervisores.ts').Administrador>();
+  for (const o of ops) if (o.tipo === 'admin.guardado') m.set(o.payload.id, o.payload);
+  return [...m.values()];
+}
 export function cajerosDe(ops: Op[]): import('./supervisores.ts').Cajero[] {
   const m = new Map<string, import('./supervisores.ts').Cajero>();
   for (const o of ops) if (o.tipo === 'cajero.guardado') m.set(o.payload.id, o.payload);

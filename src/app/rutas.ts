@@ -1,7 +1,7 @@
 import { ErrorDominio } from '../errores.ts';
 import type { ServicioAdmin, ServicioCaja } from './servicio.ts';
 
-const STATUS: Record<string, number> = { PROHIBIDO: 403, ARTICULO_INEXISTENTE: 404, CARRITO_INEXISTENTE: 404, LINEA_INEXISTENTE: 404, NO_ENCONTRADO: 404, CLAVE_INVALIDA: 403 };
+const STATUS: Record<string, number> = { PROHIBIDO: 403, ARTICULO_INEXISTENTE: 404, CARRITO_INEXISTENTE: 404, LINEA_INEXISTENTE: 404, NO_ENCONTRADO: 404, CLAVE_INVALIDA: 403, NO_AUTENTICADO: 401, CLAVE_BLOQUEADA: 429, CAJERO_SIN_CLAVE: 403 };
 
 export interface Respuesta {
   status: number;
@@ -20,19 +20,25 @@ export async function atender(o: { cajero?: ServicioCaja; admin?: ServicioAdmin 
   try {
     const exigirCajero = () => {
       if (!C) throw new ErrorDominio('PROHIBIDO', 'esta sesión no es de cajero');
+      if (!C.autenticada()) throw new ErrorDominio('NO_AUTENTICADO', 'inicie sesión con su usuario y clave');
       return C;
     };
     const exigirAdmin = () => {
       if (!A) throw new ErrorDominio('PROHIBIDO', 'esta sesión no es de Administración');
+      if (!A.autenticada()) throw new ErrorDominio('NO_AUTENTICADO', 'inicie sesión con su usuario y contraseña');
       return A;
     };
     const cajasParam = (v: string | null) => (v ? v.split(',').map((x) => ({ tienda: x.split('/')[0]!, caja: Number(x.split('/')[1]) })) : undefined);
 
     switch (`${metodo} ${url.pathname}`) {
+      case 'POST /api/login': return ok(C ? C.iniciarSesion(b.usuario, b.clave) : A ? A.iniciarSesion(b.usuario, b.clave) : (() => { throw new ErrorDominio('PROHIBIDO', 'no hay sesión'); })());
+      case 'POST /api/logout': return ok(C ? C.cerrarSesion() : A ? A.cerrarSesion() : (() => { throw new ErrorDominio('PROHIBIDO', 'no hay sesión'); })());
+      case 'GET /api/admin/administradores': return ok(exigirAdmin().administradores());
+      case 'POST /api/admin/administradores': return ok(exigirAdmin().guardarAdmin({ id: b.id, nombre: b.nombre, clave: b.clave === undefined ? undefined : String(b.clave), activo: b.activo === undefined ? undefined : !!b.activo }));
       case 'GET /api/sesion':
         return ok(C
-          ? { rol: 'cajero', usuario: C.actor.usuario, tienda: C.caja.tienda, caja: C.caja.caja, nav: ['venta', 'retiro', 'ventas', 'corte', ...(C.caja.cfg.metodos.includes('tarjeta_regalo') ? ['tarjetas'] : [])] }
-          : { rol: 'admin', usuario: A!.actor.usuario, cajas: A!.cajas, nav: ['reportes', 'cortes', 'inventario', 'almacen', 'promociones', 'tarjetas', 'configuracion'] });
+          ? { rol: 'cajero', ...C.sesionInfo(), usuario: C.autenticada() ? C.actor.usuario : null, tienda: C.caja.tienda, caja: C.caja.caja, nav: ['venta', 'retiro', 'ventas', 'corte', ...(C.caja.cfg.metodos.includes('tarjeta_regalo') ? ['tarjetas'] : [])] }
+          : { rol: 'admin', ...A!.sesionInfo(), usuario: A!.autenticada() ? A!.actor.usuario : null, cajas: A!.cajas, nav: ['reportes', 'cortes', 'inventario', 'almacen', 'promociones', 'tarjetas', 'configuracion'] });
       // ── cajero ──
       case 'GET /api/estado': return ok({ estado: exigirCajero().estado() });
       case 'POST /api/venta/actual': { const c = exigirCajero(); const cart = c.carritoActual(); return ok({ cart, carrito: c.vista(cart) }); }

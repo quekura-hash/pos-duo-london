@@ -1079,6 +1079,8 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     await page.screenshot({ path: join(RAIZ, 'docs', 'capturas', '48-cajeros.png') });
     // la caja: búsqueda sin resultados → ofrecer el alta con el código ya escrito
     await page.selectOption('#sesion-prueba', 'DUO/1');
+    await page.waitForSelector('#form-login'); // ya hay un cajero con clave: la caja pide iniciar sesión
+    await page.selectOption('#lg-usuario', usuario); await page.fill('#lg-clave', '1234'); await page.click('#lg-entrar');
     await page.waitForSelector('#scan');
     await page.fill('#scan', '202610555'); await page.press('#scan', 'Enter');
     await page.waitForSelector('#btn-alta-desde-busqueda');
@@ -1098,11 +1100,67 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     assert.equal(await page.textContent('#total'), '$189.00');
     // llega a London
     await page.selectOption('#sesion-prueba', 'LON/1');
+    await page.waitForSelector('#form-login');
+    await page.selectOption('#lg-usuario', usuario); await page.fill('#lg-clave', '1234'); await page.click('#lg-entrar');
     await page.waitForSelector('#scan');
     await page.fill('#scan', '202610555'); await page.press('#scan', 'Enter');
     await page.waitForSelector('#cuerpo tr[data-linea]');
     assert.match((await page.textContent('#cuerpo tr[data-linea]'))!, /PANTIMEDIAS/);
     assert.deepEqual(errores, []);
+  });
+
+  it('B17 inicio de sesión: la caja pide cajero y clave, la venta queda a su nombre y se puede cerrar sesión; Administración pide contraseña al crear su primer administrador', async (t) => {
+    execFileSync(process.execPath, [join(RAIZ, 'scripts', 'construir-prueba.mjs')], { stdio: 'pipe' });
+    const browser = await chromium.launch({ executablePath: chromiumPath, args: ['--no-sandbox'] });
+    t.after(() => browser.close());
+    const page = await (await browser.newContext({ viewport: { width: 1440, height: 900 }, colorScheme: 'light' })).newPage();
+    const errores: string[] = [];
+    page.on('pageerror', (e) => errores.push(String(e)));
+    page.on('console', (m) => { if (m.type() === 'error') errores.push(m.text()); });
+    await page.goto(`file://${HTML}`);
+    await page.waitForSelector('[data-chip="tienda"]');
+    assert.equal(await page.locator('#btn-salir').count(), 0, 'sin cajeros registrados no hay inicio de sesión');
+    // Administración (abierta) crea un administrador y un cajero
+    await page.selectOption('#sesion-prueba', 'admin');
+    await page.click('#nav button[data-vista="configuracion"]');
+    await page.click('#cfg-tab-cajeros');
+    await page.waitForSelector('#form-admin');
+    assert.match((await page.textContent('#panel-admins'))!, /consola está abierta/);
+    await page.fill('#adm-nombre', 'Edgardo'); await page.fill('#adm-clave', 'clave-segura');
+    await page.click('#btn-adm');
+    await page.waitForFunction(() => /Administrador agregado/.test(document.querySelector('#msg-admins')?.textContent ?? ''));
+    assert.equal(await page.locator('#btn-salir').count(), 1, 'quien crea al primer administrador queda dentro y ve «Cerrar sesión»');
+    assert.match((await page.textContent('[data-chip="usuario"]'))!, /Edgardo/);
+    await page.fill('#caj-nombre', 'Lupe'); await page.fill('#caj-clave', '4321');
+    await page.click('#btn-caj');
+    await page.waitForSelector('#tabla-cajeros tr[data-cajero]');
+    await page.screenshot({ path: join(RAIZ, 'docs', 'capturas', '51-usuarios.png') });
+    // cerrar sesión de Administración → pide usuario y contraseña
+    await page.click('#btn-salir');
+    await page.waitForSelector('#form-login');
+    await page.fill('#lg-usuario', 'Edgardo'); await page.fill('#lg-clave', 'mal-mal'); await page.click('#lg-entrar');
+    await page.waitForFunction(() => /incorrectos/.test(document.querySelector('#msg-login')!.textContent!));
+    await page.fill('#lg-clave', 'clave-segura'); await page.click('#lg-entrar');
+    await page.waitForSelector('#nav button[data-vista="reportes"]');
+    // la caja: elegir cajero y clave; la venta sale a su nombre
+    await page.selectOption('#sesion-prueba', 'DUO/1');
+    await page.waitForSelector('#form-login');
+    await page.screenshot({ path: join(RAIZ, 'docs', 'capturas', '52-inicio-de-sesion.png') });
+    await page.fill('#lg-clave', '0000'); await page.click('#lg-entrar');
+    await page.waitForFunction(() => /no es correcta/.test(document.querySelector('#msg-login')!.textContent!));
+    await page.fill('#lg-clave', '4321'); await page.click('#lg-entrar');
+    await page.waitForSelector('#scan');
+    assert.match((await page.textContent('[data-chip="usuario"]'))!, /Lupe/);
+    await page.fill('#scan', '0002026090782'); await page.press('#scan', 'Enter');
+    await page.waitForSelector('#cuerpo tr[data-linea]');
+    await page.fill('#recibido', '1000');
+    await page.click('#btn-cobrar');
+    await page.waitForSelector('#dlg-ticket[open]');
+    assert.match((await page.textContent('#ticket-texto'))!, /Cajero: Lupe/);
+    await page.click('#btn-nueva');
+    await page.click('#btn-salir');
+    await page.waitForSelector('#form-login');
+    assert.deepEqual(errores.filter((e) => !/401|NO_AUTENTICADO|403|Failed to load resource/.test(e)), []);
   });
 });
 

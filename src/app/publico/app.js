@@ -17,7 +17,12 @@ async function api(ruta, cuerpo) {
   const j = window.__POS_ATENDER__
     ? (await window.__POS_ATENDER__(cuerpo === undefined ? 'GET' : 'POST', ruta, cuerpo)).json
     : await (await fetch(ruta, cuerpo === undefined ? {} : { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(cuerpo) })).json();
-  if (!j.ok) { const e = new Error(j.error?.mensaje ?? 'Error'); e.codigo = j.error?.codigo; e.detalle = j.error?.detalle; throw e; }
+  if (!j.ok) {
+    const e = new Error(j.error?.mensaje ?? 'Error'); e.codigo = j.error?.codigo; e.detalle = j.error?.detalle;
+    // La sesión se cerró (otro cajero desactivado, reinicio…): se vuelve a la pantalla de inicio de sesión.
+    if (e.codigo === 'NO_AUTENTICADO' && S.sesion?.autenticado !== false && ruta !== '/api/sesion' && ruta !== '/api/login') { S.sesion = { ...S.sesion, autenticado: false }; setTimeout(() => iniciar(), 0); }
+    throw e;
+  }
   return j;
 }
 
@@ -91,7 +96,7 @@ async function pintarEncabezado() {
     h.innerHTML = `<div class="logos"><img class="logo" src="${logoDe('DUO')}" alt="DÚO New York"><img class="logo" src="${logoDe('LON')}" alt="London Love"></div>
       <div class="titulo">Administración</div>
       <div class="datos"><span class="chip-top" data-chip="usuario">${ico('user')}<span>Usuario: <b>${esc(S.sesion.usuario)}</b></span></span><span class="chip-top" data-chip="rol">${ico('gear')}<b>Administración</b></span>
-      <span class="chip-top" data-chip="alcance">${ico('store')}<span>Una, varias o todas las cajas</span></span></div>`;
+      <span class="chip-top" data-chip="alcance">${ico('store')}<span>Una, varias o todas las cajas</span></span>${S.sesion.requiere_login ? `<button class="btn" type="button" id="btn-salir" title="Cerrar la sesión">${ico('x')}<span>Cerrar sesión</span></button>` : ''}</div>`;
     pie.innerHTML = `<span>Usuario: ${esc(S.sesion.usuario)}</span><span>Administración · consolida cajas y tiendas</span><span>Precios en MXN</span>`;
     await pintarTipoCambio();
     return;
@@ -110,6 +115,7 @@ async function pintarEncabezado() {
       <span class="chip-top" data-chip="usuario">${ico('user')}<span>Cajero(a): <b>${esc(e.usuario)}</b></span></span>
       <span class="sincro ${sincro[0]}" data-chip="sincro">${sincro[1]}</span>
       <span class="chip-top" data-chip="fecha">${ico('calendar')}<b>${fechaCorta(e.ahora)}</b></span>
+      ${S.sesion.requiere_login ? `<button class="btn" type="button" id="btn-salir" title="Cerrar la sesión">${ico('x')}<span>Cerrar sesión</span></button>` : ''}
     </div>
     ${e.alertas.perdida_documental_abierta ? `<div class="alerta-banda" style="flex-basis:100%;margin:0" role="alert" data-alerta="perdida">Hay una posible pérdida de ventas, pagos o folios de esta caja sin resolver (Administración).</div>` : ''}
     ${e.alertas.articulos_no_verificados ? `<div class="alerta-banda" style="flex-basis:100%;margin:0" role="status" data-alerta="inventario">Existencias sin verificar: ${e.alertas.articulos_no_verificados} artículos (requieren conteo físico).</div>` : ''}`;
@@ -2146,7 +2152,7 @@ async function abrirPromo(p, preset) {
 
 // ── Configuración: Tiendas, Departamentos y Tipo de cambio en una sola entrada ──
 const cuerpoVista = () => $('#config-cuerpo') ?? $('#vista');
-const TABS_CONFIG = [['tiendas', 'Tiendas', 'store'], ['departamentos', 'Departamentos', 'box'], ['tipo_cambio', 'Tipo de cambio', 'refresh'], ['cajeros', 'Cajeros', 'user']];
+const TABS_CONFIG = [['tiendas', 'Tiendas', 'store'], ['departamentos', 'Departamentos', 'box'], ['tipo_cambio', 'Tipo de cambio', 'refresh'], ['cajeros', 'Usuarios', 'user']];
 async function vistaConfiguracion(tab) {
   tab = tab ?? S.configTab ?? 'tiendas';
   S.configTab = tab;
@@ -2159,8 +2165,17 @@ async function vistaConfiguracion(tab) {
 
 // ── Cajeros: nombre (el del usuario de la caja) y clave propia ──
 async function vistaCajeros() {
-  const { cajeros } = await api('/api/admin/cajeros');
-  cuerpoVista().innerHTML = `<div class="titulo-vista">${ico('user')}<h1>Cajeros</h1></div>
+  const [{ cajeros }, { administradores }] = await Promise.all([api('/api/admin/cajeros'), api('/api/admin/administradores')]);
+  cuerpoVista().innerHTML = `<div class="titulo-vista">${ico('user')}<h1>Usuarios</h1></div>
+    <section class="panel" id="panel-admins" style="margin-bottom:12px"><h2 style="margin-top:0">Administradores</h2>
+      <p class="nota" style="margin-top:0">${administradores.some((a) => a.activo) ? 'Entran a esta consola con su usuario y contraseña (6 a 40 caracteres). Sus datos solo viven en el servidor central, no en las cajas.' : '<b>Esta consola está abierta: cualquiera que la abra puede entrar.</b> Cree un administrador para que pida usuario y contraseña. Quien lo crea queda dentro como ese administrador.'}</p>
+      <div id="msg-admins" class="mensaje" role="status" aria-live="polite"></div>
+      <div class="tabla-cont"><table id="tabla-admins"><thead><tr><th>Nombre</th><th>Estado</th><th>Nueva contraseña</th><th></th></tr></thead><tbody>
+      ${administradores.map((x) => `<tr data-admin="${esc(x.id)}"><td>${esc(x.nombre)}</td><td>${x.activo ? 'Activo' : 'Desactivado'}</td><td><input type="password" class="a-clave" placeholder="dejar vacío = no cambiar" aria-label="Nueva contraseña de ${esc(x.nombre)}" style="padding:4px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie)"></td>
+        <td class="filas" style="flex-wrap:nowrap"><button class="btn a-guardar" type="button">${ico('check')}<span>Cambiar contraseña</span></button><button class="btn a-activo" type="button">${x.activo ? 'Desactivar' : 'Activar'}</button></td></tr>`).join('') || '<tr><td colspan="4" class="vacio">Aún no hay administradores.</td></tr>'}</tbody></table></div>
+      <form id="form-admin" class="filas" style="margin-top:12px;align-items:flex-end"><div class="campo"><label for="adm-nombre">Nombre</label><input id="adm-nombre" class="texto" maxlength="40" autocomplete="off"></div><div class="campo"><label for="adm-clave">Contraseña</label><input id="adm-clave" type="password" autocomplete="new-password"></div>
+        <button class="btn btn-primario" id="btn-adm" type="submit" style="width:auto">${ico('plus')}<span>Agregar administrador</span></button></form></section>
+    <h2>Cajeros</h2>
     <p class="nota">Cada cajero tiene su propia clave (4 a 8 dígitos) para confirmar operaciones a su nombre, como dar de alta un artículo en la caja. El nombre debe ser el del usuario con el que entra a la caja. La clave no se puede volver a ver: si se olvida, se cambia.</p>
     <div id="msg-cajeros" class="mensaje" role="status" aria-live="polite"></div>
     <div class="tabla-cont"><table id="tabla-cajeros"><thead><tr><th>Nombre</th><th>Estado</th><th>Nueva clave</th><th></th></tr></thead><tbody>
@@ -2168,6 +2183,28 @@ async function vistaCajeros() {
       <td class="filas" style="flex-wrap:nowrap"><button class="btn c-guardar" type="button">${ico('check')}<span>Cambiar clave</span></button><button class="btn c-activo" type="button">${x.activo ? 'Desactivar' : 'Activar'}</button></td></tr>`).join('') || '<tr><td colspan="4" class="vacio">Aún no hay cajeros con clave: sin ella nadie puede dar de alta artículos en la caja.</td></tr>'}</tbody></table></div>
     <form id="form-cajero" class="filas" style="margin-top:12px;align-items:flex-end"><div class="campo"><label for="caj-nombre">Nombre del cajero</label><input id="caj-nombre" class="texto" maxlength="40"></div><div class="campo"><label for="caj-clave">Clave</label><input id="caj-clave" type="password" inputmode="numeric" autocomplete="off"></div>
       <button class="btn btn-primario" id="btn-caj" type="submit" style="width:auto">${ico('plus')}<span>Agregar cajero</span></button></form>`;
+  const msgA = (t, tipo = 'error') => { const m = $('#msg-admins'); m.className = `mensaje ${tipo}`; m.textContent = t; };
+  $('#form-admin').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const eraAbierta = !administradores.some((a) => a.activo);
+    try {
+      await api('/api/admin/administradores', { nombre: $('#adm-nombre').value, clave: $('#adm-clave').value });
+      if (eraAbierta) { S.sesion = await api('/api/sesion'); await pintarEncabezado(); }
+      await vistaCajeros(); msgA('Administrador agregado.', 'ok');
+    } catch (e) { msgA(e.message); }
+  });
+  for (const tr of $('#tabla-admins').querySelectorAll('tr[data-admin]')) {
+    const id = tr.dataset.admin;
+    const activo = administradores.find((c) => c.id === id).activo;
+    tr.querySelector('.a-guardar').addEventListener('click', async () => {
+      const clave = tr.querySelector('.a-clave').value;
+      if (!clave) return msgA('Escriba la nueva contraseña.');
+      try { await api('/api/admin/administradores', { id, clave }); await vistaCajeros(); msgA('Contraseña cambiada.', 'ok'); } catch (e) { msgA(e.message); }
+    });
+    tr.querySelector('.a-activo').addEventListener('click', async () => {
+      try { await api('/api/admin/administradores', { id, activo: !activo }); S.sesion = await api('/api/sesion'); await vistaCajeros(); } catch (e) { msgA(e.message); }
+    });
+  }
   const msgC = (t, tipo = 'error') => { const m = $('#msg-cajeros'); m.className = `mensaje ${tipo}`; m.textContent = t; };
   $('#form-cajero').addEventListener('submit', async (ev) => {
     ev.preventDefault();
@@ -2352,14 +2389,44 @@ async function vistaTipoCambio() {
 }
 
 // ── arranque ──
+/** Pantalla de inicio de sesión: la caja elige cajero y teclea su clave; Administración teclea usuario y contraseña. */
+function pintarLogin() {
+  const admin = S.sesion.rol === 'admin';
+  $('#nav').innerHTML = '';
+  $('#tc-barra').innerHTML = '';
+  $('#encabezado').innerHTML = admin
+    ? `<div class="logos"><img class="logo" src="${logoDe('DUO')}" alt="DÚO New York"><img class="logo" src="${logoDe('LON')}" alt="London Love"></div><div class="titulo">Administración</div><div class="datos"></div>`
+    : `<img class="logo" src="${logoDe(S.sesion.tienda)}" alt="Logo de la tienda" data-logo="${esc(S.sesion.tienda)}"><div class="titulo">Punto de venta · Caja ${S.sesion.caja}</div><div class="datos"></div>`;
+  $('#pie').innerHTML = '<span>Inicie sesión para continuar</span>';
+  const lista = S.sesion.cajeros ?? [];
+  $('#vista').innerHTML = `<section class="panel" id="login" style="max-width:420px;margin:40px auto"><h1 style="margin-top:0">${ico('user')} Iniciar sesión</h1>
+    <form id="form-login" autocomplete="off">
+      <div class="campo"><label for="lg-usuario">${admin ? 'Usuario' : 'Cajero(a)'}</label>${!admin && lista.length <= 15 ? `<select id="lg-usuario" style="width:100%;padding:10px;border:2px solid var(--borde);border-radius:10px;background:var(--superficie)">${lista.map((n) => `<option>${esc(n)}</option>`).join('')}</select>` : '<input id="lg-usuario" class="texto" autocomplete="username">'}</div>
+      <div class="campo"><label for="lg-clave">${admin ? 'Contraseña' : 'Clave'}</label><input id="lg-clave" type="password" ${admin ? '' : 'inputmode="numeric"'} autocomplete="current-password" placeholder="${admin ? '' : '••••'}"></div>
+      <div id="msg-login" class="mensaje" role="alert"></div>
+      <button class="btn btn-primario" type="submit" id="lg-entrar">${ico('check')}<span>Entrar</span></button></form></section>`;
+  $('#form-login').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    $('#lg-entrar').disabled = true;
+    try { await api('/api/login', { usuario: $('#lg-usuario').value, clave: $('#lg-clave').value }); await iniciar(); }
+    catch (e) { $('#lg-entrar').disabled = false; $('#lg-clave').value = ''; const m = $('#msg-login'); m.className = 'mensaje error'; m.textContent = e.message; $('#lg-clave').focus(); }
+  });
+  ($('#lg-usuario') ?? {}).focus?.();
+}
+document.addEventListener('click', async (ev) => {
+  if (!ev.target.closest('#btn-salir')) return;
+  try { await api('/api/logout', {}); } catch { /* ya estaba cerrada */ }
+  await iniciar();
+});
 async function iniciar() {
   Object.assign(S, { conRegalo: false, sesion: null, vista: null, cart: null, carrito: null, sel: null, estado: null, ultimoFolio: null, retiroAvisoHasta: 0, retiroEstado: null, conteoLimbo: null });
   S.sesion = await api('/api/sesion');
+  if (S.sesion.requiere_login && !S.sesion.autenticado) return pintarLogin();
   await ir(S.sesion.nav[0]);
 }
 window.POS_UI = { iniciar };
 setInterval(async () => {
-  if (!S.sesion || $('#dlg-ticket').open || $('#dlg-tc').open) return;
+  if (!S.sesion || (S.sesion.requiere_login && !S.sesion.autenticado) || $('#dlg-ticket').open || $('#dlg-tc').open) return;
   pintarEncabezado().catch(() => {});
   // Si hay una tasa nueva mientras se cobra en dólares, se avisa (el cobro conserva la suya).
   if (S.vista === 'venta' && S.usdAbierto && S.cart && S.sesion.rol === 'cajero') {

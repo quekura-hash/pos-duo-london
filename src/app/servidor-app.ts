@@ -59,6 +59,7 @@ export function crearServidorApp(o: { cajero?: ServicioCaja; admin?: ServicioAdm
       if (req.method === 'POST' && url.pathname === '/api/admin/almacen/leer-archivo') {
         // El navegador manda el .xlsx tal cual; aquí solo se lee (no se guarda). Solo Administración.
         if (!o.admin) return json(res, 403, { ok: false, error: { codigo: 'PROHIBIDO', mensaje: 'esta sesión no es de Administración' } });
+        if (!o.admin.autenticada()) return json(res, 401, { ok: false, error: { codigo: 'NO_AUTENTICADO', mensaje: 'inicie sesión con su usuario y contraseña' } });
         const partes: Buffer[] = [];
         for await (const d of req) partes.push(d as Buffer);
         try { return json(res, 200, { ok: true, hojas: await leerXlsxNode(new Uint8Array(Buffer.concat(partes))) }); } catch (e) { return json(res, 400, { ok: false, error: { codigo: 'ARCHIVO_ILEGIBLE', mensaje: `no se pudo leer el archivo: ${(e as Error).message}` } }); }

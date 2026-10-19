@@ -1,7 +1,7 @@
 import type { BusquedaVentas, VentaLocalizada } from './consultas.ts';
 import { ErrorDominio } from './errores.ts';
 import { calcularDescuentos, normCodigo, repartir, validarPromocion, type ErrorPromo, type Promocion, type ResultadoDescuentos } from './promociones.ts';
-import { claveValida, hashClave, nombreClave, supervisorPorClave, type Cajero, type Supervisor } from './supervisores.ts';
+import { claveAdminValida, claveValida, hashClave, nombreClave, supervisorPorClave, type Cajero, type Supervisor } from './supervisores.ts';
 import { correccionesEntradas } from './almacen.ts';
 import { BILLETES_RETIRO_MXN, BILLETES_RETIRO_USD, efectivoDeVentaEnCaja, MINIMO_RETIRO, UMBRAL_AVISO_RETIRO, type RetiroRegistrado } from './retiros.ts';
 import { DESTINOS_FALTANTE_ESPECIALES, existenciaAlmacen, faltantes, fechaValida, recepcionesPendientes, type Faltante, type AltaManual, type RecepcionPendiente } from './almacen.ts';
@@ -10,7 +10,7 @@ import { DENOMINACIONES_USD, esImporteEnBilletesUsd, superaUmbralTasa, totalDeno
 import { TASA_SIN_VERIFICAR_OMISION, type Politicas } from './politicas.ts';
 import { Indice } from './indice.ts';
 import { localizarVentas } from './consultas.ts';
-import { CAMPOS_EDITABLES, CAMPOS_TIENDA, type CampoEditable, departamentos, promocionesDe, supervisoresDe, cajerosDe, efectivoDeVenta, movimientosCaja, tipoCambioVigente, catalogo, devoluciones, devueltoPorLinea, existenciaVerificada, intentos, perdidasDocumentales, stock, ventas, type Devolucion, type ExistenciaVerificada, type Intento, type PerdidaDocumental, type TarjetaRegalo, type TipoCambio } from './proyecciones.ts';
+import { CAMPOS_EDITABLES, CAMPOS_TIENDA, type CampoEditable, departamentos, promocionesDe, supervisoresDe, cajerosDe, administradoresDe, efectivoDeVenta, movimientosCaja, tipoCambioVigente, catalogo, devoluciones, devueltoPorLinea, existenciaVerificada, intentos, perdidasDocumentales, stock, ventas, type Devolucion, type ExistenciaVerificada, type Intento, type PerdidaDocumental, type TarjetaRegalo, type TipoCambio } from './proyecciones.ts';
 import type { Repo } from './repo.ts';
 import { validarOpEntrante } from './reglas.ts';
 import { LIMBO, type Articulo, type CajaCfg, type Linea, type Op, type Pago, type Venta } from './tipos.ts';
@@ -440,7 +440,7 @@ export class Central {
     if (d.id && !actual) return { ok: false, error: { codigo: 'NO_EXISTE', mensaje: 'el cajero no existe' } };
     const nombre = (d.nombre ?? actual?.nombre ?? '').trim().replace(/\s+/g, ' ');
     if (!nombre) return { ok: false, error: { codigo: 'DATOS_INVALIDOS', mensaje: 'falta el nombre del cajero' } };
-    if (lista.some((c) => c.id !== actual?.id && nombreClave(c.nombre) === nombreClave(nombre))) return { ok: false, error: { codigo: 'NOMBRE_REPETIDO', mensaje: 'ya hay un cajero con ese nombre' } };
+    if ([...lista.filter((c) => c.id !== actual?.id), ...administradoresDe(this.repo.ops())].some((c) => nombreClave(c.nombre) === nombreClave(nombre))) return { ok: false, error: { codigo: 'NOMBRE_REPETIDO', mensaje: 'ya hay un usuario con ese nombre' } };
     if (!actual && !claveValida(d.clave)) return { ok: false, error: { codigo: 'DATOS_INVALIDOS', mensaje: 'la clave lleva de 4 a 8 dígitos' } };
     if (d.clave !== undefined && d.clave !== '' && !claveValida(d.clave)) return { ok: false, error: { codigo: 'DATOS_INVALIDOS', mensaje: 'la clave lleva de 4 a 8 dígitos' } };
     const activo = d.activo ?? actual?.activo ?? true;
@@ -449,6 +449,28 @@ export class Central {
     const id = actual?.id ?? `caj-${uuid().slice(0, 8)}`;
     this.emitirAdmin('cajero.guardado', { id, nombre, activo, sal, hash, por });
     return { ok: true, cajero: { id, nombre, activo } };
+  }
+
+  /**
+   * Alta o edición de un administrador (contraseña de 6 a 40 caracteres). Solo vive en el central: no se reparte a las tiendas ni a las cajas.
+   * Los nombres no se repiten entre administradores ni con los cajeros.
+   */
+  guardarAdmin(d: { id?: string; nombre?: string; clave?: string; activo?: boolean }, por: string): { ok: true; admin: Omit<Cajero, 'sal' | 'hash'> } | { ok: false; error: { codigo: 'DATOS_INVALIDOS' | 'NOMBRE_REPETIDO' | 'NO_EXISTE'; mensaje: string } } {
+    const ops = this.repo.ops();
+    const lista = administradoresDe(ops);
+    const actual = d.id ? lista.find((c) => c.id === d.id) : undefined;
+    if (d.id && !actual) return { ok: false, error: { codigo: 'NO_EXISTE', mensaje: 'el administrador no existe' } };
+    const nombre = (d.nombre ?? actual?.nombre ?? '').trim().replace(/\s+/g, ' ');
+    if (!nombre) return { ok: false, error: { codigo: 'DATOS_INVALIDOS', mensaje: 'falta el nombre del administrador' } };
+    if ([...lista.filter((c) => c.id !== actual?.id), ...cajerosDe(ops)].some((c) => nombreClave(c.nombre) === nombreClave(nombre))) return { ok: false, error: { codigo: 'NOMBRE_REPETIDO', mensaje: 'ya hay un usuario con ese nombre' } };
+    if (!actual && !claveAdminValida(d.clave)) return { ok: false, error: { codigo: 'DATOS_INVALIDOS', mensaje: 'la contraseña lleva de 6 a 40 caracteres' } };
+    if (d.clave !== undefined && d.clave !== '' && !claveAdminValida(d.clave)) return { ok: false, error: { codigo: 'DATOS_INVALIDOS', mensaje: 'la contraseña lleva de 6 a 40 caracteres' } };
+    const activo = d.activo ?? actual?.activo ?? true;
+    let sal = actual?.sal ?? uuid(), hash = actual?.hash ?? '';
+    if (d.clave) { sal = uuid(); hash = hashClave(sal, d.clave); }
+    const id = actual?.id ?? `adm-${uuid().slice(0, 8)}`;
+    this.emitirUna('admin.guardado', { id, nombre, activo, sal, hash, por }, `admin.guardado:${uuid()}`, false);
+    return { ok: true, admin: { id, nombre, activo } };
   }
 
   /** Recordatorio interno de almacén: fecha para sacar el artículo a piso (null la quita). Solo del central, no viaja a las tiendas. */
@@ -867,6 +889,17 @@ export class Caja {
     }
     this.repo.kvSet(llave, { n: 0, hasta: 0 });
     return cajero;
+  }
+  /** Cajeros activos con clave: si hay al menos uno, la caja pide usuario y clave para abrir. */
+  cajerosActivos(): string[] {
+    return this.idx.cajeros().filter((c) => c.activo).map((c) => c.nombre);
+  }
+  /** Inicio de sesión de un cajero (mismo control de claves equivocadas que el alta de artículos). Devuelve el nombre registrado. */
+  iniciarSesionCajero(usuario: string, clave: string): string {
+    return this.verificarClaveCajero(usuario, clave).nombre;
+  }
+  cajeroActivo(usuario: string): boolean {
+    return this.idx.cajeros().some((c) => c.activo && nombreClave(c.nombre) === nombreClave(usuario));
   }
   /** Departamentos activos (para elegir al dar de alta un artículo en la caja). */
   departamentosActivos(): string[] {

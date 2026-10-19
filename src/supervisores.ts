@@ -47,6 +47,9 @@ export const claveValida = (c: unknown): c is string => typeof c === 'string' &&
 
 /** Cajero con clave propia: confirma operaciones a su nombre (p. ej. dar de alta un artículo en la caja). La clave se guarda con sal y hash, como la de los supervisores. */
 export interface Cajero { id: string; nombre: string; activo: boolean; sal: string; hash: string }
+/** Administrador: contraseña de 6 a 40 caracteres. Sus registros solo viven en el central (no se reparten a las cajas). */
+export type Administrador = Cajero;
+export const claveAdminValida = (c: unknown): c is string => typeof c === 'string' && c.length >= 6 && c.length <= 40;
 /** Los nombres se comparan sin importar mayúsculas, acentos ni espacios de más. */
 export const nombreClave = (n: string) => n.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
 
