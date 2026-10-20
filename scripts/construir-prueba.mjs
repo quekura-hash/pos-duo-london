@@ -34,6 +34,14 @@ const estiloBanco = `
 .aviso-depto td { background: color-mix(in srgb, #f5b301 18%, transparent); }
 #dlg-importar { max-width: min(860px, 96vw); width: 96vw; } #dlg-importar h2 { margin: 0 0 8px; } #dlg-importar fieldset { border: 1px solid var(--borde); border-radius: 8px; margin: 8px 0; } #dlg-importar label { display: block; margin: 4px 0; } #dlg-importar input[type=number] { width: 90px; padding: 4px; border: 1px solid var(--borde); border-radius: 6px; background: var(--superficie); text-align: right; } .anomalias td, .anomalias th { white-space: normal; }
 .app { min-height: calc(100vh - 44px); }`;
+import { execFileSync as _git } from 'node:child_process';
+// Versión visible en pantalla (para saber qué corre en cada caja): número de package.json + commit + fecha de construcción.
+const VERSION = (() => {
+  const v = JSON.parse(readFileSync(join(raiz, 'package.json'), 'utf8')).version;
+  let sha = 'sin-git';
+  try { sha = _git('git', ['rev-parse', '--short', 'HEAD'], { cwd: raiz, stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim(); } catch { /* sin git */ }
+  return { numero: v, commit: sha, fecha: new Date().toISOString().slice(0, 10), texto: `v${v} · ${sha} · ${new Date().toISOString().slice(0, 10)}` };
+})();
 const marcado = `
 <div class="banco" role="region" aria-label="Controles de la prueba">
   <strong>PRUEBA con datos sintéticos · en memoria (se borra al recargar) · políticas de ensayo, no aprobadas</strong>
@@ -66,7 +74,7 @@ const marcado = `
   <aside class="nav" aria-label="Navegación principal">
     <nav id="nav"></nav>
     <div id="tc-barra" class="tc" aria-label="Tipo de cambio del dólar"></div>
-    <p class="prueba" role="note"><strong>LonDuo POS</strong> · Smart Retail Management<br><strong>MODO DE PRUEBA</strong><br>Datos sintéticos · usuarios de prueba sin autenticación</p>
+    <p class="prueba" role="note"><strong>LonDuo POS</strong> · Smart Retail Management<br><span id="version-pos">${VERSION.texto}</span><br><strong>MODO DE PRUEBA</strong><br>Datos sintéticos · usuarios de prueba sin autenticación</p>
   </aside>
   <main id="vista" tabindex="-1"></main>
   <footer class="pie" id="pie" aria-label="Estado de la sesión"></footer>
@@ -82,7 +90,7 @@ ${css}
 ${estiloBanco}
 </style>
 ${marcado}
-<script>window.__POS_MANUAL__ = true; window.__POS_LOGOS__ = ${logos}; window.__POS_LOGOS_TICKET__ = ${logosTicket};</script>
+<script>window.__POS_MANUAL__ = true; window.__POS_VERSION__ = ${JSON.stringify(VERSION)}; window.__POS_LOGOS__ = ${logos}; window.__POS_LOGOS_TICKET__ = ${logosTicket};</script>
 <script>
 ${qr}
 </script>
