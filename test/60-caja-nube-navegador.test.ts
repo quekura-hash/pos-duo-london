@@ -12,6 +12,7 @@ const RAIZ = join(import.meta.dirname, '..');
 const HTML = join(RAIZ, 'dist', 'caja.html');
 const chromiumPath = [process.env.POS_CHROMIUM, '/opt/pw-browsers/chromium-1194/chrome-linux/chrome', '/opt/pw-browsers/chromium/chrome-linux/chrome'].find((p) => p && existsSync(p));
 
+type Est = { POS_CAJA: { estado(): { dentro: boolean; tienda: string; caja: number; error: string | null; pendientes: number; sincronizando: boolean } | null; sincronizar(): Promise<boolean> } };
 type Hw = { __imp: number[][]; __creds?: { correo: string; clave: string } };
 
 describe('[navegador real] Caja conectada al central (Supabase simulado con Postgres real)', { timeout: 180_000, skip: chromiumPath ? false : 'Chromium no encontrado' }, () => {
@@ -47,13 +48,14 @@ describe('[navegador real] Caja conectada al central (Supabase simulado con Post
     let page = await nueva();
     await page.waitForSelector('#pu-form:not([hidden])');
     assert.match((await page.textContent('#version-pos'))!, /^Caja v\d+\.\d+\.\d+ · /);
+    assert.equal(await page.locator('.barra-nube').count(), 0, 'no hay barra de estado sobre la pantalla del POS');
     await page.fill('#pu-correo', 'caja-duo-1@x.mx'); await page.fill('#pu-clave', 'mala'); await page.click('#pu-entrar');
     await page.waitForFunction(() => /revisa correo y contraseña/.test(document.querySelector('#msg-puerta')!.textContent!));
     await page.fill('#pu-correo', 'edgardo@x.mx'); await page.fill('#pu-clave', 'buena'); await page.click('#pu-entrar');
     await page.waitForFunction(() => /no es de una caja/.test(document.querySelector('#msg-puerta')!.textContent!));
     await page.fill('#pu-correo', 'caja-duo-1@x.mx'); await page.fill('#pu-clave', 'buena'); await page.click('#pu-entrar');
     await page.waitForSelector('#puerta', { state: 'hidden' });
-    await page.waitForFunction(() => /DUO · Caja 1 · Sincronizado/.test(document.querySelector('#estado-nube')!.textContent!));
+    await page.waitForFunction(() => { const e = (window as unknown as Est).POS_CAJA.estado(); return !!e && e.dentro && e.tienda === 'DUO' && e.caja === 1 && !e.error; });
     assert.deepEqual(await page.evaluate(() => (window as unknown as Hw).__creds), { correo: 'caja-duo-1@x.mx', clave: 'buena' });
 
     // La cajera entra con su clave local (la dio Administración) y vende.
@@ -70,8 +72,8 @@ describe('[navegador real] Caja conectada al central (Supabase simulado con Post
     const trabajos = await page.evaluate(() => (window as unknown as Hw).__imp);
     assert.ok(trabajos.length >= 1 && trabajos[0]![0] === 0x1b && trabajos[0]![1] === 0x40, 'el ticket salió a la impresora como ESC/POS');
     await page.click('#btn-nueva');
-    await page.click('#btn-sync');
-    await page.waitForFunction(() => /Sincronizado/.test(document.querySelector('#estado-nube')!.textContent!) && !/por subir/.test(document.querySelector('#estado-nube')!.textContent!));
+    await page.evaluate(() => (window as unknown as Est).POS_CAJA.sincronizar());
+    await page.waitForFunction(() => { const e = (window as unknown as Est).POS_CAJA.estado(); return !!e && e.pendientes === 0 && !e.error && !e.sincronizando; });
     const ventas = async () => ((await como(db, cuentas['edgardo@x.mx']!.id, (q) => q(`select origen from pos.ops where tipo = 'sale.confirmed'`))) as { origen: string }[]).map((x) => x.origen);
     assert.deepEqual(await ventas(), ['caja:DUO/1']);
 
@@ -84,7 +86,8 @@ describe('[navegador real] Caja conectada al central (Supabase simulado con Post
     await page.selectOption('#lg-usuario', 'Ana'); await page.fill('#lg-clave', '1234'); await page.click('#lg-entrar');
     await page.waitForSelector('#scan');
     await vender(page, '000002');
-    assert.match((await page.textContent('#estado-nube'))!, /Sin conexión con el central · \d+ por subir/);
+    await page.waitForFunction(() => { const e = (window as unknown as Est).POS_CAJA.estado(); return !!e && !!e.error && e.pendientes > 0; });
+    assert.equal(await page.locator('#aviso-inactividad:visible').count(), 0, 'sin cajeras registradas no hay aviso de inactividad');
     assert.deepEqual(await ventas(), ['caja:DUO/1'], 'sin internet nada llegó al central todavía');
     assert.deepEqual(errores, []);
   });

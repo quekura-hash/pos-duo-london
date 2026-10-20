@@ -42,20 +42,10 @@ if (/service_role/i.test(CENTRAL.llave) || (CENTRAL.llave.startsWith('eyJ') && J
 }
 
 const estilo = `
-.estado-nube { font-size: 13px; font-weight: 600; } .estado-nube.mal { color: var(--error, #b3261e); }
-.barra-nube { position: sticky; top: 0; z-index: 5; background: var(--aviso-fondo); color: var(--texto); border-bottom: 1px solid var(--borde); padding: 6px 16px; display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; font-size: 13px; }
-.barra-nube .espacio { flex: 1; } .barra-nube .btn { padding: 4px 10px; }
 #puerta { position: fixed; inset: 0; z-index: 100; background: var(--fondo, #f6f5f3); overflow: auto; padding: 24px 16px; }
 #puerta[hidden] { display: none; } #puerta .panel { max-width: 440px; margin: 40px auto; } #puerta input { width: 100%; box-sizing: border-box; }
-.app { min-height: calc(100vh - 38px); }`;
+.app { min-height: 100vh; }`;
 const marcado = `
-<div class="barra-nube" role="region" aria-label="Conexión con el central">
-  <strong>LonDuo POS</strong>
-  <span class="estado-nube" id="estado-nube" role="status" aria-live="polite">Sin conectar</span>
-  <button class="btn" type="button" id="btn-sync">Sincronizar ahora</button>
-  <span class="espacio"></span>
-  <small id="version-pos">${VERSION.texto}</small>
-</div>
 <div class="app">
   <header class="encabezado" id="encabezado" aria-label="Estado de la caja"></header>
   <aside class="nav" aria-label="Navegación principal"><nav id="nav"></nav><div id="tc-barra" class="tc" aria-label="Tipo de cambio del dólar"></div></aside>
@@ -66,7 +56,7 @@ const marcado = `
 <dialog id="dlg-tc" aria-labelledby="tc-titulo"></dialog>
 <div id="puerta" role="dialog" aria-labelledby="pu-titulo">
   <section class="panel">
-    <div style="text-align:center;margin-bottom:14px"><div style="font-size:26px;font-weight:800;letter-spacing:.5px" id="pu-titulo">LonDuo POS</div><div class="nota" style="margin:0">Smart Retail Management · Caja</div><div class="nota" style="margin:2px 0 0;font-size:11px">${VERSION.texto}</div></div>
+    <div style="text-align:center;margin-bottom:14px"><div style="font-size:26px;font-weight:800;letter-spacing:.5px" id="pu-titulo">LonDuo POS</div><div class="nota" style="margin:0">Smart Retail Management · Caja</div><div class="nota" id="version-pos" style="margin:2px 0 0;font-size:11px">${VERSION.texto}</div></div>
     <div id="msg-puerta" class="mensaje" role="alert"></div>
     <form id="pu-form" autocomplete="off" hidden>
       <div class="campo"><label for="pu-correo">Cuenta de esta caja (correo)</label><input id="pu-correo" type="email" autocomplete="off"></div>

@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import type { Impresora, TrabajoImpresion } from '../src/impresion.ts';
 import { iniciarCajaNube } from '../src/app/caja-nube.ts';
 import type { PGlite } from '@electric-sql/pglite';
-import { como } from './ayudas/central-pglite.ts';
+import { centralLocal, como, usuario } from './ayudas/central-pglite.ts';
 import { almacenMemoria, clienteDe, escenario, ESCANEAR } from './ayudas/escenario-central.ts';
 
 class ImpresoraProbada implements Impresora { trabajos: TrabajoImpresion[] = []; async imprimir(t: TrabajoImpresion) { this.trabajos.push(t); } }
@@ -99,3 +99,21 @@ test('CN3 lo que Administración cambia después (una cajera nueva) llega a la c
   duo.detener(); lon.detener();
 });
 
+
+test('CN4 sin cajeras registradas la caja no muestra cuenta regresiva de inactividad; con cajeras sí, solo después de entrar', async () => {
+  const db = await centralLocal();
+  const sup = await usuario(db, 'edgardo@x.mx', 'supervisor');
+  const cuentas = { 'edgardo@x.mx': { id: sup, rol: 'supervisor' as const, alias: 'Edgardo' }, 'caja-duo-1@x.mx': { id: await usuario(db, 'caja-duo-1@x.mx', 'caja', true, { tienda: 'DUO', caja: 1 }), rol: 'caja' as const, alias: 'caja', tienda: 'DUO', caja: 1 } };
+  const sinCajeras = iniciarCajaNube({ cliente: clienteDe(db, cuentas), impresora: new ImpresoraProbada(), almacen: almacenMemoria() });
+  await sinCajeras.entrar('caja-duo-1@x.mx', 'buena');
+  const s = (await sinCajeras.atender('GET', '/api/sesion', undefined)).json as { requiere_login: boolean; autenticado: boolean; inactividad: unknown };
+  assert.deepEqual([s.requiere_login, s.autenticado, s.inactividad], [false, true, null]);
+  sinCajeras.detener();
+  const { db: db2, cuentas: c2 } = await escenario();
+  const conCajeras = iniciarCajaNube({ cliente: clienteDe(db2, c2), impresora: new ImpresoraProbada(), almacen: almacenMemoria() });
+  await conCajeras.entrar('caja-duo-1@x.mx', 'buena');
+  assert.equal(((await conCajeras.atender('GET', '/api/sesion', undefined)).json as { inactividad: unknown }).inactividad, null, 'antes de entrar no hay cuenta regresiva');
+  await conCajeras.atender('POST', '/api/login', { usuario: 'Ana', clave: '1234' });
+  assert.ok(((await conCajeras.atender('GET', '/api/sesion', undefined)).json as { inactividad: { restante_seg: number } }).inactividad.restante_seg > 0);
+  conCajeras.detener();
+});

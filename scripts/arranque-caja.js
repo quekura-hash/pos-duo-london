@@ -19,7 +19,7 @@
 
   var nube = null;
   function conectar(correo, clave) {
-    nube = PosCaja.iniciarCajaNube({ cliente: new PosCaja.ClienteSupabase(CFG.url, CFG.llave), almacen: almacen, alCambiar: pintarEstado });
+    nube = PosCaja.iniciarCajaNube({ cliente: new PosCaja.ClienteSupabase(CFG.url, CFG.llave), almacen: almacen, alCambiar: function () {} });
     return nube.entrar(correo, clave);
   }
 
@@ -51,23 +51,11 @@
   });
   $('#pu-reintentar').addEventListener('click', function () { $('#pu-form').hidden = true; arrancar(); });
 
-  // ── estado de la conexión (barra superior) ──
-  function hora(iso) { var d = new Date(iso); return ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2); }
-  function pintarEstado() {
-    var e = nube ? nube.estado() : null, el = $('#estado-nube');
-    if (!e || !e.dentro) { el.textContent = 'Sin conectar'; el.className = 'estado-nube'; return; }
-    var t = e.sincronizando ? 'Sincronizando…' : e.error ? 'Sin conexión con el central' + (e.pendientes ? ' · ' + e.pendientes + ' por subir' : '') : e.pendientes ? e.pendientes + ' por subir' : 'Sincronizado' + (e.ultimaSync ? ' ' + hora(e.ultimaSync) : '');
-    el.textContent = e.tienda + ' · Caja ' + e.caja + ' · ' + t;
-    el.className = 'estado-nube' + (e.error ? ' mal' : '');
-  }
-  $('#btn-sync').addEventListener('click', function () { if (nube) nube.sincronizar(); });
-  setInterval(pintarEstado, 5000);
-
   // ── contrato con la pantalla del POS ──
   var SIN_SESION = { status: 200, json: { ok: true, rol: 'cajero', requiere_login: true, autenticado: false, usuario: null, cajeros: [], nav: [], tienda: null, caja: null } };
   window.__POS_ATENDER__ = function (m, r, c) {
     if (!nube || !nube.estado().dentro) return Promise.resolve(/^\/api\/sesion/.test(r) ? SIN_SESION : { status: 401, json: { ok: false, error: { codigo: 'SIN_SESION', mensaje: 'La caja no está abierta.' } } });
-    return nube.atender(m, r, c).then(function (x) { pintarEstado(); return x; });
+    return nube.atender(m, r, c);
   };
   window.addEventListener('pagehide', function () { if (nube) nube.guardarEstado(); });
   window.POS_CAJA = { estado: function () { return nube ? nube.estado() : null; }, sincronizar: function () { return nube ? nube.sincronizar() : Promise.resolve(false); } };

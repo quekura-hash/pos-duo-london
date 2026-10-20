@@ -149,6 +149,8 @@ function menu() {
       { type: 'separator' }, { label: 'Salir', role: 'quit' },
     ] },
     { label: 'Hardware', submenu: [
+      { label: 'Sincronizar ahora con el central', accelerator: 'CmdOrCtrl+Shift+S', click: () => { if (ventana) void ventana.webContents.executeJavaScript('window.POS_CAJA && window.POS_CAJA.sincronizar()').catch(() => undefined); } },
+      { type: 'separator' },
       { label: 'Configurar impresora y cajón…', accelerator: 'CmdOrCtrl+,', click: abrirAjustes },
       { type: 'separator' },
       { label: 'Imprimir ticket de prueba (con logo, QR y cajón)', click: probar('ticket') },
