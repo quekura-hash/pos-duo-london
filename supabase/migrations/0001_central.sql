@@ -1,5 +1,5 @@
 -- LonDuo POS · Central en Supabase · migración 0001
--- ESTADO: ESCRITA Y REVISADA A MANO, NO EJECUTADA. Se ejecuta en un proyecto NUEVO y vacío de Supabase (SQL Editor), por el propietario.
+-- ESTADO: lista para ejecutarse una sola vez. Se ejecuta en un proyecto NUEVO y vacío de Supabase (SQL Editor), por el propietario.
 -- Qué crea: la bitácora de operaciones (la fuente de verdad), los dispositivos (hub/cajas), los administradores, contadores atómicos,
 -- las versiones publicadas (actualizaciones) y las solicitudes de autorización en tiempo real (iPhone).
 -- Seguridad: todo en el esquema `pos`, con RLS activa. Los clientes (web de Administración) usan Supabase Auth; los hubs y cajas entran por
@@ -166,3 +166,12 @@ do $$ begin
     alter publication supabase_realtime add table pos.ops;
   end if;
 end $$;
+
+-- ─────────── permisos (la RLS de arriba decide qué filas ve cada rol) ───────────
+-- Sin "exponer tablas automáticamente", todo permiso es explícito. `anon` no recibe nada.
+grant usage on schema pos to authenticated;
+grant select on pos.ops, pos.contadores to authenticated;
+grant select, insert, update, delete on pos.admins, pos.dispositivos, pos.versiones to authenticated;
+grant select, update on pos.solicitudes_autorizacion to authenticated;
+grant execute on function pos.subir_ops(jsonb), pos.bajar_ops(bigint, integer), pos.reservar_item_no(integer) to authenticated;
+revoke execute on function pos.subir_ops(jsonb), pos.bajar_ops(bigint, integer), pos.reservar_item_no(integer) from public, anon;
