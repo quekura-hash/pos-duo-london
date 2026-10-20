@@ -5,6 +5,7 @@ import { crearPoliticasEnsayo } from '../politicas.ts';
 import { MemoriaRepo, type EstadoRepo } from '../repo.ts';
 import type { Op } from '../tipos.ts';
 import { PuenteCentral, type ClienteCentral } from '../transporte/puente-central.ts';
+import { departamentos } from '../proyecciones.ts';
 import { atender } from './rutas.ts';
 import { ServicioAdmin } from './servicio.ts';
 
@@ -134,6 +135,11 @@ export function iniciarAdminNube(o: { cliente: ClienteNube; almacen?: AlmacenRep
       repo().tx(() => { for (const op of ops) if (repo().appendOp(op)) n++; });
       void sincronizar();
       return n;
+    },
+    /** Catálogo y departamentos vigentes en la réplica (para corregir en bloque). */
+    datosCatalogo() {
+      if (!m) throw new Error('sin sesión');
+      return { catalogo: m.inventarioCentral().articulos(), deptosActivos: departamentos(repo().ops()).filter((d) => d.activo).map((d) => d.nombre), usuario: perfil?.alias ?? 'Administración', ahora: ahora() };
     },
     get servicio() { return servicio; },
   };

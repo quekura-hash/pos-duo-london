@@ -8,6 +8,7 @@ import { chromium, type BrowserContext } from 'playwright-core';
 import type { PGlite } from '@electric-sql/pglite';
 import { centralLocal, ClientePglite, como, usuario } from './ayudas/central-pglite.ts';
 import { FILAS_REALISTAS, xlsxDeFilas } from './ayudas/inventario.ts';
+type Pagina = import('playwright-core').Page;
 
 const RAIZ = join(import.meta.dirname, '..');
 const HTML = join(RAIZ, 'dist', 'administracion.html');
@@ -101,6 +102,35 @@ describe('[navegador real] Administración conectada al central (Supabase simula
     assert.deepEqual(await bodega.$$eval('#nav button', (b) => b.map((x) => x.textContent!.trim().toLowerCase())).then((l) => l.filter((x) => /inventario|almac|promoc|report|corte|config/.test(x)).length), 2);
     const filas = (await bodega.evaluate(async () => (await (window as unknown as { __POS_ATENDER__: (m: string, r: string, c?: unknown) => Promise<{ json: { resumen: { articulos: number } } }> }).__POS_ATENDER__('GET', '/api/admin/inventario')).json.resumen.articulos));
     assert.equal(filas, 13);
+
+    // Corregir departamentos y marcas en bloque: el texto «System» (3 artículos sin clasificar) pasa a Dama y se toma como marca.
+    const corr = join(dir, 'correcciones.xlsx');
+    writeFileSync(corr, await xlsxDeFilas([['System', 'Sí', 'Dama', 7], ['ZAPATOS', '', '', 3]], ['Departamento (texto en el archivo)', '¿Es marca?', 'Departamento correcto', 'Artículos']));
+    const deptos = async (p: Pagina) => p.evaluate(async () => {
+      const r = (await (window as unknown as { __POS_ATENDER__: (m: string, u: string) => Promise<{ json: { hoja: { encabezados: string[]; filas: string[][] } } }> }).__POS_ATENDER__('GET', '/api/admin/inventario?completo=1')).json.hoja;
+      const i = r.encabezados.indexOf('Departamento');
+      return r.filas.reduce<Record<string, number>>((a, f) => { a[f[i]!] = (a[f[i]!] ?? 0) + 1; return a; }, {});
+    });
+    const antes = await deptos(mac);
+    assert.ok((antes['Sin clasificar'] ?? 0) > 0);
+    await mac.click('#btn-corregir-catalogo');
+    await mac.waitForSelector('#dlg-correcciones[open]');
+    await mac.setInputFiles('#corr-f1', corr);
+    await mac.setInputFiles('#corr-f2', archivo);
+    await mac.waitForSelector('#corr-resumen table');
+    const textoResumen = (await mac.textContent('#corr-resumen'))!;
+    assert.match(textoResumen, /Artículos que cambian\s*\d+/);
+    assert.match(textoResumen, /Renglones sin decisión.*1/);
+    await mac.click('#corr-aplicar');
+    await mac.waitForFunction(() => /Correcciones aplicadas: \d+ artículos/.test(document.querySelector('#estado-inv')!.textContent!));
+    const despues = await deptos(mac);
+    assert.ok((despues['Dama'] ?? 0) > (antes['Dama'] ?? 0), JSON.stringify([antes, despues]));
+    assert.ok((despues['Sin clasificar'] ?? 0) < (antes['Sin clasificar'] ?? 0));
+    await mac.waitForFunction(() => /Sincronizado/.test(document.querySelector('#estado-nube')!.textContent!) && !/por subir/.test(document.querySelector('#estado-nube')!.textContent!));
+    // ...y el otro equipo lo ve tras sincronizar.
+    await bodega.click('#btn-sync');
+    await bodega.waitForFunction(() => /Sincronizado/.test(document.querySelector('#estado-nube')!.textContent!));
+    assert.deepEqual(await deptos(bodega), despues);
 
     // Cerrar sesión devuelve a la puerta de entrada.
     await bodega.click('#btn-salir');

@@ -1086,6 +1086,7 @@ async function vistaInventario() {
     <div class="panel">
       <div class="filas" style="align-items:center;margin-bottom:12px">
         ${window.__POS_IMPORTAR_INVENTARIO__ ? `<button class="btn btn-primario" id="btn-catalogo-inicial" type="button" style="width:auto" title="Carga el archivo completo de artículos: la cantidad de cada fila queda en El Limbo, que se vende en todas las tiendas y cajas">${ico('upload')}<span>Cargar catálogo inicial (El Limbo)</span></button>` : ''}
+        ${window.__POS_CORREGIR_CATALOGO__ ? `<button class="btn" id="btn-corregir-catalogo" type="button" title="Aplica en bloque el departamento y la marca que llenó en el Excel de correcciones">${ico('upload')}<span>Corregir departamentos y marcas (Excel)</span></button>` : ''}
         <button class="btn" id="btn-conteo-limbo" type="button" title="Contar físicamente las piezas de El Limbo y ajustar su existencia">${ico('check')}<span>Conteo de El Limbo</span></button>
         <button class="btn btn-primario" id="btn-exportar" type="button" style="width:auto">${ico('download')}<span>Exportar inventario a Excel</span></button>
         <span id="estado-exportar" role="status" aria-live="polite"></span>
@@ -1115,6 +1116,7 @@ async function vistaInventario() {
   });
   $('#btn-conteo-limbo').addEventListener('click', () => ir('conteo_limbo'));
   const ci = $('#btn-catalogo-inicial'); if (ci) ci.addEventListener('click', () => window.__POS_IMPORTAR_INVENTARIO__());
+  const cc = $('#btn-corregir-catalogo'); if (cc) cc.addEventListener('click', () => window.__POS_CORREGIR_CATALOGO__());
   await cargarListaInventario();
 }
 async function cargarListaInventario() {
