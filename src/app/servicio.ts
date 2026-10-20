@@ -640,6 +640,8 @@ export class ServicioAdmin {
   readonly actor: Extract<Actor, { rol: 'admin' }>;
   private usuarioInicial: string;
   private autenticado = false;
+  /** Con el central en la nube, quien entra ya se identificó con Supabase: aquí solo se le asigna su rol. */
+  private nube: { alCerrar: () => void } | null = null;
   /** Rol de quien inició sesión (null con la consola abierta o antes de entrar: se trata como supervisor). */
   private rolUsuario: RolAdmin | null = null;
   private ultimaActividad = 0;
@@ -894,11 +896,20 @@ export class ServicioAdmin {
   // ── inicio de sesión de Administración ──
   /** Con al menos un administrador activo se pide usuario y contraseña; mientras no haya ninguno, la consola está abierta para crear el primero. */
   requiereLogin(): boolean {
-    return administradoresDe(this.fuente()).some((a) => a.activo);
+    return this.nube !== null || administradoresDe(this.fuente()).some((a) => a.activo);
+  }
+  /** Central en la nube: la identidad y el rol los da Supabase (tabla pos.admins); `alCerrar` se llama al cerrar la sesión (también por inactividad). */
+  abrirSesionNube(alias: string, rol: RolAdmin, alCerrar: () => void) {
+    this.nube = { alCerrar };
+    this.actor.usuario = alias;
+    this.rolUsuario = rol;
+    this.autenticado = true;
+    this.tocar();
+    return this.sesionInfo();
   }
   autenticada(): boolean {
     if (!this.requiereLogin()) return true;
-    if (this.autenticado && !administradoresDe(this.fuente()).some((a) => a.activo && nombreClave(a.nombre) === nombreClave(this.actor.usuario))) this.cerrarSesion();
+    if (this.autenticado && !this.nube && !administradoresDe(this.fuente()).some((a) => a.activo && nombreClave(a.nombre) === nombreClave(this.actor.usuario))) this.cerrarSesion();
     const limite = configSesionDe(this.fuente()).admin_min * 60000;
     if (this.autenticado && limite > 0 && this.ahoraMs() - this.ultimaActividad > limite) this.cerrarSesion(); // inactividad
     return this.autenticado;
@@ -942,10 +953,13 @@ export class ServicioAdmin {
     return this.sesionInfo();
   }
   cerrarSesion() {
+    const estaba = this.autenticado;
     this.autenticado = false;
     this.actor.usuario = this.usuarioInicial;
     this.rolUsuario = null;
-    return this.sesionInfo();
+    const info = this.sesionInfo();
+    if (estaba) this.nube?.alCerrar();
+    return info;
   }
   rol(): RolAdmin { return this.rolUsuario ?? 'supervisor'; }
   /** Pantallas de Administración que ve cada rol (el almacenista solo trabaja Inventario y Almacén). */

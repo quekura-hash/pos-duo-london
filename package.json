@@ -11,7 +11,8 @@
     "test": "node --no-warnings --test --test-reporter=spec \"test/*.test.ts\"",
     "typecheck": "tsc --noEmit",
     "demo": "node --no-warnings src/app/demo.ts",
-    "build:prueba": "node scripts/construir-prueba.mjs"
+    "build:prueba": "node scripts/construir-prueba.mjs",
+    "build:admin": "node scripts/construir-admin.mjs"
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.10",

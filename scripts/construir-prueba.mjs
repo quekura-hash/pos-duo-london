@@ -83,6 +83,7 @@ const marcado = `
 <dialog id="dlg-tc" aria-labelledby="tc-titulo"></dialog>
 <dialog id="dlg-importar" aria-labelledby="dlg-imp-titulo"></dialog>
 <dialog id="dlg-respaldo" aria-labelledby="resp-titulo"></dialog>`;
+const importador = readFileSync(join(raiz, 'scripts/importador-inventario.js'), 'utf8').replace(/<\/script/gi, '<\\/script');
 const arranque = readFileSync(join(raiz, 'scripts/arranque-prueba.js'), 'utf8').replace(/<\/script/gi, '<\\/script');
 const piezas = `<title>LonDuo POS · Smart Retail Management</title>
 <style>
@@ -102,6 +103,7 @@ ${exceljs}
 </script>
 <script>
 ${bundle}
+${importador}
 ${arranque}
 </script>`;
 // Página completa (para abrirla como archivo) y fragmento (la plataforma de artefactos pone su propio esqueleto).
