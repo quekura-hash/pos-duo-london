@@ -98,65 +98,6 @@
     } });
   void importador;
 
-  // ── corregir departamentos y marcas en bloque (Excel de correcciones + el inventario original) ──
-  function leerHojas(archivo) { return archivo.arrayBuffer().then(function (b) { return PosAdmin.leerXlsx(window.ExcelJS, new Uint8Array(b)); }); }
-  window.__POS_CORREGIR_CATALOGO__ = function () {
-    var d = $('#dlg-correcciones');
-    var corr = null, orig = null, plan = null;
-    d.innerHTML = '<h2 id="corr-titulo">Corregir departamentos y marcas</h2>' +
-      '<p><small>Elija el archivo de correcciones. La marca se pone solo donde el artículo no tiene; un departamento ya elegido no se cambia.</small></p>' +
-      '<div class="campo"><label for="corr-f1">Archivo de correcciones</label><input id="corr-f1" type="file" accept=".xlsx"></div>' +
-      '<div class="campo" id="corr-c2" hidden><label for="corr-f2">Inventario original (el que cargó): hace falta para saber de qué texto vino cada artículo</label><input id="corr-f2" type="file" accept=".xlsx"></div>' +
-      '<div id="corr-msg" class="mensaje" role="status"></div><div id="corr-resumen"></div>' +
-      '<div class="filas"><button class="btn" type="button" id="corr-cancelar">Cerrar</button><button class="btn btn-primario" type="button" id="corr-aplicar" style="width:auto;flex:1" disabled>Aplicar correcciones</button></div>';
-    function msg(t, mal) { var m = $('#corr-msg'); m.textContent = t || ''; m.className = 'mensaje' + (mal ? ' error' : ''); }
-    function pensar() {
-      plan = null; $('#corr-aplicar').disabled = true; $('#corr-resumen').innerHTML = '';
-      if (!corr) return;
-      var dc = nube.datosCatalogo();
-      var porArticulo = PosAdmin.leerMarcasPorArticulo(corr);
-      $('#corr-c2').hidden = !porArticulo.errores.length; // el archivo de marcas por artículo no necesita el inventario original
-      if (!porArticulo.errores.length) plan = PosAdmin.planMarcasPorArticulo({ marcas: porArticulo.filas, catalogo: dc.catalogo, por: dc.usuario, ahora: dc.ahora });
-      else {
-        if (!orig) return msg('Ese archivo es el de departamentos: elija también el inventario original.', false);
-        var lc = PosAdmin.leerCorrecciones(corr);
-        if (lc.errores.length) return msg('No reconozco ese archivo: no es ni el de marcas por artículo ni el de departamentos.', true);
-        plan = PosAdmin.planCorrecciones({ correcciones: lc.filas, inventarioOriginal: orig, catalogo: dc.catalogo, deptosActivos: dc.deptosActivos, por: dc.usuario, ahora: dc.ahora });
-      }
-      var r = plan.resumen;
-      msg('');
-      $('#corr-resumen').innerHTML = '<table><tbody>' +
-        '<tr><td>Artículos que cambian</td><td><b>' + r.articulosCambiados + '</b></td></tr>' +
-        '<tr><td>· con departamento nuevo</td><td>' + r.departamentosCambiados + '</td></tr>' +
-        '<tr><td>· con marca puesta</td><td>' + r.marcasPuestas + '</td></tr>' +
-        '<tr><td>Conservan su marca</td><td>' + r.conMarcaPropia + '</td></tr>' +
-        '<tr><td>Departamento ya elegido (se respeta)</td><td>' + r.yaClasificados + '</td></tr>' +
-        '<tr><td>Renglones sin decisión (quedan como están)</td><td>' + r.sinDecision + '</td></tr>' +
-        (r.deptosInvalidos.length ? '<tr><td>Departamento que no existe (no se aplican)</td><td>' + r.deptosInvalidos.length + '</td></tr>' : '') +
-        (r.sinCoincidencia.length ? '<tr><td>Textos que no están en el inventario original</td><td><b>' + r.sinCoincidencia.length + '</b></td></tr>' : '') +
-        '</tbody></table>' + (r.sinCoincidencia.length ? '<p class="nota">Si hay textos sin coincidencia, quizá el inventario original no es el mismo que cargó.</p>' : '');
-      $('#corr-aplicar').disabled = plan.ops.length === 0;
-    }
-    function elegir(id, destino) {
-      $(id).addEventListener('change', function (e) {
-        var f = e.target.files[0]; if (!f) return;
-        msg('Leyendo ' + f.name + '…');
-        leerHojas(f).then(function (h) { var fila = h[0] ? h[0].filas : []; if (destino === 1) corr = fila; else orig = fila; pensar(); if (!$('#corr-resumen').innerHTML) msg(''); })
-          .catch(function (er) { msg('No se pudo leer el archivo: ' + er.message, true); });
-      });
-    }
-    elegir('#corr-f1', 1); elegir('#corr-f2', 2);
-    $('#corr-cancelar').addEventListener('click', function () { d.close(); });
-    $('#corr-aplicar').addEventListener('click', function () {
-      if (!plan) return;
-      var n = nube.agregarOps(plan.ops);
-      d.close();
-      $('#estado-inv').textContent = 'Correcciones aplicadas: ' + n + ' artículos (se suben al central).';
-      pintarEstado();
-      window.POS_UI.iniciar();
-    });
-    d.showModal();
-  };
   setInterval(pintarEstado, 5000);
   window.POS_ADMIN = { estado: function () { return nube ? nube.estado() : null; } };
   mostrarPuerta();

@@ -49,7 +49,6 @@ const estilo = `
 .barra-nube .espacio { flex: 1; }
 #puerta { position: fixed; inset: 0; z-index: 100; background: var(--fondo, #f6f5f3); overflow: auto; padding: 24px 16px; }
 #puerta[hidden] { display: none; } #puerta .panel { max-width: 420px; margin: 40px auto; } #puerta details { margin: 8px 0 12px; } #puerta input { width: 100%; box-sizing: border-box; }
-#dlg-correcciones { max-width: min(640px, 96vw); width: 96vw; } #dlg-correcciones h2 { margin: 0 0 8px; } #dlg-correcciones .campo { margin: 10px 0; } #dlg-correcciones td, #dlg-correcciones th { padding: 4px 8px; text-align: left; }
 #dlg-importar { max-width: min(860px, 96vw); width: 96vw; } #dlg-importar h2 { margin: 0 0 8px; } #dlg-importar fieldset { border: 1px solid var(--borde); border-radius: 8px; margin: 8px 0; } #dlg-importar label { display: block; margin: 4px 0; } #dlg-importar input[type=number] { width: 90px; padding: 4px; border: 1px solid var(--borde); border-radius: 6px; background: var(--superficie); text-align: right; } .anomalias td, .anomalias th { white-space: normal; }
 .aviso-depto td { background: color-mix(in srgb, #f5b301 18%, transparent); }
 .app { min-height: calc(100vh - 44px); }`;
@@ -72,7 +71,6 @@ const marcado = `
 <dialog id="dlg-ticket" aria-labelledby="dlg-titulo"></dialog>
 <dialog id="dlg-tc" aria-labelledby="tc-titulo"></dialog>
 <dialog id="dlg-importar" aria-labelledby="dlg-imp-titulo"></dialog>
-<dialog id="dlg-correcciones" aria-labelledby="corr-titulo"></dialog>
 <div id="puerta" role="dialog" aria-labelledby="pu-titulo">
   <section class="panel">
     <div style="text-align:center;margin-bottom:14px"><div style="font-size:26px;font-weight:800;letter-spacing:.5px" id="pu-titulo">LonDuo POS</div><div class="nota" style="margin:0">Smart Retail Management · Administración</div><div class="nota" style="margin:2px 0 0;font-size:11px">${VERSION.texto}</div></div>
