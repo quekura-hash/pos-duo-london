@@ -1,0 +1,48 @@
+# Arma el instalador de Windows de LonDuo POS y lo publica en el almacén `actualizaciones` de Supabase.
+# Se lanza a mano: GitHub → Actions → «Publicar app de Windows» → Run workflow.
+# Necesita dos secretos del repositorio: LONDUO_PUBLICADOR_CORREO y LONDUO_PUBLICADOR_CLAVE.
+name: Publicar app de Windows
+
+on:
+  workflow_dispatch:
+    inputs:
+      estable:
+        description: Publicar también en el canal estable (latest.yml)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  publicar:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            windows/package-lock.json
+      - name: Dependencias
+        run: |
+          npm ci
+          (cd windows && npm ci)
+      - name: Armar el instalador
+        run: node windows/construir.mjs
+      - name: Publicar en Supabase
+        env:
+          LONDUO_PUBLICADOR_CORREO: ${{ secrets.LONDUO_PUBLICADOR_CORREO }}
+          LONDUO_PUBLICADOR_CLAVE: ${{ secrets.LONDUO_PUBLICADOR_CLAVE }}
+        run: |
+          if [ "${{ inputs.estable }}" = "true" ]; then
+            node windows/publicar.mjs --estable
+          else
+            node windows/publicar.mjs
+          fi

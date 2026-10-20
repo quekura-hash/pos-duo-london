@@ -30,6 +30,6 @@ if (process.argv.includes('--sin-instalador')) process.exit(0);
 
 // 3) Instalador (NSIS, por usuario: no pide permisos de administrador y se actualiza solo).
 rmSync(join(raiz, 'dist', 'windows'), { recursive: true, force: true });
-sh(join(win, 'node_modules', '.bin', 'electron-builder'), ['--win', 'nsis', '--x64', '--config', 'electron-builder.yml', '--publish', 'never'], win);
+sh(process.execPath, [join(win, 'node_modules', 'electron-builder', 'cli.js'), '--win', 'nsis', '--x64', '--config', 'electron-builder.yml', '--publish', 'never'], win);
 const salida = join(raiz, 'dist', 'windows');
 console.log('Archivos generados:', readdirSync(salida).filter((f) => /\.(exe|yml|blockmap)$/.test(f)).join(', '));

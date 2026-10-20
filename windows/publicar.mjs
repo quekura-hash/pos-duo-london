@@ -5,6 +5,7 @@
 //  - Se conservan las últimas 3 versiones (el .blockmap de la instalada hace falta para las actualizaciones diferenciales).
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 const BUCKET = 'actualizaciones';
 const COPIAS = 3;
@@ -69,7 +70,7 @@ export async function publicar(o) {
   return { version, canales: o.estable ? ['pruebas', 'estable'] : ['pruebas'], retiradas: sobran };
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   const raiz = join(import.meta.dirname, '..');
   const central = JSON.parse(readFileSync(join(import.meta.dirname, 'central.json'), 'utf8'));
   const correo = process.env.LONDUO_PUBLICADOR_CORREO, clave = process.env.LONDUO_PUBLICADOR_CLAVE;

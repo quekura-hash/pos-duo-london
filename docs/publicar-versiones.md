@@ -11,22 +11,15 @@ Guía para publicar LonDuo POS (app de Windows) en el almacén de actualizacione
    select id, 'publicador', 'Publicador de versiones' from auth.users where email = 'publicador@londuo.mx';
    ```
    Esa cuenta **solo** puede escribir en el almacén `actualizaciones` (no ve ventas, inventario, usuarios ni configuración).
-3. **Entorno de Claude Code en la web** (menú del entorno en la barra de título de la sesión → Edit):
-   - *Network access*: agregar el dominio `zchgpakvhrdpabvsxpnn.supabase.co` en *Allowed domains* (dejar marcada la casilla de gestores de paquetes).
-   - *Variables de entorno* (nunca en el chat): `LONDUO_PUBLICADOR_CORREO` y `LONDUO_PUBLICADOR_CLAVE`.
-   - *Setup script* (para poder armar el instalador de Windows en Linux):
-     ```bash
-     dpkg --add-architecture i386 && apt-get update
-     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends wine wine64 wine32:i386 xvfb
-     cd windows && npm ci
-     ```
-   Una sesión **nueva** recoge estos cambios.
+3. **Secretos en GitHub** (repositorio → Settings → Secrets and variables → Actions → New repository secret): `LONDUO_PUBLICADOR_CORREO` (`publicador@londuo.mx`) y `LONDUO_PUBLICADOR_CLAVE` (la contraseña de esa cuenta). Nunca en el chat. La app de Windows se arma en GitHub Actions (runner de Windows, sin wine), no en el entorno de Claude Code.
 
 ## Cada versión
 
-1. Subir la versión en `package.json` de la raíz (p. ej. `0.2.3`), correr las pruebas (`npm test`), commit y push.
-2. Armar: `WINEDEBUG=-all xvfb-run -a node windows/construir.mjs` → deja en `dist/windows/` el instalador, su `.blockmap` y `pruebas.yml`.
-3. Publicar en el canal de pruebas: `node windows/publicar.mjs`. Para el canal estable (después de validar en la caja de pruebas): `node windows/publicar.mjs --estable`.
+1. Subir la versión en `package.json` de la raíz (p. ej. `0.2.5`), correr las pruebas (`npm test`), commit y push a la rama.
+2. GitHub → Actions → **Publicar app de Windows** → *Run workflow* (elegir la rama). Marcar *estable* solo después de validar la versión en la caja de pruebas. El flujo (`.github/workflows/publicar-windows.yml`) corre `node windows/construir.mjs` y `node windows/publicar.mjs [--estable]`.
+3. Comprobar: `https://zchgpakvhrdpabvsxpnn.supabase.co/storage/v1/object/public/actualizaciones/pruebas.yml` debe empezar con `version:` y el número nuevo.
+
+También se puede hacer a mano en un Windows con Node 22: `npm ci`, `(cd windows && npm ci)`, `node windows/construir.mjs` y `node windows/publicar.mjs` (con las dos variables de entorno).
 
 `publicar.mjs` sube primero el instalador y el `.blockmap` y **al final** el archivo de versión (ninguna caja ve una versión sin instalador), verifica lo que ve cualquiera en la dirección pública (versión y tamaño) y conserva las últimas 3 versiones. Si algo falla, no sube el archivo de versión.
 
