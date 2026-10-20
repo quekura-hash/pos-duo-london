@@ -20,8 +20,8 @@
 
   var nube = null;
   function crear() {
-    var url = pref('url') || CFG.url || '';
-    var llave = pref('llave') || CFG.llave || '';
+    var url = CFG.url || pref('url') || '';
+    var llave = CFG.llave || pref('llave') || '';
     if (!url || !llave) return null;
     return PosAdmin.iniciarAdminNube({
       cliente: new PosAdmin.ClienteSupabase(url, llave), almacen: almacen,
@@ -35,9 +35,10 @@
     $('#msg-puerta').textContent = mensaje || '';
     $('#msg-puerta').className = mensaje ? 'mensaje error' : 'mensaje';
     $('#pu-clave').value = '';
-    var sinCfg = !(pref('url') || CFG.url) || !(pref('llave') || CFG.llave);
+    var sinCfg = !(CFG.url || pref('url')) || !(CFG.llave || pref('llave'));
     $('#pu-proyecto').open = sinCfg;
-    $('#pu-url').value = pref('url') || CFG.url || ''; $('#pu-llave').value = pref('llave') || CFG.llave || '';
+    $('#pu-proyecto').hidden = !!(CFG.url && CFG.llave); // con el proyecto fijado al construir, solo se piden correo y contraseña
+    $('#pu-url').value = CFG.url || pref('url') || ''; $('#pu-llave').value = CFG.llave || pref('llave') || '';
     $('#pu-correo').value = pref('correo');
     ($('#pu-correo').value ? $('#pu-clave') : $('#pu-correo')).focus();
   }
