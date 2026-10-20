@@ -71,7 +71,13 @@ describe('[navegador real] Caja conectada al central (Supabase simulado con Post
     await vender(page, '000001');
     const trabajos = await page.evaluate(() => (window as unknown as Hw).__imp);
     assert.ok(trabajos.length >= 1 && trabajos[0]![0] === 0x1b && trabajos[0]![1] === 0x40, 'el ticket salió a la impresora como ESC/POS');
-    await page.click('#btn-nueva');
+    // Cerrar el ticket con Esc (no con «Nueva venta») también deja lista una venta nueva.
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(() => !(document.querySelector('#dlg-ticket') as HTMLDialogElement).open && !!document.querySelector('#scan') && document.querySelectorAll('#cuerpo tr[data-linea]').length === 0);
+    // …y la caja puede escanear otro artículo sin el error de «venta ya confirmada».
+    await page.fill('#scan', ESCANEAR); await page.press('#scan', 'Enter');
+    await page.waitForSelector('#cuerpo tr[data-linea]');
+    assert.equal(await page.locator('.mensaje.error:visible').count(), 0);
     await page.evaluate(() => (window as unknown as Est).POS_CAJA.sincronizar());
     await page.waitForFunction(() => { const e = (window as unknown as Est).POS_CAJA.estado(); return !!e && e.pendientes === 0 && !e.error && !e.sincronizando; });
     const ventas = async () => ((await como(db, cuentas['edgardo@x.mx']!.id, (q) => q(`select origen from pos.ops where tipo = 'sale.confirmed'`))) as { origen: string }[]).map((x) => x.origen);

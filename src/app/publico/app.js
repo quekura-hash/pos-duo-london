@@ -868,6 +868,22 @@ async function cobrar() {
   }
 }
 
+/** Cerrar el ticket de una venta (con «Nueva venta», Esc o un clic fuera) siempre deja lista una venta nueva: una venta ya cobrada no se puede seguir editando. */
+function cerrarTicketYVentaNueva(dlg, despues) {
+  let hecho = false;
+  const nueva = async () => {
+    if (hecho) return;
+    hecho = true;
+    if (dlg.open) dlg.close();
+    const n = await api('/api/venta/nueva', {});
+    S.cart = n.cart; S.carrito = n.carrito; S.sel = null;
+    await ir('venta');
+    if (despues) await despues();
+  };
+  $('#btn-nueva').addEventListener('click', nueva);
+  dlg.addEventListener('close', () => { void nueva(); }, { once: true });
+}
+
 function mostrarTicket(r) {
   const dlg = $('#dlg-ticket');
   const imp = r.impresion;
@@ -900,12 +916,7 @@ function mostrarTicket(r) {
       await imprimirNavegador(x.ticket_texto, { qrs: (r.venta.recompensas ?? []).map((q) => q.codigo) });
     } catch (err) { $('#estado-impresion').textContent = err.message; }
   });
-  $('#btn-nueva').addEventListener('click', async () => {
-    dlg.close();
-    const n = await api('/api/venta/nueva', {});
-    S.cart = n.cart; S.carrito = n.carrito; S.sel = null;
-    await ir('venta');
-  });
+  cerrarTicketYVentaNueva(dlg);
 }
 
 /** Imprime y muestra el ticket de regalo (mercancía sin precios) de una venta de esta caja. */
@@ -1384,13 +1395,7 @@ function mostrarDevolucionEfectivo(r) {
     <div class="filas"><button class="btn btn-primario" id="btn-nueva" type="button" style="width:auto;flex:1">${ico('plus')}<span>Nueva venta</span></button></div>`;
   dlg.showModal();
   void imprimirNavegador(r.ticket_texto);
-  $('#btn-nueva').addEventListener('click', async () => {
-    dlg.close();
-    const n = await api('/api/venta/nueva', {});
-    S.cart = n.cart; S.carrito = n.carrito; S.sel = null;
-    await ir('venta');
-    await pintarEncabezado();
-  });
+  cerrarTicketYVentaNueva(dlg, pintarEncabezado);
 }
 
 // ── tipo de cambio del dólar (barra izquierda) ──
