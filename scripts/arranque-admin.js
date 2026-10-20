@@ -104,7 +104,7 @@
     var d = $('#dlg-correcciones');
     var corr = null, orig = null, plan = null;
     d.innerHTML = '<h2 id="corr-titulo">Corregir departamentos y marcas</h2>' +
-      '<p><small>Use el Excel de correcciones que llenó y el <b>mismo archivo de inventario que cargó</b> (hace falta para saber de qué texto vino cada artículo). Solo se tocan los artículos que siguen en «Sin clasificar»; una marca que ya existe se conserva.</small></p>' +
+      '<p><small>Use el Excel de correcciones que llenó y el <b>mismo archivo de inventario que cargó</b> (hace falta para saber de qué texto vino cada artículo). La marca se pone solo donde el artículo no tiene; un departamento ya elegido no se cambia.</small></p>' +
       '<div class="campo"><label for="corr-f1">1. Archivo de correcciones</label><input id="corr-f1" type="file" accept=".xlsx"></div>' +
       '<div class="campo"><label for="corr-f2">2. Inventario original (el que cargó)</label><input id="corr-f2" type="file" accept=".xlsx"></div>' +
       '<div id="corr-msg" class="mensaje" role="status"></div><div id="corr-resumen"></div>' +
@@ -124,7 +124,7 @@
         '<tr><td>· con departamento nuevo</td><td>' + r.departamentosCambiados + '</td></tr>' +
         '<tr><td>· con marca puesta</td><td>' + r.marcasPuestas + '</td></tr>' +
         '<tr><td>Conservan su marca</td><td>' + r.conMarcaPropia + '</td></tr>' +
-        '<tr><td>Ya estaban clasificados (se respetan)</td><td>' + r.yaClasificados + '</td></tr>' +
+        '<tr><td>Departamento ya elegido (se respeta)</td><td>' + r.yaClasificados + '</td></tr>' +
         '<tr><td>Renglones sin decisión (quedan como están)</td><td>' + r.sinDecision + '</td></tr>' +
         (r.deptosInvalidos.length ? '<tr><td>Departamento que no existe (no se aplican)</td><td>' + r.deptosInvalidos.length + '</td></tr>' : '') +
         (r.sinCoincidencia.length ? '<tr><td>Textos que no están en el inventario original</td><td><b>' + r.sinCoincidencia.length + '</b></td></tr>' : '') +

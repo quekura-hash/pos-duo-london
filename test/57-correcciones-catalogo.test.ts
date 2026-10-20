@@ -52,14 +52,16 @@ test('CC2 marca = Sí: la marca se llena solo si está vacía y el departamento 
   assert.equal(g(4).departamento, dama, 'lo ya reconocido no se toca');
 });
 
-test('CC3 se respeta lo ya clasificado, un departamento inexistente no se aplica y repetir no duplica', () => {
+test('CC3 la marca se llena aunque el artículo ya esté clasificado; el departamento ya elegido se respeta, un departamento inexistente no se aplica y repetir no duplica', () => {
   const ops = importar({ 'organic g': caballero }); // al importar se eligió Caballero para ORGANIC G
   const p = plan(ops, [['ORGANIC G', 'Sí', dama], ['ROPA MUJER CASUAL', '', 'Departamento inventado'], ['Otro texto', 'Sí', dama]]);
-  assert.equal(p.resumen.yaClasificados, 3);
-  assert.equal(p.resumen.articulosCambiados, 0);
+  assert.equal(p.resumen.yaClasificados, 3, 'el departamento elegido al importar se respeta');
+  assert.deepEqual([p.resumen.articulosCambiados, p.resumen.marcasPuestas, p.resumen.departamentosCambiados, p.resumen.conMarcaPropia], [2, 2, 0, 1], 'pero la marca sí se llena (solo donde está vacía)');
   assert.deepEqual(p.resumen.deptosInvalidos.map((d) => d.texto), ['ROPA MUJER CASUAL']);
   assert.deepEqual(p.resumen.sinCoincidencia.map((d) => d.texto), ['Otro texto']);
-  assert.equal(catalogo([...ops, ...p.ops]).get('imp1-f2')!.departamento, caballero);
+  const c3 = catalogo([...ops, ...p.ops]);
+  assert.deepEqual([c3.get('imp1-f2')!.departamento, c3.get('imp1-f2')!.marca], [caballero, 'ORGANIC G']);
+  assert.deepEqual([c3.get('imp1-f3')!.departamento, c3.get('imp1-f3')!.marca], [caballero, 'LEVIS']);
   // Repetir la misma corrección genera las mismas operaciones (mismos op_id): se deduplican al subirlas.
   const base = importar();
   const a = plan(base, [['ORGANIC G', 'Sí', dama]]);

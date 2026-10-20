@@ -7,8 +7,9 @@ import type { Articulo, Op } from './tipos.ts';
  *   Departamento (texto del archivo) | ¿Es marca? | Departamento correcto | Artículos
  * El texto original del departamento NO se guardó al importar (solo el departamento asignado), así que se vuelve a leer del MISMO archivo
  * de inventario: cada artículo se ubica por su fila de origen. Reglas:
- *  - Solo se tocan artículos que siguen en «Sin clasificar» (lo que ya se clasificó o editó se respeta).
- *  - «¿Es marca? = Sí»: el texto pasa a Marca SOLO si el artículo no tiene marca; el departamento se cambia si se eligió uno.
+ *  - La marca se llena sin importar el departamento actual, pero SOLO si el artículo no tiene marca.
+ *  - El departamento solo se cambia en artículos que siguen en «Sin clasificar» (lo ya clasificado o editado se respeta).
+ *  - «¿Es marca? = Sí»: el texto pasa a Marca; el departamento se cambia si se eligió uno.
  *  - Sin «Sí»: solo cambia el departamento.
  *  - Renglones sin departamento ni marca: no se toca nada.
  */
@@ -45,7 +46,7 @@ export interface ResumenCorrecciones {
   articulosCambiados: number;
   marcasPuestas: number;
   departamentosCambiados: number;
-  /** Artículos que ya no estaban en «Sin clasificar»: se respetan. */
+  /** Artículos cuyo departamento se quería cambiar pero ya no estaban en «Sin clasificar»: se respeta el que tienen. */
   yaClasificados: number;
   /** Artículos de marca con marca propia: se conserva la que tienen. */
   conMarcaPropia: number;
@@ -93,14 +94,15 @@ export function planCorrecciones(o: {
       const a = porId.get(`${id}-f${f}`);
       if (!a) { resumen.noEncontrados++; continue; }
       const previo = cambios.get(a.item_id) ?? {};
-      const actualDepto = (previo.departamento?.despues as string | undefined) ?? a.departamento;
-      if (a.departamento !== 'Sin clasificar') { resumen.yaClasificados++; continue; }
       const nuevo = { ...previo };
       if (c.esMarca) {
         if (a.marca.trim()) resumen.conMarcaPropia++;
         else nuevo.marca = { antes: a.marca, despues: c.texto };
       }
-      if (c.departamento && c.departamento !== actualDepto) nuevo.departamento = { antes: a.departamento, despues: c.departamento };
+      if (c.departamento) {
+        if (a.departamento !== 'Sin clasificar') resumen.yaClasificados++;
+        else if (c.departamento !== a.departamento) nuevo.departamento = { antes: a.departamento, despues: c.departamento };
+      }
       if (Object.keys(nuevo).length) cambios.set(a.item_id, nuevo);
     }
   }
