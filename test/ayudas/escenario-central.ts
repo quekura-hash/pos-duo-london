@@ -3,7 +3,7 @@ import type { PGlite } from '@electric-sql/pglite';
 import { aplicarDepartamentos, DEPARTAMENTOS_BASE } from '../../src/departamentos.ts';
 import { aOperacionesInventario, leerInventario } from '../../src/inventario.ts';
 import { iniciarAdminNube, type ClienteNube } from '../../src/app/admin-nube.ts';
-import type { AlmacenCaja, ClienteCaja, EstadoCajaGuardado, IdentidadCaja } from '../../src/app/caja-nube.ts';
+import type { AlmacenCaja, ClienteCaja, IdentidadCaja } from '../../src/app/caja-nube.ts';
 import { centralLocal, ClientePglite, usuario } from './central-pglite.ts';
 
 export type Cuentas = Record<string, { id: string; rol: 'supervisor' | 'almacenista' | 'caja' | null; alias: string; tienda?: string; caja?: number }>;
@@ -25,9 +25,9 @@ export function clienteDe(db: PGlite, cuentas: Cuentas, red = { caida: false }):
     async bajarOps(d, l) { return c().bajarOps(d, l); },
   };
 }
-export function almacenMemoria(): AlmacenCaja & { datos: Map<string, EstadoCajaGuardado>; identidad?: IdentidadCaja } {
-  const datos = new Map<string, EstadoCajaGuardado>();
-  const a: AlmacenCaja & { datos: Map<string, EstadoCajaGuardado>; identidad?: IdentidadCaja } = {
+export function almacenMemoria(): AlmacenCaja & { datos: Map<string, unknown>; identidad?: IdentidadCaja } {
+  const datos = new Map<string, unknown>();
+  const a: AlmacenCaja & { datos: Map<string, unknown>; identidad?: IdentidadCaja } = {
     datos,
     async leer(k) { return datos.get(k); },
     async escribir(k, e) { datos.set(k, structuredClone(e)); },

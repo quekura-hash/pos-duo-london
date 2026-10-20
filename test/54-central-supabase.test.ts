@@ -176,3 +176,37 @@ test('CS7 cajas: cada caja ve el catálogo y lo de su tienda, sube solo lo de su
   const [{ r }] = (await como(db, duo1, (q) => q('select pos.reservar_item_no(5) as r'))) as { r: { desde: number; hasta: number } }[];
   assert.deepEqual(r, { desde: 1, hasta: 5 });
 });
+
+test('CS8 almacén de actualizaciones: solo supervisor y publicador escriben ahí; el publicador no ve nada del negocio', async () => {
+  const db = await centralLocal();
+  const sup = await usuario(db, 'edgardo@x.mx', 'supervisor');
+  const pub = await usuario(db, 'publicador@x.mx', 'publicador');
+  const alm = await usuario(db, 'almacen@x.mx', 'almacenista');
+  const caja = await usuario(db, 'caja@x.mx', 'caja', true, { tienda: 'DUO', caja: 1 });
+  const baja = await usuario(db, 'viejo@x.mx', 'publicador', false);
+  const [{ public: esPublico, file_size_limit: limite }] = (await db.query(`select public, file_size_limit from storage.buckets where id = 'actualizaciones'`)).rows as { public: boolean; file_size_limit: number | string }[];
+  assert.deepEqual([esPublico, Number(limite)], [true, 314572800]);
+  const subir = (uid: string, bucket: string, nombre: string) => como(db, uid, (q) => q(`insert into storage.objects (bucket_id, name) values ($1, $2) returning name`, [bucket, nombre]));
+  await db.query(`insert into storage.buckets (id, name) values ('otro', 'otro')`);
+  for (const uid of [sup, pub]) assert.equal((await subir(uid, 'actualizaciones', `Setup-${uid.slice(0, 4)}.exe`)).length, 1);
+  for (const uid of [alm, caja, baja]) await assert.rejects(subir(uid, 'actualizaciones', 'malo.exe'), /row-level security/);
+  await assert.rejects(subir(pub, 'otro', 'x.exe'), /row-level security/, 'el publicador solo escribe en el almacén de actualizaciones');
+  // Reemplazar y borrar (upsert de una versión): permitido al publicador, no a los demás.
+  assert.equal(((await como(db, pub, (q) => q(`update storage.objects set name = name where bucket_id = 'actualizaciones' returning 1`))) as unknown[]).length, 2);
+  assert.equal(((await como(db, caja, (q) => q(`delete from storage.objects where bucket_id = 'actualizaciones' returning 1`))) as unknown[]).length, 0);
+  assert.equal(((await como(db, pub, (q) => q(`delete from storage.objects where bucket_id = 'actualizaciones' returning 1`))) as unknown[]).length, 2);
+  // Sin acceso a nada del negocio: ni la bitácora, ni subir operaciones, ni la lista de administradores, ni solicitudes.
+  assert.deepEqual(await new ClientePglite(db, pub).bajarOps(0, 10), []);
+  await assert.rejects(new ClientePglite(db, pub).subirOps([op('item.created', 1)]), /sin permiso/);
+  assert.equal(((await como(db, pub, (q) => q('select * from pos.admins'))) as unknown[]).length, 1);
+  assert.equal(((await como(db, pub, (q) => q('select * from pos.solicitudes_autorizacion'))) as unknown[]).length, 0);
+  const [{ es }] = (await como(db, pub, (q) => q('select pos.es_admin() as es'))) as { es: boolean }[];
+  assert.equal(es, false);
+});
+
+test('CS9 una red que no contesta no deja colgado al cliente: la petición se corta por tiempo', async () => {
+  const colgado = ((_url: string, init: { signal?: AbortSignal }) => new Promise((_res, rej) => { init.signal?.addEventListener('abort', () => rej(new Error('sin respuesta'))); })) as unknown as typeof fetch;
+  const c = new ClienteSupabase('https://abc.supabase.co', 'ANON', colgado);
+  c.timeoutMs = 30;
+  await assert.rejects(c.iniciarSesion('a@b.c', 'x'), /sin respuesta/);
+});

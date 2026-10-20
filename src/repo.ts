@@ -131,8 +131,9 @@ export class MemoriaRepo implements Repo {
     if (this.prof > 0) this.undo.push(() => (prev === undefined ? this.kv.delete(k) : this.kv.set(k, prev)));
   }
   /** Copia serializable del estado (operaciones desde `desde`, cola de salida y clave/valor): para guardar el banco de pruebas del navegador. */
-  exportar(desde = 0): EstadoRepo {
-    return { desde, ops: this.ops_.slice(desde), outbox: [...this.outbox], kv: [...this.kv] };
+  exportar(desde = 0, soloPendientes = false): EstadoRepo {
+    // `soloPendientes`: lo ya confirmado (acked) no hace falta guardarlo; al restaurar, lo que no está en la cola no se reenvía.
+    return { desde, ops: this.ops_.slice(desde), outbox: [...this.outbox].filter(([, acked]) => !soloPendientes || !acked), kv: [...this.kv] };
   }
   /** Reaplica un estado exportado sobre un repositorio que ya tiene la misma base (las operaciones repetidas se ignoran). */
   importar(e: EstadoRepo) {

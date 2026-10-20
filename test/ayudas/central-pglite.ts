@@ -3,7 +3,7 @@ import { after } from 'node:test';
 import { PGlite } from '@electric-sql/pglite';
 import type { ClienteCentral, FilaCentral } from '../../src/transporte/puente-central.ts';
 
-const MIGRACIONES = ['0001_central.sql', '0003_cajas.sql'].map((n) => new URL(`../../supabase/migrations/${n}`, import.meta.url));
+const MIGRACIONES = ['0001_central.sql', '0002_actualizaciones.sql', '0003_cajas.sql', '0004_publicador.sql'].map((n) => new URL(`../../supabase/migrations/${n}`, import.meta.url));
 
 const abiertas: PGlite[] = [];
 // PGlite deja un temporizador interno por instancia: se cierran todas al terminar para que el proceso de pruebas salga.
@@ -20,12 +20,19 @@ export async function centralLocal(): Promise<PGlite> {
     create function auth.uid() returns uuid language sql stable as $$ select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid $$;
     grant usage on schema auth to anon, authenticated;
     grant execute on function auth.uid() to anon, authenticated;
+    -- Storage de Supabase, solo lo necesario para probar las políticas del almacén de actualizaciones.
+    create schema storage;
+    create table storage.buckets (id text primary key, name text not null, public boolean not null default false, file_size_limit bigint);
+    create table storage.objects (id uuid primary key default gen_random_uuid(), bucket_id text not null references storage.buckets (id), name text not null);
+    alter table storage.objects enable row level security;
+    grant usage on schema storage to anon, authenticated;
+    grant select, insert, update, delete on storage.objects to authenticated;
   `);
   for (const m of MIGRACIONES) await db.exec(readFileSync(m, 'utf8'));
   return db;
 }
 
-export async function usuario(db: PGlite, correo: string, rol?: 'supervisor' | 'almacenista' | 'caja', activo = true, caja?: { tienda: string; caja: number }): Promise<string> {
+export async function usuario(db: PGlite, correo: string, rol?: 'supervisor' | 'almacenista' | 'caja' | 'publicador', activo = true, caja?: { tienda: string; caja: number }): Promise<string> {
   const r = await db.query<{ id: string }>('insert into auth.users (email) values ($1) returning id', [correo]);
   const id = r.rows[0]!.id;
   if (rol) await db.query('insert into pos.admins (user_id, rol, alias, activo, tienda, caja) values ($1, $2, $3, $4, $5, $6)', [id, rol, correo, activo, caja?.tienda ?? null, caja?.caja ?? null]);

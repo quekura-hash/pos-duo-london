@@ -2,10 +2,11 @@
 // El central (Supabase) reparte catálogo y configuración; la caja vende aunque no haya internet y sube sus ventas cuando puede.
 // La identidad es la de la caja (un usuario de Supabase por caja, rol «caja» en pos.admins), no la de la cajera: las cajeras entran con su clave local.
 import type { Impresora, TrabajoImpresion } from '../impresion.ts';
+import type { Op } from '../tipos.ts';
 import { CAJAS_ESTANDAR, fabricaMemoria, Mundo } from '../mundo.ts';
 import { relevanteParaHub } from '../nodos.ts';
 import { crearPoliticasEnsayo } from '../politicas.ts';
-import { MemoriaRepo, type EstadoRepo } from '../repo.ts';
+import { MemoriaRepo } from '../repo.ts';
 import { PuenteCentral, type ClienteCentral } from '../transporte/puente-central.ts';
 import { atender } from './rutas.ts';
 import { ServicioCaja } from './servicio.ts';
@@ -17,16 +18,20 @@ export interface ClienteCaja extends ClienteCentral {
   readonly conSesion: boolean;
 }
 
-/** Lo que se guarda en este equipo: el estado de todos los repositorios de la PC (réplica del central, hub y caja). */
-export interface EstadoCajaGuardado { repos: Record<string, EstadoRepo> }
 export interface IdentidadCaja { tienda: string; caja: number; usuario_id: string }
+/** Almacén clave/valor de ESTE equipo (IndexedDB en el navegador). */
 export interface AlmacenCaja {
-  leer(clave: string): Promise<EstadoCajaGuardado | undefined>;
-  escribir(clave: string, estado: EstadoCajaGuardado): Promise<void>;
+  leer(clave: string): Promise<unknown>;
+  escribir(clave: string, valor: unknown): Promise<void>;
   /** Quién es esta caja (se guarda al conectar; permite abrir sin internet). */
   leerIdentidad(): Promise<IdentidadCaja | undefined>;
   guardarIdentidad(id: IdentidadCaja): Promise<void>;
 }
+// Persistencia INCREMENTAL: cada guardado agrega un trozo con solo las operaciones nuevas de cada repositorio y luego actualiza el «meta» (que es el punto de
+// confirmación). Así guardar tras cada venta cuesta lo que pesa la venta, no todo el catálogo. Si el equipo se apaga entre el trozo y el meta, el trozo se ignora.
+interface MetaGuardado { trozos: number; contadas: Record<string, number>; colas: Record<string, { outbox: [string, boolean][]; kv: [string, string][] }> }
+type Trozo = Record<string, Op[]>;
+const COMPACTAR_DESDE = 60;
 
 /** Impresora de la caja: manda los bytes ESC/POS al equipo (app de Windows). Sin app, el trabajo no se imprime y se avisa. */
 export class ImpresoraEquipo implements Impresora {
@@ -65,19 +70,66 @@ export function iniciarCajaNube(o: { cliente: ClienteCaja; almacen?: AlmacenCaja
   let error: string | null = null;
   let sincronizando = false;
   let temporizador: ReturnType<typeof setInterval> | null = null;
-  let guardado = -1;
   let enCurso: Promise<boolean> | null = null;
 
-  const claveGuardado = () => `caja:${identidad!.usuario_id}`;
+  const clave = (sufijo: string) => `caja:${identidad!.usuario_id}:${sufijo}`;
   const repos = () => (m ? (m.fabrica.todos?.() ?? []).filter((x): x is [string, MemoriaRepo] => x[1] instanceof MemoriaRepo) : []);
   const version = () => repos().reduce((a, [, r]) => a + r.seqMax(), 0);
+  let meta: MetaGuardado | null = null;
+  let guardando: Promise<void> = Promise.resolve();
 
-  async function guardarEstado(): Promise<void> {
-    if (!o.almacen || !identidad || !m) return;
-    const v = version();
-    if (v === guardado) return;
-    guardado = v;
-    await o.almacen.escribir(claveGuardado(), { repos: Object.fromEntries(repos().map(([n, r]) => [n, r.exportar(0)])) }).catch(() => undefined);
+  /** Restaura lo guardado en este equipo (repositorios completos). Devuelve false si no había nada. */
+  async function cargarGuardado(): Promise<boolean> {
+    if (!o.almacen) return false;
+    const guardado = (await o.almacen.leer(clave('meta')).catch(() => undefined)) as MetaGuardado | undefined;
+    if (!guardado) return false;
+    const porRepo = new Map(repos());
+    for (let i = 1; i <= guardado.trozos; i++) {
+      const t = (await o.almacen.leer(clave(`t${i}`))) as Trozo | undefined;
+      if (!t) throw new Error(`Falta un trozo de los datos guardados en este equipo (${i} de ${guardado.trozos}).`);
+      for (const [n, ops] of Object.entries(t)) { const r = porRepo.get(n); if (r) for (const op of ops) r.appendOp(op); }
+    }
+    for (const [n, c] of Object.entries(guardado.colas)) porRepo.get(n)?.importar({ desde: 0, ops: [], outbox: c.outbox, kv: c.kv });
+    meta = guardado;
+    guardado_ = version();
+    // Si se acumularon muchos trozos, se juntan en uno solo (se hace al abrir, cuando nadie está vendiendo).
+    if (guardado.trozos > COMPACTAR_DESDE) {
+      const junto: Trozo = Object.fromEntries(repos().map(([n, r]) => [n, r.exportar(0, true).ops]));
+      await o.almacen.escribir(clave('t1'), junto);
+      meta = { ...guardado, trozos: 1 };
+      await o.almacen.escribir(clave('meta'), meta);
+    }
+    return true;
+  }
+  let guardado_ = -1;
+
+  function guardarEstado(): Promise<void> {
+    // Guardados en fila: nunca dos a la vez (cada uno parte de lo que dejó el anterior).
+    guardando = guardando.then(async () => {
+      if (!o.almacen || !identidad || !m) return;
+      const v = version();
+      if (v === guardado_) return;
+      const previo = meta ?? { trozos: 0, contadas: {}, colas: {} };
+      const trozo: Trozo = {};
+      const contadas: Record<string, number> = {};
+      const colas: MetaGuardado['colas'] = {};
+      for (const [n, r] of repos()) {
+        const desde = previo.contadas[n] ?? 0;
+        const e = r.exportar(desde, true);
+        if (e.ops.length) trozo[n] = e.ops;
+        contadas[n] = r.seqMax();
+        colas[n] = { outbox: e.outbox, kv: e.kv };
+      }
+      const siguiente = previo.trozos + 1;
+      try {
+        if (Object.keys(trozo).length) await o.almacen.escribir(clave(`t${siguiente}`), trozo);
+        const nuevo: MetaGuardado = { trozos: Object.keys(trozo).length ? siguiente : previo.trozos, contadas, colas };
+        await o.almacen.escribir(clave('meta'), nuevo); // punto de confirmación
+        meta = nuevo;
+        guardado_ = v;
+      } catch { /* sin espacio o almacén cerrado: se reintenta en el siguiente ciclo */ }
+    });
+    return guardando;
   }
 
   /** Un ciclo completo: lo local sube al hub y a la réplica; la réplica se sincroniza con el central; lo nuevo del central baja al hub y a la caja. */
@@ -102,8 +154,8 @@ export function iniciarCajaNube(o: { cliente: ClienteCaja; almacen?: AlmacenCaja
         error = e instanceof Error ? e.message : String(e);
         return false;
       } finally {
-        sincronizando = false;
         await guardarEstado();
+        sincronizando = false;
         o.alCambiar?.();
       }
     })().finally(() => { enCurso = null; });
@@ -143,9 +195,8 @@ export function iniciarCajaNube(o: { cliente: ClienteCaja; almacen?: AlmacenCaja
           P14_venta_con_inventario_no_verificado: 'permitir_con_aviso', K_folios: 30, K_item_no: 50,
         }),
       });
-      const guardada = await o.almacen?.leer(claveGuardado()).catch(() => undefined);
+      const guardada = await cargarGuardado();
       if (!guardada && sinRed) { m = null; identidad = null; throw new Error('Sin internet y sin datos guardados en este equipo: no se puede abrir la caja todavía.'); }
-      if (guardada) for (const [n, r] of repos()) { const e = guardada.repos[n]; if (e) r.importar(e); }
       if (!sinRed) await o.almacen?.guardarIdentidad(id).catch(() => undefined);
       puente = new PuenteCentral(m.central.repo, cliente);
       const tienda = id.tienda;
@@ -162,7 +213,9 @@ export function iniciarCajaNube(o: { cliente: ClienteCaja; almacen?: AlmacenCaja
         },
         reloj: { now: ahora },
       });
-      const ok = await sincronizar();
+      // Con datos guardados la caja abre YA (aunque la red tarde o no conteste); sin ellos hay que esperar la primera descarga.
+      const ok = guardada ? true : await sincronizar();
+      if (guardada) void sincronizar();
       if (!ok && !guardada) { const e = error; m = null; puente = null; servicio = null; identidad = null; throw new Error(`No se pudo descargar el catálogo del central${e ? `: ${e}` : ''}. Revise la conexión e intente de nuevo.`); }
       temporizador = setInterval(() => { void sincronizar(); }, CADA_MS);
       (temporizador as { unref?: () => void }).unref?.();
@@ -173,7 +226,10 @@ export function iniciarCajaNube(o: { cliente: ClienteCaja; almacen?: AlmacenCaja
       if (!servicio || !m) return { status: 401, json: { ok: false, error: { codigo: 'SIN_SESION', mensaje: 'La caja no está abierta.' } } };
       m.reloj.fijar(ahora());
       const r = await atender({ cajero: servicio }, metodo, new URL(ruta, 'http://local'), (cuerpo as object) ?? {});
-      if (metodo !== 'GET' && r.status < 400 && !/^\/api\/(actividad|login|logout)/.test(ruta)) void sincronizar();
+      if (metodo !== 'GET' && r.status < 400 && !/^\/api\/(actividad|login|logout)/.test(ruta)) {
+        await guardarEstado(); // lo vendido queda en el disco ANTES de contestar, sin esperar a la red
+        void sincronizar();
+      }
       return r;
     },
     sincronizar,

@@ -13,6 +13,8 @@ export class ClienteSupabase implements ClienteCentral {
   private anon: string;
   private f: Fetch;
   private sesion: Sesion | null = null;
+  /** Tiempo máximo de cada petición: una red que no contesta no debe dejar colgada a la caja ni a la Administración. */
+  timeoutMs = 30_000;
 
   constructor(url: string, llavePublica: string, f: Fetch = fetch.bind(globalThis)) {
     this.url = url.replace(/\/+$/, '');
@@ -43,7 +45,7 @@ export class ClienteSupabase implements ClienteCentral {
 
   private async pedirToken(cuerpo: object, tipo: 'password' | 'refresh_token'): Promise<void> {
     const r = await this.f(`${this.url}/auth/v1/token?grant_type=${tipo}`, {
-      method: 'POST',
+      method: 'POST', signal: AbortSignal.timeout(this.timeoutMs),
       headers: { apikey: this.anon, 'Content-Type': 'application/json' },
       body: JSON.stringify(cuerpo),
     });
@@ -56,7 +58,7 @@ export class ClienteSupabase implements ClienteCentral {
     if (!this.sesion) throw new Error('Sin sesión en el central.');
     if (Date.now() >= this.sesion.expira) await this.restaurarSesion(this.sesion.refresh_token);
     const r = await this.f(`${this.url}/rest/v1/rpc/${nombre}`, {
-      method: 'POST',
+      method: 'POST', signal: AbortSignal.timeout(this.timeoutMs),
       headers: { apikey: this.anon, Authorization: `Bearer ${this.sesion!.access_token}`, 'Content-Type': 'application/json', 'Content-Profile': 'pos', 'Accept-Profile': 'pos' },
       body: JSON.stringify(args),
     });
@@ -87,7 +89,7 @@ export class ClienteSupabase implements ClienteCentral {
 
   private async leer<T>(ruta: string): Promise<T> {
     if (Date.now() >= this.sesion!.expira) await this.restaurarSesion(this.sesion!.refresh_token);
-    const r = await this.f(`${this.url}/rest/v1/${ruta}`, { headers: { apikey: this.anon, Authorization: `Bearer ${this.sesion!.access_token}`, 'Accept-Profile': 'pos' } });
+    const r = await this.f(`${this.url}/rest/v1/${ruta}`, { signal: AbortSignal.timeout(this.timeoutMs), headers: { apikey: this.anon, Authorization: `Bearer ${this.sesion!.access_token}`, 'Accept-Profile': 'pos' } });
     if (!r.ok) throw new Error(`Central: ${r.status}`);
     return (await r.json()) as T;
   }

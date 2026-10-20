@@ -117,3 +117,39 @@ test('CN4 sin cajeras registradas la caja no muestra cuenta regresiva de inactiv
   assert.ok(((await conCajeras.atender('GET', '/api/sesion', undefined)).json as { inactividad: { restante_seg: number } }).inactividad.restante_seg > 0);
   conCajeras.detener();
 });
+
+test('CN5 lo vendido queda guardado en el equipo ANTES de hablar con la red, y cada guardado solo agrega lo nuevo', async () => {
+  const { db, cuentas } = await escenario();
+  const red = { caida: false };
+  const almacen = almacenMemoria();
+  const c1 = iniciarCajaNube({ cliente: clienteDe(db, cuentas, red), impresora: new ImpresoraProbada(), almacen });
+  await c1.entrar('caja-duo-1@x.mx', 'buena');
+  await c1.atender('POST', '/api/login', { usuario: 'Ana', clave: '1234' });
+  await c1.sincronizar();
+  const trozosAntes = (almacen.datos.get('caja:' + cuentas['caja-duo-1@x.mx']!.id + ':meta') as { trozos: number }).trozos;
+  // La red se «cuelga» (nunca contesta): la venta se guarda igual y la caja contesta sin esperarla.
+  const colgada = { ...clienteDe(db, cuentas, red), subirOps: () => new Promise<never>(() => undefined), bajarOps: () => new Promise<never>(() => undefined) };
+  const c2 = iniciarCajaNube({ cliente: colgada, impresora: new ImpresoraProbada(), almacen });
+  await c2.entrar('caja-duo-1@x.mx', 'buena'); // con datos guardados abre sin esperar a la red
+  assert.equal(c2.estado().dentro, true);
+  c1.detener();
+  // Se vende con la red normal y se «apaga la PC» de inmediato (sin esperar la sincronización).
+  const c3 = iniciarCajaNube({ cliente: clienteDe(db, cuentas, red), impresora: new ImpresoraProbada(), almacen });
+  await c3.entrar('caja-duo-1@x.mx', 'buena');
+  await c3.atender('POST', '/api/login', { usuario: 'Ana', clave: '1234' });
+  assert.equal((await venta(c3)).venta.folio, 1);
+  c3.detener();
+  const meta = almacen.datos.get('caja:' + cuentas['caja-duo-1@x.mx']!.id + ':meta') as { trozos: number };
+  const ultimo = almacen.datos.get('caja:' + cuentas['caja-duo-1@x.mx']!.id + ':t' + meta.trozos) as Record<string, unknown[]>;
+  assert.ok(meta.trozos > trozosAntes, 'la venta agregó un trozo');
+  assert.ok(Object.values(ultimo).reduce((a, ops) => a + ops.length, 0) < 40, 'el trozo trae solo lo nuevo, no todo el catálogo');
+  // Reabre sin internet: la venta está y el folio sigue.
+  red.caida = true;
+  const c4 = iniciarCajaNube({ cliente: clienteDe(db, cuentas, red), impresora: new ImpresoraProbada(), almacen });
+  await c4.entrar('caja-duo-1@x.mx', 'buena');
+  await c4.atender('POST', '/api/login', { usuario: 'Ana', clave: '1234' });
+  assert.equal((await venta(c4)).venta.folio, 2);
+  const ventas = ((await c4.atender('GET', '/api/ventas?fecha=' + new Date().toISOString().slice(0, 10), undefined)).json as { ventas?: { folio: number }[] }).ventas ?? [];
+  assert.ok(ventas.length === 0 || ventas.length === 2);
+  c4.detener(); void c2;
+});
