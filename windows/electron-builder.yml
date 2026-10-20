@@ -1,0 +1,43 @@
+appId: mx.londuo.pos
+productName: LonDuo POS
+copyright: LonDuo
+directories:
+  output: ../dist/windows
+  buildResources: build
+files:
+  - main.cjs
+  - preload.cjs
+  - ajustes-store.cjs
+  - impresora-raw.cjs
+  - app/**
+  - build/icon.png
+  - package.json
+asar: true
+compression: maximum
+electronLanguages:
+  - es
+  - es-419
+  - en-US
+artifactName: LonDuo-POS-Setup-${version}.${ext}
+win:
+  target:
+    - target: nsis
+      arch: x64
+  icon: build/icon.ico
+  signAndEditExecutable: true
+  signExecutable: false
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: false
+  createDesktopShortcut: always
+  createStartMenuShortcut: true
+  shortcutName: LonDuo POS
+  deleteAppDataOnUninstall: false
+  installerIcon: build/icon.ico
+  uninstallerIcon: build/icon.ico
+  installerHeaderIcon: build/icon.ico
+publish:
+  provider: generic
+  url: https://zchgpakvhrdpabvsxpnn.supabase.co/storage/v1/object/public/actualizaciones
+  channel: pruebas

@@ -17,6 +17,9 @@ class ImpresoraMemoria implements Impresora {
   async imprimir(t: TrabajoImpresion) {
     // La falla simulada ocurre UNA vez: así el tester puede pulsar "Reintentar impresión" con el diálogo abierto.
     if (this.falla) { const m = this.falla; this.falla = null; throw new Error(m); }
+    // En la app de Windows (Electron) existe `posHardware`: los bytes ESC/POS van directo a la impresora. Si falla, el error llega a la pantalla (reintentar).
+    const hw = (globalThis as { posHardware?: { imprimirRaw(bytes: Uint8Array): Promise<void> } }).posHardware;
+    if (hw) await hw.imprimirRaw(t.bytes);
     this.trabajos.push(t);
   }
 }

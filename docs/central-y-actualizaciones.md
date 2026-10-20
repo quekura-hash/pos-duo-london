@@ -57,3 +57,7 @@ Reglas de despliegue:
 - Empaquetar la Administración web (hoy es una página de prueba con motor en memoria).
 - Edge Function de sincronización de hubs/cajas y registro de dispositivos.
 - Publicación de versiones y actualizador de la app de Windows.
+
+## 7. Actualizaciones de la app de Windows (estado)
+
+Implementado en `windows/` (ver §56 de `docs/arquitectura-etapa-0.md`): `electron-updater` con un canal `pruebas` y otro `estable`, verificación sha512, instalación sin interrumpir ventas y respaldo previo. Los archivos de cada versión se publican en el bucket `actualizaciones` (migración 0002). Pendiente: una pantalla de «Publicar versión» en Administración para subirlos sin entrar al panel de Supabase, y registrar cada publicación en `pos.versiones`.

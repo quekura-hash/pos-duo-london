@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Hardware y actualizaciones</title>
+<style>
+  :root { color-scheme: light dark; --borde: #c8d0da; --txt: #17202e; --bg: #f5f7fa; --sup: #fff; --pri: #0f6a8a; --mal: #b3261e; --ok: #1b7a3d; }
+  @media (prefers-color-scheme: dark) { :root { --borde: #3a4656; --txt: #e8edf3; --bg: #121923; --sup: #1b2432; --pri: #4cb4d6; --mal: #ff8a80; --ok: #6fd39a; } }
+  body { margin: 0; font: 14px/1.45 system-ui, "Segoe UI", sans-serif; background: var(--bg); color: var(--txt); padding: 16px; }
+  h1 { font-size: 20px; margin: 0 0 12px; } h2 { font-size: 15px; margin: 0 0 8px; }
+  section { background: var(--sup); border: 1px solid var(--borde); border-radius: 12px; padding: 14px; margin-bottom: 12px; }
+  label { display: block; margin: 8px 0 4px; font-weight: 600; } select, input[type=text] { width: 100%; box-sizing: border-box; padding: 8px; border: 1px solid var(--borde); border-radius: 8px; background: var(--sup); color: var(--txt); font: inherit; }
+  .fila { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; align-items: center; }
+  button { padding: 8px 14px; border-radius: 8px; border: 1px solid var(--borde); background: var(--sup); color: var(--txt); font: inherit; cursor: pointer; } button.pri { background: var(--pri); color: #fff; border-color: var(--pri); font-weight: 700; }
+  .msg { min-height: 1.3em; margin-top: 8px; } .msg.mal { color: var(--mal); } .msg.ok { color: var(--ok); } small, .nota { opacity: .8; }
+  code { background: rgba(127,127,127,.18); padding: 1px 5px; border-radius: 4px; }
+  #lector-salida { font: 13px ui-monospace, Consolas, monospace; white-space: pre-wrap; margin-top: 8px; }
+</style></head><body>
+<h1>Hardware y actualizaciones</h1>
+
+<section aria-labelledby="t-imp"><h2 id="t-imp">Impresora de tickets y cajón</h2>
+  <label for="impresora">Impresora (la de Windows, por su nombre)</label>
+  <select id="impresora"></select>
+  <div class="fila"><button id="refrescar" type="button">Volver a leer impresoras</button></div>
+  <p class="nota">Se manda ESC/POS directo, sin diálogo de impresión. El cajón va conectado a la impresora (cable RJ11) y se abre con la misma orden de impresión.</p>
+  <div class="fila">
+    <button id="guardar-imp" class="pri" type="button">Guardar impresora</button>
+    <button id="p-ticket" type="button">Imprimir ticket de prueba</button>
+    <button id="p-sin-logo" type="button">Sin logo</button>
+    <button id="p-cajon" type="button">Abrir el cajón</button>
+  </div>
+  <div id="msg-imp" class="msg" role="status" aria-live="polite"></div>
+</section>
+
+<section aria-labelledby="t-lec"><h2 id="t-lec">Lector de códigos</h2>
+  <p class="nota">El lector USB funciona como un teclado. Haga clic en el cuadro y escanee un artículo o el QR de un cupón: debe aparecer el código completo.</p>
+  <input id="lector" type="text" autocomplete="off" placeholder="Escanee aquí…">
+  <div id="lector-salida" role="status" aria-live="polite"></div>
+</section>
+
+<section aria-labelledby="t-upd"><h2 id="t-upd">Actualizaciones</h2>
+  <p>Versión instalada: <b id="version">…</b> <span id="empaquetada" class="nota"></span></p>
+  <label for="canal">Canal</label>
+  <select id="canal"><option value="pruebas">Pruebas (esta caja recibe las versiones nuevas primero)</option><option value="estable">Estable</option></select>
+  <label for="url">Dirección de las actualizaciones</label>
+  <input id="url" type="text" autocomplete="off">
+  <div class="fila"><button id="guardar-upd" type="button">Guardar</button><button id="buscar" class="pri" type="button">Buscar actualización ahora</button><button id="instalar" type="button" hidden>Instalar ahora</button></div>
+  <div id="msg-upd" class="msg" role="status" aria-live="polite"></div>
+  <p class="nota">Se revisa sola cada 30 minutos. Cuando hay una versión nueva se descarga en segundo plano y se instala al cerrar la app (o antes, si usted lo pide). Sus datos no se tocan.</p>
+</section>
+
+<section aria-labelledby="t-pan"><h2 id="t-pan">Pantalla</h2>
+  <label><input id="completa" type="checkbox"> Abrir en pantalla completa</label>
+  <div class="fila"><button id="guardar-pan" type="button">Guardar</button><button id="datos" type="button">Abrir la carpeta de datos</button></div>
+  <div id="msg-pan" class="msg" role="status"></div>
+</section>
+
+<script>
+  const $ = (s) => document.querySelector(s);
+  const msg = (id, t, tipo) => { const e = $(id); e.textContent = t || ''; e.className = 'msg' + (tipo ? ' ' + tipo : ''); };
+  let ajustes = null;
+  async function cargarImpresoras() {
+    const sel = $('#impresora');
+    sel.innerHTML = '<option value="">Leyendo impresoras…</option>';
+    try {
+      const lista = await posAjustes.impresoras();
+      sel.innerHTML = '<option value="">(elija una impresora)</option>' + lista.map((p) => `<option value="${p.nombre.replace(/"/g, '&quot;')}">${p.nombre.replace(/</g, '&lt;')} — ${p.puerto.replace(/</g, '&lt;')}${p.sinConexion ? ' (sin conexión)' : ''}</option>`).join('');
+      if (ajustes.impresora && !lista.some((p) => p.nombre === ajustes.impresora)) sel.insertAdjacentHTML('beforeend', `<option value="${ajustes.impresora.replace(/"/g, '&quot;')}">${ajustes.impresora.replace(/</g, '&lt;')} (guardada, no aparece instalada)</option>`);
+      sel.value = ajustes.impresora || '';
+      msg('#msg-imp', lista.length ? '' : 'Windows no reporta impresoras instaladas.', lista.length ? '' : 'mal');
+    } catch (e) {
+      sel.innerHTML = '<option value="">(no se pudo leer la lista)</option>';
+      msg('#msg-imp', e.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, ''), 'mal');
+    }
+  }
+  const limpio = (e) => String(e && e.message || e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '');
+  async function guardarImpresora() { ajustes = await posAjustes.guardar({ impresora: $('#impresora').value }); return ajustes; }
+  async function probar(tipo) {
+    msg('#msg-imp', 'Enviando…');
+    try { await guardarImpresora(); msg('#msg-imp', await posAjustes.probar(tipo), 'ok'); } catch (e) { msg('#msg-imp', limpio(e), 'mal'); }
+  }
+  $('#refrescar').onclick = cargarImpresoras;
+  $('#guardar-imp').onclick = async () => { await guardarImpresora(); msg('#msg-imp', ajustes.impresora ? `Guardada: ${ajustes.impresora}` : 'Sin impresora elegida.', ajustes.impresora ? 'ok' : 'mal'); };
+  $('#p-ticket').onclick = () => probar('ticket'); $('#p-sin-logo').onclick = () => probar('sin-logo'); $('#p-cajon').onclick = () => probar('cajon');
+
+  // Lector: muestra el texto, su largo y cómo terminó (Enter/Tab), para detectar prefijos o sufijos raros del lector.
+  const lec = $('#lector');
+  lec.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === 'Tab') {
+      e.preventDefault();
+      const t = lec.value;
+      $('#lector-salida').textContent = t ? `Leído: «${t}»\nLargo: ${t.length} caracteres\nTerminó con: ${e.key === 'Enter' ? 'Enter' : 'Tab'}\n` + (/^[\x20-\x7e]*$/.test(t) ? 'Todos los caracteres son normales.' : 'Ojo: trae caracteres raros (revise el idioma del teclado o la configuración del lector).') : 'No llegó nada.';
+      lec.value = '';
+    }
+  });
+
+  function pintarEstado(e) {
+    msg('#msg-upd', e.mensaje || '', e.fase === 'error' ? 'mal' : (e.fase === 'lista' || e.fase === 'al_dia') ? 'ok' : '');
+    $('#instalar').hidden = e.fase !== 'lista';
+  }
+  $('#guardar-upd').onclick = async () => {
+    try { ajustes = await posAjustes.guardar({ canal: $('#canal').value, urlActualizaciones: $('#url').value }); $('#url').value = ajustes.urlActualizaciones; msg('#msg-upd', 'Guardado.', 'ok'); } catch (e) { msg('#msg-upd', limpio(e), 'mal'); }
+  };
+  $('#buscar').onclick = async () => { await $('#guardar-upd').onclick(); pintarEstado(await posAjustes.buscarActualizacion()); };
+  $('#instalar').onclick = () => window.posHardware.instalarActualizacion();
+  $('#guardar-pan').onclick = async () => { ajustes = await posAjustes.guardar({ pantallaCompleta: $('#completa').checked }); msg('#msg-pan', 'Guardado.', 'ok'); };
+  $('#datos').onclick = async () => { msg('#msg-pan', 'Carpeta: ' + await posAjustes.carpetaDeDatos()); };
+
+  (async () => {
+    ajustes = await posAjustes.leer();
+    $('#version').textContent = 'v' + ajustes.version;
+    $('#empaquetada').textContent = ajustes.empaquetada ? '' : '(modo de desarrollo: las actualizaciones no aplican)';
+    $('#canal').value = ajustes.canal; $('#url').value = ajustes.urlActualizaciones; $('#completa').checked = ajustes.pantallaCompleta;
+    if (ajustes.modoArchivo) msg('#msg-imp', 'Modo de pruebas: los trabajos se guardan como archivos, no salen a una impresora.');
+    else await cargarImpresoras();
+    pintarEstado(await posAjustes.estadoActualizacion());
+  })();
+</script>
+</body></html>
