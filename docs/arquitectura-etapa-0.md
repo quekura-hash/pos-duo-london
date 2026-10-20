@@ -708,3 +708,7 @@ Solución **de transición** para probar tickets reales en la caja con la págin
 - **Cajón y corte**: se configuran en el controlador de Epson («Cajón de dinero»: abrir **antes de imprimir**; «Cortar papel»: al final del documento). El pulso lo manda el controlador, no el sistema.
 - **Límites**: imprime como imagen (más lento que ESC/POS); no usa el QR nativo ni el código de barras Code128 del ticket (sale el código en texto); no valida estado de la impresora (sin papel, etc.): si falla, el POS no se entera. **No validado con la impresora real.**
 - **Verificado**: prueba B29 (impresión solo si está activa, contenido del ticket, comprobante de apertura y que en papel solo sale la zona del ticket).
+
+## 52. Nombre del producto: LonDuo POS
+
+El producto se llama **LonDuo POS · Smart Retail Management**. Aparece en el título de la pestaña, en la pantalla de inicio de sesión y en la nota lateral de la página de prueba. **Todavía no** se imprime en los tickets (decisión del propietario, para no gastar papel): cuando se decida, se agrega en el encabezado del ticket.
