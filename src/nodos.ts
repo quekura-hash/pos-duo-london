@@ -98,6 +98,13 @@ const BROADCAST_TIENDA = new Set(['alm.recibida', 'inv.movement', 'inv.conteo', 
 // Lo que el central baja a hubs y cajas (catálogo y resoluciones administrativas).
 const CATALOGO = new Set(['item.created', 'item.item_no_assigned', 'item.codigo_corregido', 'doc.perdida_resuelta', 'giftcard.emitida', 'giftcard.recarga', 'giftcard.uso', 'giftcard.reintegro', 'config.tipo_cambio', 'permiso.asignado', 'depto.alta', 'depto.editado', 'alm.entrega', 'alm.faltante', 'promo.guardada', 'recompensa.guardada', 'supervisor.guardado', 'cajero.guardado', 'config.sesion', 'config.negocio', 'item.editado']);
 
+/** Lo que llega del central (Supabase) y debe repartirse al hub de esa tienda: catálogo y configuración, El Limbo y lo de inventario/almacén/tarjetas de la tienda. */
+export function relevanteParaHub(op: Op, tienda: string): boolean {
+  if (CATALOGO.has(op.tipo) || esMovimientoLimbo(op)) return true;
+  const inventario = op.tipo.startsWith('inv.') || op.tipo.startsWith('doc.') || op.tipo.startsWith('giftcard.') || op.tipo.startsWith('alm.');
+  return inventario && op.payload?.tienda === tienda;
+}
+
 // ───────────────────────────── Hub ─────────────────────────────
 
 export class Hub {

@@ -1,7 +1,7 @@
 'use strict';
 // LonDuo POS · Caja de pruebas para Windows. Envuelve la pantalla del POS y le da lo que un navegador no puede:
 // impresión ESC/POS directa a la Epson/Bixolon, apertura del cajón y actualizaciones automáticas.
-const { app, BrowserWindow, Menu, ipcMain, dialog, protocol, net, shell, session } = require('electron');
+const { app, BrowserWindow, Menu, ipcMain, dialog, protocol, net, shell, session, safeStorage } = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
@@ -27,6 +27,18 @@ const bytesDe = (n) => new Uint8Array(fs.readFileSync(archivoHw(n)));
 function registro(linea) {
   try { fs.appendFileSync(path.join(app.getPath('userData'), 'londuo.log'), `${new Date().toISOString()} ${linea}\n`); } catch { /* sin disco: no es motivo para fallar */ }
 }
+
+// ── cuenta de ESTA caja en el central: se guarda cifrada con la protección de Windows (solo este usuario de Windows en este equipo la puede abrir) ──
+const archivoCuenta = () => path.join(app.getPath('userData'), 'cuenta-caja.bin');
+function leerCuenta() {
+  try { return JSON.parse(safeStorage.decryptString(fs.readFileSync(archivoCuenta()))); } catch { return null; }
+}
+function guardarCuenta(c) {
+  if (!c || typeof c.correo !== 'string' || typeof c.clave !== 'string' || !c.correo || !c.clave) throw new Error('Faltan el correo o la contraseña de la caja.');
+  if (!safeStorage.isEncryptionAvailable()) throw new Error('Este equipo no puede guardar la contraseña de forma segura.');
+  fs.writeFileSync(archivoCuenta(), safeStorage.encryptString(JSON.stringify({ correo: c.correo.trim(), clave: c.clave })));
+}
+function olvidarCuenta() { try { fs.rmSync(archivoCuenta(), { force: true }); } catch { /* ya no estaba */ } }
 
 // ── impresión ──
 /** Modo de pruebas sin Windows: LONDUO_IMPRESORA_ARCHIVO=carpeta guarda cada trabajo como .bin en lugar de mandarlo a una impresora. */
@@ -102,7 +114,7 @@ async function instalarAhora() {
 }
 
 // ── ventanas ──
-function abrirVentana() {
+function abrirVentana(pagina = 'index.html') {
   ventana = new BrowserWindow({
     width: 1366, height: 820, minWidth: 1024, minHeight: 640, show: false, backgroundColor: '#0b1b33', title: `${NOMBRE} v${app.getVersion()}`,
     icon: path.join(__dirname, 'build', 'icon.png'), fullscreen: ajustes.leer().pantallaCompleta,
@@ -112,7 +124,7 @@ function abrirVentana() {
   ventana.once('ready-to-show', () => { ventana.maximize(); ventana.show(); });
   ventana.on('page-title-updated', (e) => e.preventDefault());
   ventana.webContents.setWindowOpenHandler(({ url }) => { if (/^https:/.test(url)) void shell.openExternal(url); return { action: 'deny' }; });
-  void ventana.loadURL('londuo://app/index.html');
+  void ventana.loadURL(`londuo://app/${pagina}`);
 }
 function abrirAjustes() {
   if (ventanaAjustes && !ventanaAjustes.isDestroyed()) return ventanaAjustes.focus();
@@ -129,6 +141,9 @@ function menu() {
   const probar = (tipo) => () => void probarHardware(tipo).then((m) => dialog.showMessageBox(ventana, { type: 'info', message: m, buttons: ['Aceptar'] }), (e) => dialog.showErrorBox('No se pudo imprimir', e.message));
   Menu.setApplicationMenu(Menu.buildFromTemplate([
     { label: 'Archivo', submenu: [
+      { label: 'Caja (conectada al central)', click: () => ventana && ventana.loadURL('londuo://app/index.html') },
+      { label: 'Modo de pruebas (datos sintéticos, sin central)', click: () => ventana && ventana.loadURL('londuo://app/prueba.html') },
+      { type: 'separator' },
       { label: 'Pantalla completa', accelerator: 'F11', click: () => ventana && ventana.setFullScreen(!ventana.isFullScreen()) },
       { label: 'Recargar', accelerator: 'CmdOrCtrl+R', click: () => ventana && ventana.reload() },
       { type: 'separator' }, { label: 'Salir', role: 'quit' },
@@ -139,6 +154,11 @@ function menu() {
       { label: 'Imprimir ticket de prueba (con logo, QR y cajón)', click: probar('ticket') },
       { label: 'Imprimir ticket de prueba sin logo', click: probar('sin-logo') },
       { label: 'Abrir el cajón', click: probar('cajon') },
+      { type: 'separator' },
+      { label: 'Cambiar la cuenta de esta caja…', click: async () => {
+        const r = await dialog.showMessageBox(ventana, { type: 'question', message: '¿Cambiar la cuenta de esta caja?', detail: 'Se olvida la cuenta guardada y se pedirá una nueva. Lo ya vendido y guardado en esta PC no se borra.', buttons: ['Cancelar', 'Cambiar cuenta'], defaultId: 0, cancelId: 0 });
+        if (r.response === 1) { olvidarCuenta(); if (ventana) ventana.loadURL('londuo://app/index.html'); }
+      } },
     ] },
     { label: 'Ayuda', submenu: [
       { label: 'Buscar actualización…', click: async () => { const e = await revisarActualizacion(); void dialog.showMessageBox(ventana, { type: e.fase === 'error' ? 'warning' : 'info', message: e.mensaje || 'Listo.', buttons: ['Aceptar'] }); } },
@@ -159,6 +179,9 @@ async function probarHardware(tipo) {
 
 function registrarIpc() {
   ipcMain.handle('hw:imprimir', (_e, bytes) => imprimirBytes(bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes)));
+  ipcMain.handle('caja:credenciales', (e) => (e.senderFrame.url.startsWith('londuo://app/') ? leerCuenta() : null));
+  ipcMain.handle('caja:guardar-credenciales', (_e, c) => { guardarCuenta(c); return true; });
+  ipcMain.handle('caja:olvidar-credenciales', () => { olvidarCuenta(); return true; });
   ipcMain.handle('app:version', () => ({ version: app.getVersion(), canal: ajustes.leer().canal }));
   ipcMain.handle('app:carpeta-datos', () => app.getPath('userData'));
   ipcMain.handle('ajustes:leer', () => ({ ...ajustes.leer(), version: app.getVersion(), empaquetada: app.isPackaged, modoArchivo: !!process.env.LONDUO_IMPRESORA_ARCHIVO }));

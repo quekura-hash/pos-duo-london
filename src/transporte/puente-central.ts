@@ -77,6 +77,8 @@ export class PuenteCentral {
         const filas = await this.cliente.bajarOps(this.cursores().remoto, LOTE);
         if (!filas.length) break;
         const nuevas: Op[] = [];
+        // Si no hay nada local por subir, todo lo que entra ahora es del central: el cursor local lo cubre aunque el programa se cierre antes del siguiente ciclo.
+        const sinPendientes = this.cursores().local === this.repo.seqMax();
         this.repo.tx(() => {
           for (const f of filas) {
             const op: Op = { op_id: f.op_id, tipo: f.tipo, tienda: f.tienda, caja: f.caja, origen: f.origen, ocurrio_en: f.ocurrio_en, payload: f.payload };
@@ -84,7 +86,7 @@ export class PuenteCentral {
           }
         });
         bajadas += nuevas.length;
-        this.repo.kvSet(CLAVE, { ...this.cursores(), remoto: filas[filas.length - 1]!.seq });
+        this.repo.kvSet(CLAVE, { remoto: filas[filas.length - 1]!.seq, local: sinPendientes ? this.repo.seqMax() : this.cursores().local });
         if (nuevas.length) this.alBajar?.(nuevas);
         if (filas.length < LOTE) break;
       }

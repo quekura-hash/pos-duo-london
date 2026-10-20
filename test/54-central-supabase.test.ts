@@ -138,3 +138,41 @@ test('CS6 cliente de Supabase: inicia sesión, usa solo la llave pública y renu
   const mal = new ClienteSupabase('https://abc.supabase.co', 'ANON', (async () => ({ ok: false, status: 400, json: async () => ({}) })) as unknown as typeof fetch);
   await assert.rejects(mal.iniciarSesion('a@b.c', 'x'), /No se pudo iniciar sesión/);
 });
+
+test('CS7 cajas: cada caja ve el catálogo y lo de su tienda, sube solo lo de su tienda y nunca toca lo de Administración', async () => {
+  const db = await centralLocal();
+  const sup = await usuario(db, 'edgardo@x.mx', 'supervisor');
+  const duo1 = await usuario(db, 'caja-duo-1@x.mx', 'caja', true, { tienda: 'DUO', caja: 1 });
+  const lon1 = await usuario(db, 'caja-lon-1@x.mx', 'caja', true, { tienda: 'LON', caja: 1 });
+  const baja = await usuario(db, 'caja-baja@x.mx', 'caja', false, { tienda: 'DUO', caja: 2 });
+  const venta = (n: number, tienda: string) => ({ ...crearOp('sale.confirmed', tienda, 1, `caja:${tienda}/1`, T0, { n }, `venta:${tienda}:${n}`) });
+  await new ClientePglite(db, sup).subirOps([op('item.created', 1), op('promo.guardada', 2), op('admin.guardado', 3, { hash: 'secreto' }), op('cajero.guardado', 4), venta(1, 'DUO'), venta(1, 'LON'), op('config.negocio', 5)]);
+  const cDuo = new ClientePglite(db, duo1);
+  const vistas = (await cDuo.bajarOps(0, 100)).map((f) => f.tipo).sort();
+  assert.deepEqual(vistas, ['cajero.guardado', 'config.negocio', 'item.created', 'promo.guardada', 'sale.confirmed'], 'catálogo y configuración + las ventas de SU tienda; nunca admin.guardado ni ventas de otra tienda');
+  assert.ok(!(await cDuo.bajarOps(0, 100)).some((f) => f.tipo === 'admin.guardado' || f.op_id === 'venta:LON:1'));
+  // Sube lo suyo: queda con origen de caja, aunque el lote traiga otro.
+  assert.equal((await cDuo.subirOps([venta(2, 'DUO'), op('inv.movement', 9, { tienda: 'LIMBO' })])).nuevas, 2);
+  const [{ origen }] = (await como(db, sup, (q) => q(`select origen from pos.ops where op_id = 'venta:DUO:2'`))) as { origen: string }[];
+  assert.equal(origen, 'caja:DUO/1');
+  // No sube operaciones de otra tienda ni de Administración (el lote completo se rechaza).
+  await assert.rejects(cDuo.subirOps([venta(3, 'DUO'), venta(3, 'LON')]), /solo sube operaciones de su tienda/);
+  for (const tipo of ['promo.guardada', 'admin.guardado', 'supervisor.guardado', 'permiso.asignado', 'config.sesion', 'item.editado', 'depto.alta']) {
+    await assert.rejects(cDuo.subirOps([op(tipo, 50)]), /no permitido para una caja/, tipo);
+  }
+  assert.equal((await cDuo.subirOps([op('config.tipo_cambio', 60)])).nuevas, 1, 'el tipo de cambio sí lo puede fijar quien tiene el permiso en la caja');
+  const [{ n }] = (await como(db, sup, (q) => q(`select count(*)::int as n from pos.ops where op_id in ('venta:DUO:3', 'venta:LON:3')`))) as { n: number }[];
+  assert.equal(n, 0, 'un lote rechazado no deja nada a medias');
+  // Otra tienda no ve las ventas de DÚO; una caja dada de baja no ve ni sube nada; ninguna caja lee otras cuentas ni dispositivos.
+  assert.ok(!(await new ClientePglite(db, lon1).bajarOps(0, 100)).some((f) => f.op_id.startsWith('venta:DUO')));
+  assert.deepEqual(await new ClientePglite(db, baja).bajarOps(0, 10), []);
+  await assert.rejects(new ClientePglite(db, baja).subirOps([venta(9, 'DUO')]), /sin permiso/);
+  assert.equal(((await como(db, duo1, (q) => q('select * from pos.admins'))) as unknown[]).length, 1);
+  assert.equal(((await como(db, duo1, (q) => q(`update pos.admins set rol = 'supervisor' where user_id = $1 returning 1`, [duo1]))) as unknown[]).length, 0, 'una caja no puede subirse el rol');
+  // Una caja no es «administrador de la web»: no usa la bitácora completa ni las versiones de edición.
+  const [{ es }] = (await como(db, duo1, (q) => q('select pos.es_admin() as es'))) as { es: boolean }[];
+  assert.equal(es, false);
+  // Item #: la caja puede pedir un bloque.
+  const [{ r }] = (await como(db, duo1, (q) => q('select pos.reservar_item_no(5) as r'))) as { r: { desde: number; hasta: number } }[];
+  assert.deepEqual(r, { desde: 1, hasta: 5 });
+});

@@ -80,8 +80,11 @@ describe('[app de Windows] la app real (Electron) con la pantalla del POS', { ti
     const page = await app.firstWindow();
     const errores: string[] = [];
     page.on('pageerror', (e) => errores.push(String(e)));
-    await page.waitForSelector('[data-chip="tienda"]', { timeout: 60_000 });
+    // La app abre la CAJA conectada al central; para probar el hardware sin central se usa el modo de pruebas.
+    await page.waitForSelector('#puerta', { timeout: 60_000 });
     assert.equal(page.url(), 'londuo://app/index.html');
+    await page.goto('londuo://app/prueba.html');
+    await page.waitForSelector('[data-chip="tienda"]', { timeout: 60_000 });
     assert.equal(await page.evaluate(() => typeof (window as unknown as { posHardware: { imprimirRaw: unknown } }).posHardware.imprimirRaw), 'function');
     assert.equal(await page.evaluate(() => typeof (window as unknown as { require?: unknown }).require), 'undefined', 'la página no tiene acceso a Node');
     const v = JSON.parse(readFileSync(join(RAIZ, 'package.json'), 'utf8')).version as string;

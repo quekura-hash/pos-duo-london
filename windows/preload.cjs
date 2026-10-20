@@ -6,6 +6,9 @@ contextBridge.exposeInMainWorld('posHardware', {
   imprimirRaw: (bytes) => ipcRenderer.invoke('hw:imprimir', bytes),
   instalarActualizacion: () => ipcRenderer.invoke('upd:instalar'),
   version: () => ipcRenderer.invoke('app:version'),
+  credencialesCaja: () => ipcRenderer.invoke('caja:credenciales'),
+  guardarCredencialesCaja: (c) => ipcRenderer.invoke('caja:guardar-credenciales', c),
+  olvidarCredencialesCaja: () => ipcRenderer.invoke('caja:olvidar-credenciales'),
 });
 contextBridge.exposeInMainWorld('posAjustes', {
   leer: () => ipcRenderer.invoke('ajustes:leer'),

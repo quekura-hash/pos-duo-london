@@ -8,13 +8,16 @@ const win = import.meta.dirname;
 const raiz = join(win, '..');
 const sh = (cmd, args, cwd = raiz, env = {}) => execFileSync(cmd, args, { cwd, stdio: 'inherit', env: { ...process.env, ...env } });
 
-// 1) Pantalla del POS (la misma de la página de prueba) y archivos de prueba de impresión (mismo motor de tickets que la caja).
+// 1) Pantallas: la CAJA conectada al central (index.html) y la de pruebas con datos sintéticos (prueba.html); más los archivos de prueba de impresión.
+const central = JSON.parse(readFileSync(join(win, 'central.json'), 'utf8'));
+sh(process.execPath, ['scripts/construir-caja.mjs'], raiz, { LONDUO_SUPABASE_URL: central.url, LONDUO_SUPABASE_KEY: central.llave });
 sh(process.execPath, ['scripts/construir-prueba.mjs']);
 sh(process.execPath, ['--no-warnings', 'scripts/generar-prueba-impresora.ts', join(raiz, 'dist', 'prueba-impresora')]);
 const app = join(win, 'app');
 rmSync(app, { recursive: true, force: true });
 mkdirSync(join(app, 'hardware'), { recursive: true });
-copyFileSync(join(raiz, 'dist', 'pos-venta-prueba.html'), join(app, 'index.html'));
+copyFileSync(join(raiz, 'dist', 'caja.html'), join(app, 'index.html'));
+copyFileSync(join(raiz, 'dist', 'pos-venta-prueba.html'), join(app, 'prueba.html'));
 copyFileSync(join(win, 'ui', 'ajustes.html'), join(app, 'ajustes.html'));
 for (const f of ['ticket-prueba.bin', 'ticket-sin-logo.bin', 'solo-cajon.bin']) copyFileSync(join(raiz, 'dist', 'prueba-impresora', f), join(app, 'hardware', f));
 

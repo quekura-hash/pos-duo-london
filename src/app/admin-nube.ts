@@ -10,7 +10,7 @@ import { ServicioAdmin } from './servicio.ts';
 
 export interface ClienteNube extends ClienteCentral {
   iniciarSesion(correo: string, clave: string): Promise<void>;
-  miPerfil(): Promise<{ rol: 'supervisor' | 'almacenista'; alias: string; usuario_id: string } | null>;
+  miPerfil(): Promise<{ rol: 'supervisor' | 'almacenista' | 'caja'; alias: string; usuario_id: string; tienda?: string | null; caja?: number | null } | null>;
   cerrarSesion(): void;
 }
 
@@ -40,7 +40,7 @@ export function iniciarAdminNube(o: { cliente: ClienteNube; almacen?: AlmacenRep
   let m: Mundo | null = null;
   let puente: PuenteCentral | null = null;
   let servicio: ServicioAdmin | null = null;
-  let perfil: Awaited<ReturnType<ClienteNube['miPerfil']>> = null;
+  let perfil: { rol: 'supervisor' | 'almacenista'; alias: string; usuario_id: string } | null = null;
   let ultimaSync: string | null = null;
   let error: string | null = null;
   let sincronizando = false;
@@ -84,7 +84,8 @@ export function iniciarAdminNube(o: { cliente: ClienteNube; almacen?: AlmacenRep
     /** Inicia sesión en el central, descarga (o actualiza) la réplica y abre la sesión de Administración con el rol de pos.admins. */
     async entrar(correo: string, clave: string): Promise<{ rol: 'supervisor' | 'almacenista'; alias: string }> {
       await cliente.iniciarSesion(correo, clave);
-      const p = await cliente.miPerfil();
+      const p0 = await cliente.miPerfil();
+      const p = p0 && p0.rol !== 'caja' ? { rol: p0.rol, alias: p0.alias, usuario_id: p0.usuario_id } : null;
       if (!p) { cliente.cerrarSesion(); throw new Error('Este usuario no tiene acceso a la Administración de LonDuo POS. Pídale a un supervisor que lo dé de alta.'); }
       perfil = p;
       m = new Mundo({

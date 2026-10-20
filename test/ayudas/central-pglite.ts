@@ -1,12 +1,18 @@
 import { readFileSync } from 'node:fs';
+import { after } from 'node:test';
 import { PGlite } from '@electric-sql/pglite';
 import type { ClienteCentral, FilaCentral } from '../../src/transporte/puente-central.ts';
 
-const MIGRACION = new URL('../../supabase/migrations/0001_central.sql', import.meta.url);
+const MIGRACIONES = ['0001_central.sql', '0003_cajas.sql'].map((n) => new URL(`../../supabase/migrations/${n}`, import.meta.url));
+
+const abiertas: PGlite[] = [];
+// PGlite deja un temporizador interno por instancia: se cierran todas al terminar para que el proceso de pruebas salga.
+after(async () => { await Promise.all(abiertas.map((d) => d.close().catch(() => undefined))); });
 
 /** Postgres local (PGlite) con la migración REAL y un `auth` mínimo que imita Supabase (auth.uid() sale del JWT simulado). */
 export async function centralLocal(): Promise<PGlite> {
   const db = new PGlite();
+  abiertas.push(db);
   await db.exec(`
     create role anon nologin; create role authenticated nologin;
     create schema auth;
@@ -15,14 +21,14 @@ export async function centralLocal(): Promise<PGlite> {
     grant usage on schema auth to anon, authenticated;
     grant execute on function auth.uid() to anon, authenticated;
   `);
-  await db.exec(readFileSync(MIGRACION, 'utf8'));
+  for (const m of MIGRACIONES) await db.exec(readFileSync(m, 'utf8'));
   return db;
 }
 
-export async function usuario(db: PGlite, correo: string, rol?: 'supervisor' | 'almacenista', activo = true): Promise<string> {
+export async function usuario(db: PGlite, correo: string, rol?: 'supervisor' | 'almacenista' | 'caja', activo = true, caja?: { tienda: string; caja: number }): Promise<string> {
   const r = await db.query<{ id: string }>('insert into auth.users (email) values ($1) returning id', [correo]);
   const id = r.rows[0]!.id;
-  if (rol) await db.query('insert into pos.admins (user_id, rol, alias, activo) values ($1, $2, $3, $4)', [id, rol, correo, activo]);
+  if (rol) await db.query('insert into pos.admins (user_id, rol, alias, activo, tienda, caja) values ($1, $2, $3, $4, $5, $6)', [id, rol, correo, activo, caja?.tienda ?? null, caja?.caja ?? null]);
   return id;
 }
 
