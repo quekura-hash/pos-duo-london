@@ -69,3 +69,19 @@ test('CC3 la marca se llena aunque el artículo ya esté clasificado; el departa
   assert.deepEqual(a.ops.map((o) => o.op_id), b.ops.map((o) => o.op_id));
   assert.equal(new Set(a.ops.map((o) => o.op_id)).size, a.ops.length);
 });
+
+test('CC4 marcas por artículo: solo con el archivo de marcas; verifica el código y no pisa marcas existentes', async () => {
+  const { leerMarcasPorArticulo, planMarcasPorArticulo } = await import('../src/correcciones-catalogo.ts');
+  const ops = importar({ 'organic g': caballero });
+  const cat = [...catalogo(ops).values()];
+  const l = leerMarcasPorArticulo([['Fila de origen', 'Item #', 'Código', 'Marca'], [2, 1, '0002025101274', 'ORGANIC G'], [3, 2, '0002025101281', 'ORGANIC G'], [4, 3, '9999999999999', 'DRESS DAY'], [99, 9, '1', 'X'], [5, 4, '', '']]);
+  assert.deepEqual(l.errores, []);
+  assert.equal(l.filas.length, 4);
+  const p = planMarcasPorArticulo({ marcas: l.filas, catalogo: cat, por: 'Edgardo', ahora: AHORA });
+  assert.deepEqual([p.resumen.marcasPuestas, p.resumen.conMarcaPropia, p.resumen.sinCoincidencia.length, p.resumen.noEncontrados, p.resumen.departamentosCambiados], [1, 1, 1, 1, 0]);
+  const c = catalogo([...ops, ...p.ops]);
+  assert.deepEqual([c.get('imp1-f2')!.marca, c.get('imp1-f2')!.departamento], ['ORGANIC G', caballero], 'la marca entra y el departamento elegido no cambia');
+  assert.equal(c.get('imp1-f3')!.marca, 'LEVIS');
+  assert.equal(c.get('imp1-f4')!.marca, '', 'el código no coincide: no se toca');
+  assert.match(leerMarcasPorArticulo([['UPC']]).errores[0]!, /No parece el archivo de marcas/);
+});

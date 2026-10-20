@@ -118,3 +118,39 @@ export function planCorrecciones(o: {
   }
   return { ops, resumen };
 }
+
+// ── Marcas por artículo: un archivo que ya trae, para cada artículo, su fila de origen, su código y la marca ──
+export interface MarcaPorArticulo { fila: number; codigo: string; marca: string }
+
+export function leerMarcasPorArticulo(filas: unknown[][]): { filas: MarcaPorArticulo[]; errores: string[] } {
+  const out: { filas: MarcaPorArticulo[]; errores: string[] } = { filas: [], errores: [] };
+  const enc = (filas[0] ?? []).map((h) => sinAcentos(t(h)).toLowerCase());
+  const iFila = enc.findIndex((h) => h.startsWith('fila de origen'));
+  const iCodigo = enc.findIndex((h) => h === 'codigo');
+  const iMarca = enc.findIndex((h) => h === 'marca');
+  if (iFila < 0 || iCodigo < 0 || iMarca < 0) { out.errores.push('No parece el archivo de marcas: faltan las columnas «Fila de origen», «Código» y «Marca».'); return out; }
+  for (const r of filas.slice(1)) {
+    const fila = Number(r[iFila]);
+    const marca = t(r[iMarca]);
+    if (Number.isInteger(fila) && marca) out.filas.push({ fila, codigo: t(r[iCodigo]), marca });
+  }
+  return out;
+}
+
+/** Pone la marca solo donde el artículo no tiene, verificando que el código coincida con el del catálogo (no se pisa un artículo equivocado). */
+export function planMarcasPorArticulo(o: { marcas: MarcaPorArticulo[]; catalogo: Articulo[]; idImportacion?: string; por: string; ahora: string }): PlanCorrecciones {
+  const id = o.idImportacion ?? 'imp1';
+  const porId = new Map(o.catalogo.map((a) => [a.item_id, a]));
+  const resumen: ResumenCorrecciones = { renglones: o.marcas.length, sinDecision: 0, articulosCambiados: 0, marcasPuestas: 0, departamentosCambiados: 0, yaClasificados: 0, conMarcaPropia: 0, deptosInvalidos: [], sinCoincidencia: [], noEncontrados: 0 };
+  const ops: Op[] = [];
+  for (const m of o.marcas) {
+    const a = porId.get(`${id}-f${m.fila}`);
+    if (!a) { resumen.noEncontrados++; continue; }
+    if (a.codigo !== m.codigo) { resumen.sinCoincidencia.push({ fila: m.fila, texto: `${m.codigo} ≠ ${a.codigo}` }); continue; }
+    if (a.marca.trim()) { resumen.conMarcaPropia++; continue; }
+    const cambios = { marca: { antes: a.marca, despues: m.marca } };
+    resumen.marcasPuestas++; resumen.articulosCambiados++;
+    ops.push({ op_id: `item.editado:corr:${a.item_id}:${huella(JSON.stringify(cambios))}`, tipo: 'item.editado', tienda: null, caja: null, origen: 'central', ocurrio_en: o.ahora, payload: { item_id: a.item_id, cambios, por: o.por, motivo: 'correccion_en_bloque' } });
+  }
+  return { ops, resumen };
+}

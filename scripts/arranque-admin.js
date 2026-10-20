@@ -104,19 +104,25 @@
     var d = $('#dlg-correcciones');
     var corr = null, orig = null, plan = null;
     d.innerHTML = '<h2 id="corr-titulo">Corregir departamentos y marcas</h2>' +
-      '<p><small>Use el Excel de correcciones que llenó y el <b>mismo archivo de inventario que cargó</b> (hace falta para saber de qué texto vino cada artículo). La marca se pone solo donde el artículo no tiene; un departamento ya elegido no se cambia.</small></p>' +
-      '<div class="campo"><label for="corr-f1">1. Archivo de correcciones</label><input id="corr-f1" type="file" accept=".xlsx"></div>' +
-      '<div class="campo"><label for="corr-f2">2. Inventario original (el que cargó)</label><input id="corr-f2" type="file" accept=".xlsx"></div>' +
+      '<p><small>Elija el archivo de correcciones. La marca se pone solo donde el artículo no tiene; un departamento ya elegido no se cambia.</small></p>' +
+      '<div class="campo"><label for="corr-f1">Archivo de correcciones</label><input id="corr-f1" type="file" accept=".xlsx"></div>' +
+      '<div class="campo" id="corr-c2" hidden><label for="corr-f2">Inventario original (el que cargó): hace falta para saber de qué texto vino cada artículo</label><input id="corr-f2" type="file" accept=".xlsx"></div>' +
       '<div id="corr-msg" class="mensaje" role="status"></div><div id="corr-resumen"></div>' +
       '<div class="filas"><button class="btn" type="button" id="corr-cancelar">Cerrar</button><button class="btn btn-primario" type="button" id="corr-aplicar" style="width:auto;flex:1" disabled>Aplicar correcciones</button></div>';
     function msg(t, mal) { var m = $('#corr-msg'); m.textContent = t || ''; m.className = 'mensaje' + (mal ? ' error' : ''); }
     function pensar() {
       plan = null; $('#corr-aplicar').disabled = true; $('#corr-resumen').innerHTML = '';
-      if (!corr || !orig) return;
-      var lc = PosAdmin.leerCorrecciones(corr);
-      if (lc.errores.length) return msg(lc.errores[0], true);
+      if (!corr) return;
       var dc = nube.datosCatalogo();
-      plan = PosAdmin.planCorrecciones({ correcciones: lc.filas, inventarioOriginal: orig, catalogo: dc.catalogo, deptosActivos: dc.deptosActivos, por: dc.usuario, ahora: dc.ahora });
+      var porArticulo = PosAdmin.leerMarcasPorArticulo(corr);
+      $('#corr-c2').hidden = !porArticulo.errores.length; // el archivo de marcas por artículo no necesita el inventario original
+      if (!porArticulo.errores.length) plan = PosAdmin.planMarcasPorArticulo({ marcas: porArticulo.filas, catalogo: dc.catalogo, por: dc.usuario, ahora: dc.ahora });
+      else {
+        if (!orig) return msg('Ese archivo es el de departamentos: elija también el inventario original.', false);
+        var lc = PosAdmin.leerCorrecciones(corr);
+        if (lc.errores.length) return msg('No reconozco ese archivo: no es ni el de marcas por artículo ni el de departamentos.', true);
+        plan = PosAdmin.planCorrecciones({ correcciones: lc.filas, inventarioOriginal: orig, catalogo: dc.catalogo, deptosActivos: dc.deptosActivos, por: dc.usuario, ahora: dc.ahora });
+      }
       var r = plan.resumen;
       msg('');
       $('#corr-resumen').innerHTML = '<table><tbody>' +
