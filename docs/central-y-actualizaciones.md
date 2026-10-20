@@ -1,6 +1,6 @@
 # LonDuo POS — Central en Supabase y actualizaciones
 
-Estado: **diseño + migración 0001 escrita (sintaxis validada con el parser de PostgreSQL, NO ejecutada)**. Nada de esto toca producción hasta que el propietario ejecute la migración en un proyecto de Supabase **nuevo y vacío**.
+Estado: **migración 0001 ejecutada por el propietario en el proyecto `londuo-pos`; puente y cliente listos y probados contra Postgres local (§53 de la arquitectura)**. Falta conectar la pantalla de Administración y construir la sincronización de hubs y cajas.
 
 ## 1. Qué es cada parte
 

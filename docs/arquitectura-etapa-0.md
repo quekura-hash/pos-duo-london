@@ -712,3 +712,11 @@ Solución **de transición** para probar tickets reales en la caja con la págin
 ## 52. Nombre del producto: LonDuo POS
 
 El producto se llama **LonDuo POS · Smart Retail Management**. Aparece en el título de la pestaña, en la pantalla de inicio de sesión y en la nota lateral de la página de prueba. **Todavía no** se imprime en los tickets (decisión del propietario, para no gastar papel): cuando se decida, se agrega en el encabezado del ticket.
+
+## 53. Central en Supabase: migración ejecutada y puente de sincronización
+
+- **Estado**: la migración `0001_central.sql` fue ejecutada por el propietario en un proyecto **nuevo** de Supabase (`londuo-pos`, separado del proyecto de Offroad Build Lab) y existe el primer supervisor. El esquema `pos` se expone en la Data API; `anon` no tiene permisos sobre él.
+- **Puente** (`src/transporte/puente-central.ts`): mantiene una **réplica local** (el mismo motor y repositorio de siempre) al día con el central. Sube lo hecho aquí (`subir_ops`, idempotente por `op_id`) y baja lo nuevo con un cursor (`bajar_ops`). Si falla a mitad, el siguiente ciclo continúa sin perder ni duplicar. Lo bajado no se devuelve al central.
+- **Cliente** (`src/transporte/cliente-supabase.ts`): habla con la API de Supabase usando solo la llave pública y la sesión del usuario (correo y contraseña; la contraseña se usa una vez y no se guarda, solo el token de renovación). Lo que cada quien ve o hace lo decide la RLS del central, no este código.
+- **Verificado contra Postgres real** (PGlite, con la migración REAL): CS1 convergencia entre réplicas y reintentos; CS2 caída a mitad; CS3 seguridad (el almacenista solo ve y sube inventario/almacén y un lote con un tipo prohibido se rechaza completo; sin rol, dado de baja o anónimo no ven ni suben; nadie inserta, edita ni borra la bitácora por fuera de la función); CS4 Item # consecutivo; CS5 autorizaciones (solo supervisores, una sola resolución); CS6 cliente HTTP (sesión, renovación, llave pública). **No** se ha probado todavía contra el proyecto real de Supabase.
+- **Pendiente**: pantalla de Administración conectada (inicio de sesión contra el central + réplica persistente en el navegador), Edge Function para hubs/cajas, Realtime.
