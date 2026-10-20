@@ -2661,9 +2661,11 @@ async function vistaCajeros() {
     <section class="panel" id="panel-admins" style="margin-bottom:12px"><h2 style="margin-top:0">Supervisores y almacenistas (entran a Administración)</h2>
       <p class="nota" style="margin-top:0">${administradores.some((a) => a.activo) ? '<b>Supervisor</b>: ve todo Administración y autoriza operaciones en la caja con su clave de caja (4 a 8 dígitos). <b>Almacenista</b>: solo Inventario y Almacén, y no cambia precios. Entran con su usuario y contraseña (6 a 40 caracteres), que solo viven en el servidor central. Las Vendedoras-Cajeras no entran a Administración.' : '<b>Esta consola está abierta: cualquiera que la abra puede entrar.</b> Cree el primer usuario (debe ser supervisor) para que pida usuario y contraseña. Quien lo crea queda dentro.'}</p>
       <div id="msg-admins" class="mensaje" role="status" aria-live="polite"></div>
-      <div class="tabla-cont"><table id="tabla-admins"><thead><tr><th>Usuario y datos</th><th>Rol</th><th>Estado</th><th>Nueva contraseña</th><th>Clave de caja</th><th></th></tr></thead><tbody>
-      ${administradores.map((x) => `<tr data-admin="${esc(x.id)}" data-rol="${x.rol}"><td>${celdaPersona(x)}</td><td>${x.rol === 'almacenista' ? 'Almacenista' : 'Supervisor'}</td><td>${x.activo ? 'Activo' : 'Desactivado'}</td><td><input type="password" class="a-clave" placeholder="dejar vacío = no cambiar" aria-label="Nueva contraseña de ${esc(x.nombre)}" style="padding:4px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie)"></td><td>${x.rol === 'supervisor' ? `<input type="password" inputmode="numeric" class="a-clave-caja" placeholder="${x.clave_caja ? 'dejar vacío = no cambiar' : 'sin clave: no autoriza en la caja'}" aria-label="Clave de caja de ${esc(x.nombre)}" style="padding:4px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie)">` : '—'}</td>
-        <td class="filas" style="flex-wrap:nowrap"><button class="btn a-guardar" type="button">${ico('check')}<span>Guardar cambios</span></button><button class="btn a-editar" type="button">${ico('pencil')}<span>Editar datos</span></button><button class="btn a-activo" type="button">${x.activo ? 'Desactivar' : 'Activar'}</button></td></tr>`).join('') || '<tr><td colspan="6" class="vacio">Aún no hay usuarios de Administración.</td></tr>'}</tbody></table></div>
+      <div class="tabla-cont"><table id="tabla-admins"><thead><tr><th>Usuario y datos</th><th>Rol</th><th>Estado</th><th>Acciones</th><th>Nueva contraseña</th><th>Clave de caja</th><th></th></tr></thead><tbody>
+      ${administradores.map((x) => `<tr data-admin="${esc(x.id)}" data-rol="${x.rol}" class="fila-usuario" tabindex="0" title="Clic para editar los datos de ${esc(x.nombre)}"><td>${celdaPersona(x)}</td><td>${x.rol === 'almacenista' ? 'Almacenista' : 'Supervisor'}</td><td>${x.activo ? 'Activo' : 'Desactivado'}</td>
+        <td class="filas" style="flex-wrap:nowrap"><button class="btn a-editar" type="button">${ico('pencil')}<span>Editar datos</span></button><button class="btn a-activo" type="button">${x.activo ? 'Desactivar' : 'Activar'}</button></td>
+        <td><input type="password" class="a-clave" placeholder="dejar vacío = no cambiar" aria-label="Nueva contraseña de ${esc(x.nombre)}" style="padding:4px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie)"></td><td>${x.rol === 'supervisor' ? `<input type="password" inputmode="numeric" class="a-clave-caja" placeholder="${x.clave_caja ? 'dejar vacío = no cambiar' : 'sin clave: no autoriza en la caja'}" aria-label="Clave de caja de ${esc(x.nombre)}" style="padding:4px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie)">` : '—'}</td>
+        <td class="filas" style="flex-wrap:nowrap"><button class="btn a-guardar" type="button">${ico('check')}<span>Guardar cambios</span></button></td></tr>`).join('') || '<tr><td colspan="7" class="vacio">Aún no hay usuarios de Administración.</td></tr>'}</tbody></table></div>
       <form id="form-admin" class="filas" style="margin-top:12px;align-items:flex-end"><div class="campo"><label for="adm-nombre">Usuario (alias)</label><input id="adm-nombre" class="texto" maxlength="40" autocomplete="off"></div>${perfilCampos('adm')}<div class="campo"><label for="adm-clave">Contraseña</label><input id="adm-clave" type="password" autocomplete="new-password"></div>
         <div class="campo"><label for="adm-rol">Rol</label><select id="adm-rol" style="padding:10px;border:2px solid var(--borde);border-radius:10px;background:var(--superficie)"><option value="supervisor">Supervisor</option><option value="almacenista" ${administradores.length ? '' : 'disabled'}>Almacenista</option></select></div>
         <div class="campo" id="adm-caja-campo"><label for="adm-clave-caja">Clave de caja (4 a 8 dígitos)</label><input id="adm-clave-caja" type="password" inputmode="numeric" autocomplete="off"></div>
@@ -2671,9 +2673,10 @@ async function vistaCajeros() {
     <h2>Vendedoras-Cajeras</h2>
     <p class="nota">Cada Vendedora-Cajera tiene su propia clave (4 a 8 dígitos) para confirmar operaciones a su nombre, como dar de alta un artículo en la caja. El <b>usuario (alias)</b> es con el que entra a la caja y el que sale en tickets y reportes; los nombres, apellidos, teléfono, dirección y foto son su registro. La clave no se puede volver a ver: si se olvida, se cambia.</p>
     <div id="msg-cajeros" class="mensaje" role="status" aria-live="polite"></div>
-    <div class="tabla-cont"><table id="tabla-cajeros"><thead><tr><th>Usuario y datos</th><th>Estado</th><th>Nueva clave</th><th></th></tr></thead><tbody>
-    ${cajeros.map((x) => `<tr data-cajero="${esc(x.id)}"><td>${celdaPersona(x)}</td><td>${x.activo ? 'Activo' : 'Desactivado'}</td><td><input type="password" inputmode="numeric" class="c-clave" placeholder="dejar vacío = no cambiar" aria-label="Nueva clave de ${esc(x.nombre)}" style="padding:4px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie)"></td>
-      <td class="filas" style="flex-wrap:nowrap"><button class="btn c-guardar" type="button">${ico('check')}<span>Cambiar clave</span></button><button class="btn c-editar" type="button">${ico('pencil')}<span>Editar datos</span></button><button class="btn c-activo" type="button">${x.activo ? 'Desactivar' : 'Activar'}</button></td></tr>`).join('') || '<tr><td colspan="4" class="vacio">Aún no hay Vendedoras-Cajeras con clave: sin ella nadie puede dar de alta artículos en la caja.</td></tr>'}</tbody></table></div>
+    <div class="tabla-cont"><table id="tabla-cajeros"><thead><tr><th>Usuario y datos</th><th>Estado</th><th>Acciones</th><th>Nueva clave</th></tr></thead><tbody>
+    ${cajeros.map((x) => `<tr data-cajero="${esc(x.id)}" class="fila-usuario" tabindex="0" title="Clic para editar los datos de ${esc(x.nombre)}"><td>${celdaPersona(x)}</td><td>${x.activo ? 'Activo' : 'Desactivado'}</td>
+      <td class="filas" style="flex-wrap:nowrap"><button class="btn c-editar" type="button">${ico('pencil')}<span>Editar datos</span></button><button class="btn c-activo" type="button">${x.activo ? 'Desactivar' : 'Activar'}</button></td>
+      <td class="filas" style="flex-wrap:nowrap"><input type="password" inputmode="numeric" class="c-clave" placeholder="dejar vacío = no cambiar" aria-label="Nueva clave de ${esc(x.nombre)}" style="padding:4px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie)"><button class="btn c-guardar" type="button">${ico('check')}<span>Cambiar clave</span></button></td></tr>`).join('') || '<tr><td colspan="4" class="vacio">Aún no hay Vendedoras-Cajeras con clave: sin ella nadie puede dar de alta artículos en la caja.</td></tr>'}</tbody></table></div>
     <form id="form-cajero" class="filas" style="margin-top:12px;align-items:flex-end"><div class="campo"><label for="caj-nombre">Usuario (alias)</label><input id="caj-nombre" class="texto" maxlength="40"></div>${perfilCampos('caj')}<div class="campo"><label for="caj-clave">Clave</label><input id="caj-clave" type="password" inputmode="numeric" autocomplete="off"></div>
       <button class="btn btn-primario" id="btn-caj" type="submit" style="width:auto">${ico('plus')}<span>Agregar Vendedora-Cajera</span></button></form>
     <section class="panel" id="panel-inactividad" style="margin-top:16px"><h2 style="margin-top:0">Cierre de sesión por inactividad</h2>
@@ -2688,7 +2691,7 @@ async function vistaCajeros() {
     catch (e) { m.className = 'mensaje error'; m.textContent = e.message; }
   });
   $('#adm-rol').addEventListener('change', () => { $('#adm-caja-campo').hidden = $('#adm-rol').value !== 'supervisor'; });
-  const msgA = (t, tipo = 'error') => { const m = $('#msg-admins'); m.className = `mensaje ${tipo}`; m.textContent = t; };
+  const msgA = (t, tipo = 'error') => { const m = $('#msg-admins'); m.className = `mensaje ${tipo}`; m.textContent = t; m.scrollIntoView({ block: 'nearest' }); };
   const perfilAdm = perfilEnlazar('adm');
   $('#form-admin').addEventListener('submit', async (ev) => {
     ev.preventDefault();
@@ -2709,17 +2712,21 @@ async function vistaCajeros() {
       if (!clave && !claveCaja) return msgA('Escriba la nueva contraseña o la nueva clave de caja.');
       try { await api('/api/admin/administradores', { id, ...(clave ? { clave } : {}), ...(claveCaja ? { clave_caja: claveCaja } : {}) }); await vistaCajeros(); msgA('Cambios guardados.', 'ok'); } catch (e) { msgA(e.message); }
     });
-    tr.querySelector('.a-editar').addEventListener('click', () => abrirEditarEmpleado('admin', administradores.find((c) => c.id === id), vistaCajeros));
+    const editarA = () => abrirEditarEmpleado('admin', administradores.find((c) => c.id === id), vistaCajeros);
+    tr.querySelector('.a-editar').addEventListener('click', editarA);
+    tr.addEventListener('click', (ev) => { if (!ev.target.closest('input, button, a')) editarA(); });
+    tr.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' && ev.target === tr) editarA(); });
     tr.querySelector('.a-activo').addEventListener('click', async () => {
       try { await api('/api/admin/administradores', { id, activo: !activo }); S.sesion = await api('/api/sesion'); await vistaCajeros(); } catch (e) { msgA(e.message); }
     });
   }
-  const msgC = (t, tipo = 'error') => { const m = $('#msg-cajeros'); m.className = `mensaje ${tipo}`; m.textContent = t; };
+  const msgC = (t, tipo = 'error') => { const m = $('#msg-cajeros'); m.className = `mensaje ${tipo}`; m.textContent = t; m.scrollIntoView({ block: 'nearest' }); };
   const perfilCaj = perfilEnlazar('caj');
   $('#form-cajero').addEventListener('submit', async (ev) => {
     ev.preventDefault();
     if (!perfilCaj.completo()) return msgC('Escriba los nombres y los apellidos.');
-    try { await api('/api/admin/cajeros', { nombre: $('#caj-nombre').value, clave: $('#caj-clave').value, perfil: perfilCaj.leer() }); await vistaCajeros(); msgC('Vendedora-Cajera agregada.', 'ok'); } catch (e) { msgC(e.message); }
+    const nombreAlta = $('#caj-nombre').value.trim();
+    try { await api('/api/admin/cajeros', { nombre: $('#caj-nombre').value, clave: $('#caj-clave').value, perfil: perfilCaj.leer() }); await vistaCajeros(); msgC(`Vendedora-Cajera «${nombreAlta}» guardada: ya aparece en la lista. Las cajas la reciben al sincronizar.`, 'ok'); } catch (e) { msgC(e.message); }
   });
   for (const tr of $('#tabla-cajeros').querySelectorAll('tr[data-cajero]')) {
     const id = tr.dataset.cajero;
@@ -2729,7 +2736,10 @@ async function vistaCajeros() {
       if (!clave) return msgC('Escriba la nueva clave.');
       try { await api('/api/admin/cajeros', { id, clave }); await vistaCajeros(); msgC('Clave cambiada.', 'ok'); } catch (e) { msgC(e.message); }
     });
-    tr.querySelector('.c-editar').addEventListener('click', () => abrirEditarEmpleado('cajero', cajeros.find((c) => c.id === id), vistaCajeros));
+    const editarC = () => abrirEditarEmpleado('cajero', cajeros.find((c) => c.id === id), vistaCajeros);
+    tr.querySelector('.c-editar').addEventListener('click', editarC);
+    tr.addEventListener('click', (ev) => { if (!ev.target.closest('input, button, a')) editarC(); });
+    tr.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' && ev.target === tr) editarC(); });
     tr.querySelector('.c-activo').addEventListener('click', async () => { try { await api('/api/admin/cajeros', { id, activo: !activo }); await vistaCajeros(); } catch (e) { msgC(e.message); } });
   }
 }
@@ -3023,6 +3033,11 @@ function pintarAvisoInactividad() {
 }
 setInterval(() => { if (S.finInactividad) pintarAvisoInactividad(); }, 1000);
 async function latido() {
+  // Caja sin cajeras registradas: si Administración registra una, la caja pasa sola a pedir usuario y clave.
+  if (S.sesion?.rol === 'cajero' && !S.sesion.requiere_login) {
+    try { const r = await api('/api/sesion?pasivo=1'); if (r.requiere_login) await iniciar(); } catch { /* sin respuesta: se reintenta */ }
+    return;
+  }
   if (!S.sesion?.requiere_login || !S.sesion.autenticado) { avisoInactividad().hidden = true; return; }
   try {
     const r = actividadPendiente ? await api('/api/actividad', {}) : await api('/api/sesion?pasivo=1');

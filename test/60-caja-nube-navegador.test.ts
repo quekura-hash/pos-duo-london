@@ -97,4 +97,33 @@ describe('[navegador real] Caja conectada al central (Supabase simulado con Post
     assert.deepEqual(await ventas(), ['caja:DUO/1'], 'sin internet nada llegó al central todavía');
     assert.deepEqual(errores, []);
   });
+
+  it('B32 una caja abierta sin cajeras pide usuario y clave sola cuando Administración registra una', async (t) => {
+    execFileSync(process.execPath, [join(RAIZ, 'scripts', 'construir-caja.mjs')], { stdio: 'pipe', env: { ...process.env, LONDUO_SUPABASE_URL: URL_CENTRAL, LONDUO_SUPABASE_KEY: 'sb_publishable_prueba' } });
+    const { db, cuentas, admin } = await escenario({ cajera: false });
+    const browser = await chromium.launch({ executablePath: chromiumPath, args: ['--no-sandbox'] });
+    t.after(() => browser.close());
+    const ctx = await browser.newContext({ viewport: { width: 1366, height: 860 }, colorScheme: 'light' });
+    await simularSupabase(ctx, db, Object.fromEntries(Object.entries(cuentas).map(([k, v]) => [k, v.id])));
+    await ctx.addInitScript(() => {
+      const w = window as unknown as Hw & { posHardware: unknown };
+      w.__imp = [];
+      w.posHardware = { imprimirRaw: async () => undefined, credencialesCaja: async () => ({ correo: 'caja-duo-1@x.mx', clave: 'buena' }), guardarCredencialesCaja: async () => undefined };
+    });
+    const page = await ctx.newPage();
+    await page.goto(`file://${HTML}`);
+    await page.waitForSelector('#scan', { timeout: 60_000 }); // sin cajeras la caja abre directo, sin pedir usuario
+    assert.equal(await page.locator('#lg-usuario').count(), 0);
+    // Administración registra a Tania (con todos sus datos) y la caja lo recibe sola.
+    const r = await admin.atender('POST', '/api/admin/cajeros', { nombre: 'Tania', clave: '2468', activo: true, perfil: { nombres: 'Tania', apellidos: 'Ruiz' } });
+    assert.equal(r.status, 200);
+    await admin.sincronizar();
+    await page.waitForSelector('#lg-usuario', { timeout: 40_000 });
+    assert.deepEqual(await page.$$eval('#lg-usuario option', (o) => o.map((x) => x.textContent)), ['Tania']);
+    await page.selectOption('#lg-usuario', 'Tania'); await page.fill('#lg-clave', '2468'); await page.click('#lg-entrar');
+    await page.waitForSelector('#scan');
+    assert.match((await page.textContent('#encabezado'))!, /Tania/);
+    await page.click('#btn-salir'); // se puede cerrar la sesión para que entre otra persona
+    await page.waitForSelector('#lg-usuario');
+  });
 });

@@ -40,7 +40,7 @@ const ENC = ['Item Number', 'Descripcion', 'Marca', 'Estilo', 'Lote', 'Precio', 
 const FILAS: unknown[][] = [ENC, [1, 'BLUSA', 'LEVIS', 'MW1', '20251007', 499, '0002025101274', 'Dama', 6], [2, 'CAMISA', 'DUO', 'C1', '20251007', 299, '0002025101281', 'Caballero', 3]];
 export const ESCANEAR = '0002025101274';
 
-export async function escenario() {
+export async function escenario(o: { cajera?: boolean } = {}) {
   const db = await centralLocal();
   const cuentas: Cuentas = {
     'edgardo@x.mx': { id: await usuario(db, 'edgardo@x.mx', 'supervisor'), rol: 'supervisor', alias: 'Edgardo' },
@@ -52,8 +52,10 @@ export async function escenario() {
   await admin.entrar('edgardo@x.mx', 'buena');
   const dep = aplicarDepartamentos(leerInventario(FILAS).articulos, DEPARTAMENTOS_BASE, {});
   admin.agregarOps(aOperacionesInventario(dep.articulos, { ahora: '2026-10-20T12:00:00.000Z', idImportacion: 'imp1', limbo: { piezas: 0, delArchivo: true } }).ops);
-  const r = await admin.atender('POST', '/api/admin/cajeros', { nombre: 'Ana', clave: '1234', activo: true, perfil: { nombres: 'Ana', apellidos: 'Pérez' } });
-  assert.equal(r.status, 200, JSON.stringify(r.json));
+  if (o.cajera !== false) {
+    const r = await admin.atender('POST', '/api/admin/cajeros', { nombre: 'Ana', clave: '1234', activo: true, perfil: { nombres: 'Ana', apellidos: 'Pérez' } });
+    assert.equal(r.status, 200, JSON.stringify(r.json));
+  }
   await admin.sincronizar();
   return { db, cuentas, admin };
 }

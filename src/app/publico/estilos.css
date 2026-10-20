@@ -200,3 +200,8 @@ dialog.aviso-flotante { position: fixed; inset: 16px 16px auto auto; margin: 0; 
   #zona-impresion .qr-imp { text-align: center; margin: 3mm 0; font: 10px "Courier New", monospace; }
   #zona-impresion .qr-imp canvas { width: 34mm; height: 34mm; }
 }
+
+/* Filas de usuarios: toda la fila abre la edición. */
+tr.fila-usuario { cursor: pointer; }
+tr.fila-usuario:hover { background: var(--superficie-2); }
+tr.fila-usuario:focus-visible { outline: 2px solid var(--primario, currentColor); outline-offset: -2px; }
