@@ -57,15 +57,22 @@
 
   // ── estado de la conexión (barra superior) ──
   function hora(iso) { var d = new Date(iso); return ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2); }
+  // El estado de la conexión vive en el encabezado de la pantalla (chip con punto de color y botón de sincronizar); lo dibuja app.js y lo rellena esta función.
+  window.__POS_NUBE__ = true;
   function pintarEstado() {
     var e = nube ? nube.estado() : null;
     var el = $('#estado-nube');
-    if (!e || !e.dentro) { el.textContent = 'Sin sesión'; el.className = 'estado-nube'; return; }
-    var t = e.sincronizando ? 'Sincronizando…' : e.error ? 'Sin conexión con el central · ' + e.pendientes + ' cambio(s) por subir' : e.pendientes ? e.pendientes + ' cambio(s) por subir' : 'Sincronizado' + (e.ultimaSync ? ' ' + hora(e.ultimaSync) : '');
-    el.textContent = e.usuario + ' (' + (e.rol === 'supervisor' ? 'supervisor' : 'almacén') + ') · ' + t;
+    if (!el) return;
+    var chip = el.parentNode;
+    if (!e || !e.dentro) { el.textContent = 'Sin sesión'; chip.className = 'chip-top sincro-nube'; return; }
+    var t = e.sincronizando ? 'Sincronizando…' : e.error ? 'Sin conexión' + (e.pendientes ? ' · ' + e.pendientes + ' por subir' : '') : e.pendientes ? e.pendientes + ' por subir' : 'Sincronizado';
+    var cuando = !e.sincronizando && !e.error && !e.pendientes && e.ultimaSync ? ' ' + hora(e.ultimaSync) : '';
+    el.innerHTML = '<span class="sn-quien">' + esc(e.usuario) + ' (' + (e.rol === 'supervisor' ? 'supervisor' : 'almacén') + ') · </span>' + esc(t) + '<span class="sn-hora">' + esc(cuando) + '</span>';
     el.className = 'estado-nube' + (e.error ? ' mal' : '');
+    chip.className = 'chip-top sincro-nube ' + (e.error ? 'mal' : e.sincronizando ? 'sync' : e.pendientes ? 'pend' : 'ok');
   }
-  $('#btn-sync').addEventListener('click', function () { if (nube) nube.sincronizar(); });
+  window.__POS_PINTAR_ESTADO__ = pintarEstado;
+  document.addEventListener('click', function (ev) { if (ev.target.closest && ev.target.closest('#btn-sync') && nube) nube.sincronizar(); });
 
   // ── contrato con la pantalla (mismo que la página de prueba) ──
   var SIN_SESION = { status: 200, json: { ok: true, rol: 'admin', requiere_login: true, autenticado: false, usuario: null, rol_usuario: null, sin_administradores: false, inactividad: null, cajas: [], nav: [] } };

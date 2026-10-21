@@ -47,20 +47,14 @@ if (/service_role/i.test(CENTRAL.llave) || (CENTRAL.llave.startsWith('eyJ') && J
 }
 
 const estilo = `
-.estado-nube { font-size: 13px; font-weight: 600; } .estado-nube.mal { color: var(--error, #b3261e); }
-.barra-nube { position: sticky; top: 0; z-index: 5; background: var(--aviso-fondo); color: var(--texto); border-bottom: 1px solid var(--borde); padding: 8px 16px; display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; font-size: 13px; }
-.barra-nube .espacio { flex: 1; }
+.estado-nube { font-size: 13px; font-weight: 600; } .estado-nube.mal { color: #fca5a5; }
 #puerta { position: fixed; inset: 0; z-index: 100; background: var(--fondo, #f6f5f3); overflow: auto; padding: 24px 16px; }
 #puerta[hidden] { display: none; } #puerta .panel { max-width: 420px; margin: 40px auto; } #puerta details { margin: 8px 0 12px; } #puerta input { width: 100%; box-sizing: border-box; }
 #dlg-importar { max-width: min(860px, 96vw); width: 96vw; } #dlg-importar h2 { margin: 0 0 8px; } #dlg-importar fieldset { border: 1px solid var(--borde); border-radius: 8px; margin: 8px 0; } #dlg-importar label { display: block; margin: 4px 0; } #dlg-importar input[type=number] { width: 90px; padding: 4px; border: 1px solid var(--borde); border-radius: 6px; background: var(--superficie); text-align: right; } .anomalias td, .anomalias th { white-space: normal; }
 .aviso-depto td { background: color-mix(in srgb, #f5b301 18%, transparent); }
-.app { min-height: calc(100vh - 44px); }`;
+.app { min-height: 100vh; }`;
 const marcado = `
-<div class="barra-nube" role="region" aria-label="Conexión con el central">
-  <strong>LonDuo POS · Administración</strong>
-  <span class="estado-nube" id="estado-nube" role="status" aria-live="polite">Sin sesión</span>
-  <button class="btn" type="button" id="btn-sync">Sincronizar ahora</button>
-  <span class="espacio"></span>
+<div class="barra-nube" hidden>
   <span class="estado-inv" id="estado-inv" role="status" aria-live="polite"></span>
   <small id="version-pos">${VERSION.texto}</small>
   <input type="file" id="archivo-inventario" accept=".xlsx" hidden>

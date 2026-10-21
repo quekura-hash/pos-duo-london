@@ -119,10 +119,11 @@ async function pintarEncabezado() {
   if (S.sesion.rol === 'admin') {
     h.innerHTML = `<div class="logos"><img class="logo" src="${logoDe('DUO')}" alt="DÚO New York"><img class="logo" src="${logoDe('LON')}" alt="London Love"></div>
       <div class="titulo">Administración</div>
-      <div class="datos"><span class="chip-top" data-chip="usuario">${ico('user')}<span>Usuario: <b>${esc(S.sesion.usuario)}</b></span></span><span class="chip-top" data-chip="rol">${ico('gear')}<b>Administración${S.sesion.requiere_login && S.sesion.rol_usuario ? ` · ${S.sesion.rol_usuario === 'almacenista' ? 'Almacenista' : 'Supervisor'}` : ''}</b></span>
+      <div class="datos">${window.__POS_NUBE__ ? `<span class="chip-top sincro-nube" data-chip="sync"><span id="estado-nube" class="estado-nube" role="status" aria-live="polite">Sin sesión</span><button class="btn-sync" type="button" id="btn-sync" title="Sincronizar ahora" aria-label="Sincronizar ahora">${ico('refresh')}</button></span>` : ''}<span class="chip-top" data-chip="usuario">${ico('user')}<span>Usuario: <b>${esc(S.sesion.usuario)}</b></span></span><span class="chip-top" data-chip="rol">${ico('gear')}<b>Administración${S.sesion.requiere_login && S.sesion.rol_usuario ? ` · ${S.sesion.rol_usuario === 'almacenista' ? 'Almacenista' : 'Supervisor'}` : ''}</b></span>
       <span class="chip-top" data-chip="alcance">${ico('store')}<span>Una, varias o todas las cajas</span></span>${S.sesion.requiere_login ? `<button class="btn" type="button" id="btn-salir" title="Cerrar la sesión">${ico('x')}<span>Cerrar sesión</span></button>` : ''}</div>`;
     pie.innerHTML = `<span>Usuario: ${esc(S.sesion.usuario)}</span><span>Administración · consolida cajas y tiendas</span><span>Precios en MXN</span>`;
     await pintarTipoCambio();
+    window.__POS_PINTAR_ESTADO__?.();
     return;
   }
   const { estado: e } = await api('/api/estado?pasivo=1');
@@ -1098,8 +1099,6 @@ async function vistaInventario() {
     <div class="titulo-vista">${ico('box')}<h1>Inventario</h1></div>
     <div class="panel">
       <div class="filas" style="align-items:center;margin-bottom:12px">
-        ${window.__POS_IMPORTAR_INVENTARIO__ ? `<button class="btn btn-primario" id="btn-catalogo-inicial" type="button" style="width:auto" title="Carga el archivo completo de artículos: la cantidad de cada fila queda en El Limbo, que se vende en todas las tiendas y cajas">${ico('upload')}<span>Cargar catálogo inicial (El Limbo)</span></button>` : ''}
-        <button class="btn" id="btn-conteo-limbo" type="button" title="Contar físicamente las piezas de El Limbo y ajustar su existencia">${ico('check')}<span>Conteo de El Limbo</span></button>
         <button class="btn btn-primario" id="btn-exportar" type="button" style="width:auto">${ico('download')}<span>Exportar inventario a Excel</span></button>
         <span id="estado-exportar" role="status" aria-live="polite"></span>
       </div>
@@ -1126,8 +1125,6 @@ async function vistaInventario() {
     e.textContent = 'Preparando el archivo…';
     try { e.textContent = await exportarInventario(); } catch (err) { e.textContent = `No se pudo exportar: ${err.message}`; }
   });
-  $('#btn-conteo-limbo').addEventListener('click', () => ir('conteo_limbo'));
-  const ci = $('#btn-catalogo-inicial'); if (ci) ci.addEventListener('click', () => window.__POS_IMPORTAR_INVENTARIO__());
   await cargarListaInventario();
 }
 async function cargarListaInventario() {
@@ -1135,9 +1132,15 @@ async function cargarListaInventario() {
   const r = await api(`/api/admin/articulos?todos=1&limite=${I.por}&desde=${I.pag * I.por}&q=${encodeURIComponent(I.q)}`);
   Object.assign(I, { total: r.total, tiendas: r.tiendas ?? [], articulos: r.articulos });
   const paginas = Math.max(1, Math.ceil(r.total / I.por));
-  $('#inv-res').innerHTML = `<table id="tabla-inv-lista"><thead><tr><th>Item #</th><th>Código</th><th>Descripción</th><th>Marca</th><th>Estilo</th><th>Lote</th><th>Departamento</th><th class="num">Precio</th>${I.tiendas.map((t) => `<th class="num">${esc(t)}</th>`).join('')}<th class="num">Almacén</th><th class="num">El Limbo</th></tr></thead><tbody>
+  $('#inv-res').innerHTML = `<table id="tabla-inv-lista" class="solo-escritorio"><thead><tr><th>Item #</th><th>Código</th><th>Descripción</th><th>Marca</th><th>Estilo</th><th>Lote</th><th>Departamento</th><th class="num">Precio</th>${I.tiendas.map((t) => `<th class="num">${esc(t)}</th>`).join('')}<th class="num">Almacén</th><th class="num">El Limbo</th></tr></thead><tbody>
     ${r.articulos.map((a) => `<tr data-item="${esc(a.item_id)}" tabindex="0" style="cursor:pointer"><td>${esc(a.item_no ?? '')}</td><td>${esc(a.codigo)}</td><td>${esc(a.descripcion)}</td><td>${esc(a.marca)}</td><td>${esc(a.estilo)}</td><td>${esc(a.lote)}</td><td>${esc(a.departamento)}</td><td class="num">${mxn(a.precio)}</td>${I.tiendas.map((t) => `<td class="num">${a.existencias[t] ?? 0}</td>`).join('')}<td class="num">${a.almacen}</td><td class="num" data-col="limbo">${a.limbo}</td></tr>`).join('') || `<tr><td colspan="${10 + I.tiendas.length}" class="vacio">Ningún artículo coincide.</td></tr>`}</tbody></table>`;
-  for (const tr of $('#inv-res').querySelectorAll('tr[data-item]')) {
+  // En el teléfono la lista es de filas compactas (dos renglones por artículo), no tarjetas con todas las columnas.
+  $('#inv-res').insertAdjacentHTML('beforeend', `<div class="lista-inv solo-movil" id="lista-inv" role="list">${r.articulos.map((a) => {
+    const quien = [a.marca, a.estilo].filter(Boolean).map(esc).join(' · ');
+    const ex = [...I.tiendas.map((t) => [t, a.existencias[t] ?? 0]), ['Alm', a.almacen], ['Limbo', a.limbo]].map(([t, n]) => `<span class="${n > 0 ? 'hay' : n < 0 ? 'neg' : ''}">${esc(t)} ${n}</span>`).join('');
+    return `<button type="button" class="fila-inv" role="listitem" data-item="${esc(a.item_id)}"><span class="fi-linea"><b class="fi-desc">${esc(a.descripcion) || '(sin descripción)'}</b><span class="fi-precio">${mxn(a.precio)}</span></span>${quien ? `<span class="fi-quien">${quien}</span>` : ''}<span class="fi-sub"><span>#${esc(a.item_no ?? '—')}</span><span>${esc(a.codigo) || 'sin código'}</span></span><span class="fi-ex">${ex}</span></button>`;
+  }).join('') || '<p class="vacio">Sin resultados.</p>'}</div>`);
+  for (const tr of $('#inv-res').querySelectorAll('[data-item]')) {
     const abrir = () => abrirArticulo(I.articulos.find((x) => x.item_id === tr.dataset.item));
     tr.addEventListener('click', abrir);
     tr.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') abrir(); });
@@ -3106,7 +3109,7 @@ async function iniciar() {
   if (S.sesion.requiere_login && !S.sesion.autenticado) return pintarLogin();
   await ir(S.sesion.nav[0]);
 }
-window.POS_UI = { iniciar };
+window.POS_UI = { iniciar, ir };
 // ── cierre por inactividad: la pantalla avisa que la persona sigue ahí (latido) y muestra el aviso antes de que se cierre la sesión ──
 let actividadPendiente = false;
 for (const ev of ['keydown', 'pointerdown', 'wheel', 'mousemove']) document.addEventListener(ev, () => { actividadPendiente = true; }, { passive: true });

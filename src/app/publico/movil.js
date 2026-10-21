@@ -15,10 +15,12 @@
   }
   var pendiente = false;
   function programar() { if (pendiente) return; pendiente = true; requestAnimationFrame(function () { pendiente = false; anotar(document.body); }); }
-  // El encabezado se pega justo debajo de la barra de conexión: se mide su alto real (incluye la zona segura de arriba).
-  function medirBarra() { var b = document.querySelector('.barra-nube'); if (b) document.documentElement.style.setProperty('--barra-alto', b.offsetHeight + 'px'); }
-  window.addEventListener('resize', medirBarra); window.addEventListener('orientationchange', medirBarra); setTimeout(medirBarra, 0); setTimeout(medirBarra, 600);
-  new MutationObserver(programar).observe(document.body, { childList: true, subtree: true });
+  // El encabezado va fijo arriba: se mide su alto real (incluye la zona segura) para que el contenido empiece justo debajo.
+  function medirEncabezado() { var h = document.querySelector('.encabezado'); if (h && h.offsetHeight) document.documentElement.style.setProperty('--enc-alto', h.offsetHeight + 'px'); }
+  window.addEventListener('resize', medirEncabezado); window.addEventListener('orientationchange', medirEncabezado); setTimeout(medirEncabezado, 0); setTimeout(medirEncabezado, 600);
+  var enc = document.querySelector('.encabezado');
+  if (enc && window.ResizeObserver) new ResizeObserver(medirEncabezado).observe(enc);
+  new MutationObserver(function () { programar(); medirEncabezado(); }).observe(document.body, { childList: true, subtree: true });
   window.POS_MOVIL = { esMovil: function () { return window.matchMedia('(max-width: 820px)').matches; }, anotar: function () { anotar(document.body); } };
   anotar(document.body);
 })();

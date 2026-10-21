@@ -90,11 +90,27 @@ describe('[iPhone] Administración en el teléfono', { timeout: 180_000, skip: c
 
     // Las demás pantallas con tablas pasan a tarjetas sin desbordarse.
     await page.click('#nav button[data-vista="inventario"]');
-    await page.waitForSelector('#tabla-inv-lista tbody tr[data-item]');
-    const fila = await page.evaluate(() => { const tr = document.querySelector('#tabla-inv-lista tbody tr[data-item]')!; const td = tr.querySelector('td')!; return { filaDisplay: getComputedStyle(tr).display, etiqueta: td.getAttribute('data-label') }; });
-    assert.deepEqual(fila, { filaDisplay: 'block', etiqueta: 'Item #' });
+    await page.waitForSelector('#lista-inv .fila-inv');
+    // El inventario es una lista de filas compactas (no tarjetas), sin los botones del Limbo, y el estado de la conexión es un chip en el encabezado.
+    assert.equal(await page.locator('#tabla-inv-lista').isVisible(), false, 'la tabla de escritorio no se ve en el teléfono');
+    assert.equal(await page.locator('#btn-catalogo-inicial, #btn-conteo-limbo').count(), 0);
+    const filas = page.locator('#lista-inv .fila-inv');
+    assert.equal(await filas.count(), 3);
+    assert.ok((await filas.first().boundingBox())!.height < 110, 'cada artículo ocupa pocos renglones');
+    assert.match((await filas.first().textContent())!, /BLUSA|FALDA/);
+    assert.equal(await page.locator('.barra-nube').isVisible(), false, 'ya no hay barra amarilla');
+    assert.match((await page.textContent('#estado-nube'))!, /Sincronizado/);
+    assert.equal(await page.locator('#btn-sync').isVisible(), true);
     await sinDesborde(page, 'Inventario con artículos');
+
+    // Con contenido largo el encabezado se queda arriba al bajar y se puede volver hasta arriba.
+    await page.evaluate(() => { document.querySelector('#vista')!.insertAdjacentHTML('beforeend', '<div id="relleno" style="height:4000px"></div>'); window.scrollTo(0, document.body.scrollHeight); });
+    assert.ok(await page.evaluate(() => window.scrollY) > 1000);
+    assert.equal(Math.round((await page.locator('.encabezado').boundingBox())!.y), 0, 'el encabezado sigue arriba tras bajar mucho');
+    await page.evaluate(() => { window.scrollTo(0, 0); document.querySelector('#relleno')!.remove(); });
+    assert.equal(await page.evaluate(() => window.scrollY), 0);
     await page.screenshot({ path: join(RAIZ, 'docs', 'capturas', '61-movil-inventario.png') });
+    assert.ok((await page.locator('#vista').boundingBox())!.y >= (await page.locator('.encabezado').boundingBox())!.height - 1, 'el contenido empieza debajo del encabezado');
     for (const v of ['promociones', 'tarjetas', 'reportes', 'cortes', 'configuracion']) {
       await page.click(`#nav button[data-vista="${v}"]`);
       await page.waitForTimeout(400);
@@ -102,11 +118,18 @@ describe('[iPhone] Administración en el teléfono', { timeout: 180_000, skip: c
     }
     // Diálogo a pantalla completa (edición de un artículo).
     await page.click('#nav button[data-vista="inventario"]');
-    await page.waitForSelector('#tabla-inv-lista tbody tr[data-item]');
-    await page.click('#tabla-inv-lista tbody tr[data-item]');
+    await page.waitForSelector('#lista-inv .fila-inv');
+    await page.click('#lista-inv .fila-inv');
     await page.waitForSelector('#dlg-articulo[open]');
-    const hoja = await page.evaluate(() => { const r = document.querySelector('#dlg-articulo')!.getBoundingClientRect(); return { ancho: Math.round(r.width), ventana: window.innerWidth }; });
-    assert.equal(hoja.ancho, hoja.ventana);
+    const hoja = await page.evaluate(() => { const r = document.querySelector('#dlg-articulo')!.getBoundingClientRect(); return { ancho: Math.round(r.width), alto: Math.round(r.height), ventana: window.innerWidth, altoVentana: window.innerHeight }; });
+    assert.deepEqual([hoja.ancho, hoja.alto], [hoja.ventana, hoja.altoVentana], 'la hoja ocupa toda la pantalla');
+    // El botón Guardar queda a la vista y es tocable (nada encima), también tras recorrer la hoja hasta abajo.
+    const tocable = () => page.evaluate(() => { const b = document.querySelector('#art-guardar')!; const r = b.getBoundingClientRect(); const e = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2); return { dentro: r.bottom <= window.innerHeight && r.top >= 0, encima: !!e && (e === b || b.contains(e)) }; });
+    assert.deepEqual(await tocable(), { dentro: true, encima: true }, 'Guardar visible al abrir');
+    await page.evaluate(() => { document.querySelector('#dlg-articulo')!.scrollTop = 99999; });
+    assert.deepEqual(await tocable(), { dentro: true, encima: true }, 'Guardar visible al final de la hoja');
+    assert.equal(await page.locator('.nav').isVisible(), false, 'el menú inferior no tapa la hoja');
+    await page.screenshot({ path: join(RAIZ, 'docs', 'capturas', '62-movil-articulo.png') });
     assert.deepEqual(errores, []);
   });
 });

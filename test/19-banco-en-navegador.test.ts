@@ -892,7 +892,7 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     await page.fill('#inv-q', '70000001');
     await page.waitForFunction(() => document.querySelectorAll('#tabla-inv-lista tbody tr[data-item]').length === 1);
     assert.equal(await page.textContent('#tabla-inv-lista tr[data-item] [data-col="limbo"]'), '3');
-    assert.equal(await page.locator('#btn-catalogo-inicial').count(), 1, 'Inventario ofrece cargar el catálogo inicial');
+    assert.equal(await page.locator('#btn-catalogo-inicial, #btn-conteo-limbo').count(), 0, 'Inventario ya no ofrece cargar el catálogo inicial ni el conteo de El Limbo');
     assert.equal(await page.textContent('#tabla-inv-tiendas tr[data-tienda="LIMBO"] td'), 'El Limbo');
     await page.screenshot({ path: join(RAIZ, 'docs', 'capturas', '43-inventario-el-limbo.png') });
     assert.deepEqual(errores, []);
@@ -998,7 +998,7 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     await page.waitForFunction(() => /catálogo inicial en El Limbo/.test(document.querySelector('#estado-inv')!.textContent!));
     await page.selectOption('#sesion-prueba', 'admin');
     await page.click('#nav button[data-vista="inventario"]');
-    await page.click('#btn-conteo-limbo');
+    await page.evaluate(() => (window as unknown as { POS_UI: { ir: (v: string) => Promise<void> } }).POS_UI.ir('conteo_limbo'));
     await page.waitForSelector('#cl-form');
     assert.equal(await page.isDisabled('#cl-aplicar'), true, 'sin nada contado no hay qué aplicar');
     const contar = async (c: string) => { await page.fill('#cl-scan', c); await page.press('#cl-scan', 'Enter'); };
@@ -1016,7 +1016,7 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     await page.screenshot({ path: join(RAIZ, 'docs', 'capturas', '47-conteo-limbo.png') });
     // el conteo sobrevive a recargar la vista
     await page.click('#btn-volver-inv');
-    await page.click('#btn-conteo-limbo');
+    await page.evaluate(() => (window as unknown as { POS_UI: { ir: (v: string) => Promise<void> } }).POS_UI.ir('conteo_limbo'));
     await page.waitForSelector('#cl-tabla tr[data-item]');
     assert.equal(await page.locator('#cl-tabla tr[data-item]').count(), 2);
     await page.click('#cl-aplicar');
