@@ -63,7 +63,7 @@
     sel.innerHTML = '<option value="">Leyendo impresoras…</option>';
     try {
       const lista = await posAjustes.impresoras();
-      sel.innerHTML = '<option value="">(elija una impresora)</option>' + lista.map((p) => `<option value="${p.nombre.replace(/"/g, '&quot;')}">${p.nombre.replace(/</g, '&lt;')} — ${p.puerto.replace(/</g, '&lt;')}${p.sinConexion ? ' (sin conexión)' : ''}</option>`).join('');
+      sel.innerHTML = '<option value="">(elija una impresora)</option>' + lista.map((p) => `<option value="${p.nombre.replace(/"/g, '&quot;')}">${p.nombre.replace(/</g, '&lt;')} ${p.puerto ? '— ' + p.puerto.replace(/</g, '&lt;') : ''}${p.sinConexion ? ' (sin conexión)' : ''}</option>`).join('');
       if (ajustes.impresora && !lista.some((p) => p.nombre === ajustes.impresora)) sel.insertAdjacentHTML('beforeend', `<option value="${ajustes.impresora.replace(/"/g, '&quot;')}">${ajustes.impresora.replace(/</g, '&lt;')} (guardada, no aparece instalada)</option>`);
       sel.value = ajustes.impresora || '';
       $('#impresora-manual').value = '';

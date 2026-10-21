@@ -56,7 +56,7 @@ function ejecutarReal(cmd, args, opciones = {}) {
   return new Promise((resolve) => {
     execFile(cmd, args, { windowsHide: true, timeout: opciones.timeout ?? 30000, maxBuffer: 4 * 1024 * 1024, encoding: 'utf8' }, (error, stdout, stderr) => {
       // Si PowerShell ni siquiera arrancó (ENOENT, bloqueado) o se colgó (timeout), stderr viene vacío: el motivo está en `error`.
-      const motivo = error ? (error.killed ? 'PowerShell no respondió a tiempo (30 s).' : `no se pudo iniciar PowerShell (${error.code ?? error.message}).`) : '';
+      const motivo = error ? (error.killed ? 'PowerShell no respondió a tiempo (la computadora está muy lenta).' : `no se pudo iniciar PowerShell (${error.code ?? error.message}).`) : '';
       resolve({ code: error ? (typeof error.code === 'number' ? error.code : 1) : 0, stdout: String(stdout ?? ''), stderr: String(stderr || motivo) });
     });
   });
@@ -92,16 +92,14 @@ function crearImpresoraRaw(o = {}) {
   const soloWindows = () => { if (plataforma !== 'win32') throw new Error('La impresión directa solo existe en Windows.'); };
 
   return {
-    /** Impresoras instaladas en Windows (por PowerShell; si falla, por la lista de Electron). */
+    /** Impresoras instaladas en Windows (primero la lista de Electron; si no, PowerShell). */
     async listar() {
       soloWindows();
+      // Lo rápido primero: la lista de Electron. En computadoras lentas Get-CimInstance tarda más de 1 minuto.
+      if (o.listarAlterno) { try { const alt = await o.listarAlterno(); if (alt.length) return alt; } catch { /* se intenta con PowerShell */ } }
       const script = escribirScript('listar.ps1', SCRIPT_LISTAR);
-      const r = await ejecutar(ps, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', script]);
-      if (r.code !== 0) {
-        // Plan B: la lista que ya conoce Electron (no usa PowerShell).
-        if (o.listarAlterno) { try { const alt = await o.listarAlterno(); if (alt.length) return alt; } catch { /* se informa el error original */ } }
-        throw new Error(`No se pudo leer la lista de impresoras: ${mensajeDeError(r.stderr)}`);
-      }
+      const r = await ejecutar(ps, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', script], { timeout: 180000 });
+      if (r.code !== 0) throw new Error(`No se pudo leer la lista de impresoras: ${mensajeDeError(r.stderr)}`);
       let datos;
       try { datos = JSON.parse(r.stdout.trim() || '[]'); } catch { throw new Error('Windows devolvió la lista de impresoras en un formato que no se entiende.'); }
       return (Array.isArray(datos) ? datos : [datos]).filter((x) => x && x.Name).map((x) => ({ nombre: String(x.Name), predeterminada: !!x.Default, puerto: String(x.PortName ?? ''), controlador: String(x.DriverName ?? ''), sinConexion: !!x.WorkOffline }));
@@ -116,7 +114,7 @@ function crearImpresoraRaw(o = {}) {
         const archivo = path.join(dirTmp, `trabajo-${process.pid}-${++contador}.bin`);
         sistema.writeFileSync(archivo, Buffer.from(bytes));
         try {
-          const r = await ejecutar(ps, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', script, '-Impresora', impresora, '-Archivo', archivo], { timeout: 30000 });
+          const r = await ejecutar(ps, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', script, '-Impresora', impresora, '-Archivo', archivo], { timeout: 120000 }); // la primera vez compila el envío y en equipos lentos tarda
           if (r.code !== 0) throw new Error(mensajeDeError(r.stderr));
         } finally {
           try { sistema.rmSync(archivo, { force: true }); } catch { /* ya no existe */ }
