@@ -2050,22 +2050,25 @@ async function vistaAlmacen() {
   S.alm = { ...(S.alm ?? { q: '', solo: true }), tiendas: j.tiendas, items: j.items, hoy: j.hoy };
   pintarAvisoPiso(j.avisos, j.aviso_faltantes);
   $('#vista').innerHTML = `<div class="titulo-vista">${ico('warehouse')}<h1>Almacén</h1></div>
-    <section class="panel"><div class="filas" style="align-items:center">
+    <div class="solo-movil buscador-piso"><input id="alm-q-m" type="search" inputmode="search" enterkeyhint="search" autocomplete="off" autocapitalize="off" placeholder="Estilo, código o texto (ej. 123L)" aria-label="Buscar en el almacén" value="${esc(S.alm.q)}"></div>
+    <section class="panel" id="panel-alm-acciones"><div class="filas" style="align-items:center">
       <button class="btn btn-primario" id="btn-alta-lote" type="button" style="width:auto">${ico('upload')}<span>Alta Lote de inventario</span></button>
       <button class="btn" id="btn-alta-manual" type="button">${ico('plus')}<span>Alta manual</span></button>
       <button class="btn" id="btn-reporte-entregas" type="button">${ico('chart')}<span>Reporte de entregas</span></button>
-      <label style="margin-left:auto">${ico('search')} <input class="texto" id="alm-q" placeholder="Buscar por código, Item #, texto…" value="${esc(S.alm.q)}" style="padding:6px 8px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie)"></label>
+      <label class="solo-escritorio" style="margin-left:auto">${ico('search')} <input class="texto" id="alm-q" placeholder="Buscar por código, Item #, texto…" value="${esc(S.alm.q)}" style="padding:6px 8px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie)"></label>
       <label><input type="checkbox" id="alm-solo" ${S.alm.solo ? 'checked' : ''}> Solo con piezas en el almacén o por confirmar</label></div>
-      <p class="nota">Las piezas llegan aquí sin etiquetar y sin existencia en tienda. Confirme las etiquetas, anote cuántas va a cada tienda y entregue: la tienda confirma la recepción al escanear el artículo por primera vez.</p>
+      <p class="nota solo-escritorio">Las piezas llegan aquí sin etiquetar y sin existencia en tienda. Confirme las etiquetas, anote cuántas va a cada tienda y entregue: la tienda confirma la recepción al escanear el artículo por primera vez.</p>
       <div id="msg-alm" class="mensaje" role="status" aria-live="polite"></div></section>
     <section class="panel faltantes" id="panel-faltantes" style="margin-top:12px" hidden></section>
-    <section class="panel" style="margin-top:12px"><div class="tabla-cont"><table id="tabla-almacen"><thead><tr><th>Item #</th><th>Código</th><th>Descripción</th><th>Estilo</th><th>Lote</th><th>Pedimento</th><th>Departamento</th><th class="num">Almacén</th><th>Etiqueta precio</th><th>Etiqueta costura</th>${j.tiendas.map((t) => `<th>${esc(TIENDAS_ALM[t] ?? t)}</th>`).join('')}<th>Por confirmar</th><th>Sacar a piso</th><th></th></tr></thead><tbody id="alm-cuerpo"></tbody></table></div><p class="nota" id="alm-pie"></p></section>`;
+    <div class="solo-movil" id="alm-tarjetas"></div>
+    <section class="panel solo-escritorio" style="margin-top:12px"><div class="tabla-cont"><table id="tabla-almacen"><thead><tr><th>Item #</th><th>Código</th><th>Descripción</th><th>Estilo</th><th>Lote</th><th>Pedimento</th><th>Departamento</th><th class="num">Almacén</th><th>Etiqueta precio</th><th>Etiqueta costura</th>${j.tiendas.map((t) => `<th>${esc(TIENDAS_ALM[t] ?? t)}</th>`).join('')}<th>Por confirmar</th><th>Sacar a piso</th><th></th></tr></thead><tbody id="alm-cuerpo"></tbody></table></div><p class="nota" id="alm-pie"></p></section>`;
   $('#btn-alta-lote').addEventListener('click', abrirAltaLote);
   $('#btn-alta-manual').addEventListener('click', abrirAltaManual);
   $('#btn-reporte-entregas').addEventListener('click', () => ir('entregas'));
   S.alm.faltantes = j.faltantes;
   pintarFaltantes();
   $('#alm-q').addEventListener('input', (ev) => { S.alm.q = ev.target.value; pintarAlmacen(); });
+  $('#alm-q-m').addEventListener('input', (ev) => { S.alm.q = ev.target.value; pintarAlmacen(); });
   $('#alm-solo').addEventListener('change', (ev) => { S.alm.solo = ev.target.checked; pintarAlmacen(); });
   pintarAlmacen();
 }
@@ -2154,7 +2157,10 @@ function pintarAlmacen() {
   const q = a.q.trim().toLowerCase();
   const visibles = a.items.filter((i) => (!a.solo || i.existencia !== 0 || Object.keys(i.pendiente_por_tienda).length)
     && (!q || [i.codigo, i.item_no, i.descripcion, i.marca, i.estilo, i.lote, i.departamento, ...i.pedimentos].join(' ').toLowerCase().includes(q)));
+  // Lo que coincide EXACTO con el estilo escrito sale primero (en el almacén se dicta «el estilo 123L»).
+  if (q) visibles.sort((x, y) => Number(y.estilo.toLowerCase() === q) - Number(x.estilo.toLowerCase() === q) || Number(y.estilo.toLowerCase().startsWith(q)) - Number(x.estilo.toLowerCase().startsWith(q)));
   const lim = visibles.slice(0, 150);
+  pintarTarjetasAlmacen(lim, visibles.length);
   $('#alm-cuerpo').innerHTML = lim.map((i) => `<tr data-item="${esc(i.item_id)}" data-codigo="${esc(i.codigo)}" ${marcaPiso(i) ? `class="piso-${marcaPiso(i).tono}" data-piso="${marcaPiso(i).tono}"` : ''}>
     <td>${esc(i.item_no ?? '—')}</td><td>${esc(i.codigo)}</td><td class="desc">${esc(i.descripcion)} ${esc(i.marca)}</td><td>${esc(i.estilo)}</td><td>${esc(i.lote)}</td><td>${esc(i.pedimentos.join(', ') || '—')}</td><td>${esc(i.departamento)}</td>
     <td class="num" data-col="almacen"><b>${i.existencia}</b></td>
@@ -2171,6 +2177,40 @@ function pintarAlmacen() {
     tr.querySelector('.btn-entregar').addEventListener('click', () => entregarFila(tr, false));
     tr.querySelector('.btn-entradas').addEventListener('click', () => abrirEntradas(tr.dataset.item));
     tr.querySelector('.f-piso').addEventListener('change', (ev) => fijarPiso(tr.dataset.item, ev.target.value));
+  }
+}
+
+/** Almacén en el teléfono: una tarjeta por artículo con interruptores de etiqueta y contadores por tienda (mismas clases que la tabla, para reutilizar `entregarFila`). */
+function pintarTarjetasAlmacen(lista, total) {
+  const cont = $('#alm-tarjetas');
+  if (!cont) return;
+  const a = S.alm;
+  const nom = (t) => TIENDAS_ALM[t] ?? t;
+  cont.innerHTML = (lista.map((i) => `<article class="tarjeta-alm" data-item="${esc(i.item_id)}" data-codigo="${esc(i.codigo)}">
+      <div class="alm-titulo">${esc(i.descripcion)} ${esc(i.marca)}</div>
+      <div class="alm-meta"><span>Estilo <b>${esc(i.estilo || '—')}</b></span><span>Lote <b>${esc(i.lote || '—')}</b></span><span>Item # <b>${esc(i.item_no ?? '—')}</b></span><span>${esc(i.departamento)}</span></div>
+      <div class="alm-existencia">En almacén: <b>${i.existencia}</b>${Object.keys(i.pendiente_por_tienda).length ? ` · por confirmar: ${Object.entries(i.pendiente_por_tienda).map(([t, n]) => `${esc(nom(t))} ${n}`).join(' · ')}` : ''}${marcaPiso(i) ? ` · <span class="marca-piso ${marcaPiso(i).tono}">${esc(marcaPiso(i).texto)}</span>` : ''}</div>
+      <div class="alm-etiquetas"><label class="interruptor"><input type="checkbox" class="et-precio"><span>Etiqueta de precio</span></label><label class="interruptor"><input type="checkbox" class="et-costura"><span>Etiqueta de costura</span></label></div>
+      <div class="alm-destinos">${a.tiendas.map((t) => `<div class="contador"><span>Para ${esc(nom(t))}</span><div class="cont-ctrl"><button type="button" class="cont-menos" aria-label="Una pieza menos para ${esc(nom(t))}">−</button><input type="number" inputmode="numeric" min="0" step="1" class="q-${esc(t)}" data-tienda="${esc(t)}" aria-label="Piezas para ${esc(nom(t))}" placeholder="0"><button type="button" class="cont-mas" aria-label="Una pieza más para ${esc(nom(t))}">+</button></div></div>`).join('')}</div>
+      ${a.tiendas.length > 1 ? '<button type="button" class="btn btn-igual">Misma cantidad para todas</button>' : ''}
+      <div class="alm-acciones"><button class="btn btn-primario btn-entregar" type="button">${ico('check')}<span>Entregar</span></button><button class="btn btn-entradas" type="button">Entradas</button></div>
+      <label class="alm-extra">Sacar a piso: <input type="date" class="f-piso" value="${esc(i.sacar_a_piso ?? '')}"></label>
+    </article>`).join('')) || `<p class="vacio">${a.items.length ? 'Nada coincide con lo que escribió.' : 'El almacén está vacío.'}</p>`;
+  if (lista.length) cont.insertAdjacentHTML('beforeend', `<p class="nota">${total > lista.length ? `Se muestran ${lista.length} de ${total}. Escriba más del estilo para acotar.` : `${total} artículo(s).`}</p>`);
+  for (const card of cont.querySelectorAll('article[data-item]')) {
+    const inputs = [...card.querySelectorAll('input[type=number]')];
+    const marcarEtiquetas = () => { if (inputs.some((x) => Number(x.value) > 0)) { card.querySelector('.et-precio').checked = true; card.querySelector('.et-costura').checked = true; } };
+    for (const inp of inputs) {
+      inp.addEventListener('input', marcarEtiquetas);
+      const ctl = inp.closest('.cont-ctrl');
+      ctl.querySelector('.cont-menos').addEventListener('click', () => { inp.value = String(Math.max(0, (Number(inp.value) || 0) - 1)); marcarEtiquetas(); });
+      ctl.querySelector('.cont-mas').addEventListener('click', () => { inp.value = String((Number(inp.value) || 0) + 1); marcarEtiquetas(); });
+    }
+    const igual = card.querySelector('.btn-igual');
+    if (igual) igual.addEventListener('click', () => { const v = inputs.map((x) => x.value).find((x) => x !== '' && Number(x) > 0); if (v !== undefined) { for (const x of inputs) x.value = v; marcarEtiquetas(); } });
+    card.querySelector('.btn-entregar').addEventListener('click', () => entregarFila(card, false));
+    card.querySelector('.btn-entradas').addEventListener('click', () => abrirEntradas(card.dataset.item));
+    card.querySelector('.f-piso').addEventListener('change', (ev) => fijarPiso(card.dataset.item, ev.target.value));
   }
 }
 const fechaPiso = (f) => `${f.slice(8, 10)}/${MESES[Number(f.slice(5, 7)) - 1]}/${f.slice(2, 4)}`;
@@ -2230,6 +2270,7 @@ async function entregarFila(tr, confirmarExceso) {
     S.alm.items = r.almacen.items; S.alm.hoy = r.almacen.hoy;
     pintarAlmacen(); pintarAvisoPiso(r.almacen.avisos, r.almacen.aviso_faltantes);
     m.className = 'mensaje ok'; m.textContent = `Entrega registrada. En el almacén quedan ${r.existencia_almacen} pieza(s); cada tienda las recibe al confirmar el primer escaneo.`;
+    m.scrollIntoView({ block: 'center', behavior: 'smooth' });
   } catch (e) {
     if (e.codigo === 'CONFIRMACION_REQUERIDA') {
       m.className = 'mensaje aviso';

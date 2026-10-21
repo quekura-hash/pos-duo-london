@@ -1,0 +1,92 @@
+@media (max-width: 820px) { .solo-movil { display: block; } .solo-escritorio { display: none !important; } }
+
+/* Administración en el teléfono (iPhone en la pantalla de inicio): menú inferior, tarjetas en lugar de tablas, hojas a pantalla completa y controles táctiles.
+   Solo se incluye en la página de Administración. */
+@media (max-width: 820px) {
+  html { -webkit-text-size-adjust: 100%; }
+  body { padding-bottom: calc(68px + env(safe-area-inset-bottom, 0px)); overscroll-behavior-y: none; }
+  .app { display: block; min-height: 100dvh; }
+  main { padding: 12px max(12px, env(safe-area-inset-left, 0px)) 24px max(12px, env(safe-area-inset-right, 0px)); }
+  h1 { font-size: 22px; } h2 { font-size: 16px; }
+  .titulo-vista { margin-bottom: 8px; }
+
+  /* Encabezado compacto y fijo arriba */
+  .encabezado { position: sticky; top: 0; z-index: 20; min-height: 0; padding: calc(env(safe-area-inset-top, 0px) + 6px) max(12px, env(safe-area-inset-right, 0px)) 6px max(12px, env(safe-area-inset-left, 0px)); gap: 4px 10px; flex-wrap: nowrap; }
+  .encabezado .logos { gap: 8px; } .encabezado .logo { height: 28px; }
+  .encabezado .titulo { display: none; }
+  .encabezado .datos { margin-left: auto; gap: 4px 10px; flex-wrap: nowrap; min-width: 0; font-size: 12px; }
+  .encabezado .datos .chip-top[data-chip="rol"], .encabezado .datos .chip-top[data-chip="alcance"], .encabezado .datos .chip-top[data-chip="fecha"] { display: none; }
+  .encabezado .datos .chip-top[data-chip="usuario"] { font-size: 12px; min-width: 0; } .encabezado .datos .chip-top[data-chip="usuario"] > span { overflow: hidden; text-overflow: ellipsis; max-width: 30vw; }
+  .encabezado #btn-salir span { display: none; } .encabezado #btn-salir { padding: 6px 10px; min-height: 36px; }
+  .pie, .nav .prueba, .tc, .aviso-piso { display: none; }
+
+  /* Barra de conexión de la Administración: una línea, sin pegarse (el encabezado es el que se queda fijo) */
+  .barra-nube { position: sticky; top: 0; z-index: 25; padding: calc(env(safe-area-inset-top, 0px) + 6px) max(12px, env(safe-area-inset-right, 0px)) 6px max(12px, env(safe-area-inset-left, 0px)); gap: 4px 10px; font-size: 12px; flex-wrap: nowrap; }
+  .barra-nube > strong { display: none; } .barra-nube #version-pos, .barra-nube .estado-inv, .barra-nube .espacio { display: none; }
+  .barra-nube .estado-nube { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .barra-nube .btn { min-height: 34px; padding: 4px 10px; flex: none; }
+  .encabezado { top: var(--barra-alto, 44px); padding-top: 6px; }
+
+  /* Menú inferior con desplazamiento lateral */
+  .nav { position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; padding: 0 0 env(safe-area-inset-bottom, 0px); border-top: 1px solid var(--marino-2); gap: 0; }
+  #nav { flex-direction: row; gap: 0; overflow-x: auto; scrollbar-width: none; scroll-snap-type: x proximity; width: 100%; }
+  #nav::-webkit-scrollbar { display: none; }
+  #nav button { flex: 1 0 auto; flex-direction: column; justify-content: center; gap: 3px; min-width: 66px; padding: 8px 10px 7px; border-left: 0; border-top: 3px solid transparent; font-size: 11px; line-height: 1.1; scroll-snap-align: start; min-height: 56px; }
+  #nav button span { display: block; white-space: nowrap; }
+  #nav button[aria-current="page"] { border-top-color: #2dd4bf; border-left-color: transparent; }
+
+  /* Controles táctiles (16 px evita el zoom automático de iOS al escribir) */
+  input, select, textarea { font-size: 16px; }
+  .btn, button.btn { min-height: 44px; }
+  input[type=checkbox], input[type=radio] { width: 22px; height: 22px; }
+  .filas { gap: 8px; } .filas .btn { flex: 1 1 140px; }
+  .filtros { gap: 10px; } .filtros label { display: block; margin-right: 0; }
+  .cuadricula { grid-template-columns: minmax(0, 1fr); }
+
+  /* Hojas a pantalla completa */
+  dialog:not(.aviso-flotante) { width: 100vw !important; max-width: 100vw !important; height: 100dvh; max-height: 100dvh; margin: 0; border-radius: 0; border: 0; padding: calc(env(safe-area-inset-top, 0px) + 14px) max(14px, env(safe-area-inset-right, 0px)) calc(env(safe-area-inset-bottom, 0px) + 14px) max(14px, env(safe-area-inset-left, 0px)); overflow-y: auto; }
+  dialog.aviso-flotante { width: auto; height: auto; max-width: calc(100vw - 24px); inset: calc(env(safe-area-inset-top, 0px) + 8px) 12px auto 12px; border: 2px solid var(--naranja); border-radius: 12px; padding: 12px; }
+  pre.ticket { max-height: 40vh; }
+
+  /* Las tablas pasan a tarjetas: cada celda muestra su encabezado (lo pone movil.js en data-label) */
+  .tabla-cont { overflow: visible; }
+  table { display: block; width: 100%; border: 0; }
+  thead { display: none; }
+  tbody { display: block; }
+  tbody tr { display: block; border: 1px solid var(--borde); border-radius: 12px; background: var(--superficie); padding: 8px 12px; margin: 0 0 10px; }
+  tbody tr:hover { background: var(--superficie); }
+  tbody td { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 5px 0; border: 0; text-align: right; min-width: 0; overflow-wrap: anywhere; white-space: normal; }
+  tbody td::before { content: attr(data-label); flex: 0 0 36%; max-width: 40%; text-align: left; font-weight: 600; font-size: 12px; color: var(--texto-2); }
+  tbody td[data-label=""]::before, tbody td:not([data-label])::before { display: none; }
+  tbody td[colspan] { display: block; text-align: left; }
+  tbody td.filas { flex-wrap: wrap; justify-content: flex-start; } tbody td.filas::before { display: none; }
+  tbody td .texto, tbody td input:not([type=checkbox]):not([type=radio]), tbody td select { max-width: 58%; min-width: 0; }
+  tfoot { display: block; } tfoot tr { display: block; padding: 6px 12px; } tfoot td { display: flex; justify-content: space-between; border: 0; }
+
+  /* Almacén en piso: tarjetas por artículo (se pintan desde app.js con estas clases) */
+  .buscador-piso { position: sticky; top: calc(var(--barra-alto, 44px) + 44px); z-index: 10; background: var(--fondo); padding: 8px 0; }
+  .buscador-piso input[type=search] { width: 100%; box-sizing: border-box; min-height: 52px; font-size: 18px; padding: 10px 14px; border: 2px solid var(--borde); border-radius: 12px; background: var(--superficie); color: var(--texto); }
+  #panel-alm-acciones { padding: 8px; margin-bottom: 8px; } #panel-alm-acciones .filas { gap: 6px; }
+  #panel-alm-acciones .btn { min-height: 40px; font-size: 13px; padding: 6px 8px; flex: 1 1 auto; width: auto !important; }
+  #panel-alm-acciones .btn .ico { display: none; }
+  #panel-alm-acciones label { font-size: 13px; }
+  .encabezado #btn-salir { background: transparent; border: 1px solid var(--marino-texto-2); color: var(--marino-texto); }
+  .tarjeta-alm { border: 1px solid var(--borde); border-radius: 14px; background: var(--superficie); padding: 12px; margin: 0 0 12px; display: grid; gap: 10px; }
+  .tarjeta-alm .alm-titulo { font-size: 16px; font-weight: 700; line-height: 1.25; }
+  .tarjeta-alm .alm-meta { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 13px; color: var(--texto-2); }
+  .tarjeta-alm .alm-meta b { color: var(--texto); font-weight: 600; }
+  .tarjeta-alm .alm-existencia { font-size: 13px; }
+  .tarjeta-alm .alm-existencia b { font-size: 20px; }
+  .tarjeta-alm .alm-etiquetas { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .interruptor { display: flex; align-items: center; gap: 10px; border: 2px solid var(--borde); border-radius: 12px; padding: 10px 12px; min-height: 48px; cursor: pointer; font-weight: 600; background: var(--superficie); }
+  .interruptor:has(input:checked) { border-color: #14b8a6; background: color-mix(in srgb, #14b8a6 14%, var(--superficie)); }
+  .tarjeta-alm .alm-destinos { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .contador { display: grid; grid-template-columns: 1fr; gap: 4px; }
+  .contador > span { font-size: 13px; font-weight: 600; }
+  .contador .cont-ctrl { display: grid; grid-template-columns: 48px minmax(0, 1fr) 48px; gap: 6px; }
+  .contador .cont-ctrl button { min-height: 52px; font-size: 24px; border-radius: 10px; border: 1px solid var(--borde); background: var(--superficie-2); color: var(--texto); }
+  .contador .cont-ctrl input { min-height: 52px; text-align: center; font-size: 22px; font-weight: 700; width: 100%; box-sizing: border-box; border: 2px solid var(--borde); border-radius: 10px; background: var(--superficie); color: var(--texto); }
+  .tarjeta-alm .alm-acciones { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
+  .tarjeta-alm .btn-entregar { min-height: 52px; font-size: 17px; font-weight: 700; }
+  .tarjeta-alm .alm-extra { font-size: 13px; color: var(--texto-2); }
+}

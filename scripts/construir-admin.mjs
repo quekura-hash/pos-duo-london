@@ -30,6 +30,8 @@ const app = seguro(readFileSync(join(raiz, 'src/app/publico/app.js'), 'utf8'));
 const qr = seguro(readFileSync(join(raiz, 'src/app/publico/qr.js'), 'utf8'));
 const importador = seguro(readFileSync(join(raiz, 'scripts/importador-inventario.js'), 'utf8'));
 const arranque = seguro(readFileSync(join(raiz, 'scripts/arranque-admin.js'), 'utf8'));
+const movilCss = readFileSync(join(raiz, 'src/app/publico/movil.css'), 'utf8');
+const movilJs = seguro(readFileSync(join(raiz, 'src/app/publico/movil.js'), 'utf8'));
 
 const VERSION = (() => {
   const v = JSON.parse(readFileSync(join(raiz, 'package.json'), 'utf8')).version;
@@ -90,11 +92,15 @@ const piezas = `<title>LonDuo POS · Administración</title>
 <style>
 ${css}
 ${estilo}
+${movilCss}
 </style>
 ${marcado}
 <script>window.__POS_MANUAL__ = true; window.__POS_VERSION__ = ${JSON.stringify(VERSION)}; window.__POS_CENTRAL__ = ${JSON.stringify(CENTRAL)}; window.__POS_LOGOS__ = ${logos}; window.__POS_LOGOS_TICKET__ = ${logosTicket};</script>
 <script>
 ${qr}
+</script>
+<script>
+${movilJs}
 </script>
 <script>
 ${app}
@@ -111,7 +117,12 @@ const html = `<!doctype html>
 <html lang="es">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="LonDuo">
+<meta name="theme-color" content="#0b1b33">
 <link rel="icon" href="data:,">
 </head>
 <body>

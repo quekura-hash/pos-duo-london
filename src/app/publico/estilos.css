@@ -205,3 +205,6 @@ dialog.aviso-flotante { position: fixed; inset: 16px 16px auto auto; margin: 0; 
 tr.fila-usuario { cursor: pointer; }
 tr.fila-usuario:hover { background: var(--superficie-2); }
 tr.fila-usuario:focus-visible { outline: 2px solid var(--primario, currentColor); outline-offset: -2px; }
+
+/* Elementos que solo existen en la versión para teléfono de Administración (movil.css los muestra). */
+.solo-movil { display: none; }
