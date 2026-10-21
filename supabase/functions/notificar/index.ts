@@ -9,7 +9,22 @@ import { avisoDeOp, debeEnviar, esReciente, fechaHoraLocal, inicioDiaUtc, resume
 
 const env = (k: string) => Deno.env.get(k) ?? '';
 const db = createClient(env('SUPABASE_URL'), env('SUPABASE_SERVICE_ROLE_KEY'), { auth: { persistSession: false }, db: { schema: 'pos' } });
-webpush.setVapidDetails(env('VAPID_SUJETO') || 'mailto:soporte@londuo.mx', env('VAPID_PUBLICA'), env('VAPID_PRIVADA'));
+
+/** Llaves VAPID y clave compartida: viven en pos.ajustes_internos (solo el servidor la lee). Si faltan las llaves, se generan aquí, una sola vez; nunca pasan por el chat ni por el repo. */
+let ajustes: Promise<string> | null = null;
+function cargarAjustes() {
+  return (ajustes ??= (async () => {
+    const leer = async () => Object.fromEntries(((await db.from('ajustes_internos').select('clave, valor').in('clave', ['vapid_publica', 'vapid_privada', 'notificar_clave'])).data ?? []).map((f: { clave: string; valor: string }) => [f.clave, f.valor]));
+    let a = await leer();
+    if (!a.vapid_publica || !a.vapid_privada) {
+      const k = webpush.generateVAPIDKeys();
+      await db.from('ajustes_internos').upsert([{ clave: 'vapid_publica', valor: k.publicKey }, { clave: 'vapid_privada', valor: k.privateKey }], { onConflict: 'clave', ignoreDuplicates: true });
+      a = await leer(); // si dos peticiones generaron a la vez, gana la primera que se guardó
+    }
+    webpush.setVapidDetails(env('VAPID_SUJETO') || 'mailto:soporte@londuo.mx', a.vapid_publica, a.vapid_privada);
+    return a.vapid_publica;
+  })().catch((e) => { ajustes = null; throw e; }));
+}
 
 const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, apikey, content-type, x-client-info', 'Access-Control-Allow-Methods': 'POST, OPTIONS' };
 const responder = (estado: number, cuerpo: unknown) => new Response(JSON.stringify(cuerpo), { status: estado, headers: { ...CORS, 'Content-Type': 'application/json' } });
@@ -107,7 +122,10 @@ Deno.serve(async (req) => {
   if (req.method !== 'POST') return responder(405, { error: 'método no permitido' });
   const cuerpo = (await req.json().catch(() => ({}))) as { op_id?: string; accion?: string; endpoint?: string };
   try {
-    if (req.headers.get('x-londuo-secret') && req.headers.get('x-londuo-secret') === env('NOTIFICAR_CLAVE')) {
+    const publica = await cargarAjustes();
+    const clave = (await db.from('ajustes_internos').select('valor').eq('clave', 'notificar_clave').maybeSingle()).data?.valor ?? ''; // se lee en cada petición: se fija después del despliegue
+    if (cuerpo.accion === 'vapid') return responder(200, { publica }); // la llave pública no es secreta: la necesita la página para suscribir el teléfono
+    if (clave && req.headers.get('x-londuo-secret') === clave) {
       if (cuerpo.op_id) return responder(200, await notificarOp(cuerpo.op_id));
       if (cuerpo.accion === 'resumen') return responder(200, await resumenTick());
       return responder(400, { error: 'petición desconocida' });
