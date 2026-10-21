@@ -210,3 +210,44 @@ test('CS9 una red que no contesta no deja colgado al cliente: la petición se co
   c.timeoutMs = 30;
   await assert.rejects(c.iniciarSesion('a@b.c', 'x'), /sin respuesta/);
 });
+
+test('CS10 notificaciones: el disparador avisa solo de lo relevante y nunca frena una venta; cada supervisor maneja solo sus dispositivos', async () => {
+  const db = await centralLocal();
+  const sup = await usuario(db, 'edgardo@x.mx', 'supervisor');
+  const sup2 = await usuario(db, 'otra@x.mx', 'supervisor');
+  const alm = await usuario(db, 'almacen@x.mx', 'almacenista');
+  const caja = await usuario(db, 'caja@x.mx', 'caja', true, { tienda: 'DUO', caja: 1 });
+  const llamadas = async () => (await db.query<{ url: string; headers: Record<string, string>; body: { op_id: string; tipo: string } }>('select url, headers, body from net.llamadas order by id')).rows;
+  const subir = (uid: string, tipos: string[]) => new ClientePglite(db, uid).subirOps(tipos.map((t, i) => ({ ...crearOp(t, 'DUO', 1, 'caja:DUO/1', T0, { i }, `${t}:${Math.random()}`) })));
+  // Sin configurar no hace nada (y la venta entra igual).
+  await subir(caja, ['sale.confirmed']);
+  assert.equal((await llamadas()).length, 0);
+  // Se configura (como lo haría el servidor): queda la dirección y la clave, y un trabajo programado cada 15 minutos.
+  await db.query(`select pos.configurar_notificaciones('https://x.supabase.co/functions/v1/notificar', 'clave-compartida-de-prueba-123456')`);
+  const [{ jobname, schedule, command }] = (await db.query<{ jobname: string; schedule: string; command: string }>('select jobname, schedule, command from cron.job')).rows;
+  assert.deepEqual([jobname, schedule], ['londuo-resumen-dia', '*/15 * * * *']);
+  assert.match(command, /'accion', 'resumen'/);
+  await db.query(`select pos.configurar_notificaciones('https://x.supabase.co/functions/v1/notificar', 'clave-compartida-de-prueba-123456')`);
+  assert.equal(((await db.query('select 1 from cron.job')).rows).length, 1, 'configurar otra vez no duplica el trabajo');
+  await subir(caja, ['sale.confirmed', 'inv.movement', 'return.registered', 'cash.retiro', 'ticket.impresion', 'corte.generado', 'sale.cancelled', 'doc.perdida_posible']);
+  const l = await llamadas();
+  assert.deepEqual(l.map((x) => x.body.tipo), ['sale.confirmed', 'return.registered', 'cash.retiro', 'corte.generado', 'sale.cancelled', 'doc.perdida_posible']);
+  assert.ok(l.every((x) => x.url === 'https://x.supabase.co/functions/v1/notificar' && x.headers['x-londuo-secret'] === 'clave-compartida-de-prueba-123456' && x.body.op_id));
+  // Si la red de avisos falla, la operación se guarda igual.
+  await db.query(`update pos.ajustes_internos set valor = 'https://falla.supabase.co/f' where clave = 'notificar_url'`);
+  assert.equal((await subir(caja, ['sale.confirmed'])).nuevas, 1);
+  assert.equal(((await como(db, sup, (q) => q(`select 1 from pos.ops where tipo = 'sale.confirmed'`))) as unknown[]).length, 3);
+  // Dispositivos: cada supervisor ve y maneja solo los suyos; los demás roles y los anónimos, ninguno. La configuración interna no se lee ni se ejecuta.
+  const alta = (uid: string, ep: string) => como(db, uid, (q) => q(`insert into pos.suscripciones_push (user_id, endpoint, p256dh, auth, dispositivo) values ($1, $2, 'pk', 'au', 'iPhone') returning id`, [uid, ep]));
+  assert.equal((await alta(sup, 'https://push.example/a')).length, 1);
+  assert.equal((await alta(sup2, 'https://push.example/b')).length, 1);
+  assert.equal(((await como(db, sup, (q) => q('select * from pos.suscripciones_push'))) as unknown[]).length, 1);
+  await assert.rejects(alta(alm, 'https://push.example/c'), /row-level security/);
+  await assert.rejects(alta(caja, 'https://push.example/d'), /row-level security/);
+  await assert.rejects(como(db, sup, (q) => q(`insert into pos.suscripciones_push (user_id, endpoint, p256dh, auth) values ($1, 'https://push.example/e', 'pk', 'au')`, [sup2])), /row-level security/, 'no se puede registrar un dispositivo a nombre de otro');
+  assert.equal(((await como(db, sup2, (q) => q(`update pos.suscripciones_push set activa = false where endpoint = 'https://push.example/a' returning 1`))) as unknown[]).length, 0, 'no toca los de otro');
+  assert.equal(((await como(db, sup, (q) => q(`update pos.suscripciones_push set prefs = '{"venta": false}', pausa_hasta = now() where endpoint = 'https://push.example/a' returning 1`))) as unknown[]).length, 1);
+  await assert.rejects(como(db, sup, (q) => q('select * from pos.ajustes_internos')), /permission denied/);
+  await assert.rejects(como(db, sup, (q) => q(`select pos.configurar_notificaciones('https://x.supabase.co/f', 'clave-compartida-de-prueba-123456')`)), /permission denied/);
+  await assert.rejects(como(db, null, (q) => q('select * from pos.suscripciones_push')), /permission denied/);
+});

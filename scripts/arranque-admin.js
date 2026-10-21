@@ -98,6 +98,60 @@
     } });
   void importador;
 
+
+  // ── avisos al teléfono (Web Push): la suscripción vive en este dispositivo y sus preferencias en el central ──
+  var PREFS_BASE = { venta: true, venta_minima: 0, corte: true, resumen_dia: true, resumen_hora: '21:00', devolucion: true, cancelacion: true, retiro: true, alertas: true, tiendas: ['DUO', 'LON'] };
+  function b64url(buf) { var s = ''; new Uint8Array(buf).forEach(function (b) { s += String.fromCharCode(b); }); return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); }
+  function desdeB64url(t) { var p = (t + '===').slice(0, t.length + (4 - t.length % 4) % 4).replace(/-/g, '+').replace(/_/g, '/'); var r = atob(p), a = new Uint8Array(r.length); for (var i = 0; i < r.length; i++) a[i] = r.charCodeAt(i); return a; }
+  function nombreDispositivo() { var u = navigator.userAgent || ''; return /iPhone/.test(u) ? 'iPhone' : /iPad/.test(u) ? 'iPad' : /Android/.test(u) ? 'Android' : /Mac/.test(u) ? 'Mac' : /Windows/.test(u) ? 'Windows' : 'Navegador'; }
+  function suscripcionActual() {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) return Promise.resolve(null);
+    return navigator.serviceWorker.ready.then(function (reg) { return reg.pushManager.getSubscription(); }).catch(function () { return null; });
+  }
+  window.__POS_NOTIF__ = {
+    estado: function () {
+      var standalone = (window.matchMedia && matchMedia('(display-mode: standalone)').matches) || navigator.standalone === true;
+      var soporte = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+      var base = { soporte: soporte, instalada: !!standalone, permiso: soporte ? Notification.permission : 'denied', vapid: !!CFG.vapid, suscrito: false, prefs: PREFS_BASE, pausa_hasta: null };
+      if (!soporte || !nube) return Promise.resolve(base);
+      return suscripcionActual().then(function (sub) {
+        if (!sub) return base;
+        return nube.cliente.leerSuscripcion(sub.endpoint).then(function (f) {
+          if (!f) return base;
+          base.suscrito = !!f.activa; base.prefs = Object.assign({}, PREFS_BASE, f.prefs || {}); base.pausa_hasta = f.pausa_hasta || null;
+          return base;
+        });
+      });
+    },
+    activar: function () {
+      if (!CFG.vapid) return Promise.reject(new Error('Este equipo todavía no tiene la llave de avisos (VAPID) configurada.'));
+      return Notification.requestPermission().then(function (perm) {
+        if (perm !== 'granted') throw new Error('El teléfono no dio permiso para mostrar avisos. Se cambia en Ajustes › Notificaciones.');
+        return navigator.serviceWorker.ready;
+      }).then(function (reg) {
+        return reg.pushManager.getSubscription().then(function (sub) { return sub || reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: desdeB64url(CFG.vapid) }); });
+      }).then(function (sub) {
+        var j = sub.toJSON();
+        return nube.cliente.leerSuscripcion(sub.endpoint).then(function (f) {
+          return nube.cliente.guardarSuscripcion({ endpoint: sub.endpoint, p256dh: j.keys.p256dh, auth: j.keys.auth, dispositivo: nombreDispositivo(), prefs: f ? Object.assign({}, PREFS_BASE, f.prefs || {}) : PREFS_BASE, pausa_hasta: f ? f.pausa_hasta : null, activa: true });
+        });
+      });
+    },
+    desactivar: function () {
+      return suscripcionActual().then(function (sub) {
+        if (!sub) return;
+        var ep = sub.endpoint;
+        return nube.cliente.borrarSuscripcion(ep).then(function () { return sub.unsubscribe(); });
+      });
+    },
+    guardar: function (cambios) {
+      return suscripcionActual().then(function (sub) { if (!sub) throw new Error('Primero active los avisos en este teléfono.'); return nube.cliente.cambiarSuscripcion(sub.endpoint, cambios); });
+    },
+    probar: function () {
+      return suscripcionActual().then(function (sub) { if (!sub) throw new Error('Primero active los avisos en este teléfono.'); return nube.cliente.probarNotificacion(sub.endpoint); });
+    },
+  };
+
   setInterval(pintarEstado, 5000);
   window.POS_ADMIN = { estado: function () { return nube ? nube.estado() : null; } };
   mostrarPuerta();

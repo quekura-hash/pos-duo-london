@@ -2,7 +2,7 @@
 // Variables opcionales al construir: LONDUO_SUPABASE_URL y LONDUO_SUPABASE_KEY (la llave PÚBLICA/publishable; nunca la service_role).
 import { build } from 'esbuild';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const raiz = join(import.meta.dirname, '..');
@@ -40,7 +40,8 @@ const VERSION = (() => {
   const f = new Date().toISOString().slice(0, 10);
   return { numero: v, commit: sha, fecha: f, texto: `Administración v${v} · ${sha} · ${f}` };
 })();
-const CENTRAL = { url: process.env.LONDUO_SUPABASE_URL ?? '', llave: process.env.LONDUO_SUPABASE_KEY ?? '' };
+const PWA = process.argv.includes('--pwa');
+const CENTRAL = { url: process.env.LONDUO_SUPABASE_URL ?? '', llave: process.env.LONDUO_SUPABASE_KEY ?? '', vapid: process.env.LONDUO_VAPID_PUBLICA ?? '' };
 if (/service_role/i.test(CENTRAL.llave) || (CENTRAL.llave.startsWith('eyJ') && JSON.parse(Buffer.from(CENTRAL.llave.split('.')[1] ?? '', 'base64url').toString() || '{}').role === 'service_role')) {
   throw new Error('Esa es la llave service_role: NUNCA va en una página. Use la llave pública (anon/publishable).');
 }
@@ -122,7 +123,7 @@ const html = `<!doctype html>
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="LonDuo">
-<meta name="theme-color" content="#0b1b33">
+<meta name="theme-color" content="#0d2238">${PWA ? '\n<link rel="manifest" href="manifest.webmanifest">\n<link rel="apple-touch-icon" href="icon-180.png">\n<link rel="icon" href="icon-192.png">' : ''}
 <link rel="icon" href="data:,">
 </head>
 <body>
@@ -131,5 +132,18 @@ ${piezas}
 </html>
 `;
 mkdirSync(join(raiz, 'dist'), { recursive: true });
-writeFileSync(join(raiz, 'dist/administracion.html'), html);
-console.log(`dist/administracion.html (${(html.length / 1024).toFixed(0)} KB) · ${VERSION.texto}${CENTRAL.url ? ' · central ' + CENTRAL.url : ''}`);
+if (!PWA) {
+  writeFileSync(join(raiz, 'dist/administracion.html'), html);
+  console.log(`dist/administracion.html (${(html.length / 1024).toFixed(0)} KB) · ${VERSION.texto}${CENTRAL.url ? ' · central ' + CENTRAL.url : ''}`);
+} else {
+  // Versión instalable (pantalla de inicio del iPhone) para alojar en un sitio HTTPS: página, service worker, manifiesto, íconos y encabezados.
+  const web = join(raiz, 'dist/admin-web');
+  const pwa = join(raiz, 'src/app/publico/pwa');
+  mkdirSync(web, { recursive: true });
+  const registro = `<script>if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) { navigator.serviceWorker.register('sw.js').catch(function () {}); }</script>`;
+  writeFileSync(join(web, 'index.html'), html.replace('</body>', `${registro}\n</body>`));
+  writeFileSync(join(web, 'sw.js'), readFileSync(join(pwa, 'sw.js'), 'utf8').replace('__VERSION__', `${VERSION.numero}-${VERSION.commit}`));
+  for (const f of ['manifest.webmanifest', 'icon-180.png', 'icon-192.png', 'icon-512.png', 'icon-maskable-512.png']) copyFileSync(join(pwa, f), join(web, f));
+  writeFileSync(join(web, '_headers'), ['/sw.js', '  Cache-Control: no-cache', '/index.html', '  Cache-Control: no-cache', '/', '  Cache-Control: no-cache', '/*', '  X-Content-Type-Options: nosniff', '  Referrer-Policy: no-referrer', ''].join('\n'));
+  console.log(`dist/admin-web/ (PWA) · ${VERSION.texto}${CENTRAL.url ? ' · central ' + CENTRAL.url : ''}`);
+}

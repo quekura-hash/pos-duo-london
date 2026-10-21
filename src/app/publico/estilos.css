@@ -208,3 +208,8 @@ tr.fila-usuario:focus-visible { outline: 2px solid var(--primario, currentColor)
 
 /* Elementos que solo existen en la versión para teléfono de Administración (movil.css los muestra). */
 .solo-movil { display: none; }
+
+.interruptor { display: flex; align-items: center; gap: 10px; border: 2px solid var(--borde); border-radius: 12px; padding: 8px 12px; cursor: pointer; background: var(--superficie); }
+.interruptor:has(input:checked) { border-color: #14b8a6; }
+.interruptor input { width: 22px; height: 22px; flex: none; }
+.interruptor small { font-weight: 400; opacity: .75; }

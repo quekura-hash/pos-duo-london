@@ -94,6 +94,42 @@ export class ClienteSupabase implements ClienteCentral {
     return (await r.json()) as T;
   }
 
+
+  // ── Notificaciones push: el dispositivo se registra en pos.suscripciones_push (solo supervisores; la RLS lo garantiza) ──
+  private async escribir(ruta: string, metodo: 'POST' | 'PATCH' | 'DELETE', cuerpo: unknown, extra: Record<string, string> = {}): Promise<void> {
+    if (!this.sesion) throw new Error('Sin sesión en el central.');
+    if (Date.now() >= this.sesion.expira) await this.restaurarSesion(this.sesion.refresh_token);
+    const r = await this.f(`${this.url}/rest/v1/${ruta}`, {
+      method: metodo, signal: AbortSignal.timeout(this.timeoutMs),
+      headers: { apikey: this.anon, Authorization: `Bearer ${this.sesion.access_token}`, 'Content-Type': 'application/json', 'Content-Profile': 'pos', 'Accept-Profile': 'pos', ...extra },
+      body: cuerpo === undefined ? undefined : JSON.stringify(cuerpo),
+    });
+    if (!r.ok) throw new Error(`Central: ${((await r.json().catch(() => ({}))) as { message?: string }).message ?? r.status}`);
+  }
+  /** Registra (o actualiza) este dispositivo para recibir avisos. */
+  guardarSuscripcion(s: { endpoint: string; p256dh: string; auth: string; dispositivo?: string; prefs?: unknown; pausa_hasta?: string | null; activa?: boolean }): Promise<void> {
+    if (!this.sesion?.usuario_id) throw new Error('Sin sesión en el central.');
+    return this.escribir('suscripciones_push?on_conflict=endpoint', 'POST', { ...s, user_id: this.sesion.usuario_id }, { Prefer: 'resolution=merge-duplicates,return=minimal' });
+  }
+  async leerSuscripcion(endpoint: string): Promise<{ prefs: unknown; pausa_hasta: string | null; activa: boolean } | null> {
+    if (!this.sesion) throw new Error('Sin sesión en el central.');
+    const filas = await this.leer<{ prefs: unknown; pausa_hasta: string | null; activa: boolean }[]>(`suscripciones_push?select=prefs,pausa_hasta,activa&endpoint=eq.${encodeURIComponent(endpoint)}`);
+    return filas[0] ?? null;
+  }
+  cambiarSuscripcion(endpoint: string, cambios: { prefs?: unknown; pausa_hasta?: string | null; activa?: boolean }): Promise<void> {
+    return this.escribir(`suscripciones_push?endpoint=eq.${encodeURIComponent(endpoint)}`, 'PATCH', cambios, { Prefer: 'return=minimal' });
+  }
+  borrarSuscripcion(endpoint: string): Promise<void> {
+    return this.escribir(`suscripciones_push?endpoint=eq.${encodeURIComponent(endpoint)}`, 'DELETE', undefined);
+  }
+  /** Le pide al central un aviso de prueba para este dispositivo. */
+  async probarNotificacion(endpoint: string): Promise<void> {
+    if (!this.sesion) throw new Error('Sin sesión en el central.');
+    if (Date.now() >= this.sesion.expira) await this.restaurarSesion(this.sesion.refresh_token);
+    const r = await this.f(`${this.url}/functions/v1/notificar`, { method: 'POST', signal: AbortSignal.timeout(this.timeoutMs), headers: { apikey: this.anon, Authorization: `Bearer ${this.sesion.access_token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ accion: 'prueba', endpoint }) });
+    if (!r.ok) throw new Error(((await r.json().catch(() => ({}))) as { error?: string }).error ?? `No se pudo enviar la prueba (${r.status})`);
+  }
+
   /** Reserva un bloque de Item # (lo asigna solo el central). */
   reservarItemNo(k: number) {
     return this.rpc<{ desde: number; hasta: number }>('reservar_item_no', { p_k: k });

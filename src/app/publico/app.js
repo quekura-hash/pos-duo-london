@@ -40,6 +40,7 @@ const I = {
   gift: '<rect x="3" y="8" width="18" height="4" rx="1"/><path d="M12 8v13M5 12v8a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-8"/><path d="M7.5 8a2.5 2.5 0 0 1 0-5C10 3 12 8 12 8s2-5 4.5-5a2.5 2.5 0 0 1 0 5"/>',
   box: '<path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/>',
   warehouse: '<path d="M3 10 12 4l9 6v10H3z"/><path d="M8 20v-6h8v6M8 17h8"/>',
+  bell: '<path d="M6 17V11a6 6 0 0 1 12 0v6l1.5 2h-15z"/><path d="M10 21h4"/>',
   upload: '<path d="M12 16V5m0 0-4 4m4-4 4 4M5 20h14"/>',
   gear: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9 7 7M17 17l2.1 2.1M19.1 4.9 17 7M7 17l-2.1 2.1"/>',
   barcode: '<path d="M4 5v14M7 5v14M11 5v14M14 5v14M18 5v14M20.5 5v14"/>',
@@ -161,7 +162,7 @@ const folioTexto = () => (S.ultimoFolio ? `Folio ${String(S.ultimoFolio).padStar
 // ── navegación ──
 const NAV = {
   venta: ['Venta', 'cart'], retiro: ['Retiro', 'cash'], ventas: ['Historial', 'clock'], corte: ['Corte de caja', 'chart'],
-  tarjetas: ['Tarjetas de regalo', 'gift'], reportes: ['Reportes', 'chart'], cortes: ['Cortes', 'cash'], dolares: ['Dólares recibidos', 'dollar'], descuentos: ['Descuentos', 'percent'], entregas: ['Entregas de almacén', 'warehouse'], inventario: ['Inventario', 'box'], departamentos: ['Departamentos', 'box'], almacen: ['Almacén', 'warehouse'], promociones: ['Promociones', 'percent'], tiendas: ['Tiendas', 'store'], configuracion: ['Configuración', 'gear'], administracion: ['Administración', 'gear'], volver_caja: ['Caja', 'caja'], tipo_cambio: ['Tipo de cambio', 'refresh'],
+  tarjetas: ['Tarjetas de regalo', 'gift'], reportes: ['Reportes', 'chart'], cortes: ['Cortes', 'cash'], dolares: ['Dólares recibidos', 'dollar'], descuentos: ['Descuentos', 'percent'], entregas: ['Entregas de almacén', 'warehouse'], inventario: ['Inventario', 'box'], departamentos: ['Departamentos', 'box'], almacen: ['Almacén', 'warehouse'], promociones: ['Promociones', 'percent'], tiendas: ['Tiendas', 'store'], configuracion: ['Configuración', 'gear'], administracion: ['Administración', 'gear'], volver_caja: ['Caja', 'caja'], tipo_cambio: ['Tipo de cambio', 'refresh'], avisos: ['Avisos', 'bell'],
 };
 // ── Calculadora básica: ventana flotante y movible, no modal. Sigue abierta mientras se usa el resto del POS ──
 const calc = { abierta: false, pos: null, acc: null, op: null, entrada: '0', nuevo: true };
@@ -256,7 +257,8 @@ function cerrarCalculadora() {
 function pintarNav() {
   // En la página de prueba (una sola ventana) se puede pasar de la caja a Administración y volver; en la app real cada sesión es la suya.
   const cambia = !!window.__POS_CAMBIAR_SESION__;
-  const items = S.sesion.rol === 'cajero' ? [...S.sesion.nav, ...(cambia ? ['administracion'] : [])] : [...S.sesion.nav, ...(cambia ? ['volver_caja'] : [])];
+  const avisos = S.sesion.rol !== 'cajero' && window.__POS_NOTIF__ && S.sesion.rol_usuario === 'supervisor' ? ['avisos'] : [];
+  const items = S.sesion.rol === 'cajero' ? [...S.sesion.nav, ...(cambia ? ['administracion'] : [])] : [...S.sesion.nav, ...avisos, ...(cambia ? ['volver_caja'] : [])];
   $('#nav').innerHTML = items.map((v) => `<button type="button" data-vista="${v}" title="${NAV[v][0]}" ${v === ({ descuentos: 'promociones', dolares: 'cortes', entregas: 'almacen', conteo_limbo: 'inventario' }[S.vista] ?? S.vista) ? 'aria-current="page"' : ''}>${ico(NAV[v][1])}<span>${NAV[v][0]}</span></button>`).join('');
   // Calculadora de la caja: ventana flotante que no bloquea nada (se abre desde el menú lateral y se cierra con su X).
   if (S.sesion.rol === 'cajero') {
@@ -275,7 +277,7 @@ async function ir(v) {
   S.vista = v;
   pintarNav();
   await pintarEncabezado();
-  await ({ folios: vistaFolios, venta: vistaVenta, retiro: vistaRetiro, corte: vistaCorte, ventas: vistaVentas, reportes: vistaReportes, inventario: vistaInventario, almacen: vistaAlmacen, promociones: vistaPromociones, configuracion: vistaConfiguracion, tiendas: vistaTiendas, departamentos: vistaDepartamentos, tarjetas: vistaTarjetas, devolucion: vistaDevolucion, dolares: vistaDolares, descuentos: vistaDescuentos, entregas: vistaEntregas, conteo_limbo: vistaConteoLimbo, tipo_cambio: vistaTipoCambio, cortes: vistaCortes })[v]();
+  await ({ folios: vistaFolios, venta: vistaVenta, retiro: vistaRetiro, corte: vistaCorte, ventas: vistaVentas, reportes: vistaReportes, inventario: vistaInventario, almacen: vistaAlmacen, promociones: vistaPromociones, configuracion: vistaConfiguracion, tiendas: vistaTiendas, departamentos: vistaDepartamentos, tarjetas: vistaTarjetas, devolucion: vistaDevolucion, dolares: vistaDolares, descuentos: vistaDescuentos, entregas: vistaEntregas, conteo_limbo: vistaConteoLimbo, tipo_cambio: vistaTipoCambio, cortes: vistaCortes, avisos: vistaAvisos })[v]();
   if (v !== 'almacen') await avisosPisoInicial();
 }
 
@@ -2986,6 +2988,55 @@ async function vistaDepartamentos() {
   }
   $('#form-depto').addEventListener('submit', (ev) => { ev.preventDefault(); intentar({ nombre: $('#nd-nombre').value, alias: partir($('#nd-alias').value) }); });
 }
+// ── Avisos al teléfono: cada venta, corte, resumen del día… con interruptores y «no molestar» ──
+const AVISOS_TIPOS = [['venta', 'Cada venta', 'Un aviso por cada venta cobrada.'], ['corte', 'Corte de caja', 'Cuando una caja genera su corte.'], ['resumen_dia', 'Resumen de ventas del día', 'Un solo aviso con el total del día.'], ['devolucion', 'Devoluciones', 'Cuando se registra una devolución.'], ['cancelacion', 'Cancelaciones de venta', 'Cuando se cancela una venta.'], ['retiro', 'Retiros de efectivo', 'Cuando se saca efectivo de la caja.'], ['alertas', 'Alertas', 'Faltantes de almacén y posibles documentos perdidos.']];
+async function vistaAvisos() {
+  const N = window.__POS_NOTIF__;
+  const e = await N.estado().catch(() => ({ soporte: false, instalada: false, permiso: 'default', vapid: false, suscrito: false, prefs: {}, pausa_hasta: null }));
+  const pf = e.prefs;
+  const pausado = e.pausa_hasta && Date.parse(e.pausa_hasta) > Date.now();
+  let guia = '';
+  if (!e.soporte) guia = `<div class="mensaje error" id="av-guia">${/iPhone|iPad/.test(navigator.userAgent) && !e.instalada ? 'En iPhone los avisos solo funcionan con la app instalada: abra esta página en Safari, toque <b>Compartir</b> › <b>Agregar a pantalla de inicio</b> y ábrala desde ese icono.' : 'Este navegador no permite avisos al teléfono.'}</div>`;
+  else if (!e.vapid) guia = '<div class="mensaje error" id="av-guia">Esta versión todavía no tiene la llave de avisos del central; hay que activarla en el servidor antes de poder suscribir el teléfono.</div>';
+  else if (e.permiso === 'denied') guia = '<div class="mensaje error" id="av-guia">El teléfono bloqueó los avisos de esta app. Se vuelven a permitir en Ajustes › Notificaciones.</div>';
+  const interr = (id, txt, ayuda, on) => `<label class="interruptor" style="margin:6px 0"><input type="checkbox" id="${id}" ${on ? 'checked' : ''}><span><b>${txt}</b><br><small>${ayuda}</small></span></label>`;
+  cuerpoVista().innerHTML = `<div class="titulo-vista">${ico('bell')}<h1>Avisos en este teléfono</h1></div>
+    <section class="panel" id="av-estado"><h2 style="margin-top:0">Este dispositivo</h2>
+      ${guia}
+      <p id="av-texto" style="font-size:17px">${e.suscrito ? `Los avisos están <b>activados</b>${pausado ? ` · en pausa hasta ${esc(fechaHora(e.pausa_hasta))}` : ''}.` : 'Los avisos están <b>desactivados</b> en este dispositivo.'}</p>
+      <div class="filas">
+        ${e.suscrito ? `<button class="btn" id="av-apagar" type="button">Desactivar en este teléfono</button><button class="btn" id="av-probar" type="button">${ico('bell')}<span>Enviar aviso de prueba</span></button>` : `<button class="btn btn-primario" id="av-activar" type="button" style="width:auto" ${e.soporte && e.vapid ? '' : 'disabled'}>${ico('bell')}<span>Activar avisos</span></button>`}
+      </div>
+      <div id="msg-avisos" class="mensaje" role="status"></div></section>
+    ${e.suscrito ? `<section class="panel" id="av-pausa"><h2 style="margin-top:0">No molestar</h2>
+      <p class="nota">Si se cansa de los avisos, pausa todos sin perder sus preferencias.</p>
+      <div class="filas"><button class="btn" data-pausa="60" type="button">1 hora</button><button class="btn" data-pausa="manana" type="button">Hasta mañana</button>${pausado ? '<button class="btn btn-primario" data-pausa="0" type="button" style="width:auto">Reanudar ahora</button>' : ''}</div></section>
+    <section class="panel" id="av-prefs"><h2 style="margin-top:0">Qué avisar</h2>
+      ${AVISOS_TIPOS.map(([k, t, a]) => interr(`av-${k}`, t, a, pf[k] !== false)).join('')}
+      <div class="filas" style="align-items:flex-end;margin-top:8px"><div class="campo"><label for="av-min">Avisar ventas desde (MXN)</label><input id="av-min" inputmode="decimal" value="${pf.venta_minima ? centavosAPesos(pf.venta_minima) : ''}" placeholder="0 = todas" style="width:130px"></div>
+        <div class="campo"><label for="av-hora">Hora del resumen del día</label><input id="av-hora" type="time" value="${esc(pf.resumen_hora || '21:00')}"></div></div>
+      <h3 style="margin-bottom:4px">Tiendas</h3>
+      ${interr('av-t-DUO', 'DÚO New York', '', (pf.tiendas || ['DUO', 'LON']).includes('DUO'))}${interr('av-t-LON', 'London Love', '', (pf.tiendas || ['DUO', 'LON']).includes('LON'))}
+      <button class="btn btn-primario" id="av-guardar" type="button" style="width:auto;margin-top:10px">${ico('check')}<span>Guardar preferencias</span></button></section>` : ''}`;
+  const msg = (t, mal) => { const m = $('#msg-avisos'); m.className = `mensaje ${mal ? 'error' : 'ok'}`; m.textContent = t; };
+  const correr = async (f, ok, repintar = true) => { try { await f(); if (repintar) await vistaAvisos(); if (ok) msg(ok, false); } catch (err) { msg(err.message || String(err), true); } };
+  $('#av-activar')?.addEventListener('click', () => correr(() => N.activar(), 'Avisos activados en este teléfono.'));
+  $('#av-apagar')?.addEventListener('click', () => correr(() => N.desactivar(), 'Avisos desactivados.'));
+  $('#av-probar')?.addEventListener('click', () => correr(() => N.probar(), 'Aviso de prueba enviado: debe llegar en unos segundos.', false));
+  for (const b of document.querySelectorAll('[data-pausa]')) {
+    b.addEventListener('click', () => {
+      const v = b.dataset.pausa;
+      const hasta = v === '0' ? null : v === 'manana' ? (() => { const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(7, 0, 0, 0); return d.toISOString(); })() : new Date(Date.now() + Number(v) * 60000).toISOString();
+      correr(() => N.guardar({ pausa_hasta: hasta }), hasta ? 'Avisos en pausa.' : 'Avisos reanudados.');
+    });
+  }
+  $('#av-guardar')?.addEventListener('click', () => {
+    const prefs = { venta_minima: Math.round((Number($('#av-min').value.replace(/[$,\s]/g, '')) || 0) * 100), resumen_hora: $('#av-hora').value || '21:00', tiendas: ['DUO', 'LON'].filter((t) => $(`#av-t-${t}`).checked) };
+    for (const [k] of AVISOS_TIPOS) prefs[k] = $(`#av-${k}`).checked;
+    correr(() => N.guardar({ prefs }), 'Preferencias guardadas.');
+  });
+}
+
 async function vistaTipoCambio() {
   const j = await api('/api/admin/tipo-cambio');
   const v = j.vigente;

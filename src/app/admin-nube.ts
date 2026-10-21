@@ -136,6 +136,8 @@ export function iniciarAdminNube(o: { cliente: ClienteNube; almacen?: AlmacenRep
       void sincronizar();
       return n;
     },
+    /** El cliente del central (para las notificaciones, que hablan con él directamente). */
+    get cliente() { return cliente; },
     get servicio() { return servicio; },
   };
 }
