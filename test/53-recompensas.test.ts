@@ -128,7 +128,7 @@ porAlmacen('Recompensas: cupón impreso en el ticket con QR de un solo uso', (al
     await api(c1.url, '/api/venta/escanear', { cart, codigo: JEANS });
     assert.match((await api(c1.url, '/api/venta/cupon', { cart, codigo: e.codigo })).json.error.mensaje, /empieza el 2027-01-10/);
     // se cancela la venta que lo regaló: el cupón se anula
-    assert.equal((await api(c1.url, '/api/venta/cancelar', { sale_id: g.venta.sale_id, motivo: 'error' })).status, 200);
+    assert.equal((await api(c1.url, '/api/venta/cancelar', { sale_id: g.venta.sale_id, clienta: { nombre: 'Ana López', telefono: '6531234567' }, motivo: 'no le quedó' })).status, 200);
     assert.match((await api(c1.url, '/api/venta/cupon', { cart, codigo: e.codigo })).json.error.mensaje, /se anuló/);
     assert.match((await api(c1.url, '/api/venta/cupon', { cart, codigo: 'RC-DUO1-999999-1' })).json.error.mensaje, /no existe/);
   });

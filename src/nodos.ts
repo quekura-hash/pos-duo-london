@@ -703,6 +703,9 @@ export interface CambioEnCurso {
   lineas: { linea_id: string; item_id: string; item_no: string | null; codigo: string; descripcion: string; marca: string; estilo: string; qty: number; precio_unit: number; importe: number }[];
   /** Importe realmente pagado por esas piezas (descuento incluido). */
   credito: number;
+  /** Quién es la clienta y por qué se cambia (se capturan al aceptar el cambio; faltan en cambios iniciados antes de esta regla). */
+  clienta?: { nombre: string; telefono: string };
+  motivo?: string;
 }
 
 interface Carrito {
@@ -1798,7 +1801,7 @@ export class Caja {
    * (importes originales, sin recalcular con otra tasa; un cobro con dólares conserva los dólares recibidos). Para algo anulado ANTES de recibir
    * dinero usar `anularCarrito`.
    */
-  cancelarVenta(saleId: string, motivo: string, usuario = 'cajero', autoriza?: { nombre: string; clave: string }) {
+  cancelarVenta(saleId: string, motivo: string, usuario = 'cajero', autoriza?: { nombre: string; clave: string }, clienta?: { nombre: string; telefono: string }) {
     const v = ventas(this.opsVentas()).get(saleId);
     if (!v || v.tienda !== this.tienda || v.caja !== this.caja) throw new ErrorDominio('PROHIBIDO', 'solo se cancelan ventas de la propia caja');
     if (v.estado === 'cancelada') return v;
@@ -1807,7 +1810,7 @@ export class Caja {
     const autorizo = this.verificarAutorizador(usuario, autoriza); // cancelar una venta ya cobrada la autoriza otra persona
     const reembolsos = this.repartirReembolso(v, v.total, [], 0);
     this.repo.tx(() => {
-      this.emitir('sale.cancelled', { sale_id: saleId, motivo, reembolsos, cancelo: usuario, ...(autorizo ? { autorizado_por: autorizo } : {}) }, `cancel:${saleId}`);
+      this.emitir('sale.cancelled', { sale_id: saleId, motivo, reembolsos, cancelo: usuario, ...(clienta ? { clienta } : {}), ...(autorizo ? { autorizado_por: autorizo } : {}) }, `cancel:${saleId}`);
       for (const p of v.pagos) {
         if (p.metodo === 'tarjeta_regalo') this.emitir('giftcard.reintegro', { codigo: p.tarjeta, monto: p.monto, sale_id: saleId, tienda: this.tienda, caja: this.caja, motivo: 'cancelacion' }, `gcre:${saleId}:${p.tarjeta}`);
       }
@@ -2071,7 +2074,7 @@ export class Caja {
 
   // ── cambios: las piezas que regresa la clienta quedan como crédito (en negativo) dentro de una venta nueva ──
   /** Empieza un cambio en esta venta: valida las piezas y deja su importe como crédito. No mueve inventario ni dinero hasta cobrar. */
-  iniciarCambio(cartId: string, saleId: string, renglones: { linea_id: string; qty: number }[]): CambioEnCurso {
+  iniciarCambio(cartId: string, saleId: string, renglones: { linea_id: string; qty: number }[], datos?: { clienta: { nombre: string; telefono: string }; motivo: string }): CambioEnCurso {
     const c = this.cartGet(cartId);
     this.exigirAbierto(c); this.exigirSinCobroPendiente(c);
     if (c.cambio) throw new ErrorDominio('CAMBIO_YA_INICIADO', 'esta venta ya lleva un cambio: termínelo o quítelo antes de empezar otro');
@@ -2083,6 +2086,7 @@ export class Caja {
         const l = r.venta.lineas.find((x) => x.linea_id === dl.linea_id)!;
         return { linea_id: l.linea_id, item_id: l.item_id, item_no: l.item_no, codigo: l.codigo, descripcion: l.descripcion, marca: l.marca, estilo: l.estilo, qty: dl.qty, precio_unit: l.precio_unit, importe: dl.importe };
       }),
+      ...(datos ? { clienta: datos.clienta, motivo: datos.motivo } : {}),
     };
     this.repo.tx(() => { this.repo.kvSet(`cart:${cartId}`, c); });
     return c.cambio;
@@ -2109,6 +2113,7 @@ export class Caja {
       tienda_origen: r.venta.tienda, caja_origen: r.venta.caja, folio_origen: r.venta.folio,
       lineas: r.lineas, importe: r.importe, reembolsos: efectivo > 0 ? [{ metodo: 'efectivo', monto: efectivo }] : [],
       motivo: 'cambio', cajero, verificacion: r.verificacion, por_cambio: true, ...(ventaCambioId ? { venta_cambio: ventaCambioId } : {}),
+      ...(cambio.clienta ? { clienta: cambio.clienta } : {}), ...(cambio.motivo ? { motivo_cambio: cambio.motivo } : {}),
       ...(devolverEfectivo?.autorizo ? { autorizado_por: devolverEfectivo.autorizo } : {}),
     }, `ret:${id}`);
     for (const l of r.lineas) this.emitir('inv.movement', { item_id: l.item_id, tienda: this.tienda, delta: l.qty, tipo: 'devolucion', doc: id, caja: this.caja }, `mov:${id}:${l.linea_id}`);

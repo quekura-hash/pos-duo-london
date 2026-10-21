@@ -109,6 +109,9 @@ export interface Devolucion {
   por_cambio?: boolean;
   venta_cambio?: string;
   autorizado_por?: string;
+  /** Cambios: quién es la clienta y por qué se cambia (se piden al aceptar el cambio). */
+  clienta?: { nombre: string; telefono: string };
+  motivo_cambio?: string;
 }
 
 export function devoluciones(ops: Op[]): Devolucion[] {

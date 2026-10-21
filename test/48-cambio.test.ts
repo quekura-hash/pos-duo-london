@@ -27,7 +27,7 @@ porAlmacen('Cambio: las piezas que regresa la clienta son crédito en negativo d
   };
   const iniciar = async (caja: any, v: any, qty = 1) => {
     const cart = (await api(caja.url, '/api/venta/nueva', {})).json.cart;
-    const r = await api(caja.url, '/api/venta/cambio/iniciar', { cart, sale_id: v.sale_id, renglones: [{ linea_id: v.lineas[0].linea_id, qty }] });
+    const r = await api(caja.url, '/api/venta/cambio/iniciar', { cart, sale_id: v.sale_id, renglones: [{ linea_id: v.lineas[0].linea_id, qty }], clienta: { nombre: 'Ana López', telefono: '6531234567' }, motivo: 'no le quedó' });
     return { cart, r };
   };
   const corte = async (caja: any) => { const j = (await api(caja.url, '/api/corte')).json; return { corte: j.vivo }; };
@@ -131,7 +131,7 @@ porAlmacen('Cambio: las piezas que regresa la clienta son crédito en negativo d
     const { caja } = await preparar(t, false);
     const v = await vender(caja);
     const { cart } = await iniciar(caja, v);
-    assert.equal((await api(caja.url, '/api/venta/cambio/iniciar', { cart, sale_id: v.sale_id, renglones: [{ linea_id: v.lineas[0].linea_id, qty: 1 }] })).json.error.codigo, 'CAMBIO_YA_INICIADO');
+    assert.equal((await api(caja.url, '/api/venta/cambio/iniciar', { cart, sale_id: v.sale_id, renglones: [{ linea_id: v.lineas[0].linea_id, qty: 1 }], clienta: { nombre: 'Ana López', telefono: '6531234567' }, motivo: 'no le quedó' })).json.error.codigo, 'CAMBIO_YA_INICIADO');
     const ok = await api(caja.url, '/api/venta/cambio/devolver-dinero', { cart });
     assert.equal(ok.status, 200);
     assert.equal(ok.json.devolucion.reembolsos[0].monto, 89900);

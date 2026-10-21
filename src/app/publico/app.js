@@ -164,7 +164,7 @@ const folioTexto = () => (S.ultimoFolio ? `Folio ${String(S.ultimoFolio).padStar
 // ── navegación ──
 const NAV = {
   venta: ['Venta', 'cart'], retiro: ['Retiro', 'cash'], ventas: ['Historial', 'clock'], corte: ['Corte de caja', 'chart'],
-  tarjetas: ['Tarjetas de regalo', 'gift'], reportes: ['Reportes', 'chart'], cortes: ['Cortes', 'cash'], dolares: ['Dólares recibidos', 'dollar'], descuentos: ['Descuentos', 'percent'], entregas: ['Entregas de almacén', 'warehouse'], inventario: ['Inventario', 'box'], departamentos: ['Departamentos', 'box'], almacen: ['Almacén', 'warehouse'], promociones: ['Promociones', 'percent'], tiendas: ['Tiendas', 'store'], configuracion: ['Configuración', 'gear'], administracion: ['Administración', 'gear'], volver_caja: ['Caja', 'caja'], tipo_cambio: ['Tipo de cambio', 'refresh'], avisos: ['Avisos', 'bell'], analisis: ['Análisis', 'trend'],
+  tarjetas: ['Tarjetas de regalo', 'gift'], reportes: ['Reportes', 'chart'], cortes: ['Cortes', 'cash'], dolares: ['Dólares recibidos', 'dollar'], descuentos: ['Descuentos', 'percent'], entregas: ['Entregas de almacén', 'warehouse'], inventario: ['Inventario', 'box'], departamentos: ['Departamentos', 'box'], almacen: ['Almacén', 'warehouse'], promociones: ['Promociones', 'percent'], tiendas: ['Tiendas', 'store'], configuracion: ['Configuración', 'gear'], administracion: ['Administración', 'gear'], volver_caja: ['Caja', 'caja'], tipo_cambio: ['Tipo de cambio', 'refresh'], avisos: ['Avisos', 'bell'], analisis: ['Análisis', 'trend'], historial: ['Historial de ventas', 'clock'],
 };
 // ── Calculadora básica: ventana flotante y movible, no modal. Sigue abierta mientras se usa el resto del POS ──
 const calc = { abierta: false, pos: null, acc: null, op: null, entrada: '0', nuevo: true };
@@ -279,7 +279,7 @@ async function ir(v) {
   S.vista = v;
   pintarNav();
   await pintarEncabezado();
-  await ({ folios: vistaFolios, venta: vistaVenta, retiro: vistaRetiro, corte: vistaCorte, ventas: vistaVentas, reportes: vistaReportes, inventario: vistaInventario, almacen: vistaAlmacen, promociones: vistaPromociones, configuracion: vistaConfiguracion, tiendas: vistaTiendas, departamentos: vistaDepartamentos, tarjetas: vistaTarjetas, devolucion: vistaDevolucion, dolares: vistaDolares, descuentos: vistaDescuentos, entregas: vistaEntregas, conteo_limbo: vistaConteoLimbo, tipo_cambio: vistaTipoCambio, cortes: vistaCortes, avisos: vistaAvisos, analisis: vistaAnalisis })[v]();
+  await ({ folios: vistaFolios, venta: vistaVenta, retiro: vistaRetiro, corte: vistaCorte, ventas: vistaVentas, reportes: vistaReportes, inventario: vistaInventario, almacen: vistaAlmacen, promociones: vistaPromociones, configuracion: vistaConfiguracion, tiendas: vistaTiendas, departamentos: vistaDepartamentos, tarjetas: vistaTarjetas, devolucion: vistaDevolucion, dolares: vistaDolares, descuentos: vistaDescuentos, entregas: vistaEntregas, conteo_limbo: vistaConteoLimbo, tipo_cambio: vistaTipoCambio, cortes: vistaCortes, avisos: vistaAvisos, analisis: vistaAnalisis, historial: vistaHistorialAdmin })[v]();
   if (v !== 'almacen') await avisosPisoInicial();
 }
 
@@ -1027,14 +1027,160 @@ async function vistaCorte() {
 }
 
 // ── ventas de la caja ──
+const METODOS_PAGO = { efectivo: 'Efectivo', efectivo_usd: 'Dólares', tarjeta: 'Tarjeta', tarjeta_regalo: 'Tarjeta de regalo' };
+const etiquetaMetodo = (m) => METODOS_PAGO[m] ?? m;
+
+/** Nombre, teléfono y motivo de la clienta: se piden al revertir una venta y al aceptar un cambio. */
+function camposClienta(p, motivoEtiqueta) {
+  const estilo = 'width:100%;box-sizing:border-box;padding:10px;border:2px solid var(--borde);border-radius:10px;background:var(--superficie);font:inherit';
+  return `<div class="campo"><label for="${p}-nombre">Nombre de la clienta</label><input id="${p}-nombre" maxlength="80" autocomplete="off" style="${estilo}"></div>
+    <div class="campo"><label for="${p}-telefono">Teléfono de la clienta</label><input id="${p}-telefono" type="tel" inputmode="tel" maxlength="30" autocomplete="off" style="${estilo}"></div>
+    <div class="campo"><label for="${p}-motivo">${esc(motivoEtiqueta)}</label><textarea id="${p}-motivo" rows="2" maxlength="300" style="${estilo};resize:vertical"></textarea></div>`;
+}
+/** Lee y valida los campos de camposClienta; devuelve null (y marca el error en `m`) si falta algo. */
+function leerCamposClienta(p, m) {
+  const nombre = $(`#${p}-nombre`).value.trim(), telefono = $(`#${p}-telefono`).value.trim(), motivo = $(`#${p}-motivo`).value.trim();
+  const falla = (t, id) => { m.className = 'mensaje error'; m.textContent = t; $(`#${p}-${id}`).focus(); return null; };
+  if (nombre.length < 2) return falla('Escriba el nombre de la clienta.', 'nombre');
+  if (telefono.replace(/\D/g, '').length < 7) return falla('Escriba el teléfono de la clienta (al menos 7 dígitos).', 'telefono');
+  if (motivo.length < 3) return falla('Escriba el motivo.', 'motivo');
+  return { clienta: { nombre, telefono }, motivo };
+}
+/** Pregunta nombre, teléfono y motivo del cambio. Resuelve con los datos, o null si se cancela. */
+function pedirDatosCambio() {
+  return new Promise((resolver) => {
+    const d = dialogo('dlg-datos-cambio');
+    d.setAttribute('aria-labelledby', 'dc-titulo');
+    d.innerHTML = `<h2 id="dc-titulo" style="margin-top:0">Datos del cambio</h2>
+      <p class="nota" style="margin-top:0">Quedan registrados junto con el cambio.</p>
+      <form id="form-datos-cambio" autocomplete="off">${camposClienta('dc', 'Motivo del cambio')}
+        <div id="msg-dc" class="mensaje" role="alert"></div>
+        <div class="filas"><button class="btn" type="button" id="dc-no">Cancelar</button><button class="btn btn-primario" type="submit" style="width:auto;flex:1">${ico('check')}<span>Aceptar cambio</span></button></div></form>`;
+    let listo = false;
+    d.addEventListener('close', () => { if (!listo) resolver(null); }, { once: true });
+    $('#dc-no').addEventListener('click', () => d.close());
+    $('#form-datos-cambio').addEventListener('submit', (ev) => {
+      ev.preventDefault();
+      const datos = leerCamposClienta('dc', $('#msg-dc'));
+      if (!datos) return;
+      listo = true; d.close(); resolver(datos);
+    });
+    d.showModal();
+    $('#dc-nombre').focus();
+  });
+}
+
+/** «Revertir venta»: cancela la venta ya cobrada. Pide los datos de la clienta, el motivo y la clave de otra persona. */
+async function abrirRevertirVenta(det, alTerminar) {
+  const a = await api('/api/venta/autorizadores');
+  const d = dialogo('dlg-revertir');
+  d.setAttribute('aria-labelledby', 'rv-titulo');
+  d.innerHTML = `<h2 id="rv-titulo" style="margin-top:0">Revertir venta</h2>
+    <p id="rv-texto" style="margin-top:0">Folio <b>${String(det.folio).padStart(6, '0')}</b> · <b>${mxn(det.total)}</b>. Se cancela la venta completa, las prendas regresan al inventario y el dinero se regresa a la clienta.</p>
+    <form id="form-revertir" autocomplete="off">${camposClienta('rv', 'Motivo de la cancelación')}
+      ${a.pide_clave ? `<p class="nota">La cancelación la autoriza otra Vendedora-Cajera o un supervisor con su clave.</p>
+      <div class="campo"><label for="rv-quien">Autoriza</label><select id="rv-quien" style="width:100%;padding:10px;border:2px solid var(--borde);border-radius:10px;background:var(--superficie)">${a.autorizadores.map((x) => `<option value="${esc(x.nombre)}">${esc(x.nombre)}${x.tipo === 'supervisor' ? ' (supervisor)' : ''}</option>`).join('')}</select></div>
+      <div class="campo"><label for="rv-clave">Su clave</label><input id="rv-clave" type="password" inputmode="numeric" autocomplete="off" placeholder="••••"></div>` : ''}
+      <div id="msg-rv" class="mensaje" role="alert"></div>
+      <div class="filas"><button class="btn" type="button" id="rv-no">No revertir</button><button class="btn btn-peligro" type="submit" id="rv-ok" style="width:auto;flex:1">${ico('undo')}<span>Revertir venta</span></button></div>
+    </form>`;
+  $('#rv-no').addEventListener('click', () => d.close());
+  $('#form-revertir').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const m = $('#msg-rv');
+    const datos = leerCamposClienta('rv', m);
+    if (!datos) return;
+    if (a.pide_clave && (!$('#rv-quien').value || !$('#rv-clave').value)) { m.className = 'mensaje error'; m.textContent = 'Elija quién autoriza y teclee su clave.'; return; }
+    try {
+      const r = await api('/api/venta/cancelar', { sale_id: det.sale_id, motivo: datos.motivo, clienta: datos.clienta, ...(a.pide_clave ? { autoriza: { nombre: $('#rv-quien').value, clave: $('#rv-clave').value } } : {}) });
+      d.close();
+      if (alTerminar) await alTerminar(r);
+    } catch (e) { m.className = 'mensaje error'; m.textContent = e.message; const c = $('#rv-clave'); if (c) c.value = ''; }
+  });
+  d.showModal();
+  $('#rv-nombre').focus();
+}
+
+/**
+ * Ventana de detalle de una venta (hora, cajera, prendas, pagos y lo que le pasó después).
+ * `acciones` = true en la caja (Revertir venta y Aceptar cambio); en Administración solo se consulta: esas dos acciones se hacen en la caja donde se vendió.
+ */
+async function abrirDetalleVenta(saleId, { acciones, ruta, alCambiar } = {}) {
+  const j = await api(ruta ?? `/api/venta/detalle?sale_id=${encodeURIComponent(saleId)}`);
+  const v = j.detalle;
+  const d = dialogo('dlg-detalle-venta');
+  d.setAttribute('aria-labelledby', 'dv-titulo');
+  const folio = String(v.folio).padStart(6, '0');
+  const cli = (c) => (c ? `${esc(c.nombre)} · ${esc(c.telefono)}` : '—');
+  const lineas = v.lineas.map((l) => `<tr><td data-label="Cant.">${l.qty}</td><td class="desc" data-label="Prenda">${esc(l.descripcion)}${l.marca ? ` · ${esc(l.marca)}` : ''}${l.estilo ? ` · ${esc(l.estilo)}` : ''}${l.item_no ? ` · #${esc(l.item_no)}` : ''}${l.devuelto ? ` <small>(${l.devuelto} ya devuelta${l.devuelto === 1 ? '' : 's'})</small>` : ''}</td><td class="num" data-label="Precio">${mxn(l.precio_unit)}</td><td class="num" data-label="Importe">${mxn(l.importe)}</td></tr>`).join('');
+  const pagos = v.pagos.map((p) => `${esc(etiquetaMetodo(p.metodo))} ${mxn(p.monto)}`).join(' · ') || '—';
+  const canc = v.cancelacion
+    ? `<div class="mensaje error" id="dv-cancelada" role="status"><b>Venta cancelada</b> el ${esc(fechaHora(v.cancelacion.ocurrio_en))} por ${esc(v.cancelacion.cancelo)}${v.cancelacion.autorizado_por ? `, autorizó ${esc(v.cancelacion.autorizado_por)}` : ''}.<br>Motivo: ${esc(v.cancelacion.motivo)}<br>Clienta: ${cli(v.cancelacion.clienta)}</div>`
+    : '';
+  const devs = v.devoluciones.length
+    ? `<h3 style="margin:10px 0 4px">Cambios y devoluciones</h3><ul id="dv-devoluciones" style="margin:0;padding-left:18px">${v.devoluciones.map((x) => `<li>${esc(fechaHora(x.ocurrio_en))} · ${x.piezas} pieza${x.piezas === 1 ? '' : 's'} · ${x.por_cambio ? 'cambio' : 'devolución'} · ${mxn(x.importe)} · ${esc(x.motivo)} · ${cli(x.clienta)}</li>`).join('')}</ul>`
+    : '';
+  d.innerHTML = `<h2 id="dv-titulo" style="margin:0 0 4px">Venta ${folio}</h2>
+    <p id="dv-resumen" style="margin:0 0 8px"><span class="insignia ${esc(v.estado)}">${esc(v.estado)}</span> · ${esc(v.tienda)} · Caja ${v.caja} · <b>${esc(v.fecha_local.split('-').reverse().join('/'))} ${esc(v.hora)}</b></p>
+    <dl class="resumen" id="dv-datos" style="margin:0 0 8px"><dt>Vendedora-Cajera</dt><dd>${esc(v.cajero)}</dd><dt>Vendió por</dt><dd>${esc(v.vendedora || '—')}</dd><dt>Forma de pago</dt><dd>${pagos}</dd></dl>
+    ${canc}
+    <div class="tabla-cont"><table id="dv-lineas"><thead><tr><th class="num">Cant.</th><th>Prenda</th><th class="num">Precio</th><th class="num">Importe</th></tr></thead><tbody>${lineas}</tbody><tfoot><tr><th colspan="3" style="text-align:right">Total</th><td class="num"><b>${mxn(v.total)}</b></td></tr></tfoot></table></div>
+    ${devs}
+    <details style="margin-top:8px"><summary>Ver el ticket</summary>${logoTicketHtml()}<pre class="ticket" id="dv-ticket" tabindex="0">${esc(j.ticket_texto)}</pre></details>
+    <div id="dv-msg" class="mensaje" role="status" aria-live="polite"></div>
+    <div class="filas">
+      <button class="btn" type="button" id="dv-cerrar">${ico('x')}<span>Cerrar</span></button>
+      ${acciones && v.con_piezas_disponibles ? `<button class="btn" type="button" id="dv-cambio" title="La clienta regresa piezas de esta venta y se lleva otras">${ico('undo')}<span>Aceptar cambio</span></button>` : ''}
+      ${acciones && v.cancelable ? `<button class="btn btn-peligro" type="button" id="dv-revertir">${ico('trash')}<span>Revertir venta</span></button>` : ''}
+    </div>
+    ${!acciones ? '<p class="nota" style="margin-bottom:0">Para revertir la venta o hacer un cambio, hágalo en la caja donde se vendió.</p>' : ''}`;
+  $('#dv-cerrar').addEventListener('click', () => d.close());
+  if ($('#dv-cambio')) $('#dv-cambio').addEventListener('click', async () => { d.close(); S.buscarFolio = String(v.folio); await ir('devolucion'); });
+  if ($('#dv-revertir')) $('#dv-revertir').addEventListener('click', async () => {
+    try { await abrirRevertirVenta(v, async (r) => { d.close(); if (alCambiar) await alCambiar(r); }); }
+    catch (e) { const m = $('#dv-msg'); m.className = 'mensaje error'; m.textContent = e.message; }
+  });
+  if (!d.open) d.showModal();
+}
+
 async function vistaVentas() {
-  const j = await api('/api/ventas');
-  $('#vista').innerHTML = `<div class="titulo-vista">${ico('clock')}<h1>Historial de mi caja</h1></div><div id="mensaje-hist" class="mensaje" role="status" aria-live="polite"></div><div class="panel"><div class="tabla-cont"><table id="tabla-ventas"><thead><tr><th>Folio</th><th>Fecha</th><th>Vendedora-Cajera</th><th>Vendió por</th><th class="num">Total</th><th>Estado</th><th>Impresiones</th><th></th></tr></thead><tbody>
-    ${j.ventas.length ? j.ventas.map((r) => `<tr data-folio="${r.folio}"><td>${String(r.folio).padStart(6, '0')}</td><td>${esc(r.fecha_local)}</td><td>${esc(r.cajero)}</td><td data-col="vendio">${esc(r.vendedora || '—')}</td><td class="num">${mxn(r.total)}</td><td><span class="insignia ${r.estado}">${esc(r.estado)}</span></td><td>${r.impresiones}${r.ultima_impresion === 'error' ? ' (última falló)' : ''}</td><td><button class="btn" type="button" data-ver="${r.sale_id}">${ico('receipt')}<span>Ver ticket</span></button>${r.estado === 'confirmada' ? ` <button class="btn" type="button" data-cambio="${r.folio}" title="La clienta regresa piezas de esta venta y se lleva otras">${ico('undo')}<span>Aceptar cambio</span></button>` : ''}</td></tr>`).join('') : '<tr><td colspan="8" class="vacio">Sin ventas hoy en esta caja.</td></tr>'}
+  const hoy = S.estado.fecha_local;
+  const fecha = S.fechaHistorial ?? hoy;
+  const j = await api(`/api/ventas?fecha=${encodeURIComponent(fecha)}`);
+  const folioBuscado = (S.folioHistorial ?? '').trim();
+  const filas = folioBuscado ? j.ventas.filter((r) => String(r.folio) === String(Number(folioBuscado))) : j.ventas;
+  $('#vista').innerHTML = `<div class="titulo-vista">${ico('clock')}<h1>Historial de mi caja</h1></div><div id="mensaje-hist" class="mensaje" role="status" aria-live="polite"></div>
+    <form id="form-historial" class="filtros panel" autocomplete="off"><label>Fecha <input type="date" id="hist-fecha" value="${esc(fecha)}"></label>
+      <label>Folio <input id="hist-folio" inputmode="numeric" value="${esc(folioBuscado)}" style="width:90px;padding:6px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie)"></label>
+      <button class="btn btn-primario" type="submit" style="width:auto">${ico('search')}<span>Buscar</span></button></form>
+    <div class="panel"><p class="nota" style="margin-top:0">Toque una venta para ver el detalle: hora, cajera, prendas y pagos. Desde ahí se puede revertir o hacer un cambio.</p><div class="tabla-cont"><table id="tabla-ventas"><thead><tr><th>Folio</th><th>Fecha</th><th>Vendedora-Cajera</th><th>Vendió por</th><th class="num">Total</th><th>Estado</th><th>Impresiones</th><th></th></tr></thead><tbody>
+    ${filas.length ? filas.map((r) => `<tr data-folio="${r.folio}" data-detalle="${r.sale_id}" tabindex="0" style="cursor:pointer"><td>${String(r.folio).padStart(6, '0')}</td><td>${esc(r.fecha_local)}</td><td>${esc(r.cajero)}</td><td data-col="vendio">${esc(r.vendedora || '—')}</td><td class="num">${mxn(r.total)}</td><td><span class="insignia ${r.estado}">${esc(r.estado)}</span></td><td>${r.impresiones}${r.ultima_impresion === 'error' ? ' (última falló)' : ''}</td><td><button class="btn" type="button" data-ver="${r.sale_id}">${ico('receipt')}<span>Ver ticket</span></button>${r.estado === 'confirmada' ? ` <button class="btn" type="button" data-cambio="${r.folio}" title="La clienta regresa piezas de esta venta y se lleva otras">${ico('undo')}<span>Aceptar cambio</span></button> <button class="btn btn-peligro" type="button" data-revertir="${r.sale_id}" title="Cancela la venta completa">${ico('trash')}<span>Revertir venta</span></button>` : ''}</td></tr>`).join('') : `<tr><td colspan="8" class="vacio">${folioBuscado ? 'No hay una venta con ese folio.' : fecha === hoy ? 'Sin ventas hoy en esta caja.' : 'Sin ventas ese día en esta caja.'}</td></tr>`}
     </tbody></table></div></div>`;
-  for (const b of $('#vista').querySelectorAll('[data-cambio]')) b.addEventListener('click', async () => { S.buscarFolio = b.dataset.cambio; await ir('devolucion'); });
+  const recargar = async (r) => {
+    await vistaVentas();
+    if (!r || !r.venta) return;
+    const m = $('#mensaje-hist');
+    const fallas = [r.impresion, r.impresion_firma].filter((x) => x && !x.ok);
+    m.className = fallas.length ? 'mensaje aviso' : 'mensaje ok';
+    m.textContent = `Venta ${String(r.venta.folio).padStart(6, '0')} revertida. ${fallas.length ? `La impresora falló: ${fallas[0].error}. La cancelación SÍ quedó guardada; reimprima el ticket cuando se pueda.` : 'Se imprimieron el ticket de CANCELACIÓN de la clienta y el comprobante que ella firma.'}`;
+  };
+  $('#form-historial').addEventListener('submit', async (ev) => { ev.preventDefault(); S.fechaHistorial = $('#hist-fecha').value || hoy; S.folioHistorial = $('#hist-folio').value; await recargar(); });
+  const mostrarError = (e) => { const m = $('#mensaje-hist'); m.className = 'mensaje error'; m.textContent = e.message; };
+  for (const b of $('#vista').querySelectorAll('[data-cambio]')) b.addEventListener('click', async (ev) => { ev.stopPropagation(); S.buscarFolio = b.dataset.cambio; await ir('devolucion'); });
+  for (const fila of $('#vista').querySelectorAll('tr[data-detalle]')) {
+    const abrir = () => abrirDetalleVenta(fila.dataset.detalle, { acciones: true, alCambiar: recargar }).catch(mostrarError);
+    fila.addEventListener('click', abrir);
+    fila.addEventListener('keydown', (ev) => { if (ev.target === fila && (ev.key === 'Enter' || ev.key === ' ')) { ev.preventDefault(); abrir(); } });
+  }
+  for (const b of $('#vista').querySelectorAll('[data-revertir]')) {
+    b.addEventListener('click', async (ev) => {
+      ev.stopPropagation();
+      try { const r = await api(`/api/venta/detalle?sale_id=${encodeURIComponent(b.dataset.revertir)}`); await abrirRevertirVenta(r.detalle, recargar); } catch (e) { mostrarError(e); }
+    });
+  }
   for (const b of $('#vista').querySelectorAll('[data-ver]')) {
-    b.addEventListener('click', async () => {
+    b.addEventListener('click', async (ev) => {
+      ev.stopPropagation();
       const t = await api(`/api/ticket?sale_id=${b.dataset.ver}`);
       const dlg = $('#dlg-ticket');
       dlg.innerHTML = `<h2 id="dlg-titulo" style="margin:0">Ticket</h2>${logoTicketHtml()}<pre class="ticket" id="ticket-texto">${esc(t.ticket_texto)}</pre><div class="filas"><button class="btn" id="btn-reimprimir" type="button">${ico('printer')}<span>Reimprimir</span></button><button class="btn" id="btn-ticket-regalo" type="button">${ico('gift')}<span>Ticket de regalo</span></button><button class="btn" id="btn-cerrar" type="button">${ico('x')}<span>Cerrar</span></button></div><div id="estado-impresion" class="mensaje" role="status"></div>`;
@@ -1048,6 +1194,41 @@ async function vistaVentas() {
       });
     });
   }
+}
+
+// ── Historial de ventas en Administración: todas las tiendas y cajas, con el mismo detalle (solo consulta) ──
+async function vistaHistorialAdmin() {
+  const { cajas } = await api('/api/admin/cajas');
+  const hoy = new Date(Date.now() - 7 * 3600e3).toISOString().slice(0, 10);
+  const H = (S.historialAdmin ??= { desde: hoy, hasta: hoy, caja: '', folio: '' });
+  cuerpoVista().innerHTML = `<div class="titulo-vista">${ico('clock')}<h1>Historial de ventas</h1></div>
+    <form class="filtros panel" id="ha-filtros" autocomplete="off">
+      <label>Desde <input type="date" id="ha-desde" value="${esc(H.desde)}"></label><label>Hasta <input type="date" id="ha-hasta" value="${esc(H.hasta)}"></label>
+      <label>Caja <select id="ha-caja" style="padding:8px;border:2px solid var(--borde);border-radius:10px;background:var(--superficie)"><option value="">Todas</option>${cajas.map((c) => `<option value="${esc(c.tienda)}/${c.caja}" ${H.caja === `${c.tienda}/${c.caja}` ? 'selected' : ''}>${esc(c.tienda)} · Caja ${c.caja}</option>`).join('')}</select></label>
+      <label>Folio <input id="ha-folio" inputmode="numeric" value="${esc(H.folio)}" style="width:90px;padding:6px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie)"></label>
+      <button class="btn btn-primario" type="submit" style="width:auto">${ico('search')}<span>Consultar</span></button>
+      <div id="ha-msg" class="mensaje" role="status" aria-live="polite"></div></form>
+    <div id="ha-resultado"></div>`;
+  const consultar = async () => {
+    H.desde = $('#ha-desde').value; H.hasta = $('#ha-hasta').value; H.caja = $('#ha-caja').value; H.folio = $('#ha-folio').value.trim();
+    const m = $('#ha-msg'); m.className = 'mensaje'; m.textContent = '';
+    const p = new URLSearchParams({ desde: H.desde, hasta: H.hasta });
+    if (H.caja) p.set('cajas', H.caja);
+    if (H.folio) p.set('folio', String(Number(H.folio)));
+    let j;
+    try { j = await api(`/api/admin/ventas?${p}`); } catch (e) { m.className = 'mensaje error'; m.textContent = e.message; return; }
+    if (j.truncado) { m.className = 'mensaje aviso'; m.textContent = `Hay ${j.total_filas} ventas; se muestran las 500 más recientes. Acote las fechas.`; }
+    $('#ha-resultado').innerHTML = `<div class="panel"><p class="nota" style="margin-top:0">Toque una venta para ver el detalle y el ticket.</p><div class="tabla-cont"><table id="tabla-historial-admin"><thead><tr><th>Caja</th><th>Folio</th><th>Fecha</th><th>Hora</th><th>Vendedora-Cajera</th><th>Vendió por</th><th>Pago</th><th class="num">Total</th><th>Estado</th></tr></thead><tbody>
+      ${j.ventas.length ? j.ventas.map((r) => `<tr data-detalle="${esc(r.sale_id)}" tabindex="0" style="cursor:pointer"><td>${esc(r.tienda)} · ${r.caja}</td><td>${String(r.folio).padStart(6, '0')}</td><td>${esc(r.fecha_local.split('-').reverse().join('/'))}</td><td>${esc(r.hora)}</td><td>${esc(r.cajero)}</td><td data-col="vendio">${esc(r.vendedora || '—')}</td><td>${esc(r.pago)}</td><td class="num">${mxn(r.total)}</td><td><span class="insignia ${esc(r.estado)}">${esc(r.estado)}</span></td></tr>`).join('') : '<tr><td colspan="9" class="vacio">No hay ventas con esos datos.</td></tr>'}
+      </tbody></table></div></div>`;
+    for (const fila of $('#ha-resultado').querySelectorAll('tr[data-detalle]')) {
+      const abrir = () => abrirDetalleVenta(fila.dataset.detalle, { acciones: false, ruta: `/api/admin/venta?sale_id=${encodeURIComponent(fila.dataset.detalle)}` }).catch((e) => { m.className = 'mensaje error'; m.textContent = e.message; });
+      fila.addEventListener('click', abrir);
+      fila.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); abrir(); } });
+    }
+  };
+  $('#ha-filtros').addEventListener('submit', (ev) => { ev.preventDefault(); consultar(); });
+  await consultar();
 }
 
 // ── Administración ──
@@ -1467,9 +1648,11 @@ async function aceptarCambio(form) {
   const m = form.querySelector('[data-msg]');
   const renglones = [...form.querySelectorAll('input[data-linea]')].map((i) => ({ linea_id: i.dataset.linea, qty: Number(i.value) })).filter((x) => x.qty > 0);
   if (!renglones.length) { m.className = 'mensaje error'; m.textContent = 'Indique cuántas piezas se cambian.'; return; }
+  const datos = await pedirDatosCambio();
+  if (!datos) return;
   try {
     if (!S.cart) { const r = await api('/api/venta/actual', {}); S.cart = r.cart; S.carrito = r.carrito; }
-    const r = await api('/api/venta/cambio/iniciar', { cart: S.cart, sale_id: form.dataset.sale, renglones });
+    const r = await api('/api/venta/cambio/iniciar', { cart: S.cart, sale_id: form.dataset.sale, renglones, clienta: datos.clienta, motivo: datos.motivo });
     S.carrito = r.carrito; S.sel = null;
     await ir('venta');
     msg('Cambio aceptado: las piezas quedaron en negativo. Escanee los artículos por los que cambia.');

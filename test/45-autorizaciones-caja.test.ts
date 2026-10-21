@@ -29,7 +29,7 @@ porAlmacen('Claves en la caja: retiro con la propia, cancelar y devolver con la 
     const d = await api(caja.url, '/api/venta/devolver', { sale_id: v.sale_id, renglones: [{ linea_id: v.lineas[0].linea_id, qty: 1 }], motivo: 'talla' });
     assert.equal(d.status, 200);
     const v2 = await vender(caja);
-    assert.equal((await api(caja.url, '/api/venta/cancelar', { sale_id: v2.sale_id, motivo: 'error' })).status, 200);
+    assert.equal((await api(caja.url, '/api/venta/cancelar', { sale_id: v2.sale_id, clienta: { nombre: 'Ana López', telefono: '6531234567' }, motivo: 'no le quedó' })).status, 200);
     const a = await api(caja.url, '/api/venta/autorizadores');
     assert.deepEqual([a.json.pide_clave, a.json.autorizadores], [false, []]);
   });
@@ -58,7 +58,7 @@ porAlmacen('Claves en la caja: retiro con la propia, cancelar y devolver con la 
     const aut = (await api(caja.url, '/api/venta/autorizadores')).json;
     assert.deepEqual([aut.pide_clave, aut.autorizadores.map((x: any) => [x.nombre, x.tipo]).sort()], [true, [['Edgardo', 'supervisor'], ['Rosa', 'cajero']]], 'sin Lupe, que es quien opera');
     const v = await vender(caja);
-    const cancelar = (autoriza?: unknown) => api(caja.url, '/api/venta/cancelar', { sale_id: v.sale_id, motivo: 'error de captura', ...(autoriza ? { autoriza } : {}) });
+    const cancelar = (autoriza?: unknown) => api(caja.url, '/api/venta/cancelar', { sale_id: v.sale_id, clienta: { nombre: 'Ana López', telefono: '6531234567' }, motivo: 'no le quedó', ...(autoriza ? { autoriza } : {}) });
     assert.equal((await cancelar()).json.error.codigo, 'AUTORIZACION_REQUERIDA');
     assert.equal((await cancelar({ nombre: 'Lupe', clave: '4321' })).json.error.codigo, 'AUTORIZADOR_INVALIDO', 'no se autoriza a sí mismo');
     assert.equal((await cancelar({ nombre: ' lupe ', clave: '4321' })).json.error.codigo, 'AUTORIZADOR_INVALIDO');

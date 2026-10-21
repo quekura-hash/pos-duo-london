@@ -52,7 +52,7 @@ porAlmacen('Roles de Administración: supervisor y almacenista; los cajeros no e
     // el supervisor sí
     await api(adm.url, '/api/logout', {});
     s = (await api(adm.url, '/api/login', { usuario: 'Edgardo', clave: 'clave-segura' })).json;
-    assert.deepEqual([s.rol_usuario, (await api(adm.url, '/api/sesion')).json.nav.length], ['supervisor', 8]);
+    assert.deepEqual([s.rol_usuario, (await api(adm.url, '/api/sesion')).json.nav.length], ['supervisor', 9]);
     assert.equal((await api(adm.url, '/api/admin/cajeros')).status, 200);
     assert.equal((await api(adm.url, '/api/admin/articulos', { item_id: a.item_id, cambios: { precio: 99900 } })).status, 200);
   });

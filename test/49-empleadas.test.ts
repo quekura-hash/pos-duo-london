@@ -83,7 +83,7 @@ porAlmacen('Registro de empleadas con alias y ventas por vendedora', (alm) => {
     // la clienta cambia la mascada de Rosa por una bolsa atendida por Lupe
     const cart = (await api(caja.url, '/api/venta/nueva', {})).json.cart;
     await api(caja.url, '/api/venta/vendedora', { cart, vendedora_id: id('Lupe') });
-    await api(caja.url, '/api/venta/cambio/iniciar', { cart, sale_id: v1.venta.sale_id, renglones: [{ linea_id: v1.venta.lineas[0].linea_id, qty: 1 }] });
+    await api(caja.url, '/api/venta/cambio/iniciar', { cart, sale_id: v1.venta.sale_id, renglones: [{ linea_id: v1.venta.lineas[0].linea_id, qty: 1 }], clienta: { nombre: 'Ana López', telefono: '6531234567' }, motivo: 'no le quedó' });
     await api(caja.url, '/api/venta/escanear', { cart, codigo: '0000000000017' });
     await api(caja.url, '/api/venta/cobrar-efectivo', { cart, recibido: 5000000 });
     ctx.m.pump(); ctx.m.pump(); ctx.m.pump();

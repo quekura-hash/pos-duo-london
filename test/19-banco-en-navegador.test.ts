@@ -98,7 +98,7 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     await page.uncheck('#falla-hub');
     await page.selectOption('#sesion-prueba', 'admin');
     await page.waitForSelector('#tabla-inv-resumen'); // Administración abre en Inventario
-    assert.deepEqual(await page.$$eval('#nav button', (b) => b.map((x) => x.textContent)), ['Inventario', 'Almacén', 'Promociones', 'Tarjetas de regalo', 'Reportes', 'Análisis', 'Cortes', 'Configuración', 'Caja']);
+    assert.deepEqual(await page.$$eval('#nav button', (b) => b.map((x) => x.textContent)), ['Inventario', 'Almacén', 'Promociones', 'Tarjetas de regalo', 'Reportes', 'Historial de ventas', 'Análisis', 'Cortes', 'Configuración', 'Caja']);
     await page.click('#nav button[data-vista="reportes"]');
     await page.waitForSelector('#filtros');
     await page.click('#filtros button[type="submit"]');
@@ -1235,7 +1235,7 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     // el supervisor ve todo
     await page.fill('#lg-usuario', 'Edgardo'); await page.fill('#lg-clave', 'clave-segura'); await page.click('#lg-entrar');
     await page.waitForSelector('#nav button[data-vista="reportes"]');
-    assert.equal(await page.locator('#nav button[data-vista]').count(), 9, '8 pantallas más Caja');
+    assert.equal(await page.locator('#nav button[data-vista]').count(), 10, '9 pantallas más Caja');
     assert.match((await page.textContent('[data-chip="rol"]'))!, /Supervisor/);
     assert.deepEqual(errores.filter((e) => !/401|403|Failed to load resource/.test(e)), []);
   });
@@ -1302,7 +1302,10 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     await page.click(`#tabla-ventas tr[data-folio="${folio}"] [data-cambio]`);
     await page.waitForSelector('form[data-sale] input[data-linea]'); // la venta ya viene buscada por folio
     await page.fill('form[data-sale] input[data-linea]', '1');
-    await page.click('form[data-sale] button[type=submit]'); // el cambio no pide clave
+    await page.click('form[data-sale] button[type=submit]'); // el cambio no pide clave, solo los datos de la clienta
+    await page.waitForSelector('#dlg-datos-cambio[open]');
+    await page.fill('#dc-nombre', 'Ana López'); await page.fill('#dc-telefono', '6531234567'); await page.fill('#dc-motivo', 'no le quedó');
+    await page.click('#form-datos-cambio button[type=submit]');
     await page.waitForSelector('#cuerpo tr.fila-cambio');
     // cambio por un artículo más barato: queda saldo a favor y el dinero solo sale con clave
     await page.fill('#scan', '7501234567890'); await page.press('#scan', 'Enter');
@@ -1329,6 +1332,9 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     await page.waitForSelector('form[data-sale] input[data-linea]');
     await page.fill('form[data-sale] input[data-linea]', '1');
     await page.click('form[data-sale] button[type=submit]');
+    await page.waitForSelector('#dlg-datos-cambio[open]');
+    await page.fill('#dc-nombre', 'Ana López'); await page.fill('#dc-telefono', '6531234567'); await page.fill('#dc-motivo', 'no le quedó');
+    await page.click('#form-datos-cambio button[type=submit]');
     await page.waitForSelector('#btn-devolver-dinero');
     await page.click('#btn-devolver-dinero');
     await page.selectOption('#dd-quien', 'Rosa'); await page.fill('#dd-clave', '8765');
@@ -1424,6 +1430,9 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     await page.waitForSelector('[data-venta-propia] input[data-linea]');
     await page.fill('[data-venta-propia] input[data-linea]', '1');
     await page.click('[data-venta-propia] button[type="submit"]');
+    await page.waitForSelector('#dlg-datos-cambio[open]');
+    await page.fill('#dc-nombre', 'Ana López'); await page.fill('#dc-telefono', '6531234567'); await page.fill('#dc-motivo', 'no le quedó');
+    await page.click('#form-datos-cambio button[type=submit]');
     await page.waitForSelector('#cuerpo tr.fila-cambio');
     await page.fill('#scan', '0000000000017'); await page.press('#scan', 'Enter');
     await page.waitForFunction(() => document.querySelector('#total')!.textContent === '$330.00');

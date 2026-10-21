@@ -352,6 +352,79 @@ export function renderTicketDevolucionTexto(d: Devolucion, v: Venta, cfg: Negoci
   return L.join('\n') + '\n';
 }
 
+/** Datos de lo que se imprime al revertir una venta o al hacer un cambio / devolución. */
+export interface ComprobanteClienta {
+  tipo: 'cambio' | 'devolucion' | 'cancelacion';
+  tienda: string;
+  caja: number;
+  /** Folio del documento (el de la devolución); las cancelaciones no consumen folio: se usa el de la venta original. */
+  folio: number;
+  ocurrio_en: string;
+  cajero: string;
+  autorizado_por?: string | null;
+  clienta?: { nombre: string; telefono: string } | null;
+  motivo?: string | null;
+  /** Venta de origen. */
+  venta: Venta;
+  /** Lo que regresa la clienta. */
+  lineas: { linea_id: string; qty: number; importe: number }[];
+  importe: number;
+  reembolsos: { metodo: 'efectivo' | 'tarjeta' | 'tarjeta_regalo'; monto: number; tarjeta?: string }[];
+  /** Cambio: lo que se lleva a cambio (de la venta nueva). */
+  se_lleva?: { descripcion: string; qty: number }[];
+}
+const TITULO_COMPROBANTE = { cambio: 'CAMBIO', devolucion: 'DEVOLUCIÓN', cancelacion: 'CANCELACIÓN' } as const;
+const textoReembolso = (r: ComprobanteClienta['reembolsos'][number]) => (r.metodo === 'efectivo' ? 'Reembolso en efectivo MXN' : r.metodo === 'tarjeta' ? 'Reverso a tarjeta bancaria' : `A tarjeta de regalo ${r.tarjeta}`);
+
+/** Ticket de la clienta al revertir una venta: dice CANCELACIÓN (los cambios y devoluciones usan renderTicketDevolucionTexto). */
+export function renderTicketCancelacionTexto(x: ComprobanteClienta, cfg: NegocioCfg = NEGOCIOS[x.venta.tienda]!, negocios = NEGOCIOS): string {
+  const c = cfg.columnas;
+  const regla = '-'.repeat(c);
+  const local = new Date(Date.parse(x.ocurrio_en) - 7 * 3600_000).toISOString();
+  const [y, mo, dd] = fechaLocal(x.ocurrio_en).split('-');
+  const L: string[] = [centrar(cfg.nombre, c), ...encabezadoDe(cfg).flatMap((t) => envolver(t, c).map((u) => centrar(u, c))), centrar(`Tienda ${x.tienda} - Caja ${x.caja}`, c), centrar(TITULO_COMPROBANTE.cancelacion, c)];
+  L.push(`Vendedora-Cajera: ${x.cajero}`.slice(0, c), `Fecha: ${dd}/${mo}/${y}  Hora: ${local.slice(11, 16)}`, `Venta cancelada: ${codigoTicket(x.venta.tienda, x.venta.caja, x.venta.folio, negocios)}`, regla);
+  for (const dl of x.lineas) {
+    const l = x.venta.lineas.find((q) => q.linea_id === dl.linea_id)!;
+    L.push(...renglonArticulo({ ...l, qty: dl.qty, tarjeta_regalo: !!l.tarjeta_regalo }, c));
+    L.push(...renglonIdentificacion({ ...l, qty: dl.qty, tarjeta_regalo: !!l.tarjeta_regalo }, dl.importe, c, false));
+  }
+  L.push(regla, dos('TOTAL DEVUELTO', formatoMXN(x.importe), c));
+  for (const r of x.reembolsos) L.push(dos(textoReembolso(r), formatoMXN(r.monto), c));
+  if (x.motivo) L.push(...envolver(`Motivo: ${x.motivo}`, c));
+  if (x.autorizado_por) L.push(...envolver(`Autorizó: ${x.autorizado_por}`, c));
+  L.push(regla, centrar(codigoTicket(x.venta.tienda, x.venta.caja, x.venta.folio, negocios), c));
+  return L.join('\n') + '\n';
+}
+
+/** Segundo ticket: el que firma la clienta («Recibí devolución…» / «Recibí cambio del artículo…»). Se queda en la tienda. */
+export function renderTicketFirmaTexto(x: ComprobanteClienta, cfg: NegocioCfg = NEGOCIOS[x.venta.tienda]!, negocios = NEGOCIOS): string {
+  const c = cfg.columnas;
+  const regla = '-'.repeat(c);
+  const local = new Date(Date.parse(x.ocurrio_en) - 7 * 3600_000).toISOString();
+  const [y, mo, dd] = fechaLocal(x.ocurrio_en).split('-');
+  const L: string[] = [centrar(cfg.nombre, c), centrar(`Tienda ${x.tienda} - Caja ${x.caja}`, c), centrar(`COMPROBANTE DE ${TITULO_COMPROBANTE[x.tipo]}`, c), centrar('COPIA PARA LA TIENDA (FIRMA)', c)];
+  L.push(`Fecha: ${dd}/${mo}/${y}  Hora: ${local.slice(11, 16)}`, `Folio: ${String(x.folio).padStart(6, '0')}`, `Venta original: ${codigoTicket(x.venta.tienda, x.venta.caja, x.venta.folio, negocios)}`, `Vendedora-Cajera: ${x.cajero}`.slice(0, c));
+  if (x.autorizado_por) L.push(...envolver(`Autorizó: ${x.autorizado_por}`, c));
+  L.push(regla);
+  if (x.clienta) L.push(...envolver(`Clienta: ${x.clienta.nombre}`, c), `Teléfono: ${x.clienta.telefono}`.slice(0, c));
+  if (x.motivo) L.push(...envolver(`Motivo: ${x.motivo}`, c));
+  L.push(regla);
+  const articulos = x.lineas.flatMap((dl) => {
+    const l = x.venta.lineas.find((q) => q.linea_id === dl.linea_id)!;
+    return renglonArticulo({ ...l, qty: dl.qty, tarjeta_regalo: !!l.tarjeta_regalo }, c);
+  });
+  if (x.tipo === 'cambio') {
+    L.push(...envolver('Recibí cambio del artículo:', c), ...articulos);
+    if (x.se_lleva?.length) L.push('Me llevo a cambio:', ...x.se_lleva.flatMap((p) => envolverConSangria(`${p.qty} `, p.descripcion, c)));
+  } else {
+    L.push(...envolver(`Recibí devolución por ${formatoMXN(x.importe)} de:`, c), ...articulos);
+  }
+  for (const r of x.reembolsos) L.push(dos(textoReembolso(r), formatoMXN(r.monto), c));
+  L.push('', '', '_'.repeat(Math.min(c, 32)), 'Nombre y firma de la clienta', regla);
+  return L.join('\n') + '\n';
+}
+
 /** Texto plano a ESC/POS (mismo supuesto de página de códigos que el ticket; sin validar en equipo real). */
 export function renderTextoEscPos(texto: string, opts: { abrirCajon?: boolean } = {}): Uint8Array {
   const b: number[] = [0x1b, 0x40, 0x1b, 0x74, 19];

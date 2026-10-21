@@ -204,7 +204,7 @@ describe('[navegador real — Chromium con Playwright, UI sobre SQLite]', { time
     const { page, errores } = await pagina(browser, adm.url);
     await page.waitForSelector('#tabla-inv-resumen'); // Administración abre en Inventario
     assert.equal(await page.getAttribute('#nav button[aria-current="page"]', 'data-vista'), 'inventario');
-    assert.deepEqual(await page.$$eval('#nav button', (b) => b.map((x) => x.textContent)), ['Inventario', 'Almacén', 'Promociones', 'Tarjetas de regalo', 'Reportes', 'Análisis', 'Cortes', 'Configuración']);
+    assert.deepEqual(await page.$$eval('#nav button', (b) => b.map((x) => x.textContent)), ['Inventario', 'Almacén', 'Promociones', 'Tarjetas de regalo', 'Reportes', 'Historial de ventas', 'Análisis', 'Cortes', 'Configuración']);
     await page.click('#nav button[data-vista="reportes"]');
     await page.waitForSelector('#filtros');
     await page.fill('#desde', '2026-10-01');
@@ -502,6 +502,9 @@ describe('[navegador real — Chromium con Playwright, UI sobre SQLite]', { time
     await page.fill('[data-venta-propia] input[data-linea]', '1');
     await page.screenshot({ path: join(CAPTURAS, '14-cambio-o-devolucion.png') });
     await page.click('[data-venta-propia] button[type="submit"]');
+    await page.waitForSelector('#dlg-datos-cambio[open]');
+    await page.fill('#dc-nombre', 'Ana López'); await page.fill('#dc-telefono', '6531234567'); await page.fill('#dc-motivo', 'no le quedó');
+    await page.click('#form-datos-cambio button[type=submit]');
     await page.waitForSelector('#cuerpo tr.fila-cambio');
     assert.match((await page.textContent('#cuerpo tr.fila-cambio'))!, /JEANS[\s\S]*-1[\s\S]*-\$899\.00/);
     assert.equal(await page.textContent('#dd-cambio'), '-$899.00');

@@ -85,12 +85,13 @@ export async function atender(o: { cajero?: ServicioCaja; admin?: ServicioAdmin 
       case 'POST /api/folios/confirmar': return ok(exigirCajero().confirmarFolio({ siguiente: Number(b.siguiente), evidencia: { tipo: String(b.evidencia?.tipo ?? ''), referencia: String(b.evidencia?.referencia ?? '') }, sin_anclas: !!b.sin_anclas, autoriza: b.autoriza }));
       case 'GET /api/venta/vendedoras': return ok(exigirCajero().vendedoras());
       case 'POST /api/venta/vendedora': return ok(exigirCajero().asignarVendedora(b.cart, b.vendedora_id ?? null));
-      case 'POST /api/venta/cambio/iniciar': return ok(exigirCajero().iniciarCambio(b.cart, String(b.sale_id ?? ''), b.renglones ?? []));
+      case 'POST /api/venta/cambio/iniciar': return ok(exigirCajero().iniciarCambio(b.cart, String(b.sale_id ?? ''), b.renglones ?? [], { clienta: b.clienta, motivo: b.motivo }));
       case 'POST /api/venta/cambio/quitar': return ok(exigirCajero().quitarCambio(b.cart));
       case 'GET /api/venta/autorizadores-efectivo': return ok(exigirCajero().autorizadoresEfectivo());
       case 'POST /api/venta/cambio/devolver-dinero': return ok(await exigirCajero().devolverEfectivoCambio(b.cart, b.autoriza));
       case 'GET /api/venta/autorizadores': return ok(exigirCajero().autorizadores());
-      case 'POST /api/venta/cancelar': return ok(exigirCajero().cancelarVenta(b.sale_id, String(b.motivo ?? 'cancelada'), b.autoriza));
+      case 'POST /api/venta/cancelar': return ok(await exigirCajero().revertirVenta({ sale_id: String(b.sale_id ?? ''), motivo: b.motivo, clienta: b.clienta, autoriza: b.autoriza }));
+      case 'GET /api/venta/detalle': return ok(exigirCajero().detalleVenta(q.get('sale_id') ?? ''));
       case 'POST /api/venta/cobrar-tarjeta': return ok(await exigirCajero().cobrarTarjetaManual(b.cart, { importe: b.importe === undefined || b.importe === null ? undefined : Number(b.importe), autorizacion: String(b.autorizacion ?? ''), marca: b.marca, ultimos4: b.ultimos4 }));
       case 'POST /api/venta/cobrar-regalo': return ok(await exigirCajero().cobrarTarjetaRegalo(b.cart, String(b.codigo ?? ''), b.recibido === undefined || b.recibido === null ? undefined : Number(b.recibido), Number(b.usd ?? 0)));
       case 'GET /api/tarjeta': return ok({ tarjeta: exigirCajero().consultarTarjeta(q.get('codigo') ?? '') });
@@ -173,6 +174,11 @@ export async function atender(o: { cajero?: ServicioCaja; admin?: ServicioAdmin 
         const f = { cajas: cajasParam(q.get('cajas')), desde: q.get('desde') || undefined, hasta: q.get('hasta') || undefined };
         return ok({ reporte: A3.descuentos(f), ...(q.get('completo') === '1' ? { hoja: A3.hojaDescuentos(f) } : {}) });
       }
+      case 'GET /api/admin/ventas': {
+        const A7 = exigirAdmin();
+        return ok(A7.historialVentas({ cajas: cajasParam(q.get('cajas')), desde: q.get('desde') || undefined, hasta: q.get('hasta') || undefined, folio: q.get('folio') ? Number(q.get('folio')) : undefined }));
+      }
+      case 'GET /api/admin/venta': return ok(exigirAdmin().detalleVenta(q.get('sale_id') ?? ''));
       case 'GET /api/admin/reporte-ventas': {
         const A5 = exigirAdmin();
         const f = { cajas: cajasParam(q.get('cajas')), desde: q.get('desde') || undefined, hasta: q.get('hasta') || undefined, historicas: q.get('historicas') !== '0' };
