@@ -76,14 +76,14 @@ describe('[navegador real] Historial con detalle de venta y «Revertir venta»',
     await page.fill('#rv-clave', '8765');
     await page.click('#rv-ok');
     await page.waitForFunction(() => /revertida/.test(document.querySelector('#mensaje-hist')?.textContent ?? ''));
-    assert.match((await page.textContent('#mensaje-hist'))!, /Venta 000001 revertida[\s\S]*CANCELACIÓN/);
+    assert.match((await page.textContent('#mensaje-hist'))!, /Venta 000001 revertida[\s\S]*VENTA CANCELADA/);
     assert.equal(await page.locator('[data-revertir]').count(), 0, 'una venta cancelada ya no se revierte');
     assert.equal((await page.textContent(`#tabla-ventas tr[data-detalle="${v.sale_id}"] .insignia`))!.trim(), 'cancelada');
 
     // dos tickets impresos: el de la clienta y el comprobante que firma
     const impresos = readdirSync(caja.s.impresora.dir).filter((f) => f.endsWith('.txt')).sort().map((f) => readFileSync(join(caja.s.impresora.dir, f), 'utf8'));
-    assert.match(impresos.at(-2)!, /CANCELACIÓN/);
-    assert.match(impresos.at(-1)!, /COMPROBANTE DE CANCELACIÓN[\s\S]*Ana López[\s\S]*Recibí devolución/);
+    assert.match(impresos.at(-2)!, /VENTA CANCELADA/);
+    assert.match(impresos.at(-1)!, /VENTA CANCELADA[\s\S]*COPIA PARA LA TIENDA[\s\S]*Ana López[\s\S]*Recibí devolución/);
 
     // el detalle de la venta cancelada muestra quién, por qué y los datos de la clienta
     await page.click(`#tabla-ventas tr[data-detalle="${v.sale_id}"] td:first-child`);

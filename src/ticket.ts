@@ -337,7 +337,7 @@ export function renderTicketDevolucionTexto(d: Devolucion, v: Venta, cfg: Negoci
   const regla = '-'.repeat(c);
   const local = new Date(Date.parse(d.ocurrio_en) - 7 * 3600_000).toISOString();
   const [y, mo, dd] = fechaLocal(d.ocurrio_en).split('-');
-  const L: string[] = [centrar(cfg.nombre, c), ...encabezadoDe(cfg).flatMap((x) => envolver(x, c).map((y) => centrar(y, c))), centrar(`Tienda ${d.tienda} - Caja ${d.caja}`, c), centrar(d.por_cambio ? 'CAMBIO' : 'DEVOLUCIÓN', c)];
+  const L: string[] = [centrar(cfg.nombre, c), ...encabezadoDe(cfg).flatMap((x) => envolver(x, c).map((y) => centrar(y, c))), centrar(`Tienda ${d.tienda} - Caja ${d.caja}`, c), centrar(d.por_cambio ? TITULO_COMPROBANTE.cambio : TITULO_COMPROBANTE.devolucion, c)];
   L.push(`Vendedora-Cajera: ${d.cajero}`.slice(0, c), `Fecha: ${dd}/${mo}/${y}  Hora: ${local.slice(11, 16)}`, `Folio: ${String(d.folio ?? 0).padStart(6, '0')}`);
   L.push(`Venta original: ${codigoTicket(v.tienda, v.caja, v.folio, negocios)}`, regla);
   for (const dl of d.lineas) {
@@ -373,10 +373,10 @@ export interface ComprobanteClienta {
   /** Cambio: lo que se lleva a cambio (de la venta nueva). */
   se_lleva?: { descripcion: string; qty: number }[];
 }
-const TITULO_COMPROBANTE = { cambio: 'CAMBIO', devolucion: 'DEVOLUCIÓN', cancelacion: 'CANCELACIÓN' } as const;
+const TITULO_COMPROBANTE = { cambio: 'SE HIZO CAMBIO', devolucion: 'RECIBÍ DEVOLUCIÓN', cancelacion: 'VENTA CANCELADA' } as const;
 const textoReembolso = (r: ComprobanteClienta['reembolsos'][number]) => (r.metodo === 'efectivo' ? 'Reembolso en efectivo MXN' : r.metodo === 'tarjeta' ? 'Reverso a tarjeta bancaria' : `A tarjeta de regalo ${r.tarjeta}`);
 
-/** Ticket de la clienta al revertir una venta: dice CANCELACIÓN (los cambios y devoluciones usan renderTicketDevolucionTexto). */
+/** Ticket de la clienta al revertir una venta: dice VENTA CANCELADA (los cambios y devoluciones usan renderTicketDevolucionTexto). */
 export function renderTicketCancelacionTexto(x: ComprobanteClienta, cfg: NegocioCfg = NEGOCIOS[x.venta.tienda]!, negocios = NEGOCIOS): string {
   const c = cfg.columnas;
   const regla = '-'.repeat(c);
@@ -403,7 +403,7 @@ export function renderTicketFirmaTexto(x: ComprobanteClienta, cfg: NegocioCfg = 
   const regla = '-'.repeat(c);
   const local = new Date(Date.parse(x.ocurrio_en) - 7 * 3600_000).toISOString();
   const [y, mo, dd] = fechaLocal(x.ocurrio_en).split('-');
-  const L: string[] = [centrar(cfg.nombre, c), centrar(`Tienda ${x.tienda} - Caja ${x.caja}`, c), centrar(`COMPROBANTE DE ${TITULO_COMPROBANTE[x.tipo]}`, c), centrar('COPIA PARA LA TIENDA (FIRMA)', c)];
+  const L: string[] = [centrar(cfg.nombre, c), centrar(`Tienda ${x.tienda} - Caja ${x.caja}`, c), centrar(TITULO_COMPROBANTE[x.tipo], c), centrar('COPIA PARA LA TIENDA (FIRMA)', c)];
   L.push(`Fecha: ${dd}/${mo}/${y}  Hora: ${local.slice(11, 16)}`, `Folio: ${String(x.folio).padStart(6, '0')}`, `Venta original: ${codigoTicket(x.venta.tienda, x.venta.caja, x.venta.folio, negocios)}`, `Vendedora-Cajera: ${x.cajero}`.slice(0, c));
   if (x.autorizado_por) L.push(...envolver(`Autorizó: ${x.autorizado_por}`, c));
   L.push(regla);

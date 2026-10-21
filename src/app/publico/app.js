@@ -1162,7 +1162,7 @@ async function vistaVentas() {
     const m = $('#mensaje-hist');
     const fallas = [r.impresion, r.impresion_firma].filter((x) => x && !x.ok);
     m.className = fallas.length ? 'mensaje aviso' : 'mensaje ok';
-    m.textContent = `Venta ${String(r.venta.folio).padStart(6, '0')} revertida. ${fallas.length ? `La impresora falló: ${fallas[0].error}. La cancelación SÍ quedó guardada; reimprima el ticket cuando se pueda.` : 'Se imprimieron el ticket de CANCELACIÓN de la clienta y el comprobante que ella firma.'}`;
+    m.textContent = `Venta ${String(r.venta.folio).padStart(6, '0')} revertida. ${fallas.length ? `La impresora falló: ${fallas[0].error}. La cancelación SÍ quedó guardada; reimprima el ticket cuando se pueda.` : 'Se imprimieron el ticket de VENTA CANCELADA de la clienta y el comprobante que ella firma.'}`;
   };
   $('#form-historial').addEventListener('submit', async (ev) => { ev.preventDefault(); S.fechaHistorial = $('#hist-fecha').value || hoy; S.folioHistorial = $('#hist-folio').value; await recargar(); });
   const mostrarError = (e) => { const m = $('#mensaje-hist'); m.className = 'mensaje error'; m.textContent = e.message; };

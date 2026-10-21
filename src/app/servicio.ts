@@ -224,7 +224,7 @@ export class ServicioCaja {
     const v = this.caja.cancelarVenta(saleId, motivo, this.actor.usuario, autoriza, clienta);
     return { venta: v };
   }
-  /** «Revertir venta» desde el Historial: exige nombre y teléfono de la clienta, el motivo y la clave de otra persona. Imprime el ticket de la clienta (CANCELACIÓN) y el que ella firma. */
+  /** «Revertir venta» desde el Historial: exige nombre y teléfono de la clienta, el motivo y la clave de otra persona. Imprime el ticket de la clienta (VENTA CANCELADA) y el que ella firma. */
   async revertirVenta(d: { sale_id: string; motivo?: string; clienta?: Partial<DatosClienta>; autoriza?: { nombre: string; clave: string } }) {
     const datos = validarDatosClienta(d);
     const antes = ventas(this.caja.opsVentas()).get(d.sale_id);
