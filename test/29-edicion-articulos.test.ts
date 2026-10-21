@@ -8,6 +8,37 @@ const ENC = ['CANTIDAD', 'DESCRIPCION', 'ESTILO', 'MARCA', 'CODIGO', 'PRECIO', '
 porAlmacen('Inventario: lista completa por páginas, edición de artículos e historial', (alm) => {
   const admin = (ctx: ReturnType<typeof nuevoMundo>) => new ServicioAdmin({ central: ctx.m.central, actor: { rol: 'admin', usuario: 'galo' }, fuente: () => ctx.m.central.repo.ops(), cajas: [{ tienda: 'DUO', caja: 1 }, { tienda: 'LON', caja: 1 }], inventario: ctx.m.inventarioCentral() });
 
+  it('IN9 orden (nuevo, abc, marca, lote, caro) y filtros por campo: «Lote=202610», «marca:levis», «precio>=200», con espacios y comillas', (t) => {
+    const ctx = nuevoMundo(alm, politica());
+    t.after(ctx.limpiar);
+    const a = admin(ctx);
+    const fila = (desc: string, marca: string, precio: number, lote: string, estilo = 'E1') => [1, desc, estilo, marca, `7${desc.length}${precio}${lote}`, precio, lote, 'DAMA'];
+    a.altaLote({ lote_id: 'LF', filas: [ENC, fila('BLUSA', 'LEVIS', 150, '20261014'), fila('FALDA', 'ACME', 300, '20260901'), fila('ABRIGO', 'LA MAR', 900, '20261022', '123L')] as never });
+    ctx.m.pump();
+    const MIAS = ['BLUSA', 'FALDA', 'ABRIGO'];
+    const lista = (q: string, orden?: string) => a.buscarArticulos(q, 50, 0, true, orden).articulos.map((x) => x.descripcion).filter((d) => MIAS.includes(d));
+    assert.deepEqual(lista('', 'viejo'), ['BLUSA', 'FALDA', 'ABRIGO'], 'más viejo = Item # menor primero (orden de alta)');
+    assert.deepEqual(lista('', 'nuevo'), ['ABRIGO', 'FALDA', 'BLUSA'], 'más nuevo = Item # mayor primero');
+    assert.deepEqual(lista('', 'abc'), ['ABRIGO', 'BLUSA', 'FALDA']);
+    assert.deepEqual(lista('', 'marca'), ['FALDA', 'ABRIGO', 'BLUSA'], 'ACME, LA MAR, LEVIS');
+    assert.deepEqual(lista('', 'lote'), ['ABRIGO', 'BLUSA', 'FALDA'], 'lote más reciente primero');
+    assert.deepEqual(lista('', 'cara'), ['ABRIGO', 'FALDA', 'BLUSA']);
+    assert.deepEqual(lista('', 'barata'), ['BLUSA', 'FALDA', 'ABRIGO']);
+    assert.deepEqual(lista('Lote=202610', 'abc'), ['ABRIGO', 'BLUSA'], 'Lote=202610 filtra por lote (contiene)');
+    assert.deepEqual(lista('lote = 202610', 'abc'), ['ABRIGO', 'BLUSA'], 'con espacios alrededor del =');
+    assert.deepEqual(lista('LOTE:20260901'), ['FALDA']);
+    assert.deepEqual(lista('marca="la mar"'), ['ABRIGO']);
+    assert.deepEqual(lista('marca=le'), ['BLUSA']);
+    assert.deepEqual(lista('estilo=123l'), ['ABRIGO']);
+    assert.deepEqual(lista('precio>=200', 'cara'), ['ABRIGO', 'FALDA']);
+    assert.deepEqual(lista('precio<200'), ['BLUSA']);
+    assert.deepEqual(lista('precio=300'), ['FALDA']);
+    assert.deepEqual(lista('lote=2026 precio>100 falda'), ['FALDA'], 'filtros y palabras se combinan');
+    assert.deepEqual(lista('lote=', 'abc'), ['ABRIGO', 'BLUSA', 'FALDA'], '«lote=» a medio escribir no filtra todavía');
+    assert.deepEqual(a.buscarArticulos('lote=202610', 50, 0, false).articulos.map((x) => x.descripcion).filter((d) => MIAS.includes(d)).sort(), ['ABRIGO', 'BLUSA'], 'un filtro también basta sin «todos»');
+    assert.ok(a.buscarArticulos('lote=', 50, 0, false).total === 0, '«lote=» sin «todos» tampoco lista todo');
+  });
+
   it('IN1 lista todo el catálogo de 50 en 50 (o el tamaño pedido), ordenado por Item #, con existencias; el texto filtra', (t) => {
     const ctx = nuevoMundo(alm, politica());
     t.after(ctx.limpiar);

@@ -130,7 +130,7 @@ export async function atender(o: { cajero?: ServicioCaja; admin?: ServicioAdmin 
       case 'POST /api/admin/permisos': return ok(exigirAdmin().asignarPermisoTipoCambio(String(b.usuario ?? ''), !!b.editar_tipo_cambio));
       case 'GET /api/admin/tiendas': return ok({ tiendas: exigirAdmin().tiendasInfo() });
       case 'POST /api/admin/tiendas': return ok(exigirAdmin().guardarDatosTienda(String(b.tienda ?? ''), { ...b, tienda: undefined }));
-      case 'GET /api/admin/articulos': return ok(exigirAdmin().buscarArticulos(q.get('q') ?? '', Math.min(200, Number(q.get('limite')) || 30), Number(q.get('desde')) || 0, q.get('todos') === '1'));
+      case 'GET /api/admin/articulos': return ok(exigirAdmin().buscarArticulos(q.get('q') ?? '', Math.min(200, Number(q.get('limite')) || 30), Number(q.get('desde')) || 0, q.get('todos') === '1', q.get('orden') ?? 'viejo'));
       case 'POST /api/admin/articulos': return ok(exigirAdmin().editarArticulo(String(b.item_id ?? ''), b.cambios ?? {}));
       case 'GET /api/admin/articulo/historial': return ok(exigirAdmin().historialArticulo(q.get('item_id') ?? ''));
       case 'GET /api/admin/recompensas': return ok(exigirAdmin().recompensas());

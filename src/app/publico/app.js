@@ -1090,11 +1090,12 @@ async function exportarInventario() {
   document.body.appendChild(a); a.click(); a.remove();
   return 'Descarga iniciada.';
 }
+const ORDENES_INV = [['nuevo', 'Más nuevo primero'], ['viejo', 'Más viejo primero'], ['abc', 'Descripción (A-Z)'], ['marca', 'Marca (A-Z)'], ['estilo', 'Estilo (A-Z)'], ['lote', 'Lote (más reciente)'], ['cara', 'Más caro primero'], ['barata', 'Más barato primero']];
 async function vistaInventario() {
   const j = await api('/api/admin/inventario');
   const r = j.resumen;
   const tiendas = Object.entries(r.por_tienda);
-  S.inv = { q: S.inv?.q ?? '', pag: 0, por: 50, total: 0, tiendas: [], articulos: [] };
+  S.inv = { q: S.inv?.q ?? '', orden: S.inv?.orden ?? 'nuevo', pag: 0, por: 50, total: 0, tiendas: [], articulos: [] };
   $('#vista').innerHTML = `
     <div class="titulo-vista">${ico('box')}<h1>Inventario</h1></div>
     <div class="panel">
@@ -1113,12 +1114,15 @@ async function vistaInventario() {
       </div>
       <p class="nota">La existencia es la que conoce el central (lo ya sincronizado). Las cantidades de prueba están marcadas como tales en los movimientos.</p>
       <h2>Todos los artículos</h2>
-      <div class="filas" style="align-items:center"><input id="inv-q" type="search" class="texto" placeholder="Buscar por código, Item #, descripción, marca, estilo…" value="${esc(S.inv.q)}" style="padding:6px 8px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie);min-width:320px"><span class="nota">Haga clic en un artículo para editarlo, ver su historial o crearle una promoción.</span></div>
+      <div class="filas barra-busqueda-inv" style="align-items:center"><input id="inv-q" type="search" class="texto" placeholder="Buscar… o filtrar: Lote=202610 · Marca=levis · Estilo=123L · Precio&gt;200" value="${esc(S.inv.q)}" style="padding:6px 8px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie);min-width:320px;flex:1 1 320px" autocapitalize="none" autocorrect="off" spellcheck="false">
+        <label class="orden-inv" for="inv-orden"><span>Ordenar por</span><select id="inv-orden" style="padding:6px 8px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie)">${ORDENES_INV.map(([v, t]) => `<option value="${v}" ${S.inv.orden === v ? 'selected' : ''}>${t}</option>`).join('')}</select></label></div>
+      <p class="nota" id="inv-nota">Toque un artículo para editarlo, ver su historial o crearle una promoción. Para filtrar por un campo escriba, por ejemplo, <b>Lote=202610</b>, <b>Marca=levis</b>, <b>Estilo=123L</b>, <b>Depto=dama</b> o <b>Precio&gt;200</b>; se pueden combinar con palabras.</p>
       <div id="inv-msg" class="mensaje" role="status" aria-live="polite"></div>
       <div id="inv-res" class="tabla-cont"></div>
       <div class="filas" id="inv-pag" style="align-items:center;margin-top:8px"></div>
     </div>`;
   let tmp;
+  $('#inv-orden').addEventListener('change', () => { S.inv.orden = $('#inv-orden').value; S.inv.pag = 0; cargarListaInventario(); });
   $('#inv-q').addEventListener('input', () => { clearTimeout(tmp); tmp = setTimeout(() => { S.inv.q = $('#inv-q').value.trim(); S.inv.pag = 0; cargarListaInventario(); }, 250); });
   $('#btn-exportar').addEventListener('click', async () => {
     const e = $('#estado-exportar');
@@ -1129,7 +1133,7 @@ async function vistaInventario() {
 }
 async function cargarListaInventario() {
   const I = S.inv;
-  const r = await api(`/api/admin/articulos?todos=1&limite=${I.por}&desde=${I.pag * I.por}&q=${encodeURIComponent(I.q)}`);
+  const r = await api(`/api/admin/articulos?todos=1&limite=${I.por}&desde=${I.pag * I.por}&q=${encodeURIComponent(I.q)}&orden=${encodeURIComponent(I.orden)}`);
   Object.assign(I, { total: r.total, tiendas: r.tiendas ?? [], articulos: r.articulos });
   const paginas = Math.max(1, Math.ceil(r.total / I.por));
   $('#inv-res').innerHTML = `<table id="tabla-inv-lista" class="solo-escritorio"><thead><tr><th>Item #</th><th>Código</th><th>Descripción</th><th>Marca</th><th>Estilo</th><th>Lote</th><th>Departamento</th><th class="num">Precio</th>${I.tiendas.map((t) => `<th class="num">${esc(t)}</th>`).join('')}<th class="num">Almacén</th><th class="num">El Limbo</th></tr></thead><tbody>

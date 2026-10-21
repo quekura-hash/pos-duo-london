@@ -98,6 +98,20 @@ describe('[iPhone] Administración en el teléfono', { timeout: 180_000, skip: c
     assert.equal(await filas.count(), 3);
     assert.ok((await filas.first().boundingBox())!.height < 110, 'cada artículo ocupa pocos renglones');
     assert.match((await filas.first().textContent())!, /BLUSA|FALDA/);
+    // Orden y filtros por campo: lo más nuevo primero; «Lote= 20261015» filtra por lote.
+    assert.equal(await page.inputValue('#inv-orden'), 'nuevo');
+    assert.equal(await filas.first().locator('.fi-desc').textContent(), 'FALDA', 'más nuevo primero');
+    await page.selectOption('#inv-orden', 'cara');
+    await page.waitForFunction(() => /\$/.test(document.querySelector('#lista-inv .fila-inv .fi-precio')?.textContent ?? ''));
+    const precios = await page.$$eval('#lista-inv .fi-precio', (x) => x.map((e) => Number(e.textContent!.replace(/[$,]/g, ''))));
+    assert.deepEqual(precios, [...precios].sort((a, b) => b - a), 'más caro primero');
+    await page.fill('#inv-q', 'Lote= 20261015');
+    await page.waitForFunction(() => document.querySelectorAll('#lista-inv .fila-inv').length === 1);
+    assert.match((await filas.first().textContent())!, /123L-N/);
+    await page.fill('#inv-q', '');
+    await page.waitForFunction(() => document.querySelectorAll('#lista-inv .fila-inv').length === 3);
+    await page.selectOption('#inv-orden', 'nuevo');
+    await sinDesborde(page, 'Inventario con orden y buscador');
     assert.equal(await page.locator('.barra-nube').isVisible(), false, 'ya no hay barra amarilla');
     assert.match((await page.textContent('#estado-nube'))!, /Sincronizado/);
     assert.equal(await page.locator('#btn-sync').isVisible(), true);

@@ -229,3 +229,5 @@ tr.fila-usuario:focus-visible { outline: 2px solid var(--primario, currentColor)
 .btn-sync .ico { width: 18px; height: 18px; }
 .sincro-nube.sync .btn-sync .ico { animation: giro 1s linear infinite; }
 @keyframes giro { to { transform: rotate(360deg); } }
+
+.orden-inv { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; }

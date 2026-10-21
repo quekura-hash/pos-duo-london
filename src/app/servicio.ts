@@ -637,6 +637,28 @@ export interface FuenteInventario {
   buscarCodigo?(codigo: string): Articulo[];
 }
 
+type FiltroBusqueda = { campo: string; op: string; texto: string; valor: number };
+const CAMPOS_BUSQUEDA: Record<string, string> = { lote: 'lote', marca: 'marca', estilo: 'estilo', codigo: 'codigo', item: 'item', 'item#': 'item', desc: 'descripcion', descripcion: 'descripcion', depto: 'departamento', departamento: 'departamento', precio: 'precio' };
+/** Separa un texto de búsqueda (ya sin acentos y en minúsculas) en palabras sueltas y filtros por campo: `lote=202610`, `lote = 202610`, `marca:"la mar"`, `precio>=200`. */
+export function analizarBusqueda(texto: string): { palabras: string[]; filtros: FiltroBusqueda[] } {
+  const compacto = texto.replace(/\s*(>=|<=|[=:<>])\s*/g, '$1');
+  const palabras: string[] = [];
+  const filtros: FiltroBusqueda[] = [];
+  for (const m of compacto.matchAll(/(?:([a-z#]+)(>=|<=|[=:<>])(?:"([^"]*)"|(\S*)))|"([^"]*)"|(\S+)/g)) {
+    const campo = m[1] ? CAMPOS_BUSQUEDA[m[1]] : undefined;
+    if (campo) {
+      const valor = (m[3] ?? m[4] ?? '').trim();
+      if (!valor) continue; // «lote=» a medio escribir: no filtra todavía
+      if (campo === 'precio') { const n = Number(valor.replace(/[$,]/g, '')); if (Number.isFinite(n)) filtros.push({ campo, op: m[2] === ':' ? '=' : m[2]!, texto: '', valor: n }); continue; }
+      filtros.push({ campo, op: '=', texto: valor, valor: 0 });
+    } else {
+      const w = (m[5] ?? m[6] ?? m[0]).trim();
+      if (w) palabras.push(w);
+    }
+  }
+  return { palabras, filtros };
+}
+
 export class ServicioAdmin {
   readonly actor: Extract<Actor, { rol: 'admin' }>;
   private usuarioInicial: string;
@@ -749,18 +771,38 @@ export class ServicioAdmin {
   }
   /**
    * Lista y búsqueda de artículos (Inventario y selector de promociones). Sin texto devuelve TODO el catálogo (con `todos`),
-   * ordenado por Item #, en páginas: `desde` y `limite`. Cada artículo trae su existencia por tienda y en el almacén.
+   * en páginas: `desde` y `limite`. Cada artículo trae su existencia por tienda y en el almacén.
+   * El texto admite palabras sueltas (buscan en todo) y filtros por campo: `lote=202610`, `marca=levis`, `estilo=123L`, `codigo=…`, `item=…`,
+   * `desc=…`, `depto=…` (contienen el valor) y `precio>200`, `precio<=500`, `precio=199` (en pesos). Los valores con espacios van entre comillas.
+   * `orden`: nuevo (Item # mayor primero), viejo (por omisión, Item # menor primero), abc (descripción), marca, estilo, lote (más reciente primero), cara, barata.
    */
-  buscarArticulos(texto: string, limite = 30, desde = 0, todos = false) {
+  buscarArticulos(texto: string, limite = 30, desde = 0, todos = false, orden = 'viejo') {
     const sin = (x: string) => x.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
-    const palabras = sin(String(texto ?? '')).split(/\s+/).filter(Boolean);
     const vacio = { articulos: [] as ReturnType<ServicioAdmin['vistaArticulo']>[], total: 0 };
-    if (!palabras.length && !todos) return vacio;
+    const { palabras, filtros } = analizarBusqueda(sin(String(texto ?? '')));
+    if (!palabras.length && !filtros.length && !todos) return vacio;
     const ops = this.fuente();
-    const orden = (a: Articulo) => (a.item_no !== null && /^\d+$/.test(a.item_no) ? Number(a.item_no) : Number.MAX_SAFE_INTEGER);
+    const num = (a: Articulo) => (a.item_no !== null && /^\d+$/.test(a.item_no) ? Number(a.item_no) : null);
+    const campos: Record<string, (a: Articulo) => string> = { lote: (a) => a.lote, marca: (a) => a.marca, estilo: (a) => a.estilo, codigo: (a) => a.codigo, item: (a) => String(a.item_no ?? ''), descripcion: (a) => a.descripcion, departamento: (a) => a.departamento };
+    const cumple = (a: Articulo) => filtros.every((f) => {
+      if (f.campo === 'precio') { const p = a.precio / 100; return f.op === '>' ? p > f.valor : f.op === '>=' ? p >= f.valor : f.op === '<' ? p < f.valor : f.op === '<=' ? p <= f.valor : Math.abs(p - f.valor) < 0.005; }
+      return sin(campos[f.campo]!(a)).includes(f.texto);
+    });
+    const cmpTexto = (x: string, y: string) => sin(x).localeCompare(sin(y), 'es');
+    const porItem = (x: Articulo, y: Articulo) => (num(x) ?? Number.MAX_SAFE_INTEGER) - (num(y) ?? Number.MAX_SAFE_INTEGER) || x.item_id.localeCompare(y.item_id);
+    const porItemDesc = (x: Articulo, y: Articulo) => (num(y) ?? -1) - (num(x) ?? -1) || y.item_id.localeCompare(x.item_id);
+    const comparar: Record<string, (x: Articulo, y: Articulo) => number> = {
+      viejo: porItem, nuevo: porItemDesc,
+      abc: (x, y) => cmpTexto(x.descripcion, y.descripcion) || porItemDesc(x, y),
+      marca: (x, y) => (!x.marca ? 1 : 0) - (!y.marca ? 1 : 0) || cmpTexto(x.marca, y.marca) || porItemDesc(x, y),
+      estilo: (x, y) => (!x.estilo ? 1 : 0) - (!y.estilo ? 1 : 0) || cmpTexto(x.estilo, y.estilo) || porItemDesc(x, y),
+      lote: (x, y) => (!x.lote ? 1 : 0) - (!y.lote ? 1 : 0) || y.lote.localeCompare(x.lote) || porItemDesc(x, y),
+      cara: (x, y) => y.precio - x.precio || porItemDesc(x, y),
+      barata: (x, y) => x.precio - y.precio || porItemDesc(x, y),
+    };
     const hallados = [...catalogo(ops).values()]
-      .filter((a) => !palabras.length || palabras.every((w) => sin(`${a.codigo} ${a.item_no ?? ''} ${a.descripcion} ${a.marca} ${a.estilo} ${a.lote} ${a.departamento}`).includes(w)))
-      .sort((x, y) => orden(x) - orden(y) || x.item_id.localeCompare(y.item_id));
+      .filter((a) => cumple(a) && (!palabras.length || palabras.every((w) => sin(`${a.codigo} ${a.item_no ?? ''} ${a.descripcion} ${a.marca} ${a.estilo} ${a.lote} ${a.departamento}`).includes(w))))
+      .sort(comparar[orden] ?? porItem);
     const ex = existenciaAlmacen(ops);
     return { articulos: hallados.slice(Math.max(0, desde), Math.max(0, desde) + limite).map((a) => this.vistaArticulo(a, ex.get(a.item_id)?.existencia ?? 0)), total: hallados.length, tiendas: this.tiendas() };
   }
