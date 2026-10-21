@@ -19,6 +19,8 @@
   <label for="impresora">Impresora (la de Windows, por su nombre)</label>
   <select id="impresora"></select>
   <div class="fila"><button id="refrescar" type="button">Volver a leer impresoras</button></div>
+  <label for="impresora-manual">¿No aparece? Escriba el nombre exacto como se ve en Windows (Configuración › Impresoras)</label>
+  <input id="impresora-manual" type="text" placeholder="Ej.: EPSON TM-T20II Receipt">
   <p class="nota">Se manda ESC/POS directo, sin diálogo de impresión. El cajón va conectado a la impresora (cable RJ11) y se abre con la misma orden de impresión.</p>
   <div class="fila">
     <button id="guardar-imp" class="pri" type="button">Guardar impresora</button>
@@ -64,6 +66,7 @@
       sel.innerHTML = '<option value="">(elija una impresora)</option>' + lista.map((p) => `<option value="${p.nombre.replace(/"/g, '&quot;')}">${p.nombre.replace(/</g, '&lt;')} — ${p.puerto.replace(/</g, '&lt;')}${p.sinConexion ? ' (sin conexión)' : ''}</option>`).join('');
       if (ajustes.impresora && !lista.some((p) => p.nombre === ajustes.impresora)) sel.insertAdjacentHTML('beforeend', `<option value="${ajustes.impresora.replace(/"/g, '&quot;')}">${ajustes.impresora.replace(/</g, '&lt;')} (guardada, no aparece instalada)</option>`);
       sel.value = ajustes.impresora || '';
+      $('#impresora-manual').value = '';
       msg('#msg-imp', lista.length ? '' : 'Windows no reporta impresoras instaladas.', lista.length ? '' : 'mal');
     } catch (e) {
       sel.innerHTML = '<option value="">(no se pudo leer la lista)</option>';
@@ -71,7 +74,7 @@
     }
   }
   const limpio = (e) => String(e && e.message || e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '');
-  async function guardarImpresora() { ajustes = await posAjustes.guardar({ impresora: $('#impresora').value }); return ajustes; }
+  async function guardarImpresora() { ajustes = await posAjustes.guardar({ impresora: $('#impresora-manual').value.trim() || $('#impresora').value }); return ajustes; }
   async function probar(tipo) {
     msg('#msg-imp', 'Enviando…');
     try { await guardarImpresora(); msg('#msg-imp', await posAjustes.probar(tipo), 'ok'); } catch (e) { msg('#msg-imp', limpio(e), 'mal'); }

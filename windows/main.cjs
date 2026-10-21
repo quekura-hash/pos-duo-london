@@ -202,7 +202,10 @@ if (!app.requestSingleInstanceLock()) {
   app.setAppUserModelId('mx.londuo.pos');
   void app.whenReady().then(() => {
     ajustes = crearAjustes(app.getPath('userData'));
-    impresora = crearImpresoraRaw({ dirTmp: path.join(app.getPath('temp'), 'londuo-pos') });
+    impresora = crearImpresoraRaw({
+      dirTmp: path.join(app.getPath('temp'), 'londuo-pos'),
+      listarAlterno: async () => (await (ventana && !ventana.isDestroyed() ? ventana : ventanaAjustes).webContents.getPrintersAsync()).map((p) => ({ nombre: p.name, predeterminada: !!p.isDefault, puerto: '', controlador: '', sinConexion: false })),
+    });
     protocol.handle('londuo', (req) => {
       const rel = decodeURIComponent(new URL(req.url).pathname).replace(/^\/+/, '') || 'index.html';
       const archivo = path.normalize(path.join(DIR_APP, rel));

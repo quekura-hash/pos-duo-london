@@ -55,7 +55,9 @@ ConvertTo-Json -InputObject $l -Compress
 function ejecutarReal(cmd, args, opciones = {}) {
   return new Promise((resolve) => {
     execFile(cmd, args, { windowsHide: true, timeout: opciones.timeout ?? 30000, maxBuffer: 4 * 1024 * 1024, encoding: 'utf8' }, (error, stdout, stderr) => {
-      resolve({ code: error ? (typeof error.code === 'number' ? error.code : 1) : 0, stdout: String(stdout ?? ''), stderr: String(stderr ?? (error ? error.message : '')) });
+      // Si PowerShell ni siquiera arrancó (ENOENT, bloqueado) o se colgó (timeout), stderr viene vacío: el motivo está en `error`.
+      const motivo = error ? (error.killed ? 'PowerShell no respondió a tiempo (30 s).' : `no se pudo iniciar PowerShell (${error.code ?? error.message}).`) : '';
+      resolve({ code: error ? (typeof error.code === 'number' ? error.code : 1) : 0, stdout: String(stdout ?? ''), stderr: String(stderr || motivo) });
     });
   });
 }
@@ -75,7 +77,8 @@ function crearImpresoraRaw(o = {}) {
   const sistema = o.fs ?? fs;
   const dirTmp = o.dirTmp ?? path.join(os.tmpdir(), 'londuo-pos');
   const plataforma = o.plataforma ?? process.platform;
-  const ps = o.powershell ?? 'powershell.exe';
+  // Ruta completa: no depende de que el PATH de esta computadora incluya PowerShell.
+  const ps = o.powershell ?? (process.env.SystemRoot ? path.join(process.env.SystemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe') : 'powershell.exe');
   let cola = Promise.resolve();
   let contador = 0;
 
@@ -89,12 +92,16 @@ function crearImpresoraRaw(o = {}) {
   const soloWindows = () => { if (plataforma !== 'win32') throw new Error('La impresión directa solo existe en Windows.'); };
 
   return {
-    /** Impresoras instaladas en Windows. */
+    /** Impresoras instaladas en Windows (por PowerShell; si falla, por la lista de Electron). */
     async listar() {
       soloWindows();
       const script = escribirScript('listar.ps1', SCRIPT_LISTAR);
       const r = await ejecutar(ps, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', script]);
-      if (r.code !== 0) throw new Error(`No se pudo leer la lista de impresoras: ${mensajeDeError(r.stderr)}`);
+      if (r.code !== 0) {
+        // Plan B: la lista que ya conoce Electron (no usa PowerShell).
+        if (o.listarAlterno) { try { const alt = await o.listarAlterno(); if (alt.length) return alt; } catch { /* se informa el error original */ } }
+        throw new Error(`No se pudo leer la lista de impresoras: ${mensajeDeError(r.stderr)}`);
+      }
       let datos;
       try { datos = JSON.parse(r.stdout.trim() || '[]'); } catch { throw new Error('Windows devolvió la lista de impresoras en un formato que no se entiende.'); }
       return (Array.isArray(datos) ? datos : [datos]).filter((x) => x && x.Name).map((x) => ({ nombre: String(x.Name), predeterminada: !!x.Default, puerto: String(x.PortName ?? ''), controlador: String(x.DriverName ?? ''), sinConexion: !!x.WorkOffline }));

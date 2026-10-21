@@ -41,6 +41,16 @@ describe('[app de Windows] impresión directa por la cola de Windows (RAW)', () 
     assert.ok(SCRIPT_ENVIAR.includes('WritePrinter') && SCRIPT_ENVIAR.includes('StartDocPrinterW'));
   });
 
+  it('W1b si PowerShell no arranca, usa la lista de Electron; sin plan B, dice el motivo real', async () => {
+    const memoria = fsMemoria();
+    const sinPowerShell = async () => ({ code: 1, stdout: '', stderr: 'no se pudo iniciar PowerShell (ENOENT).' });
+    const alterna = [{ nombre: 'EPSON TM-T20II Receipt', predeterminada: true, puerto: '', controlador: '', sinConexion: false }];
+    const conPlanB = crearImpresoraRaw({ ejecutar: sinPowerShell, fs: memoria as never, dirTmp: '/tmp/x', plataforma: 'win32', listarAlterno: async () => alterna });
+    assert.deepEqual(await conPlanB.listar(), alterna);
+    const sinPlanB = crearImpresoraRaw({ ejecutar: sinPowerShell, fs: memoria as never, dirTmp: '/tmp/x', plataforma: 'win32' });
+    await assert.rejects(() => sinPlanB.listar(), /ENOENT/);
+  });
+
   it('W2 los errores llegan en español y un fallo no frena los siguientes trabajos', async () => {
     const memoria = fsMemoria();
     let n = 0;
