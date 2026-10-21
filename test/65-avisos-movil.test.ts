@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { chromium, devices } from 'playwright-core';
@@ -8,7 +9,8 @@ import { centralLocal, usuario } from './ayudas/central-pglite.ts';
 import { pruebas, simularSupabase, URL_CENTRAL } from './ayudas/supabase-simulado.ts';
 
 const RAIZ = join(import.meta.dirname, '..');
-const HTML = join(RAIZ, 'dist', 'administracion.html');
+const DIST = mkdtempSync(join(tmpdir(), 'londuo-admin-'));
+const HTML = join(DIST, 'administracion.html');
 const chromiumPath = [process.env.POS_CHROMIUM, '/opt/pw-browsers/chromium-1194/chrome-linux/chrome', '/opt/pw-browsers/chromium/chrome-linux/chrome'].find((p) => p && existsSync(p));
 const { defaultBrowserType: _omitido, ...IPHONE } = devices['iPhone 13']!;
 void _omitido;
@@ -16,7 +18,7 @@ const VAPID = 'BEl62iUYgUivxIkv69yViEuiBIa-Ib9-SkvMeAtA3LFgDzkrxZJjSgSnfckjBJuBk
 
 describe('[iPhone] Avisos de la Administración', { timeout: 180_000, skip: chromiumPath ? false : 'Chromium no encontrado' }, () => {
   it('AV1 activar avisos, elegir qué avisar, pausar, probar y desactivar', async (t) => {
-    execFileSync(process.execPath, [join(RAIZ, 'scripts', 'construir-admin.mjs')], { stdio: 'pipe', env: { ...process.env, LONDUO_SUPABASE_URL: URL_CENTRAL, LONDUO_SUPABASE_KEY: 'sb_publishable_prueba', LONDUO_VAPID_PUBLICA: VAPID } });
+    execFileSync(process.execPath, [join(RAIZ, 'scripts', 'construir-admin.mjs')], { stdio: 'pipe', env: { ...process.env, LONDUO_DIST: DIST, LONDUO_SUPABASE_URL: URL_CENTRAL, LONDUO_SUPABASE_KEY: 'sb_publishable_prueba', LONDUO_VAPID_PUBLICA: VAPID } });
     const db = await centralLocal();
     const edgardo = await usuario(db, 'edgardo@x.mx', 'supervisor');
     const browser = await chromium.launch({ executablePath: chromiumPath, args: ['--no-sandbox'] });

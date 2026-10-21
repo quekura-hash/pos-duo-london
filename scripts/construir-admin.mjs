@@ -125,13 +125,15 @@ ${piezas}
 </body>
 </html>
 `;
-mkdirSync(join(raiz, 'dist'), { recursive: true });
+// LONDUO_DIST: carpeta de salida (las pruebas usan la suya para no pisarse entre sí); por omisión, dist/.
+const DIST = process.env.LONDUO_DIST ? join(process.env.LONDUO_DIST) : join(raiz, 'dist');
+mkdirSync(DIST, { recursive: true });
 if (!PWA) {
-  writeFileSync(join(raiz, 'dist/administracion.html'), html);
-  console.log(`dist/administracion.html (${(html.length / 1024).toFixed(0)} KB) · ${VERSION.texto}${CENTRAL.url ? ' · central ' + CENTRAL.url : ''}`);
+  writeFileSync(join(DIST, 'administracion.html'), html);
+  console.log(`${DIST}/administracion.html (${(html.length / 1024).toFixed(0)} KB) · ${VERSION.texto}${CENTRAL.url ? ' · central ' + CENTRAL.url : ''}`);
 } else {
   // Versión instalable (pantalla de inicio del iPhone) para alojar en un sitio HTTPS: página, service worker, manifiesto, íconos y encabezados.
-  const web = join(raiz, 'dist/admin-web');
+  const web = join(DIST, 'admin-web');
   const pwa = join(raiz, 'src/app/publico/pwa');
   mkdirSync(web, { recursive: true });
   const registro = `<script>if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) { navigator.serviceWorker.register('sw.js').catch(function () {}); }</script>`;
@@ -139,5 +141,5 @@ if (!PWA) {
   writeFileSync(join(web, 'sw.js'), readFileSync(join(pwa, 'sw.js'), 'utf8').replace('__VERSION__', `${VERSION.numero}-${VERSION.commit}`));
   for (const f of ['manifest.webmanifest', 'icon-180.png', 'icon-192.png', 'icon-512.png', 'icon-maskable-512.png']) copyFileSync(join(pwa, f), join(web, f));
   writeFileSync(join(web, '_headers'), ['/sw.js', '  Cache-Control: no-cache', '/index.html', '  Cache-Control: no-cache', '/', '  Cache-Control: no-cache', '/*', '  X-Content-Type-Options: nosniff', '  Referrer-Policy: no-referrer', ''].join('\n'));
-  console.log(`dist/admin-web/ (PWA) · ${VERSION.texto}${CENTRAL.url ? ' · central ' + CENTRAL.url : ''}`);
+  console.log(`${DIST}/admin-web/ (PWA) · ${VERSION.texto}${CENTRAL.url ? ' · central ' + CENTRAL.url : ''}`);
 }

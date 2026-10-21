@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { chromium, devices, type Page } from 'playwright-core';
@@ -8,7 +9,8 @@ import { como, usuario, centralLocal } from './ayudas/central-pglite.ts';
 import { simularSupabase, URL_CENTRAL } from './ayudas/supabase-simulado.ts';
 
 const RAIZ = join(import.meta.dirname, '..');
-const HTML = join(RAIZ, 'dist', 'administracion.html');
+const DIST = mkdtempSync(join(tmpdir(), 'londuo-admin-'));
+const HTML = join(DIST, 'administracion.html');
 const chromiumPath = [process.env.POS_CHROMIUM, '/opt/pw-browsers/chromium-1194/chrome-linux/chrome', '/opt/pw-browsers/chromium/chrome-linux/chrome'].find((p) => p && existsSync(p));
 const { defaultBrowserType: _omitido, ...IPHONE } = devices['iPhone 13']!;
 void _omitido;
@@ -27,7 +29,7 @@ const sinDesborde = async (p: Page, donde: string) => {
 
 describe('[iPhone] Administración en el teléfono', { timeout: 180_000, skip: chromiumPath ? false : 'Chromium no encontrado' }, () => {
   it('M1 menú inferior, almacén en tarjetas por estilo, etiquetas y cantidades DÚO/London, y tablas como tarjetas', async (t) => {
-    execFileSync(process.execPath, [join(RAIZ, 'scripts', 'construir-admin.mjs')], { stdio: 'pipe', env: { ...process.env, LONDUO_SUPABASE_URL: URL_CENTRAL, LONDUO_SUPABASE_KEY: 'sb_publishable_prueba' } });
+    execFileSync(process.execPath, [join(RAIZ, 'scripts', 'construir-admin.mjs')], { stdio: 'pipe', env: { ...process.env, LONDUO_DIST: DIST, LONDUO_SUPABASE_URL: URL_CENTRAL, LONDUO_SUPABASE_KEY: 'sb_publishable_prueba' } });
     const db = await centralLocal();
     const edgardo = await usuario(db, 'edgardo@x.mx', 'supervisor');
     const browser = await chromium.launch({ executablePath: chromiumPath, args: ['--no-sandbox'] });

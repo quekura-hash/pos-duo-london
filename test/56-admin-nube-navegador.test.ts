@@ -10,12 +10,13 @@ import { simularSupabase, URL_CENTRAL } from './ayudas/supabase-simulado.ts';
 import { FILAS_REALISTAS, xlsxDeFilas } from './ayudas/inventario.ts';
 
 const RAIZ = join(import.meta.dirname, '..');
-const HTML = join(RAIZ, 'dist', 'administracion.html');
+const DIST = mkdtempSync(join(tmpdir(), 'londuo-admin-'));
+const HTML = join(DIST, 'administracion.html');
 const chromiumPath = [process.env.POS_CHROMIUM, '/opt/pw-browsers/chromium-1194/chrome-linux/chrome', '/opt/pw-browsers/chromium/chrome-linux/chrome'].find((p) => p && existsSync(p));
 
 describe('[navegador real] Administración conectada al central (Supabase simulado con Postgres real)', { timeout: 180_000, skip: chromiumPath ? false : 'Chromium no encontrado' }, () => {
   it('B30 entrar, cargar el catálogo desde Excel, verlo desde otro equipo y respetar el rol', async (t) => {
-    execFileSync(process.execPath, [join(RAIZ, 'scripts', 'construir-admin.mjs')], { stdio: 'pipe' });
+    execFileSync(process.execPath, [join(RAIZ, 'scripts', 'construir-admin.mjs')], { stdio: 'pipe', env: { ...process.env, LONDUO_DIST: DIST } });
     const db = await centralLocal();
     const cuentas = { 'edgardo@x.mx': await usuario(db, 'edgardo@x.mx', 'supervisor'), 'bodega@x.mx': await usuario(db, 'bodega@x.mx', 'almacenista'), 'intruso@x.mx': await usuario(db, 'intruso@x.mx') };
     const dir = mkdtempSync(join(tmpdir(), 'pos-adm-'));

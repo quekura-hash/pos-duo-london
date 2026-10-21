@@ -1,19 +1,21 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { createServer } from 'node:http';
 import { extname, join } from 'node:path';
 import { describe, it } from 'node:test';
 import { chromium } from 'playwright-core';
 
 const RAIZ = join(import.meta.dirname, '..');
-const WEB = join(RAIZ, 'dist', 'admin-web');
+const DIST = mkdtempSync(join(tmpdir(), 'londuo-pwa-'));
+const WEB = join(DIST, 'admin-web');
 const chromiumPath = [process.env.POS_CHROMIUM, '/opt/pw-browsers/chromium-1194/chrome-linux/chrome', '/opt/pw-browsers/chromium/chrome-linux/chrome'].find((p) => p && existsSync(p));
 const TIPOS: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.webmanifest': 'application/manifest+json', '.png': 'image/png' };
 
 describe('[navegador real] Administración instalable (PWA)', { timeout: 120_000, skip: chromiumPath ? false : 'Chromium no encontrado' }, () => {
   it('P1 el manifiesto y los íconos son válidos, el service worker abre sin conexión y muestra las notificaciones push', async (t) => {
-    execFileSync(process.execPath, [join(RAIZ, 'scripts', 'construir-admin.mjs'), '--pwa'], { stdio: 'pipe', env: { ...process.env, LONDUO_SUPABASE_URL: 'https://prueba.supabase.co', LONDUO_SUPABASE_KEY: 'sb_publishable_prueba' } });
+    execFileSync(process.execPath, [join(RAIZ, 'scripts', 'construir-admin.mjs'), '--pwa'], { stdio: 'pipe', env: { ...process.env, LONDUO_DIST: DIST, LONDUO_SUPABASE_URL: 'https://prueba.supabase.co', LONDUO_SUPABASE_KEY: 'sb_publishable_prueba' } });
     const servidor = createServer((req, res) => {
       const ruta = !req.url || req.url === '/' ? 'index.html' : req.url.slice(1).split('?')[0]!;
       try { res.writeHead(200, { 'content-type': TIPOS[extname(ruta)] ?? 'application/octet-stream', 'cache-control': 'no-cache' }); res.end(readFileSync(join(WEB, ruta))); } catch { res.writeHead(404); res.end(); }
