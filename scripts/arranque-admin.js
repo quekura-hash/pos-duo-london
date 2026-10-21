@@ -86,7 +86,7 @@
     archivo = archivo || 'inventario.xlsx';
     return window.__POS_ATENDER__('GET', url, undefined).then(function (r) {
       if (!r.json.ok) throw new Error(r.json.error.mensaje);
-      return PosAdmin.escribirXlsx(window.ExcelJS, [r.json.hoja]);
+      return PosAdmin.escribirXlsx(window.ExcelJS, r.json.hojas || [r.json.hoja]);
     }).then(function (bytes) {
       var a = document.createElement('a');
       a.href = URL.createObjectURL(new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));

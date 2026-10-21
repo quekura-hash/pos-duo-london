@@ -51,7 +51,7 @@
     archivo = archivo || 'inventario.xlsx';
     return ctl.atender('GET', url, undefined).then(function (r) {
       if (!r.json.ok) throw new Error(r.json.error.mensaje);
-      return PosBanco.escribirXlsx(window.ExcelJS, [r.json.hoja]);
+      return PosBanco.escribirXlsx(window.ExcelJS, r.json.hojas || [r.json.hoja]);
     }).then(function (bytes) {
       var viewer = window.claude && window.claude.use ? window.claude.use('downloads') : Promise.resolve(null);
       return Promise.resolve(viewer).then(function (d) {

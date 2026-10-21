@@ -313,6 +313,40 @@ export function hojaDolares(r: import('./consultas.ts').ReporteDolares): Hoja {
   return { nombre: 'Dólares recibidos', encabezados, filas, textoCols: [3, 4, 6, 7, 9, 10, 11, 12] };
 }
 
+/** Días desde el 30/12/1899: así Excel guarda una fecha de verdad (se filtra y se ordena como fecha). */
+const serialExcel = (fecha: string) => Date.UTC(Number(fecha.slice(0, 4)), Number(fecha.slice(5, 7)) - 1, Number(fecha.slice(8, 10))) / 86400000 + 25569;
+const pesos = (c: number) => c / 100;
+const TIPO_TICKET = { venta: 'Venta', cambio: 'Cambio', fee: 'Fee por daño' } as const;
+
+/** Detalle de ventas para la contadora: una fila por ticket (folio, fecha, piezas, total y forma de pago), importes como NÚMEROS para poder sumar. */
+export function hojaDetalleVentas(r: import('./consultas.ts').Consolidado): Hoja {
+  const encabezados = ['Fecha', 'Folio', 'Tipo', 'Piezas', 'Total', 'Forma de pago', 'Tienda', 'Caja', 'Hora', 'Vendedora-Cajera', 'Vendió', 'Estado', 'Origen'];
+  const filas: Hoja['filas'] = [...r.filas].sort((a, b) => a.fecha_local.localeCompare(b.fecha_local) || a.tienda.localeCompare(b.tienda) || a.caja - b.caja || a.folio - b.folio).map((f) => [
+    serialExcel(f.fecha_local), f.folio, TIPO_TICKET[f.tipo_ticket], f.piezas, pesos(f.total), f.pago, NOMBRE_TIENDA[f.tienda] ?? f.tienda, f.caja, f.hora, f.cajero, f.vendedora, f.estado === 'cancelada' ? 'Cancelada' : 'Confirmada', f.historico ? 'POS anterior' : 'POS nuevo',
+  ]);
+  return { nombre: 'Detalle de ventas', encabezados, filas, textoCols: [8, 9, 10], formatoCols: { 0: 'dd/mm/yyyy', 4: '#,##0.00' } };
+}
+
+/** Resumen por día para la contadora: tickets, piezas y cobrado por forma de pago (sin cancelados). Los fees cuentan como cobro, no como piezas. */
+export function hojaResumenVentas(r: import('./consultas.ts').Consolidado): Hoja {
+  const encabezados = ['Fecha', 'Tienda', 'Tickets', 'Piezas', 'Efectivo', 'Tarjeta', 'Dólares (equivalente MXN)', 'Tarjeta de regalo', 'Otros', 'Mixto (sin desglose)', 'Fees por daño', 'Total'];
+  const dias = new Map<string, { fecha: string; tienda: string; tickets: number; piezas: number; efectivo: number; tarjeta: number; dolares: number; regalo: number; otro: number; mixto: number; fees: number; total: number }>();
+  for (const f of r.filas) {
+    if (f.estado === 'cancelada') continue;
+    const k = `${f.fecha_local}|${f.tienda}`;
+    const d = dias.get(k) ?? { fecha: f.fecha_local, tienda: f.tienda, tickets: 0, piezas: 0, efectivo: 0, tarjeta: 0, dolares: 0, regalo: 0, otro: 0, mixto: 0, fees: 0, total: 0 };
+    d.tickets++; d.piezas += f.piezas; d.efectivo += f.montos.efectivo; d.tarjeta += f.montos.tarjeta; d.dolares += f.montos.dolares; d.regalo += f.montos.tarjeta_regalo; d.otro += f.montos.otro; d.mixto += f.montos.mixto;
+    if (f.tipo_ticket === 'fee') d.fees += f.total;
+    d.total += f.total;
+    dias.set(k, d);
+  }
+  const lista = [...dias.values()].sort((a, b) => a.fecha.localeCompare(b.fecha) || a.tienda.localeCompare(b.tienda));
+  const filas: Hoja['filas'] = lista.map((d) => [serialExcel(d.fecha), NOMBRE_TIENDA[d.tienda] ?? d.tienda, d.tickets, d.piezas, pesos(d.efectivo), pesos(d.tarjeta), pesos(d.dolares), pesos(d.regalo), pesos(d.otro), pesos(d.mixto), pesos(d.fees), pesos(d.total)]);
+  const suma = (k: 'tickets' | 'piezas' | 'efectivo' | 'tarjeta' | 'dolares' | 'regalo' | 'otro' | 'mixto' | 'fees' | 'total') => lista.reduce((a, d) => a + d[k], 0);
+  filas.push([], ['TOTAL', '', suma('tickets'), suma('piezas'), pesos(suma('efectivo')), pesos(suma('tarjeta')), pesos(suma('dolares')), pesos(suma('regalo')), pesos(suma('otro')), pesos(suma('mixto')), pesos(suma('fees')), pesos(suma('total'))]);
+  return { nombre: 'Resumen por día', encabezados, filas, textoCols: [], formatoCols: { 0: 'dd/mm/yyyy', 4: '#,##0.00', 5: '#,##0.00', 6: '#,##0.00', 7: '#,##0.00', 8: '#,##0.00', 9: '#,##0.00', 10: '#,##0.00', 11: '#,##0.00' } };
+}
+
 /** Descuentos del periodo listos para Excel: importes como texto decimal exacto. */
 export function hojaDescuentos(r: import('./consultas.ts').ReporteDescuentos): Hoja {
   const pct = (bp: number) => `${(bp / 100).toFixed(2)} %`;

@@ -1,3 +1,4 @@
+import { revisarReporteAnterior, idVentaHistorica } from '../ventas-historicas.ts';
 import { cortesPorCaja, descuentosPorCaja, dolaresPorCaja, reporteConsolidado, ventasPorCaja, ventasPorVendedora, type Filtro } from '../consultas.ts';
 import { DIAS_URGENTE, diasHasta, entradasDeArticulo, existenciaAlmacen, faltantes, recepcionesPendientes, recordatoriosPiso, reporteEntregas, revisarAlta, type AltaManual } from '../almacen.ts';
 import { DEPARTAMENTOS_BASE, resolverDepartamento } from '../departamentos.ts';
@@ -7,7 +8,7 @@ import type { Impresora } from '../impresion.ts';
 import type { Caja } from '../nodos.ts';
 import { estadoPromo, type Promocion } from '../promociones.ts';
 import { CAMPOS_EDITABLES, catalogo, historialArticulo, nombresTienda, datosTiendas, departamentos as proyDepartamentos, promocionesDe, recompensasDe, supervisoresDe, cajerosDe, administradoresDe, configSesionDe, permisos as proyPermisos, tarjetasRegalo, tiposDeCambio, tipoCambioVigente, ventas, type TipoCambio } from '../proyecciones.ts';
-import { hojaDescuentos, hojaEntregas, hojaDolares, hojaInventario, leerInventario, PERFIL_CONFIRMADO, type Hoja } from '../inventario.ts';
+import { hojaDetalleVentas, hojaResumenVentas, hojaDescuentos, hojaEntregas, hojaDolares, hojaInventario, leerInventario, PERFIL_CONFIRMADO, type Hoja } from '../inventario.ts';
 import { LOGOS_TICKET } from '../logos-ticket.ts';
 import { aplicarDatosTienda, codigoTicket, construirTicket, construirTicketRegalo, formatoMXN, NEGOCIOS, renderTextoEscPos, renderTicketDevolucionTexto, renderTicketRetiroTexto, renderTicketEscPos, renderTicketTexto, type NegocioCfg } from '../ticket.ts';
 import type { ReglaRecompensa } from '../recompensas.ts';
@@ -674,7 +675,7 @@ export class ServicioAdmin {
   readonly cajas: { tienda: string; caja: number }[];
   private inv?: FuenteInventario;
   private central?: { fijarTipoCambio(tasa: number, usuario: string, versionBase: number, confirmarVariacion?: boolean): import('../nodos.ts').ResultadoTipoCambio; asignarPermiso(usuario: string, permiso: string, valor: boolean, por: string): Op; guardarDepto(c: import('../departamentos.ts').CambioDepto, por: string): { ok: true; op: Op } | { ok: false; error: import('../departamentos.ts').ErrorDepto };
-    guardarDatosTienda: import('../nodos.ts').Central['guardarDatosTienda']; editarArticulo: import('../nodos.ts').Central['editarArticulo']; guardarPromocion: import('../nodos.ts').Central['guardarPromocion']; guardarRecompensa: import('../nodos.ts').Central['guardarRecompensa']; guardarSupervisor: import('../nodos.ts').Central['guardarSupervisor']; guardarCajero: import('../nodos.ts').Central['guardarCajero']; guardarAdmin: import('../nodos.ts').Central['guardarAdmin']; guardarConfigSesion: import('../nodos.ts').Central['guardarConfigSesion']; recordarSacarAPiso: import('../nodos.ts').Central['recordarSacarAPiso']; resolverFaltante: import('../nodos.ts').Central['resolverFaltante']; contarLimbo: import('../nodos.ts').Central['contarLimbo']; corregirEntrada: import('../nodos.ts').Central['corregirEntrada']; altaLote: import('../nodos.ts').Central['altaLote']; entregar: import('../nodos.ts').Central['entregar'] };
+    guardarDatosTienda: import('../nodos.ts').Central['guardarDatosTienda']; editarArticulo: import('../nodos.ts').Central['editarArticulo']; guardarPromocion: import('../nodos.ts').Central['guardarPromocion']; guardarRecompensa: import('../nodos.ts').Central['guardarRecompensa']; guardarSupervisor: import('../nodos.ts').Central['guardarSupervisor']; guardarCajero: import('../nodos.ts').Central['guardarCajero']; guardarAdmin: import('../nodos.ts').Central['guardarAdmin']; guardarConfigSesion: import('../nodos.ts').Central['guardarConfigSesion']; recordarSacarAPiso: import('../nodos.ts').Central['recordarSacarAPiso']; resolverFaltante: import('../nodos.ts').Central['resolverFaltante']; contarLimbo: import('../nodos.ts').Central['contarLimbo']; corregirEntrada: import('../nodos.ts').Central['corregirEntrada']; altaLote: import('../nodos.ts').Central['altaLote']; importarVentasHistoricas: import('../nodos.ts').Central['importarVentasHistoricas']; entregar: import('../nodos.ts').Central['entregar'] };
   constructor(o: { actor: Extract<Actor, { rol: 'admin' }>; fuente: () => Op[]; cajas: { tienda: string; caja: number }[]; inventario?: FuenteInventario; central?: ServicioAdmin['central']; reloj?: { now(): string } }) {
     this.central = o.central;
     this.actor = o.actor;
@@ -1142,6 +1143,26 @@ export class ServicioAdmin {
     });
     return { ...res, omitidas: r.revision.resumen.invalidos, almacen: this.almacen() };
   }
+  /** Revisa (sin guardar nada) el reporte «Sales Detail» del POS anterior: qué entiende, qué corrigió y qué tickets conviene mirar. */
+  revisarVentasHistoricas(filasHoja: unknown[][], d: { tienda?: string; caja?: number } = {}) {
+    const tienda = String(d.tienda ?? '').trim(), caja = Number(d.caja);
+    if (!this.tiendas().includes(tienda)) throw new ErrorDominio('TIENDA_INVALIDA', `la tienda «${tienda}» no existe`);
+    if (!Number.isInteger(caja) || caja < 1) throw new ErrorDominio('CAJA_INVALIDA', 'indique el número de caja');
+    const revision = revisarReporteAnterior(filasHoja);
+    const ya = new Set(this.fuente().filter((o) => o.tipo === 'venta.historica').map((o) => o.op_id));
+    const yaImportadas = revision.filas.filter((f) => ya.has(idVentaHistorica(tienda, caja, f.folio))).length;
+    return { tienda, caja, revision: { ...revision, filas: undefined }, ya_importadas: yaImportadas, nuevas: revision.filas.length - yaImportadas };
+  }
+  /** Guarda las ventas históricas revisadas (el mismo archivo otra vez no duplica nada). */
+  importarVentasHistoricas(d: { filas: unknown[][]; tienda?: string; caja?: number; nombre?: string }) {
+    if (!this.central) throw new ErrorDominio('SIN_CENTRAL', 'esta sesión no tiene acceso al servicio central');
+    const r = this.revisarVentasHistoricas(d.filas, d);
+    if (r.revision.errores.length) throw new ErrorDominio('ARCHIVO_INVALIDO', r.revision.errores.join('; '));
+    const revision = revisarReporteAnterior(d.filas);
+    if (!revision.filas.length) throw new ErrorDominio('ARCHIVO_INVALIDO', 'el archivo no tiene tickets para importar');
+    const res = this.central.importarVentasHistoricas({ tienda: r.tienda, caja: r.caja, lote: String(d.nombre ?? 'archivo sin nombre'), por: this.actor.usuario, filas: revision.filas });
+    return { ...res, resumen: revision.resumen };
+  }
   /** Alta manual de un artículo (o suma de piezas si el código ya existe). */
   altaManual(d: AltaManual & { lote_id?: string }) {
     if (!this.central) throw new ErrorDominio('SIN_CENTRAL', 'esta sesión no tiene acceso al servicio central');
@@ -1174,6 +1195,11 @@ export class ServicioAdmin {
   /** Dólares físicos recibidos y su equivalente con la tasa de cada operación (no la del día). */
   dolares(f: Filtro = {}) {
     return dolaresPorCaja(this.actor, this.fuente(), f);
+  }
+  /** Hojas de Excel para la contadora: detalle de tickets y resumen por día. */
+  hojasVentas(f: Filtro = {}): Hoja[] {
+    const r = this.reporte(f);
+    return [hojaDetalleVentas(r), hojaResumenVentas(r)];
   }
   hojaDolares(f: Filtro = {}): Hoja {
     return hojaDolares(this.dolares(f));

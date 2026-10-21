@@ -16,6 +16,7 @@ import type { Repo } from './repo.ts';
 import { validarOpEntrante } from './reglas.ts';
 import { LIMBO, type Articulo, type CajaCfg, type Linea, type Op, type Pago, type Venta } from './tipos.ts';
 import { crearOp, fechaLocal, uuid } from './util.ts';
+import { idVentaHistorica, payloadVentaHistorica, type VentaHistorica } from './ventas-historicas.ts';
 
 export interface Ctx {
   reloj: { now(): string };
@@ -561,6 +562,17 @@ export class Central {
       piezas += f.cantidad;
     }
     return { nuevos, sumados, piezas };
+  }
+
+  /**
+   * Ventas históricas del POS anterior (solo para reportes y contabilidad: no tocan existencias, caja, cortes ni los folios nuevos).
+   * Cada ticket lleva un identificador estable (tienda/caja/folio): volver a importar el mismo archivo no duplica nada.
+   * La operación no lleva tienda: queda en Administración y las cajas no la descargan.
+   */
+  importarVentasHistoricas(d: { tienda: string; caja: number; lote: string; por: string; filas: VentaHistorica[] }): { nuevas: number; existentes: number } {
+    let nuevas = 0;
+    for (const f of d.filas) if (this.emitirUna('venta.historica', payloadVentaHistorica(f, d), idVentaHistorica(d.tienda, d.caja, f.folio), false)) nuevas++;
+    return { nuevas, existentes: d.filas.length - nuevas };
   }
 
   /**

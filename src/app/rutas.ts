@@ -124,7 +124,7 @@ export async function atender(o: { cajero?: ServicioCaja; admin?: ServicioAdmin 
       // ── administración ──
       case 'GET /api/admin/cajas': return ok({ cajas: exigirAdmin().cajas });
       case 'POST /api/admin/reporte-vendedoras': return ok(exigirAdmin().reporteVendedoras({ cajas: b.cajas, desde: b.desde, hasta: b.hasta }));
-      case 'POST /api/admin/reporte': return ok({ reporte: exigirAdmin().reporte({ cajas: b.cajas, desde: b.desde, hasta: b.hasta }) });
+      case 'POST /api/admin/reporte': return ok({ reporte: exigirAdmin().reporte({ cajas: b.cajas, desde: b.desde, hasta: b.hasta, historicas: b.historicas !== false }) });
       case 'GET /api/admin/tipo-cambio': return ok(exigirAdmin().tipoCambio());
       case 'POST /api/admin/tipo-cambio': return ok(exigirAdmin().fijarTipoCambio(Number(b.tasa), !!b.confirmar));
       case 'POST /api/admin/permisos': return ok(exigirAdmin().asignarPermisoTipoCambio(String(b.usuario ?? ''), !!b.editar_tipo_cambio));
@@ -142,6 +142,8 @@ export async function atender(o: { cajero?: ServicioCaja; admin?: ServicioAdmin 
       case 'GET /api/admin/supervisores': return ok(exigirAdmin().supervisores());
       case 'POST /api/admin/supervisores': return ok(exigirAdmin().guardarSupervisor({ id: b.id, nombre: b.nombre, clave: b.clave === undefined ? undefined : String(b.clave), activo: b.activo === undefined ? undefined : !!b.activo }));
       case 'GET /api/admin/almacen': return ok(exigirAdmin().almacen());
+      case 'POST /api/admin/ventas-historicas/revisar': return ok(exigirAdmin().revisarVentasHistoricas(b.filas, { tienda: b.tienda, caja: b.caja }));
+      case 'POST /api/admin/ventas-historicas/importar': return ok(exigirAdmin().importarVentasHistoricas({ filas: b.filas, tienda: b.tienda, caja: b.caja, nombre: b.nombre }));
       case 'POST /api/admin/almacen/revisar': return ok(exigirAdmin().revisarAltaLote(b.filas, { decisiones: b.decisiones, regla: b.regla }));
       case 'POST /api/admin/almacen/alta': return ok(exigirAdmin().altaLote({ lote_id: String(b.lote_id ?? ''), nombre: b.nombre, filas: b.filas, decisiones: b.decisiones, regla: b.regla, pedimento_lote: b.pedimento_lote }));
       case 'POST /api/admin/almacen/piso': return ok(exigirAdmin().fijarSacarAPiso(String(b.item_id ?? ''), b.fecha ? String(b.fecha) : null));
@@ -170,6 +172,11 @@ export async function atender(o: { cajero?: ServicioCaja; admin?: ServicioAdmin 
         const A3 = exigirAdmin();
         const f = { cajas: cajasParam(q.get('cajas')), desde: q.get('desde') || undefined, hasta: q.get('hasta') || undefined };
         return ok({ reporte: A3.descuentos(f), ...(q.get('completo') === '1' ? { hoja: A3.hojaDescuentos(f) } : {}) });
+      }
+      case 'GET /api/admin/reporte-ventas': {
+        const A5 = exigirAdmin();
+        const f = { cajas: cajasParam(q.get('cajas')), desde: q.get('desde') || undefined, hasta: q.get('hasta') || undefined, historicas: q.get('historicas') !== '0' };
+        return ok({ reporte: A5.reporte(f), ...(q.get('completo') === '1' ? { hojas: A5.hojasVentas(f) } : {}) });
       }
       case 'GET /api/admin/dolares': {
         const A2 = exigirAdmin();

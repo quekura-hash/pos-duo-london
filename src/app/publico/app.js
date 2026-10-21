@@ -1050,6 +1050,64 @@ async function vistaVentas() {
 }
 
 // ── Administración ──
+// ── Importar las ventas del POS anterior (reporte «Sales Detail»): vista previa y confirmación ──
+async function abrirImportarHistoricas(cajas, alTerminar) {
+  const d = dialogo('dlg-hist');
+  d.setAttribute('aria-labelledby', 'hist-titulo');
+  const opcionesCaja = cajas.map((c) => `<option value="${esc(c.tienda)}/${c.caja}">${esc(c.tienda)} · Caja ${c.caja}</option>`).join('');
+  let hoja = null, nombre = '';
+  const nTxt = (n) => Number(n).toLocaleString('es-MX');
+  d.innerHTML = `<h2 id="hist-titulo" style="margin-top:0">Importar ventas del POS anterior</h2>
+    <p class="nota" style="margin-top:0">Sube el reporte de ventas («Sales Detail», un renglón por ticket). Se guardan con su folio y fecha originales, solo para reportes y contabilidad: no cambian existencias, cortes ni los folios de la caja nueva. Si lo importas dos veces no se duplica nada.</p>
+    <div class="campo"><label for="hist-caja">¿De qué caja son?</label><select id="hist-caja" style="width:100%;padding:10px;border:2px solid var(--borde);border-radius:10px;background:var(--superficie)">${opcionesCaja}</select></div>
+    <div class="campo"><label for="hist-archivo">Archivo de Excel (.xlsx)</label><input id="hist-archivo" type="file" accept=".xlsx"></div>
+    <div id="hist-msg" class="mensaje" role="status" aria-live="polite"></div>
+    <div id="hist-previa"></div>
+    <div class="filas"><button class="btn" type="button" id="hist-cerrar">Cerrar</button><button class="btn btn-primario" type="button" id="hist-confirmar" style="width:auto;flex:1" disabled>${ico('check')}<span>Importar</span></button></div>`;
+  d.showModal();
+  const msg = (t, tipo = '') => { const m = $('#hist-msg'); m.className = `mensaje ${tipo}`; m.textContent = t; };
+  const caja = () => { const [tienda, n] = $('#hist-caja').value.split('/'); return { tienda, caja: Number(n) }; };
+  $('#hist-cerrar').addEventListener('click', () => d.close());
+  async function previa() {
+    if (!hoja) return;
+    try {
+      const r = await api('/api/admin/ventas-historicas/revisar', { filas: hoja, ...caja() });
+      const x = r.revision, s = x.resumen;
+      const lineas = [['Tickets', nTxt(s.tickets)], ['Folios', s.folio_inicial ? `${s.folio_inicial} al ${s.folio_final}` : '—'], ['Fechas', s.desde ? `${s.desde} al ${s.hasta} (${s.dias_con_ventas} días con ventas)` : '—'], ['Piezas', nTxt(s.piezas)], ['Total', mxn(s.total)],
+        ['Ventas', `${s.por_tipo.venta.tickets} · ${mxn(s.por_tipo.venta.total)}`], ['Cambios ($0)', `${s.por_tipo.cambio.tickets}`], ['Fees por daño', `${s.por_tipo.fee.tickets} · ${mxn(s.por_tipo.fee.total)}`],
+        ['Efectivo', `${s.por_pago.efectivo.tickets} · ${mxn(s.por_pago.efectivo.total)}`], ['Tarjeta', `${s.por_pago.tarjeta.tickets} · ${mxn(s.por_pago.tarjeta.total)}`], ['Mixto (sin desglose)', `${s.por_pago.mixto.tickets} · ${mxn(s.por_pago.mixto.total)}`]];
+      $('#hist-previa').innerHTML = `${x.errores.length ? `<div class="mensaje error">${x.errores.map(esc).join('<br>')}</div>` : ''}${x.avisos.length ? `<div class="mensaje aviso">${x.avisos.map(esc).join('<br>')}</div>` : ''}
+        <table id="hist-resumen"><tbody>${lineas.map(([k, v]) => `<tr><th scope="row">${esc(k)}</th><td class="num">${esc(v)}</td></tr>`).join('')}</tbody></table>
+        ${r.ya_importadas ? `<p class="nota"><b>${r.ya_importadas}</b> de estos tickets ya estaban importados: no se duplican. Se agregarán <b>${r.nuevas}</b>.</p>` : ''}
+        ${x.para_revisar.length ? `<h3 style="margin-bottom:4px">Para revisar (${x.para_revisar.length})</h3><table id="hist-revisar"><thead><tr><th>Folio</th><th>Fecha</th><th>Cómo se guardará</th><th class="num">Piezas</th><th class="num">Total</th></tr></thead><tbody>${x.para_revisar.map((t) => `<tr><td>${t.folio}</td><td>${esc(t.fecha)}</td><td>${esc(t.nota)}</td><td class="num">${t.piezas}</td><td class="num">${mxn(t.total)}</td></tr>`).join('')}</tbody></table>` : ''}`;
+      $('#hist-confirmar').disabled = x.errores.length > 0 || r.nuevas === 0;
+      if (!x.errores.length) msg(r.nuevas ? 'Revisa el resumen y confirma.' : 'Todos estos tickets ya estaban importados.', r.nuevas ? '' : 'ok');
+    } catch (e) { $('#hist-previa').innerHTML = ''; $('#hist-confirmar').disabled = true; msg(e.message, 'error'); }
+  }
+  $('#hist-caja').addEventListener('change', previa);
+  $('#hist-archivo').addEventListener('change', async () => {
+    const f = $('#hist-archivo').files[0];
+    $('#hist-previa').innerHTML = ''; $('#hist-confirmar').disabled = true; hoja = null;
+    if (!f) return;
+    msg('Leyendo el archivo…');
+    try {
+      const hojas = await leerArchivoAlta(f);
+      nombre = f.name;
+      hoja = (hojas.find((h) => (h.filas ?? []).slice(0, 40).some((r) => (r ?? []).some((c) => /^receipt #?$/i.test(String(c ?? '').trim()) || /^folio$/i.test(String(c ?? '').trim())))) ?? hojas[0])?.filas ?? null;
+    } catch (e) { msg(`No se pudo leer el archivo: ${e.message}`, 'error'); return; }
+    await previa();
+  });
+  $('#hist-confirmar').addEventListener('click', async () => {
+    $('#hist-confirmar').disabled = true;
+    try {
+      const r = await api('/api/admin/ventas-historicas/importar', { filas: hoja, ...caja(), nombre });
+      msg(`Listo: ${r.nuevas} ticket(s) importados${r.existentes ? `, ${r.existentes} ya existían` : ''}. Total ${mxn(r.resumen.total)}.`, 'ok');
+      $('#hist-previa').innerHTML = '';
+      alTerminar?.();
+    } catch (e) { msg(e.message, 'error'); $('#hist-confirmar').disabled = false; }
+  });
+}
+
 async function vistaReportes() {
   const { cajas } = await api('/api/admin/cajas');
   const hoy = new Date(Date.now() - 7 * 3600e3).toISOString().slice(0, 10);
@@ -1057,21 +1115,38 @@ async function vistaReportes() {
     <fieldset><legend>Cajas</legend><label><input type="checkbox" id="todas" checked> Todas</label>
       ${cajas.map((c) => `<label><input type="checkbox" class="caja" value="${c.tienda}/${c.caja}" checked> ${esc(c.tienda)} · Caja ${c.caja}</label>`).join('')}</fieldset>
     <label>Desde <input type="date" id="desde" value="${hoy}"></label><label>Hasta <input type="date" id="hasta" value="${hoy}"></label>
-    <button class="btn btn-primario" type="submit" style="width:auto">${ico('search')}<span>Consultar</span></button></form>
+    <label class="check-hist"><input type="checkbox" id="hist" checked> Incluir ventas del POS anterior (históricas)</label>
+    <div class="filas"><button class="btn btn-primario" type="submit" style="width:auto">${ico('search')}<span>Consultar</span></button>
+      <button class="btn" type="button" id="rep-excel" title="Excel para la contadora: detalle de tickets y resumen por día">${ico('download')}<span>Exportar a Excel (contadora)</span></button>
+      <button class="btn" type="button" id="rep-importar" title="Importa el reporte «Sales Detail» del POS anterior">${ico('upload')}<span>Importar ventas del POS anterior</span></button></div>
+    <div id="rep-msg" class="mensaje" role="status" aria-live="polite"></div></form>
     <div id="resultado"></div>`;
   const marcas = () => [...$('#filtros').querySelectorAll('.caja')];
   $('#todas').addEventListener('change', (e) => marcas().forEach((m) => (m.checked = e.target.checked)));
   marcas().forEach((m) => m.addEventListener('change', () => ($('#todas').checked = marcas().every((x) => x.checked))));
+  const seleccion = () => marcas().filter((m) => m.checked).map((m) => ({ tienda: m.value.split('/')[0], caja: Number(m.value.split('/')[1]) }));
+  $('#rep-excel').addEventListener('click', async () => {
+    const m = $('#rep-msg'); m.className = 'mensaje'; m.textContent = 'Preparando el Excel…';
+    const sel = seleccion();
+    if (!sel.length) { m.className = 'mensaje error'; m.textContent = 'Seleccione al menos una caja.'; return; }
+    const ruta = `/api/admin/reporte-ventas.xlsx?cajas=${sel.map((c) => `${c.tienda}/${c.caja}`).join(',')}&desde=${$('#desde').value}&hasta=${$('#hasta').value}&historicas=${$('#hist').checked ? 1 : 0}`;
+    try {
+      if (window.__POS_EXPORTAR__) m.textContent = await window.__POS_EXPORTAR__(ruta, `reporte-de-ventas-${$('#desde').value}-a-${$('#hasta').value}.xlsx`);
+      else { const a = document.createElement('a'); a.href = ruta; a.download = 'reporte-de-ventas.xlsx'; document.body.appendChild(a); a.click(); a.remove(); m.textContent = 'Descarga iniciada.'; }
+      m.className = 'mensaje ok';
+    } catch (e) { m.className = 'mensaje error'; m.textContent = `No se pudo exportar: ${e.message}`; }
+  });
+  $('#rep-importar').addEventListener('click', () => abrirImportarHistoricas(cajas, () => $('#filtros').requestSubmit()));
   $('#filtros').addEventListener('submit', async (ev) => {
     ev.preventDefault();
     const sel = marcas().filter((m) => m.checked).map((m) => ({ tienda: m.value.split('/')[0], caja: Number(m.value.split('/')[1]) }));
     if (!sel.length) return void ($('#resultado').innerHTML = '<div class="mensaje error">Seleccione al menos una caja.</div>');
-    const { reporte: r } = await api('/api/admin/reporte', { cajas: sel, desde: $('#desde').value, hasta: $('#hasta').value });
+    const { reporte: r } = await api('/api/admin/reporte', { cajas: sel, desde: $('#desde').value, hasta: $('#hasta').value, historicas: $('#hist').checked });
     $('#resultado').innerHTML = `<div class="panel"><p class="nota">Cada venta conserva tienda, caja y folio originales; el reporte no renumera.</p>
-      <div class="tabla-cont"><table id="tabla-reporte"><thead><tr><th>Tienda</th><th>Caja</th><th>Folio</th><th>Fecha</th><th>Vendedora-Cajera</th><th class="num">Total</th><th>Estado</th></tr></thead><tbody>
-      ${r.filas.map((f) => `<tr><td>${esc(f.tienda)}</td><td>${f.caja}</td><td>${String(f.folio).padStart(6, '0')}</td><td>${esc(f.fecha_local)}</td><td>${esc(f.cajero)}</td><td class="num">${mxn(f.total)}</td><td>${esc(f.estado)}</td></tr>`).join('') || '<tr><td colspan="7" class="vacio">Sin ventas en el periodo.</td></tr>'}</tbody></table></div>
+      <div class="tabla-cont"><table id="tabla-reporte"><thead><tr><th>Tienda</th><th>Caja</th><th>Folio</th><th>Fecha</th><th>Vendedora-Cajera</th><th class="num">Total</th><th>Estado</th><th class="num">Piezas</th><th>Forma de pago</th><th>Origen</th></tr></thead><tbody>
+      ${r.filas.map((f) => `<tr${f.historico ? ' class="fila-hist"' : ''}><td>${esc(f.tienda)}</td><td>${f.caja}</td><td>${f.historico ? f.folio : String(f.folio).padStart(6, '0')}</td><td>${esc(f.fecha_local)}</td><td>${esc(f.cajero)}</td><td class="num">${mxn(f.total)}</td><td>${esc(f.estado)}</td><td class="num">${f.piezas}</td><td>${esc(f.pago)}</td><td>${f.historico ? `POS anterior${f.tipo_ticket === 'venta' ? '' : ` · ${f.tipo_ticket === 'fee' ? 'fee por daño' : 'cambio'}`}` : 'POS nuevo'}</td></tr>`).join('') || '<tr><td colspan="10" class="vacio">Sin ventas en el periodo.</td></tr>'}</tbody></table></div>
       <h2>Desglose por caja</h2><table id="tabla-por-caja"><thead><tr><th>Tienda</th><th>Caja</th><th class="num">Tickets</th><th class="num">Total</th></tr></thead><tbody>
-      ${r.porCaja.map((c) => `<tr><td>${esc(c.tienda)}</td><td>${c.caja}</td><td class="num">${c.tickets}</td><td class="num">${mxn(c.total)}</td></tr>`).join('')}
+      ${r.porCaja.map((c) => `<tr><td>${esc(c.tienda)}</td><td>${c.caja}${c.historico ? ' <small>(histórico)</small>' : ''}</td><td class="num">${c.tickets}</td><td class="num">${mxn(c.total)}</td></tr>`).join('')}
       <tr><th colspan="3" scope="row">Total consolidado</th><td class="num" id="total-consolidado"><b>${mxn(r.total)}</b></td></tr></tbody></table>
       <p class="nota">Sin tarjetas de regalo vendidas ni recargadas: <b id="total-mercancia">${mxn(r.total_mercancia)}</b>. Lo cobrado con una tarjeta de regalo ya cuenta como venta de mercancía; la venta de la tarjeta no.</p></div>`;
     const { vendedoras } = await api('/api/admin/reporte-vendedoras', { cajas: sel, desde: $('#desde').value, hasta: $('#hasta').value });

@@ -11,6 +11,8 @@ export interface Filtro {
   cajas?: RefCaja[];
   desde?: string; // YYYY-MM-DD local America/Hermosillo, inclusive
   hasta?: string;
+  /** Incluir las ventas históricas del POS anterior (por omisión sí). */
+  historicas?: boolean;
 }
 
 export interface FilaVenta {
@@ -26,6 +28,27 @@ export interface FilaVenta {
   /** Total sin las tarjetas de regalo vendidas o recargadas (que no son ventas de mercancía). */
   total_mercancia: number;
   estado: 'confirmada' | 'cancelada';
+  /** Piezas de mercancía del ticket (sin tarjetas de regalo). */
+  piezas: number;
+  /** Forma de pago en español: Efectivo, Tarjeta, Dólares, Tarjeta de regalo… o Mixto. */
+  pago: string;
+  /** Venta normal, cambio sin diferencia o fee por daño (estos dos últimos solo vienen de las históricas). */
+  tipo_ticket: 'venta' | 'cambio' | 'fee';
+  /** true = viene del POS anterior (importada), no de esta caja. */
+  historico: boolean;
+  /** Hora local HH:MM (las históricas no la traen). */
+  hora: string;
+  /** Cuánto se cobró por cada forma de pago (centavos MXN). `mixto` = pago mixto de una venta histórica sin desglose. */
+  montos: MontosPago;
+}
+export interface MontosPago { efectivo: number; tarjeta: number; dolares: number; tarjeta_regalo: number; otro: number; mixto: number }
+const sinMontos = (): MontosPago => ({ efectivo: 0, tarjeta: 0, dolares: 0, tarjeta_regalo: 0, otro: 0, mixto: 0 });
+
+const ETIQUETA_PAGO: Record<string, string> = { efectivo: 'Efectivo', tarjeta: 'Tarjeta', efectivo_usd: 'Dólares', tarjeta_regalo: 'Tarjeta de regalo', credito_cambio: 'Crédito de cambio', mixto: 'Mixto', sin_pago: 'Sin pago' };
+/** Una sola forma de pago → su nombre; varias distintas → «Mixto». */
+export function etiquetaPago(metodos: string[]): string {
+  const u = [...new Set(metodos)];
+  return u.length === 0 ? 'Sin pago' : u.length === 1 ? (ETIQUETA_PAGO[u[0]!] ?? u[0]!) : 'Mixto';
 }
 
 const mismaCaja = (a: RefCaja, b: RefCaja) => a.tienda === b.tienda && a.caja === b.caja;
@@ -56,15 +79,31 @@ export function ventasPorCaja(actor: Actor, ops: Op[], f: Filtro = {}): FilaVent
     filas.push({
       tienda: v.tienda, caja: v.caja, folio: v.folio, sale_id: v.sale_id,
       fecha_local: fechaLocal(v.ocurrio_en), cajero: v.cajero, vendedora: v.vendedora === undefined ? '' : v.vendedora_id ? v.vendedora : 'Autocompra', total: v.total, total_mercancia: v.lineas.filter((l) => !l.tarjeta_regalo).reduce((a, l) => a + l.importe, 0), estado: v.estado,
+      piezas: v.lineas.filter((l) => !l.tarjeta_regalo).reduce((a, l) => a + l.qty, 0), pago: etiquetaPago((v.pagos ?? []).map((x: { metodo: string }) => x.metodo)), tipo_ticket: 'venta', historico: false,
+      hora: new Date(Date.parse(v.ocurrio_en) - 7 * 3600_000).toISOString().slice(11, 16),
+      montos: (v.pagos ?? []).reduce((m: MontosPago, x: { metodo: string; monto: number }) => { const k = x.metodo === 'efectivo' ? 'efectivo' : x.metodo === 'tarjeta' ? 'tarjeta' : x.metodo === 'efectivo_usd' ? 'dolares' : x.metodo === 'tarjeta_regalo' ? 'tarjeta_regalo' : 'otro'; m[k] += x.monto; return m; }, sinMontos()),
     });
   }
+  if (actor.rol === 'admin' && f.historicas !== false) {
+    for (const o of ops) {
+      if (o.tipo !== 'venta.historica') continue;
+      const h = o.payload;
+      if (permitidas !== 'todas' && !permitidas.some((c) => c.tienda === h.tienda_hist && c.caja === h.caja_hist)) continue;
+      if ((f.desde && h.fecha < f.desde) || (f.hasta && h.fecha > f.hasta)) continue;
+      filas.push({
+        tienda: h.tienda_hist, caja: h.caja_hist, folio: h.folio, sale_id: h.hist_id, fecha_local: h.fecha, cajero: '', vendedora: '', total: h.total, total_mercancia: h.tipo_hist === 'venta' ? h.total : 0,
+        estado: 'confirmada', piezas: h.piezas, pago: ETIQUETA_PAGO[h.pago] ?? h.pago, tipo_ticket: h.tipo_hist, historico: true, hora: '',
+        montos: { ...sinMontos(), [h.pago === 'efectivo' ? 'efectivo' : h.pago === 'tarjeta' ? 'tarjeta' : h.pago === 'mixto' ? 'mixto' : 'otro']: h.total },
+      });
+    }
+  }
   // Orden estable por serie y folio: se ordena, pero nunca se asigna un número nuevo.
-  return filas.sort((a, b) => a.tienda.localeCompare(b.tienda) || a.caja - b.caja || a.folio - b.folio);
+  return filas.sort((a, b) => a.tienda.localeCompare(b.tienda) || a.caja - b.caja || Number(a.historico) - Number(b.historico) || a.folio - b.folio);
 }
 
 export interface Consolidado {
   filas: FilaVenta[];
-  porCaja: { tienda: string; caja: number; tickets: number; total: number; total_mercancia: number }[];
+  porCaja: { tienda: string; caja: number; tickets: number; total: number; total_mercancia: number; historico?: boolean }[];
   total: number;
   /** Consolidado SIN tarjetas de regalo: así lo cobrado con una tarjeta no se cuenta dos veces. */
   total_mercancia: number;
@@ -74,11 +113,11 @@ export interface Consolidado {
 export function reporteConsolidado(actor: Actor, ops: Op[], f: Filtro = {}): Consolidado {
   if (actor.rol !== 'admin') throw new ErrorDominio('PROHIBIDO', 'los reportes consolidados son solo de Administración');
   const filas = ventasPorCaja(actor, ops, f);
-  const porCaja = new Map<string, { tienda: string; caja: number; tickets: number; total: number; total_mercancia: number }>();
+  const porCaja = new Map<string, { tienda: string; caja: number; tickets: number; total: number; total_mercancia: number; historico?: boolean }>();
   for (const r of filas) {
     if (r.estado === 'cancelada') continue;
-    const k = `${r.tienda}/${r.caja}`;
-    const a = porCaja.get(k) ?? { tienda: r.tienda, caja: r.caja, tickets: 0, total: 0, total_mercancia: 0 };
+    const k = `${r.tienda}/${r.caja}${r.historico ? '/hist' : ''}`;
+    const a = porCaja.get(k) ?? { tienda: r.tienda, caja: r.caja, tickets: 0, total: 0, total_mercancia: 0, ...(r.historico ? { historico: true } : {}) };
     a.tickets++;
     a.total += r.total;
     a.total_mercancia += r.total_mercancia;

@@ -43,16 +43,16 @@ export function crearServidorApp(o: { cajero?: ServicioCaja; admin?: ServicioAdm
         res.writeHead(200, { 'content-type': TIPOS[extname(archivo)] ?? 'application/octet-stream', 'cache-control': 'no-store' });
         return void res.end(contenido);
       }
-      const xlsx = /^\/api\/admin\/(inventario|dolares|descuentos|entregas)\.xlsx$/.exec(url.pathname);
+      const xlsx = /^\/api\/admin\/(inventario|dolares|descuentos|entregas|reporte-ventas)\.xlsx$/.exec(url.pathname);
       if (req.method === 'GET' && xlsx) {
         const q = new URLSearchParams(url.searchParams);
         q.set('completo', '1');
         const r = await atender(o, 'GET', new URL(`/api/admin/${xlsx[1]}?${q}`, 'http://localhost'), {});
         if (r.status !== 200) return json(res, r.status, r.json);
-        const bytes = await escribirXlsxNode([r.json.hoja]);
+        const bytes = await escribirXlsxNode(r.json.hojas ?? [r.json.hoja]);
         res.writeHead(200, {
           'content-type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-          'content-disposition': `attachment; filename="${({ dolares: 'dolares-recibidos', descuentos: 'descuentos', entregas: 'entregas-almacen', inventario: 'inventario' } as Record<string, string>)[xlsx[1]!]}.xlsx"`, 'cache-control': 'no-store',
+          'content-disposition': `attachment; filename="${({ dolares: 'dolares-recibidos', descuentos: 'descuentos', entregas: 'entregas-almacen', inventario: 'inventario', 'reporte-ventas': 'reporte-de-ventas' } as Record<string, string>)[xlsx[1]!]}.xlsx"`, 'cache-control': 'no-store',
         });
         return void res.end(Buffer.from(bytes));
       }
