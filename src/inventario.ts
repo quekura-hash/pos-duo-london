@@ -327,6 +327,15 @@ export function hojaDetalleVentas(r: import('./consultas.ts').Consolidado): Hoja
   return { nombre: 'Detalle de ventas', encabezados, filas, textoCols: [8, 9, 10], formatoCols: { 0: 'dd/mm/yyyy', 4: '#,##0.00' } };
 }
 
+const NOMBRE_AGRUP: Record<string, string> = { mes: 'Ventas por mes', semana: 'Ventas por semana', dia: 'Ventas por día', dia_semana: 'Ventas por día de la semana', hora: 'Ventas por hora', mapa_calor: 'Ventas por hora', forma_pago: 'Ventas por forma de pago', caja: 'Ventas por caja', tienda: 'Ventas por tienda' };
+/** Tabla del análisis de ventas (la misma que se ve en pantalla). Importes numéricos para poder sumar y graficar en Excel. */
+export function hojaAnalisis(r: import('./analisis-ventas.ts').ResultadoAnalisis): Hoja {
+  const encabezados = ['Periodo', 'Tickets', 'Piezas', 'Ventas', 'Fees por daño', 'Total', 'Ticket promedio', 'Promedio por día', '% del total'];
+  const filas: Hoja['filas'] = r.filas.map((f) => [f.etiqueta, f.tickets, f.piezas, pesos(f.total_ventas), pesos(f.fees), pesos(f.total), pesos(f.promedio_ticket), f.promedio_dia == null ? null : pesos(f.promedio_dia), f.porcentaje / 100]);
+  filas.push([], ['TOTAL', r.resumen.tickets, r.resumen.piezas, pesos(r.resumen.total_ventas), pesos(r.resumen.fees), pesos(r.resumen.total), pesos(r.resumen.promedio_ticket), null, null]);
+  return { nombre: (NOMBRE_AGRUP[r.agrupar] ?? 'Análisis').slice(0, 31), encabezados, filas, textoCols: [0], formatoCols: { 3: '#,##0.00', 4: '#,##0.00', 5: '#,##0.00', 6: '#,##0.00', 7: '#,##0.00', 8: '0.0%' } };
+}
+
 /** Resumen por día para la contadora: tickets, piezas y cobrado por forma de pago (sin cancelados). Los fees cuentan como cobro, no como piezas. */
 export function hojaResumenVentas(r: import('./consultas.ts').Consolidado): Hoja {
   const encabezados = ['Fecha', 'Tienda', 'Tickets', 'Piezas', 'Efectivo', 'Tarjeta', 'Dólares (equivalente MXN)', 'Tarjeta de regalo', 'Otros', 'Mixto (sin desglose)', 'Fees por daño', 'Total'];

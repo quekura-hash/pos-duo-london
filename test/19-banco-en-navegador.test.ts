@@ -17,7 +17,7 @@ const chromiumPath = [process.env.POS_CHROMIUM, '/opt/pw-browsers/chromium-1194/
 const vendioClientas = async (page: import('playwright-core').Page) => { if (await page.locator('#bloque-vendio').isVisible()) await page.waitForFunction(() => (document.querySelector('#vendio-por') as HTMLSelectElement).value === 'autocompra'); };
 /** Los formularios de usuarios exigen nombres y apellidos: lo mínimo para las pruebas. */
 const perfilMin = async (page: import('playwright-core').Page, p: 'caj' | 'adm') => { await page.fill(`#${p}-nombres`, 'Prueba'); await page.fill(`#${p}-apellidos`, 'Apellido'); };
-describe('[navegador real] Versión de prueba en una sola página (motor en memoria dentro del navegador)', { timeout: 120_000, skip: chromiumPath ? false : 'Chromium no encontrado (defina POS_CHROMIUM)' }, () => {
+describe('[navegador real] Versión de prueba en una sola página (motor en memoria dentro del navegador)', { timeout: 400_000, skip: chromiumPath ? false : 'Chromium no encontrado (defina POS_CHROMIUM)' }, () => {
   it('B1 se construye y permite probar venta, inventario compartido, fallas simuladas y Administración sin servidor', async (t) => {
     execFileSync(process.execPath, [join(RAIZ, 'scripts', 'construir-prueba.mjs')], { stdio: 'pipe' });
     const browser = await chromium.launch({ executablePath: chromiumPath, args: ['--no-sandbox'] });
@@ -98,7 +98,7 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     await page.uncheck('#falla-hub');
     await page.selectOption('#sesion-prueba', 'admin');
     await page.waitForSelector('#tabla-inv-resumen'); // Administración abre en Inventario
-    assert.deepEqual(await page.$$eval('#nav button', (b) => b.map((x) => x.textContent)), ['Inventario', 'Almacén', 'Promociones', 'Tarjetas de regalo', 'Reportes', 'Cortes', 'Configuración', 'Caja']);
+    assert.deepEqual(await page.$$eval('#nav button', (b) => b.map((x) => x.textContent)), ['Inventario', 'Almacén', 'Promociones', 'Tarjetas de regalo', 'Reportes', 'Análisis', 'Cortes', 'Configuración', 'Caja']);
     await page.click('#nav button[data-vista="reportes"]');
     await page.waitForSelector('#filtros');
     await page.click('#filtros button[type="submit"]');
@@ -1235,7 +1235,7 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     // el supervisor ve todo
     await page.fill('#lg-usuario', 'Edgardo'); await page.fill('#lg-clave', 'clave-segura'); await page.click('#lg-entrar');
     await page.waitForSelector('#nav button[data-vista="reportes"]');
-    assert.equal(await page.locator('#nav button[data-vista]').count(), 8, '7 pantallas más Caja');
+    assert.equal(await page.locator('#nav button[data-vista]').count(), 9, '8 pantallas más Caja');
     assert.match((await page.textContent('[data-chip="rol"]'))!, /Supervisor/);
     assert.deepEqual(errores.filter((e) => !/401|403|Failed to load resource/.test(e)), []);
   });

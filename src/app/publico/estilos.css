@@ -238,3 +238,27 @@ tr.fila-hist td { background: color-mix(in srgb, var(--texto) 5%, transparent); 
 #dlg-hist { max-width: min(760px, 96vw); width: 96vw; max-height: 92vh; overflow: auto; } #dlg-hist table { width: 100%; }
 .barra-busqueda-inv #inv-q { flex: 1 1 320px; }
 tr.fila-fallo td { background: color-mix(in srgb, #ef4444 12%, transparent); }
+
+/* Análisis de ventas: tarjetas, gráfica de barras, tabla con barras y mapa de calor */
+.an-fila { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: flex-end; margin-bottom: 8px; } .an-fila label { font-weight: 600; }
+.an-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 12px 0; }
+.an-kpi { background: var(--superficie); border: 1px solid var(--borde); border-radius: 12px; padding: 10px 12px; display: flex; flex-direction: column; gap: 2px; }
+.an-kpi span { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--texto-2); } .an-kpi b { font-size: 20px; } .an-kpi small { color: var(--texto-2); }
+.grafica-cont { overflow-x: auto; padding-bottom: 6px; margin-bottom: 8px; }
+.grafica { display: flex; align-items: flex-end; gap: 6px; height: 240px; padding: 22px 4px 0; min-width: 100%; box-sizing: border-box; border-bottom: 2px solid var(--borde); }
+.grafica.ancha { gap: 3px; width: max-content; min-width: 100%; }
+.gb { flex: 1 1 0; min-width: 22px; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; position: relative; }
+.grafica.ancha .gb { min-width: 16px; }
+.gb-barra { display: block; width: 100%; max-width: 56px; min-height: 2px; background: var(--acento); border-radius: 5px 5px 0 0; transition: height .25s; }
+.gb.mejor .gb-barra { background: var(--naranja); }
+.gb-valor { font-size: 11px; font-weight: 700; margin-bottom: 3px; white-space: nowrap; }
+.gb-eti { position: absolute; top: 100%; margin-top: 4px; font-size: 11px; color: var(--texto-2); white-space: nowrap; }
+.grafica { margin-bottom: 26px; }
+.tabla-analisis td.celda-barra { width: 28%; min-width: 120px; } .barra-h { display: block; height: 14px; background: var(--acento); border-radius: 0 7px 7px 0; min-width: 1px; }
+.tabla-analisis tr.fila-mejor .barra-h { background: var(--naranja); } .tabla-analisis tr.fila-mejor td, .tabla-analisis tr.fila-mejor th { font-weight: 700; }
+.tabla-analisis tr.fila-total th, .tabla-analisis tr.fila-total td { border-top: 2px solid var(--borde); font-weight: 700; }
+.calor-cont { overflow-x: auto; } .calor { border-collapse: separate; border-spacing: 2px; width: 100%; }
+.calor th { font-size: 11px; font-weight: 600; color: var(--texto-2); padding: 2px 4px; } .calor tbody th { text-align: left; padding-right: 8px; }
+.calor td { min-width: 30px; height: 34px; text-align: center; font-size: 11px; border-radius: 4px; background: color-mix(in srgb, var(--acento) calc(var(--i) * 100%), var(--superficie-2)); color: var(--texto); }
+.calor td[data-v="0"] { background: var(--superficie-2); }
+.an-fila label[hidden] { display: none !important; }

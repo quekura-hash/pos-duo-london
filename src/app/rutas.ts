@@ -178,6 +178,11 @@ export async function atender(o: { cajero?: ServicioCaja; admin?: ServicioAdmin 
         const f = { cajas: cajasParam(q.get('cajas')), desde: q.get('desde') || undefined, hasta: q.get('hasta') || undefined, historicas: q.get('historicas') !== '0' };
         return ok({ reporte: A5.reporte(f), ...(q.get('completo') === '1' ? { hojas: A5.hojasVentas(f) } : {}) });
       }
+      case 'GET /api/admin/analisis': {
+        const A6 = exigirAdmin();
+        const f = { cajas: cajasParam(q.get('cajas')), desde: q.get('desde') || undefined, hasta: q.get('hasta') || undefined, historicas: q.get('historicas') !== '0', agrupar: (q.get('agrupar') || 'mes') as never };
+        return ok({ analisis: A6.analisisVentas(f), ...(q.get('completo') === '1' ? { hojas: A6.hojasAnalisis(f) } : {}) });
+      }
       case 'GET /api/admin/dolares': {
         const A2 = exigirAdmin();
         const f = { cajas: cajasParam(q.get('cajas')), desde: q.get('desde') || undefined, hasta: q.get('hasta') || undefined };

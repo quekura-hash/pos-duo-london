@@ -39,6 +39,7 @@ const I = {
   chart: '<path d="M5 20V11M12 20V4M19 20v-6"/>',
   gift: '<rect x="3" y="8" width="18" height="4" rx="1"/><path d="M12 8v13M5 12v8a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-8"/><path d="M7.5 8a2.5 2.5 0 0 1 0-5C10 3 12 8 12 8s2-5 4.5-5a2.5 2.5 0 0 1 0 5"/>',
   box: '<path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/>',
+  trend: '<path d="M3 17l6-6 4 4 8-8"/><path d="M15 7h6v6"/>',
   warehouse: '<path d="M3 10 12 4l9 6v10H3z"/><path d="M8 20v-6h8v6M8 17h8"/>',
   bell: '<path d="M6 17V11a6 6 0 0 1 12 0v6l1.5 2h-15z"/><path d="M10 21h4"/>',
   upload: '<path d="M12 16V5m0 0-4 4m4-4 4 4M5 20h14"/>',
@@ -163,7 +164,7 @@ const folioTexto = () => (S.ultimoFolio ? `Folio ${String(S.ultimoFolio).padStar
 // ── navegación ──
 const NAV = {
   venta: ['Venta', 'cart'], retiro: ['Retiro', 'cash'], ventas: ['Historial', 'clock'], corte: ['Corte de caja', 'chart'],
-  tarjetas: ['Tarjetas de regalo', 'gift'], reportes: ['Reportes', 'chart'], cortes: ['Cortes', 'cash'], dolares: ['Dólares recibidos', 'dollar'], descuentos: ['Descuentos', 'percent'], entregas: ['Entregas de almacén', 'warehouse'], inventario: ['Inventario', 'box'], departamentos: ['Departamentos', 'box'], almacen: ['Almacén', 'warehouse'], promociones: ['Promociones', 'percent'], tiendas: ['Tiendas', 'store'], configuracion: ['Configuración', 'gear'], administracion: ['Administración', 'gear'], volver_caja: ['Caja', 'caja'], tipo_cambio: ['Tipo de cambio', 'refresh'], avisos: ['Avisos', 'bell'],
+  tarjetas: ['Tarjetas de regalo', 'gift'], reportes: ['Reportes', 'chart'], cortes: ['Cortes', 'cash'], dolares: ['Dólares recibidos', 'dollar'], descuentos: ['Descuentos', 'percent'], entregas: ['Entregas de almacén', 'warehouse'], inventario: ['Inventario', 'box'], departamentos: ['Departamentos', 'box'], almacen: ['Almacén', 'warehouse'], promociones: ['Promociones', 'percent'], tiendas: ['Tiendas', 'store'], configuracion: ['Configuración', 'gear'], administracion: ['Administración', 'gear'], volver_caja: ['Caja', 'caja'], tipo_cambio: ['Tipo de cambio', 'refresh'], avisos: ['Avisos', 'bell'], analisis: ['Análisis', 'trend'],
 };
 // ── Calculadora básica: ventana flotante y movible, no modal. Sigue abierta mientras se usa el resto del POS ──
 const calc = { abierta: false, pos: null, acc: null, op: null, entrada: '0', nuevo: true };
@@ -278,7 +279,7 @@ async function ir(v) {
   S.vista = v;
   pintarNav();
   await pintarEncabezado();
-  await ({ folios: vistaFolios, venta: vistaVenta, retiro: vistaRetiro, corte: vistaCorte, ventas: vistaVentas, reportes: vistaReportes, inventario: vistaInventario, almacen: vistaAlmacen, promociones: vistaPromociones, configuracion: vistaConfiguracion, tiendas: vistaTiendas, departamentos: vistaDepartamentos, tarjetas: vistaTarjetas, devolucion: vistaDevolucion, dolares: vistaDolares, descuentos: vistaDescuentos, entregas: vistaEntregas, conteo_limbo: vistaConteoLimbo, tipo_cambio: vistaTipoCambio, cortes: vistaCortes, avisos: vistaAvisos })[v]();
+  await ({ folios: vistaFolios, venta: vistaVenta, retiro: vistaRetiro, corte: vistaCorte, ventas: vistaVentas, reportes: vistaReportes, inventario: vistaInventario, almacen: vistaAlmacen, promociones: vistaPromociones, configuracion: vistaConfiguracion, tiendas: vistaTiendas, departamentos: vistaDepartamentos, tarjetas: vistaTarjetas, devolucion: vistaDevolucion, dolares: vistaDolares, descuentos: vistaDescuentos, entregas: vistaEntregas, conteo_limbo: vistaConteoLimbo, tipo_cambio: vistaTipoCambio, cortes: vistaCortes, avisos: vistaAvisos, analisis: vistaAnalisis })[v]();
   if (v !== 'almacen') await avisosPisoInicial();
 }
 
@@ -3158,6 +3159,106 @@ async function vistaAvisos() {
     for (const [k] of AVISOS_TIPOS) prefs[k] = $(`#av-${k}`).checked;
     correr(() => N.guardar({ prefs }), 'Preferencias guardadas.');
   });
+}
+
+// ── Análisis de ventas: por mes, semana, día, día de la semana, hora, mapa de calor, forma de pago, caja y tienda ──
+const AN_AGRUP = [['mes', 'Por mes'], ['semana', 'Por semana (la más alta del año)'], ['dia', 'Por día'], ['dia_semana', 'Por día de la semana'], ['hora', 'Por hora'], ['mapa_calor', 'Mapa de calor (día × hora)'], ['forma_pago', 'Por forma de pago'], ['caja', 'Por caja'], ['tienda', 'Por tienda']];
+const AN_METRICAS = [['total', 'Total vendido ($)'], ['tickets', 'Tickets'], ['piezas', 'Piezas'], ['promedio_ticket', 'Ticket promedio ($)'], ['promedio_dia', 'Promedio por día ($)']];
+const AN_DIAS = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
+const anValor = (f, m) => (m === 'promedio_dia' ? (f.promedio_dia ?? 0) : f[m] ?? 0);
+const anTexto = (v, m) => (m === 'tickets' || m === 'piezas' ? Number(v).toLocaleString('es-MX') : mxn(v));
+const anCorto = (ag, f) => (ag === 'mes' ? f.etiqueta.slice(0, 3) : ag === 'semana' ? `S${f.etiqueta.split(' ')[1]}` : ag === 'dia' ? f.etiqueta.split(' ')[1] : ag === 'hora' ? `${f.etiqueta.split(':')[0]}h` : ag === 'dia_semana' ? f.etiqueta.slice(0, 3) : f.etiqueta);
+const anFechas = (A) => {
+  const hoy = new Date(Date.now() - 7 * 3600e3).toISOString().slice(0, 10), y = Number(hoy.slice(0, 4));
+  const finMes = (ym) => `${ym}-${String(new Date(Date.UTC(Number(ym.slice(0, 4)), Number(ym.slice(5, 7)), 0)).getUTCDate()).padStart(2, '0')}`;
+  if (A.rango === 'anio') return { desde: `${A.anio}-01-01`, hasta: `${A.anio}-12-31` };
+  if (A.rango === 'mes') return { desde: `${A.mes}-01`, hasta: finMes(A.mes) };
+  if (A.rango === 'ult30') return { desde: new Date(Date.parse(`${hoy}T00:00:00Z`) - 29 * 86400e3).toISOString().slice(0, 10), hasta: hoy };
+  void y; return { desde: A.desde, hasta: A.hasta };
+};
+async function vistaAnalisis() {
+  const { cajas } = await api('/api/admin/cajas');
+  const hoy = new Date(Date.now() - 7 * 3600e3).toISOString().slice(0, 10), y = Number(hoy.slice(0, 4));
+  const A = (S.analisis ??= { rango: 'anio', anio: String(y), mes: hoy.slice(0, 7), desde: `${y}-01-01`, hasta: hoy, agrupar: 'mes', metrica: 'total', historicas: true });
+  const anios = Array.from({ length: Math.max(1, y - 2022) }, (_, i) => String(y - i));
+  const sel = (id, ops, v) => `<select id="${id}" style="padding:8px;border:2px solid var(--borde);border-radius:10px;background:var(--superficie)">${ops.map(([k, t]) => `<option value="${k}" ${String(k) === String(v) ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select>`;
+  cuerpoVista().innerHTML = `<div class="titulo-vista">${ico('trend')}<h1>Análisis de ventas</h1></div>
+    <form class="filtros panel" id="an-filtros" autocomplete="off">
+      <div class="an-fila">
+        <label>Periodo ${sel('an-rango', [['anio', 'Un año'], ['mes', 'Un mes'], ['ult30', 'Últimos 30 días'], ['personalizado', 'Fechas a elegir']], A.rango)}</label>
+        <label id="an-l-anio">Año ${sel('an-anio', anios.map((a) => [a, a]), A.anio)}</label>
+        <label id="an-l-mes">Mes <input type="month" id="an-mes" value="${esc(A.mes)}"></label>
+        <label id="an-l-desde">Desde <input type="date" id="an-desde" value="${esc(A.desde)}"></label><label id="an-l-hasta">Hasta <input type="date" id="an-hasta" value="${esc(A.hasta)}"></label>
+      </div>
+      <div class="an-fila">
+        <label>Ver ${sel('an-agrupar', AN_AGRUP, A.agrupar)}</label>
+        <label id="an-l-metrica">Medir ${sel('an-metrica', AN_METRICAS, A.metrica)}</label>
+      </div>
+      <fieldset><legend>Cajas</legend><label><input type="checkbox" id="an-todas" checked> Todas</label>
+        ${cajas.map((c) => `<label><input type="checkbox" class="an-caja" value="${esc(c.tienda)}/${c.caja}" checked> ${esc(c.tienda)} · Caja ${c.caja}</label>`).join('')}</fieldset>
+      <label class="check-hist"><input type="checkbox" id="an-hist" ${A.historicas ? 'checked' : ''}> Incluir ventas del POS anterior (históricas)</label>
+      <div class="filas"><button class="btn" type="button" id="an-excel">${ico('download')}<span>Exportar esta tabla a Excel</span></button></div>
+      <div id="an-msg" class="mensaje" role="status" aria-live="polite"></div>
+    </form>
+    <div id="an-resultado"></div>`;
+  const marcas = () => [...document.querySelectorAll('.an-caja')];
+  const seleccion = () => marcas().filter((m) => m.checked).map((m) => m.value);
+  const ruta = () => { const f = anFechas(A); const sel2 = seleccion(); return `/api/admin/analisis?agrupar=${A.agrupar}&desde=${f.desde}&hasta=${f.hasta}&cajas=${sel2.join(',')}&historicas=${A.historicas ? 1 : 0}`; };
+  const visibilidad = () => {
+    $('#an-l-anio').hidden = A.rango !== 'anio'; $('#an-l-mes').hidden = A.rango !== 'mes';
+    $('#an-l-desde').hidden = $('#an-l-hasta').hidden = A.rango !== 'personalizado';
+    $('#an-l-metrica').hidden = A.agrupar === 'mapa_calor';
+  };
+  async function consultar() {
+    visibilidad();
+    const res = $('#an-resultado');
+    if (!seleccion().length) { res.innerHTML = '<div class="mensaje error">Seleccione al menos una caja.</div>'; return; }
+    let j;
+    try { j = (await api(ruta())).analisis; } catch (e) { res.innerHTML = `<div class="mensaje error">${esc(e.message)}</div>`; return; }
+    pintarAnalisis(res, j, A.metrica);
+  }
+  for (const [id, k] of [['an-rango', 'rango'], ['an-anio', 'anio'], ['an-mes', 'mes'], ['an-desde', 'desde'], ['an-hasta', 'hasta'], ['an-agrupar', 'agrupar'], ['an-metrica', 'metrica']]) $(`#${id}`).addEventListener('change', () => { A[k] = $(`#${id}`).value; consultar(); });
+  $('#an-hist').addEventListener('change', () => { A.historicas = $('#an-hist').checked; consultar(); });
+  $('#an-todas').addEventListener('change', (e) => { marcas().forEach((m) => (m.checked = e.target.checked)); consultar(); });
+  marcas().forEach((m) => m.addEventListener('change', () => { $('#an-todas').checked = marcas().every((x) => x.checked); consultar(); }));
+  $('#an-excel').addEventListener('click', async () => {
+    const m = $('#an-msg'); m.className = 'mensaje'; m.textContent = 'Preparando el Excel…';
+    const r = ruta().replace('/analisis?', '/analisis.xlsx?');
+    try {
+      if (window.__POS_EXPORTAR__) m.textContent = await window.__POS_EXPORTAR__(r, `analisis-de-ventas-${A.agrupar}.xlsx`);
+      else { const a = document.createElement('a'); a.href = r; a.download = 'analisis-de-ventas.xlsx'; document.body.appendChild(a); a.click(); a.remove(); m.textContent = 'Descarga iniciada.'; }
+      m.className = 'mensaje ok';
+    } catch (e) { m.className = 'mensaje error'; m.textContent = `No se pudo exportar: ${e.message}`; }
+  });
+  await consultar();
+}
+function pintarAnalisis(el, j, metrica) {
+  const r = j.resumen, ag = j.agrupar;
+  const kpi = (t, v, nota = '') => `<div class="an-kpi"><span>${esc(t)}</span><b>${esc(v)}</b>${nota ? `<small>${esc(nota)}</small>` : ''}</div>`;
+  const NOM = { mes: 'mes', semana: 'semana', dia: 'día', dia_semana: 'día de la semana', hora: 'hora', mapa_calor: 'hora', forma_pago: 'forma de pago', caja: 'caja', tienda: 'tienda' }[ag];
+  const kpis = `<div class="an-kpis">${kpi('Total vendido', mxn(r.total), r.fees ? `incluye ${mxn(r.fees)} de fees por daño` : '')}${kpi('Tickets', r.tickets.toLocaleString('es-MX'))}${kpi('Piezas', r.piezas.toLocaleString('es-MX'))}${kpi('Ticket promedio', mxn(r.promedio_ticket))}${kpi('Días con ventas', `${r.dias_con_ventas} de ${r.dias}`)}${j.mejor.por_total ? kpi(`Mejor ${NOM}`, j.mejor.por_total.etiqueta, mxn(j.mejor.por_total.total)) : ''}</div>`;
+  const notas = `${j.sin_hora ? `<p class="nota">${j.sin_hora} ticket(s) del POS anterior no traen hora y no entran en esta vista.</p>` : ''}<p class="nota">Los fees por daño suman al total pero no cuentan como ticket; los cambios sin diferencia no cuentan. No incluye tickets cancelados.</p>`;
+  if (!r.tickets && !r.fees) { el.innerHTML = `${kpis}<div class="panel"><p class="vacio">No hay ventas en este periodo.</p></div>${notas}`; return; }
+  if (ag === 'mapa_calor') {
+    const m = j.matriz, max = Math.max(1, ...m.flat());
+    const horas = j.filas.map((f) => Number(f.clave));
+    const [h0, h1] = [Math.min(...horas), Math.max(...horas)];
+    const hs = Array.from({ length: h1 - h0 + 1 }, (_, i) => h0 + i);
+    const corto = (c) => (c >= 100000 ? `${Math.round(c / 100000) / 10}k` : String(Math.round(c / 100)));
+    el.innerHTML = `${kpis}<section class="panel"><h2 style="margin-top:0">Cuándo se vende más (total por día de la semana y hora)</h2>
+      <div class="calor-cont"><table class="calor" id="an-calor"><thead><tr><th></th>${hs.map((h) => `<th>${h}h</th>`).join('')}</tr></thead><tbody>
+      ${AN_DIAS.map((d, i) => `<tr><th scope="row">${d}</th>${hs.map((h) => { const c = m[i][h]; return `<td data-v="${c}" style="--i:${(c / max).toFixed(3)}" title="${esc(AN_DIAS[i])} ${h}:00 – ${h + 1}:00 · ${esc(mxn(c))}">${c ? esc(corto(c)) : ''}</td>`; }).join('')}</tr>`).join('')}</tbody></table></div>
+      <p class="nota">Más oscuro = se vendió más. Los números son pesos (k = miles). Toque una celda para ver el monto exacto.</p></section>${notas}`;
+    return;
+  }
+  const vals = j.filas.map((f) => anValor(f, metrica)), max = Math.max(1, ...vals);
+  const mejorI = vals.indexOf(Math.max(...vals));
+  const muchas = j.filas.length > 24;
+  const grafica = ['forma_pago', 'caja', 'tienda'].includes(ag) ? '' : `<div class="grafica-cont"><div class="grafica ${muchas ? 'ancha' : ''}" id="an-grafica" role="img" aria-label="Gráfica de barras ${esc(AN_METRICAS.find((x) => x[0] === metrica)[1])} ${esc(NOM)}">${j.filas.map((f, i) => `<div class="gb ${i === mejorI && vals[i] > 0 ? 'mejor' : ''}" title="${esc(f.etiqueta)} · ${esc(anTexto(vals[i], metrica))}"><span class="gb-valor">${muchas || !vals[i] ? '' : esc(anTexto(vals[i], metrica).replace(/\.00$/, ''))}</span><span class="gb-barra" style="height:${((vals[i] / max) * 100).toFixed(1)}%"></span><span class="gb-eti">${esc(anCorto(ag, f))}</span></div>`).join('')}</div></div>`;
+  const filas = j.filas.map((f, i) => `<tr class="${i === mejorI && vals[i] > 0 ? 'fila-mejor' : ''}"><td data-etiqueta>${esc(f.etiqueta)}</td><td class="celda-barra"><span class="barra-h" style="width:${((vals[i] / max) * 100).toFixed(1)}%"></span></td><td class="num">${f.tickets}</td><td class="num">${f.piezas}</td><td class="num">${mxn(f.total)}</td><td class="num">${mxn(f.promedio_ticket)}</td><td class="num">${f.promedio_dia == null ? '' : mxn(f.promedio_dia)}</td><td class="num">${f.porcentaje.toFixed(1)}%</td></tr>`).join('');
+  el.innerHTML = `${kpis}<section class="panel"><h2 style="margin-top:0">${esc(AN_AGRUP.find((x) => x[0] === ag)[1])} · ${esc(AN_METRICAS.find((x) => x[0] === metrica)[1])}</h2>${grafica}
+    <div class="tabla-cont"><table class="tabla-analisis" id="an-tabla"><thead><tr><th>${esc(NOM[0].toUpperCase() + NOM.slice(1))}</th><th>${esc(AN_METRICAS.find((x) => x[0] === metrica)[1])}</th><th class="num">Tickets</th><th class="num">Piezas</th><th class="num">Total</th><th class="num">Ticket prom.</th><th class="num">Prom. por día</th><th class="num">% del total</th></tr></thead><tbody>${filas}
+      <tr class="fila-total"><th scope="row">Total</th><td></td><td class="num">${r.tickets}</td><td class="num">${r.piezas}</td><td class="num">${mxn(r.total)}</td><td class="num">${mxn(r.promedio_ticket)}</td><td></td><td class="num">100%</td></tr></tbody></table></div></section>${notas}`;
 }
 
 async function vistaTipoCambio() {

@@ -133,4 +133,14 @@
   .orden-inv { display: flex; justify-content: space-between; }
   .orden-inv select { flex: 1; max-width: 62%; min-height: 44px; }
   #inv-nota { font-size: 12px; }
+  .tabla-analisis { display: table; width: 100%; font-size: 12px; border-collapse: collapse; }
+  .tabla-analisis thead { display: table-header-group; } .tabla-analisis tbody { display: table-row-group; }
+  .tabla-analisis th { font-size: 10px; padding: 4px 3px; white-space: normal; }
+  .tabla-analisis tbody tr { display: table-row; border: 0; border-radius: 0; padding: 0; margin: 0; background: none; }
+  .tabla-analisis tbody td, .tabla-analisis tbody th { display: table-cell; text-align: right; padding: 5px 3px; border-bottom: 1px solid var(--borde); }
+  .tabla-analisis tbody td:first-child, .tabla-analisis tbody th:first-child { text-align: left; }
+  .tabla-analisis tbody td::before { display: none; }
+  .tabla-analisis th:nth-child(4), .tabla-analisis td:nth-child(4), .tabla-analisis th:nth-child(6), .tabla-analisis td:nth-child(6), .tabla-analisis th:nth-child(7), .tabla-analisis td:nth-child(7) { display: none; }
+  .tabla-analisis td.celda-barra { min-width: 60px; }
+  .an-kpis { grid-template-columns: 1fr 1fr; } .an-kpi b { font-size: 17px; } .an-fila label { width: 100%; } .an-fila select, .an-fila input { width: 100%; box-sizing: border-box; min-height: 44px; }
 }

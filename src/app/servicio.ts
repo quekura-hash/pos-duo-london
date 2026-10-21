@@ -1,4 +1,5 @@
 import { revisarReporteAnterior, idVentaHistorica } from '../ventas-historicas.ts';
+import { AGRUPACIONES, analizarVentas, type Agrupar } from '../analisis-ventas.ts';
 import { cortesPorCaja, descuentosPorCaja, dolaresPorCaja, reporteConsolidado, ventasPorCaja, ventasPorVendedora, type Filtro } from '../consultas.ts';
 import { DIAS_URGENTE, diasHasta, entradasDeArticulo, existenciaAlmacen, faltantes, recepcionesPendientes, recordatoriosPiso, reporteEntregas, revisarAlta, type AltaManual } from '../almacen.ts';
 import { DEPARTAMENTOS_BASE, resolverDepartamento } from '../departamentos.ts';
@@ -8,7 +9,7 @@ import type { Impresora } from '../impresion.ts';
 import type { Caja } from '../nodos.ts';
 import { estadoPromo, type Promocion } from '../promociones.ts';
 import { CAMPOS_EDITABLES, catalogo, historialArticulo, nombresTienda, datosTiendas, departamentos as proyDepartamentos, promocionesDe, recompensasDe, supervisoresDe, cajerosDe, administradoresDe, configSesionDe, permisos as proyPermisos, tarjetasRegalo, tiposDeCambio, tipoCambioVigente, ventas, type TipoCambio } from '../proyecciones.ts';
-import { hojaDetalleVentas, hojaResumenVentas, hojaDescuentos, hojaEntregas, hojaDolares, hojaInventario, leerInventario, PERFIL_CONFIRMADO, type Hoja } from '../inventario.ts';
+import { hojaAnalisis, hojaDetalleVentas, hojaResumenVentas, hojaDescuentos, hojaEntregas, hojaDolares, hojaInventario, leerInventario, PERFIL_CONFIRMADO, type Hoja } from '../inventario.ts';
 import { LOGOS_TICKET } from '../logos-ticket.ts';
 import { aplicarDatosTienda, codigoTicket, construirTicket, construirTicketRegalo, formatoMXN, NEGOCIOS, renderTextoEscPos, renderTicketDevolucionTexto, renderTicketRetiroTexto, renderTicketEscPos, renderTicketTexto, type NegocioCfg } from '../ticket.ts';
 import type { ReglaRecompensa } from '../recompensas.ts';
@@ -1008,7 +1009,7 @@ export class ServicioAdmin {
   rol(): RolAdmin { return this.rolUsuario ?? 'supervisor'; }
   /** Pantallas de Administración que ve cada rol (el almacenista solo trabaja Inventario y Almacén). */
   nav(): string[] {
-    return this.rol() === 'almacenista' ? ['inventario', 'almacen'] : ['inventario', 'almacen', 'promociones', 'tarjetas', 'reportes', 'cortes', 'configuracion'];
+    return this.rol() === 'almacenista' ? ['inventario', 'almacen'] : ['inventario', 'almacen', 'promociones', 'tarjetas', 'reportes', 'analisis', 'cortes', 'configuracion'];
   }
   /** ¿El rol de la sesión puede llamar a esta ruta de Administración? El supervisor, todo; el almacenista, solo lo de Inventario y Almacén. */
   puede(metodo: string, ruta: string): boolean {
@@ -1195,6 +1196,15 @@ export class ServicioAdmin {
   /** Dólares físicos recibidos y su equivalente con la tasa de cada operación (no la del día). */
   dolares(f: Filtro = {}) {
     return dolaresPorCaja(this.actor, this.fuente(), f);
+  }
+  /** Análisis de ventas (por mes, semana, día, día de la semana, hora, mapa de calor, forma de pago, caja o tienda) sobre el mismo reporte consolidado. */
+  analisisVentas(f: Filtro & { agrupar: Agrupar }) {
+    if (!AGRUPACIONES.includes(f.agrupar)) throw new ErrorDominio('DATOS_INVALIDOS', `agrupación desconocida: ${String(f.agrupar)}`);
+    const { agrupar, ...filtro } = f;
+    return analizarVentas(this.reporte(filtro).filas, { agrupar, desde: f.desde, hasta: f.hasta });
+  }
+  hojasAnalisis(f: Filtro & { agrupar: Agrupar }): Hoja[] {
+    return [hojaAnalisis(this.analisisVentas(f))];
   }
   /** Hojas de Excel para la contadora: detalle de tickets y resumen por día. */
   hojasVentas(f: Filtro = {}): Hoja[] {
