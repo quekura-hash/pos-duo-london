@@ -31,12 +31,12 @@ describe('[memoria — lógica pura] Ticket: contenido, MXN, sin impuestos, ESC/
   });
 
   it('K2b un renglón largo se parte entre palabras y los siguientes quedan sangrados bajo la descripción', () => {
-    const v2: Venta = { ...venta, lineas: [{ ...venta.lineas[0]!, qty: 12, descripcion: 'VESTIDO LARGO DE NOCHE BORDADO CON LENTEJUELA', marca: 'EFENTUS', estilo: 'A-12', item_no: '1003', codigo: '7501234567890' }] };
+    const v2: Venta = { ...venta, lineas: [{ ...venta.lineas[0]!, qty: 12, descripcion: 'VESTIDO LARGO DE NOCHE BORDADO CON LENTEJUELA PLATEADA', marca: 'EFENTUS', estilo: 'A-12', item_no: '1003', codigo: '7501234567890' }] };
     const txt = renderTicketTexto(construirTicket(v2));
-    assert.match(txt, /^12 VESTIDO LARGO DE NOCHE BORDADO CON$/m);
-    assert.match(txt, /^ {3}LENTEJUELA EFENTUS A-12$/m, 'sangría de la cantidad («12 »)');
+    assert.match(txt, /^12 VESTIDO LARGO DE NOCHE BORDADO CON LENTEJUELA$/m);
+    assert.match(txt, /^ {3}PLATEADA EFENTUS A-12$/m, 'sangría de la cantidad («12 »)');
     assert.match(txt, /^#1003 7501234567890/m);
-    assert.ok(txt.split('\n').every((x) => x.length <= 42), 'nada pasa del ancho del papel');
+    assert.ok(txt.split('\n').every((x) => x.length <= 48), 'nada pasa del ancho del papel');
   });
 
   it('K3 no hay IVA, Tax, impuestos ni porcentajes en el ticket; el total es neto', () => {

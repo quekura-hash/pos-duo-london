@@ -36,7 +36,7 @@ porAlmacen('Ticket de regalo: la mercancía sin precios y con el código de la c
     assert.match(txt, /Para cambios presente este ticket/);
     assert.doesNotMatch(txt, /\$|TOTAL|Efectivo|Recibido|Cambio|Vendedora-Cajera|2x1|Descuento|Folio:/, 'ni un precio, descuento, pago ni cajero');
     // mismo ancho de papel
-    assert.ok(txt.split('\n').every((x) => x.length <= 42));
+    assert.ok(txt.split('\n').every((x) => x.length <= 48));
     // impresión: logo arriba, código de barras de la compra y SIN abrir el cajón
     const dir = (s.impresora as { dir: string }).dir;
     const archivos = readdirSync(dir).sort();

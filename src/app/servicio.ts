@@ -751,7 +751,7 @@ export class ServicioAdmin {
     const datos = datosTiendas(this.fuente());
     return this.tiendas().map((t) => {
       const f = NEGOCIOS[t];
-      const vivo = aplicarDatosTienda(f ?? { nombre: t, letra: t[0] ?? '?', leyendas: [], columnas: 42 }, datos.get(t));
+      const vivo = aplicarDatosTienda(f ?? { nombre: t, letra: t[0] ?? '?', leyendas: [], columnas: 48 }, datos.get(t));
       const fab = f ?? { nombre: t, leyendas: [] as string[] };
       return {
         tienda: t, nombre: vivo.nombre, razon_social: vivo.razon_social ?? '', rfc: vivo.rfc ?? '', direccion: vivo.direccion ?? '', ciudad: vivo.ciudad ?? '', telefono: vivo.telefono ?? '', politica: vivo.leyendas.join('\n'),

@@ -29,7 +29,7 @@ export interface NegocioCfg {
   telefono?: string;
   /** Leyendas al pie, CONFIGURABLES. "No hacemos devoluciones de efectivo" es un aviso al cliente, no un bloqueo del programa. */
   leyendas: string[];
-  /** Caracteres por renglón. 42 es un supuesto para 58 mm; el ancho real depende del papel y la fuente de la impresora (pendiente). */
+  /** Caracteres por renglón. 48 = papel de 80 mm con la fuente A de la Epson TM-T20II (576 puntos); 42 dejaba un margen vacío a la derecha. */
   columnas: number;
 }
 
@@ -43,11 +43,11 @@ export const POLITICA_DUO = [
 ];
 export const NEGOCIOS: Record<string, NegocioCfg> = {
   DUO: {
-    nombre: 'DÚO New York', letra: 'D', columnas: 42, leyendas: POLITICA_DUO,
+    nombre: 'DÚO New York', letra: 'D', columnas: 48, leyendas: POLITICA_DUO,
     razon_social: 'KARINA PALAFOX VILLALOBOS', rfc: 'PAVK-781208-TB9', direccion: 'AV. LIBERTAD entre calles 8 y 9 #803', ciudad: 'San Luis Río Colorado, Sonora', telefono: '534-0607',
   },
   // London Love: sin datos de fábrica; se capturan en Administración → Configuración → Tiendas.
-  LON: { nombre: 'London Love', letra: 'L', leyendas: ['No hacemos devoluciones de efectivo'], columnas: 42 },
+  LON: { nombre: 'London Love', letra: 'L', leyendas: ['No hacemos devoluciones de efectivo'], columnas: 48 },
 };
 
 /** Código que identifica la venta sin ambigüedad entre las cuatro series: tienda + caja + folio. */
