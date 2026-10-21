@@ -1108,6 +1108,45 @@ async function abrirImportarHistoricas(cajas, alTerminar) {
   });
 }
 
+// ── Envío mensual del reporte a la contadora (un correo por tienda) ──
+const CORREO_OK = /^[^\s@<>"]+@[^\s@<>"]+\.[^\s@<>"]{2,}$/;
+async function pintarPanelContadora(cajas) {
+  const R = window.__POS_REPORTE__;
+  const cont = $('#panel-contadora');
+  const nombre = { DUO: 'DÚO New York', LON: 'London Love' };
+  let d;
+  try { d = await R.leer(); } catch (e) { cont.innerHTML = `<h2 style="margin-top:0">Envío mensual a la contadora</h2><div class="mensaje error">No se pudo leer la configuración: ${esc(e.message)}</div>`; return; }
+  const mesTxt = (p) => `${['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'][Number(p.slice(5, 7)) - 1]} ${p.slice(0, 4)}`;
+  const cajaTxt = (t, n) => `${nombre[t] ?? t} · Caja ${n}`;
+  cont.innerHTML = `<h2 style="margin-top:0">Envío mensual a la contadora</h2>
+    <p class="nota">El último día de cada mes a las <b>9:00 p. m.</b> (hora de Hermosillo) se manda por correo el Excel del mes de <b>cada caja a sus propios correos</b>, con el detalle de tickets y el resumen por día (la Caja 1 de DÚO incluye las ventas del POS anterior). Cada caja es un correo aparte; una caja sin correos activados no manda nada. Si ese día falla, se reintenta los días 1 al 3. Lo que se venda después de las 9:00 p. m. del último día no entra en ese archivo.</p>
+    ${cajas.map((k) => { const c = d.config.find((x) => x.tienda === k.tienda && x.caja === k.caja) ?? { activo: false, correos: [] }; return `<fieldset class="rc-caja" data-tienda="${esc(k.tienda)}" data-caja="${k.caja}"><legend>${esc(cajaTxt(k.tienda, k.caja))}</legend>
+      <label class="check-hist"><input type="checkbox" class="rc-activo" ${c.activo ? 'checked' : ''}> Enviar el informe mensual de esta caja</label>
+      <div class="campo"><label for="rc-correos-${esc(k.tienda)}-${k.caja}">Enviar a (correos separados por coma)</label><input id="rc-correos-${esc(k.tienda)}-${k.caja}" class="texto rc-correos" type="text" inputmode="email" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="contadora@despacho.mx, tu@correo.com" value="${esc((c.correos ?? []).join(', '))}" style="width:100%;box-sizing:border-box"></div>
+      <div class="filas"><button class="btn btn-primario rc-guardar" type="button" style="width:auto">${ico('check')}<span>Guardar</span></button><button class="btn rc-probar" type="button" title="Te manda a TU correo el reporte de lo que va del mes de esta caja">${ico('bell')}<span>Enviarme una prueba</span></button></div>
+      <div class="mensaje rc-msg" role="status" aria-live="polite"></div></fieldset>`; }).join('')}
+    ${d.envios.length ? `<h3 style="margin-bottom:4px">Últimos envíos</h3><table id="tabla-envios"><thead><tr><th>Mes</th><th>Caja</th><th>Enviado</th><th class="num">Tickets</th><th class="num">Total</th><th>A</th></tr></thead><tbody>${d.envios.map((e) => `<tr><td>${esc(mesTxt(e.periodo))}</td><td>${esc(cajaTxt(e.tienda, e.caja))}</td><td>${e.enviado_en ? esc(fechaHora(e.enviado_en)) : '—'}</td><td class="num">${e.tickets ?? ''}</td><td class="num">${e.total == null ? '' : mxn(e.total)}</td><td>${esc((e.correos ?? []).join(', '))}</td></tr>`).join('')}</tbody></table>` : '<p class="nota">Todavía no se ha enviado ningún reporte.</p>'}`;
+  for (const f of cont.querySelectorAll('.rc-caja')) {
+    const tienda = f.dataset.tienda, caja = Number(f.dataset.caja), msg = f.querySelector('.rc-msg');
+    const decir = (t, tipo = '') => { msg.className = `mensaje rc-msg ${tipo}`; msg.textContent = t; };
+    f.querySelector('.rc-guardar').addEventListener('click', async () => {
+      const partes = f.querySelector('.rc-correos').value.split(/[\s,;]+/).map((x) => x.trim().toLowerCase()).filter(Boolean);
+      const malos = partes.filter((x) => !CORREO_OK.test(x));
+      if (malos.length) return decir(`Revisa estos correos: ${malos.join(', ')}`, 'error');
+      const correos = [...new Set(partes)];
+      const activo = f.querySelector('.rc-activo').checked;
+      if (activo && !correos.length) return decir('Escribe al menos un correo para activar el envío.', 'error');
+      try { await R.guardar(tienda, caja, { activo, correos }); decir(activo ? `Guardado: el informe de ${cajaTxt(tienda, caja)} se enviará a ${correos.join(', ')}.` : 'Guardado: el envío de esta caja está apagado.', 'ok'); }
+      catch (e) { decir(`No se pudo guardar: ${e.message}`, 'error'); }
+    });
+    f.querySelector('.rc-probar').addEventListener('click', async () => {
+      decir('Enviando la prueba…');
+      try { const r = await R.probar(tienda, caja); decir(`Listo: te mandé a ${r.correo} el reporte de lo que va del mes de ${cajaTxt(tienda, caja)} (${r.tickets} ticket(s), ${mxn(r.total)}). Revisa también el correo no deseado.`, 'ok'); }
+      catch (e) { decir(`No se pudo enviar la prueba: ${e.message}`, 'error'); }
+    });
+  }
+}
+
 async function vistaReportes() {
   const { cajas } = await api('/api/admin/cajas');
   const hoy = new Date(Date.now() - 7 * 3600e3).toISOString().slice(0, 10);
@@ -1120,7 +1159,9 @@ async function vistaReportes() {
       <button class="btn" type="button" id="rep-excel" title="Excel para la contadora: detalle de tickets y resumen por día">${ico('download')}<span>Exportar a Excel (contadora)</span></button>
       <button class="btn" type="button" id="rep-importar" title="Importa el reporte «Sales Detail» del POS anterior">${ico('upload')}<span>Importar ventas del POS anterior</span></button></div>
     <div id="rep-msg" class="mensaje" role="status" aria-live="polite"></div></form>
+    ${window.__POS_REPORTE__ && S.sesion.rol_usuario === 'supervisor' ? '<section class="panel" id="panel-contadora" aria-label="Envío mensual a la contadora"></section>' : ''}
     <div id="resultado"></div>`;
+  if ($('#panel-contadora')) pintarPanelContadora(cajas);
   const marcas = () => [...$('#filtros').querySelectorAll('.caja')];
   $('#todas').addEventListener('change', (e) => marcas().forEach((m) => (m.checked = e.target.checked)));
   marcas().forEach((m) => m.addEventListener('change', () => ($('#todas').checked = marcas().every((x) => x.checked))));

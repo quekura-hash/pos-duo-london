@@ -159,6 +159,13 @@
     },
   };
 
+  // ── envío mensual del reporte a la contadora: destinatarios por tienda, bitácora y correo de prueba ──
+  window.__POS_REPORTE__ = {
+    leer: function () { return Promise.all([nube.cliente.leerReporteContadora(), nube.cliente.leerEnviosReporte()]).then(function (r) { return { config: r[0], envios: r[1] }; }); },
+    guardar: function (tienda, caja, d) { return nube.cliente.guardarReporteContadora(tienda, caja, d); },
+    probar: function (tienda, caja) { return nube.cliente.probarReporteContadora(tienda, caja); },
+  };
+
   setInterval(pintarEstado, 5000);
   window.POS_ADMIN = { estado: function () { return nube ? nube.estado() : null; } };
   mostrarPuerta();

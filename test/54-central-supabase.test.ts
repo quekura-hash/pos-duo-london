@@ -251,3 +251,54 @@ test('CS10 notificaciones: el disparador avisa solo de lo relevante y nunca fren
   await assert.rejects(como(db, sup, (q) => q(`select pos.configurar_notificaciones('https://x.supabase.co/f', 'clave-compartida-de-prueba-123456')`)), /permission denied/);
   await assert.rejects(como(db, null, (q) => q('select * from pos.suscripciones_push')), /permission denied/);
 });
+
+test('CS11 reporte a la contadora: solo un supervisor configura los destinatarios de cada caja; el envío mensual se reserva una sola vez por caja y se puede reintentar; nada de esto lo ven cajas ni anónimos', async () => {
+  const db = await centralLocal();
+  const sup = await usuario(db, 'edgardo@x.mx', 'supervisor');
+  const alm = await usuario(db, 'almacen@x.mx', 'almacenista');
+  const caja = await usuario(db, 'caja@x.mx', 'caja', true, { tienda: 'DUO', caja: 1 });
+  // Configuración por caja: solo supervisor.
+  const guardar = (uid: string, tienda: string, n: number, correos: string[]) => como(db, uid, (q) => q(`insert into pos.reporte_contadora (tienda, caja, activo, correos, actualizado_por) values ($1, $2, true, $3, $4) on conflict (tienda, caja) do update set activo = true, correos = excluded.correos returning tienda`, [tienda, n, correos, uid]));
+  assert.equal(((await guardar(sup, 'DUO', 1, ['conta@despacho.mx', 'dueno@x.mx'])) as unknown[]).length, 1);
+  assert.equal(((await guardar(sup, 'DUO', 2, ['otra@despacho.mx'])) as unknown[]).length, 1, 'cada caja tiene su propia lista');
+  assert.equal(((await guardar(sup, 'DUO', 1, ['conta@despacho.mx'])) as unknown[]).length, 1, 'guardar otra vez la misma caja la actualiza');
+  await assert.rejects(guardar(alm, 'LON', 1, ['x@x.mx']), /row-level security/);
+  await assert.rejects(guardar(caja, 'LON', 1, ['x@x.mx']), /row-level security/);
+  await assert.rejects(guardar(sup, 'XXX', 1, ['x@x.mx']), /check/, 'solo DUO o LON');
+  await assert.rejects(guardar(sup, 'DUO', 0, ['x@x.mx']), /check/, 'la caja es 1 o más');
+  assert.deepEqual(((await como(db, sup, (q) => q('select tienda, caja, correos from pos.reporte_contadora order by tienda, caja'))) as { tienda: string; caja: number; correos: string[] }[]).map((r) => [r.tienda, r.caja, r.correos]), [['DUO', 1, ['conta@despacho.mx']], ['DUO', 2, ['otra@despacho.mx']]]);
+  assert.equal(((await como(db, alm, (q) => q('select * from pos.reporte_contadora'))) as unknown[]).length, 0, 'el almacenista no ve los correos');
+  assert.equal(((await como(db, caja, (q) => q('select * from pos.reporte_contadora'))) as unknown[]).length, 0);
+  await assert.rejects(como(db, null, (q) => q('select * from pos.reporte_contadora')), /permission denied/);
+  // Reserva atómica del envío por caja (la usa solo el servidor).
+  const reclamar = async (p = '2026-10', t = 'DUO', c = 1) => (await db.query<{ r: boolean }>('select pos.reclamar_envio_reporte($1, $2, $3) as r', [p, t, c])).rows[0]!.r;
+  assert.equal(await reclamar(), true);
+  assert.equal(await reclamar(), false, 'una segunda corrida a la vez no manda otro correo');
+  assert.equal(await reclamar('2026-10', 'DUO', 2), true, 'otra caja de la misma tienda es otro envío');
+  assert.equal(await reclamar('2026-10', 'LON', 1), true, 'y otra tienda también');
+  await db.query(`select pos.liberar_envio_reporte('2026-10', 'DUO', 1)`);
+  assert.equal(await reclamar(), true, 'si el correo falló se libera y se puede reintentar');
+  await db.query(`select pos.registrar_envio_reporte('2026-10', 'DUO', 1, array['conta@despacho.mx'], 41, 322152, 're_123')`);
+  const fila = (await db.query<{ enviado: boolean; tickets: number; total: string; proveedor_id: string }>(`select enviado_en is not null as enviado, tickets, total::text, proveedor_id from pos.envios_reporte where periodo = '2026-10' and tienda = 'DUO' and caja = 1`)).rows[0]!;
+  assert.deepEqual([fila.enviado, fila.tickets, fila.total, fila.proveedor_id], [true, 41, '322152', 're_123']);
+  assert.equal(await reclamar(), false, 'lo ya enviado no se vuelve a reservar');
+  await db.query(`select pos.liberar_envio_reporte('2026-10', 'DUO', 1)`);
+  assert.equal((await db.query(`select 1 from pos.envios_reporte where periodo = '2026-10' and tienda = 'DUO' and caja = 1`)).rows.length, 1, 'liberar no borra lo ya enviado');
+  // Una reserva que quedó a medias (la función se cayó) se retoma a los 30 minutos.
+  assert.equal(await reclamar('2026-10', 'DUO', 2), false);
+  await db.query(`update pos.envios_reporte set reservado_en = now() - interval '31 minutes' where periodo = '2026-10' and tienda = 'DUO' and caja = 2`);
+  assert.equal(await reclamar('2026-10', 'DUO', 2), true);
+  // Bitácora: el supervisor la lee; los demás no; nadie ejecuta las funciones del servidor.
+  assert.equal(((await como(db, sup, (q) => q('select * from pos.envios_reporte'))) as unknown[]).length, 3);
+  assert.equal(((await como(db, alm, (q) => q('select * from pos.envios_reporte'))) as unknown[]).length, 0);
+  for (const uid of [sup, alm]) await assert.rejects(como(db, uid, (q) => q(`select pos.reclamar_envio_reporte('2026-11', 'DUO', 1)`)), /permission denied/);
+  // Programación: usa la clave compartida de los avisos, una vez al día a las 04:00 UTC (9 p. m. de Hermosillo) y sin duplicarse.
+  await assert.rejects(db.query(`select pos.configurar_reporte_contadora('https://x.supabase.co/functions/v1/reporte-contadora')`), /primero ejecute pos\.configurar_notificaciones/);
+  await db.query(`select pos.configurar_notificaciones('https://x.supabase.co/functions/v1/notificar', 'clave-compartida-de-prueba-123456')`);
+  await db.query(`select pos.configurar_reporte_contadora('https://x.supabase.co/functions/v1/reporte-contadora')`);
+  await db.query(`select pos.configurar_reporte_contadora('https://x.supabase.co/functions/v1/reporte-contadora')`);
+  const jobs = (await db.query<{ jobname: string; schedule: string; command: string }>(`select jobname, schedule, command from cron.job where jobname = 'londuo-reporte-mensual'`)).rows;
+  assert.deepEqual(jobs.map((j) => [j.jobname, j.schedule]), [['londuo-reporte-mensual', '0 4 * * *']]);
+  assert.match(jobs[0]!.command, /'accion', 'mensual'/);
+  await assert.rejects(como(db, sup, (q) => q(`select pos.configurar_reporte_contadora('https://x.supabase.co/f')`)), /permission denied/);
+});

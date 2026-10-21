@@ -130,6 +130,30 @@ export class ClienteSupabase implements ClienteCentral {
     if (!r.ok) throw new Error(((await r.json().catch(() => ({}))) as { error?: string }).error ?? `No se pudo enviar la prueba (${r.status})`);
   }
 
+  /** Envío mensual del reporte a la contadora: destinatarios por CAJA (solo supervisor). */
+  leerReporteContadora(): Promise<{ tienda: string; caja: number; activo: boolean; correos: string[] }[]> {
+    if (!this.sesion) throw new Error('Sin sesión en el central.');
+    return this.leer('reporte_contadora?select=tienda,caja,activo,correos&order=tienda,caja');
+  }
+  guardarReporteContadora(tienda: string, caja: number, d: { activo: boolean; correos: string[] }): Promise<void> {
+    if (!this.sesion?.usuario_id) throw new Error('Sin sesión en el central.');
+    return this.escribir('reporte_contadora?on_conflict=tienda,caja', 'POST', { tienda, caja, activo: d.activo, correos: d.correos, actualizado_en: new Date().toISOString(), actualizado_por: this.sesion.usuario_id }, { Prefer: 'resolution=merge-duplicates,return=minimal' });
+  }
+  /** Últimos envíos hechos (periodo, caja, cuándo, tickets y total). */
+  leerEnviosReporte(): Promise<{ periodo: string; tienda: string; caja: number; enviado_en: string | null; tickets: number | null; total: number | null; correos: string[] }[]> {
+    if (!this.sesion) throw new Error('Sin sesión en el central.');
+    return this.leer('envios_reporte?select=periodo,tienda,caja,enviado_en,tickets,total,correos&enviado_en=not.is.null&order=periodo.desc,tienda,caja&limit=24');
+  }
+  /** Le pide a la función un correo de PRUEBA (lo que va del mes de una caja) al correo de quien está en sesión. */
+  async probarReporteContadora(tienda: string, caja: number): Promise<{ correo: string; asunto: string; tickets: number; total: number }> {
+    if (!this.sesion) throw new Error('Sin sesión en el central.');
+    if (Date.now() >= this.sesion.expira) await this.restaurarSesion(this.sesion.refresh_token);
+    const r = await this.f(`${this.url}/functions/v1/reporte-contadora`, { method: 'POST', signal: AbortSignal.timeout(60000), headers: { apikey: this.anon, Authorization: `Bearer ${this.sesion.access_token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ accion: 'prueba', tienda, caja }) });
+    const j = (await r.json().catch(() => ({}))) as { error?: string; correo?: string; asunto?: string; tickets?: number; total?: number };
+    if (!r.ok) throw new Error(j.error ?? `No se pudo enviar la prueba (${r.status})`);
+    return { correo: j.correo ?? '', asunto: j.asunto ?? '', tickets: j.tickets ?? 0, total: j.total ?? 0 };
+  }
+
   /** Reserva un bloque de Item # (lo asigna solo el central). */
   reservarItemNo(k: number) {
     return this.rpc<{ desde: number; hasta: number }>('reservar_item_no', { p_k: k });

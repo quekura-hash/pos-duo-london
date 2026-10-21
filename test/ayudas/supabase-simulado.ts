@@ -7,6 +7,8 @@ const CORS = { 'access-control-allow-origin': '*', 'access-control-allow-headers
 
 /** Avisos de prueba que el navegador pidió a la función `notificar`. */
 export const pruebas: unknown[] = [];
+/** Pruebas de reporte a la contadora que el navegador pidió a la función `reporte-contadora`. */
+export const pruebasReporte: unknown[] = [];
 
 /** Supabase simulado en el navegador: Auth y PostgREST contestan desde el Postgres local con la migración REAL. */
 export async function simularSupabase(ctx: BrowserContext, db: PGlite, cuentas: Record<string, string>) {
@@ -44,6 +46,16 @@ export async function simularSupabase(ctx: BrowserContext, db: PGlite, cuentas: 
         }
         if (req.method() === 'DELETE') { await como(db, uid, (q) => q('delete from pos.suscripciones_push where endpoint = $1', [ep])); return ruta.fulfill({ status: 204, headers: CORS, body: '' }); }
       }
+      if (u.pathname === '/rest/v1/reporte_contadora') {
+        if (req.method() === 'GET') return json(200, await como(db, uid, (q) => q('select tienda, caja, activo, correos from pos.reporte_contadora order by tienda, caja')));
+        if (req.method() === 'POST') {
+          const b = req.postDataJSON() as { tienda: string; caja: number; activo: boolean; correos: string[]; actualizado_por: string };
+          await como(db, uid, (q) => q(`insert into pos.reporte_contadora (tienda, caja, activo, correos, actualizado_por) values ($1, $2, $3, $4, $5) on conflict (tienda, caja) do update set activo = excluded.activo, correos = excluded.correos, actualizado_en = now(), actualizado_por = excluded.actualizado_por`, [b.tienda, b.caja, b.activo, b.correos, b.actualizado_por]));
+          return ruta.fulfill({ status: 201, headers: CORS, body: '' });
+        }
+      }
+      if (u.pathname === '/rest/v1/envios_reporte') return json(200, await como(db, uid, (q) => q('select periodo, tienda, caja, enviado_en, tickets, total::int as total, correos from pos.envios_reporte where enviado_en is not null order by periodo desc, tienda, caja limit 24')));
+      if (u.pathname === '/functions/v1/reporte-contadora') { pruebasReporte.push(req.postDataJSON()); return json(200, { ok: true, correo: 'edgardo@x.mx', asunto: '[PRUEBA] DÚO New York · Reporte de ventas', tickets: 3, total: 123400 }); }
       if (u.pathname === '/functions/v1/notificar') { pruebas.push(req.postDataJSON()); return json(200, { ok: true }); }
       return json(404, { message: 'no existe' });
     } catch (e) {

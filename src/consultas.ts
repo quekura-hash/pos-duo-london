@@ -13,6 +13,8 @@ export interface Filtro {
   hasta?: string;
   /** Incluir las ventas históricas del POS anterior (por omisión sí). */
   historicas?: boolean;
+  /** Solo estas tiendas (además de `cajas`, si viene). */
+  tiendas?: string[];
 }
 
 export interface FilaVenta {
@@ -75,6 +77,7 @@ export function ventasPorCaja(actor: Actor, ops: Op[], f: Filtro = {}): FilaVent
   const filas: FilaVenta[] = [];
   for (const v of ventas(ops).values()) {
     if (permitidas !== 'todas' && !permitidas.some((c) => mismaCaja(c, v))) continue;
+    if (f.tiendas && !f.tiendas.includes(v.tienda)) continue;
     if (!enPeriodo(v.ocurrio_en, f)) continue;
     filas.push({
       tienda: v.tienda, caja: v.caja, folio: v.folio, sale_id: v.sale_id,
@@ -89,6 +92,7 @@ export function ventasPorCaja(actor: Actor, ops: Op[], f: Filtro = {}): FilaVent
       if (o.tipo !== 'venta.historica') continue;
       const h = o.payload;
       if (permitidas !== 'todas' && !permitidas.some((c) => c.tienda === h.tienda_hist && c.caja === h.caja_hist)) continue;
+      if (f.tiendas && !f.tiendas.includes(h.tienda_hist)) continue;
       if ((f.desde && h.fecha < f.desde) || (f.hasta && h.fecha > f.hasta)) continue;
       filas.push({
         tienda: h.tienda_hist, caja: h.caja_hist, folio: h.folio, sale_id: h.hist_id, fecha_local: h.fecha, cajero: '', vendedora: '', total: h.total, total_mercancia: h.tipo_hist === 'venta' ? h.total : 0,
