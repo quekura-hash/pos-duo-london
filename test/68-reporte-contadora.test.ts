@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { it } from 'node:test';
-import { correoDelReporte, diasDelMes, esUltimoDiaDelMes, limpiarCorreos, mesAnterior, nombreDelMes, porEnviar, rangoDelPeriodo, reporteDeCaja } from '../src/reporte-contadora.ts';
-import { ejecutarMensual, ejecutarPrueba, type Dependencias } from '../src/reporte-contadora-envio.ts';
+import { MAX_INTENTOS, correoDelReporte, diasDelMes, esUltimoDiaDelMes, limpiarCorreos, mesAnterior, nombreDelMes, porEnviar, rangoDelPeriodo, reporteDeCaja } from '../src/reporte-contadora.ts';
+import { avisoDeFallos, ejecutarMensual, ejecutarPrueba, type Dependencias, type Fallo } from '../src/reporte-contadora-envio.ts';
 import { ServicioAdmin } from '../src/app/servicio.ts';
 import { escribirXlsxNode, leerXlsxNode } from '../src/xlsx-node.ts';
 import { fechaLocal } from '../src/util.ts';
@@ -16,15 +16,18 @@ it('RC1 calendario: último día del mes (con bisiestos), mes anterior y rango',
   assert.equal(nombreDelMes('2026-10'), 'octubre de 2026');
 });
 
-it('RC2 cuándo toca: el último día del mes a las 9 p. m. (hora de Hermosillo), y los días 1 al 3 solo si faltó el mes anterior; cada caja por su lado', () => {
+it('RC2 cuándo toca: 9, 10 y 11 p. m. del último día del mes y 9 a. m. del día 1 (hora de Hermosillo); nunca antes ni después; cada caja por su lado', () => {
   const cajas = [{ tienda: 'DUO', caja: 1 }, { tienda: 'DUO', caja: 2 }];
   assert.equal(fechaLocal('2026-11-01T04:00:00Z'), '2026-10-31', '9 p. m. del 31/10 en Hermosillo (UTC−7) = 04:00 UTC del 1/11');
-  assert.deepEqual(porEnviar('2026-11-01T04:00:00Z', cajas, new Set()), [{ periodo: '2026-10', tienda: 'DUO', caja: 1 }, { periodo: '2026-10', tienda: 'DUO', caja: 2 }]);
-  assert.deepEqual(porEnviar('2026-11-01T04:00:00Z', cajas, new Set(['2026-10|DUO/1'])), [{ periodo: '2026-10', tienda: 'DUO', caja: 2 }], 'lo ya enviado de una caja no se repite, la otra sigue pendiente');
-  assert.deepEqual(porEnviar('2026-11-02T04:00:00Z', [cajas[0]!], new Set()), [{ periodo: '2026-10', tienda: 'DUO', caja: 1 }], 'el 1 de noviembre (local): reintento del mes anterior');
-  assert.deepEqual(porEnviar('2026-11-02T04:00:00Z', [cajas[0]!], new Set(['2026-10|DUO/1'])), []);
-  assert.deepEqual(porEnviar('2026-11-15T04:00:00Z', cajas, new Set()), [], 'a mitad de mes no se manda nada');
+  for (const h of ['04', '05', '06']) assert.deepEqual(porEnviar(`2026-11-01T${h}:00:00Z`, cajas, new Set()), [{ periodo: '2026-10', tienda: 'DUO', caja: 1 }, { periodo: '2026-10', tienda: 'DUO', caja: 2 }], `${h}:00 UTC = 21, 22 y 23 h locales`);
+  assert.deepEqual(porEnviar('2026-10-31T16:00:00Z', cajas, new Set()), [], '9 a. m. del último día todavía no: el mes no termina');
+  assert.deepEqual(porEnviar('2026-11-01T07:00:00Z', cajas, new Set()), [], 'medianoche: no es ventana de envío');
+  assert.deepEqual(porEnviar('2026-11-01T16:00:00Z', cajas, new Set()), [{ periodo: '2026-10', tienda: 'DUO', caja: 1 }, { periodo: '2026-10', tienda: 'DUO', caja: 2 }], '9 a. m. del día 1: cuarto y último intento del mes anterior');
+  assert.deepEqual(porEnviar('2026-11-02T16:00:00Z', cajas, new Set()), [], 'el día 2 ya no se insiste');
+  assert.deepEqual(porEnviar('2026-11-01T04:00:00Z', cajas, new Set(['2026-10|DUO/1'])), [{ periodo: '2026-10', tienda: 'DUO', caja: 2 }], 'lo ya enviado (o agotado) de una caja no se repite, la otra sigue');
+  assert.deepEqual(porEnviar('2026-11-15T16:00:00Z', cajas, new Set()), [], 'a mitad de mes no se manda nada');
   assert.deepEqual(porEnviar('2026-03-01T04:00:00Z', [cajas[0]!], new Set()), [{ periodo: '2026-02', tienda: 'DUO', caja: 1 }], 'febrero termina el 28');
+  assert.equal(MAX_INTENTOS, 4);
 });
 
 it('RC3 correos: se limpian, sin repetidos ni inválidos', () => {
@@ -36,68 +39,115 @@ porAlmacen('Reporte mensual a la contadora: un correo por caja a sus propios des
   const admin = (ctx: ReturnType<typeof nuevoMundo>) => new ServicioAdmin({ central: ctx.m.central, actor: { rol: 'admin', usuario: 'galo' }, fuente: () => ctx.m.central.repo.ops(), cajas: [{ tienda: 'DUO', caja: 1 }, { tienda: 'LON', caja: 1 }] as never, tiendas: () => ['DUO', 'LON'] } as never);
   const HOJA: unknown[][] = [[null, 'Date', null, 'Receipt #', null, 'Receipt Type', null, 'Full Name', null, 'Qty Sold', null, 'Total', null, 'Payment'], [null, '13/09/2026', null, 52349, null, 'Sales', null, null, null, 2, null, 1000, null, 'Cash']];
 
-  function dependencias(ops: () => Op[], o: { ahora: string; config: { tienda: string; caja: number; activo: boolean; correos: string[] }[]; fallaCorreo?: { n: number } }) {
+  function dependencias(ops: () => Op[], o: { ahora: string; config: { tienda: string; caja: number; activo: boolean; correos: string[] }[]; falla?: (tienda: string, caja: number) => boolean }) {
     const enviados = new Set<string>();
     const reservas = new Set<string>();
+    const intentos = new Map<string, number>();
     const correos: { para: string[]; asunto: string; texto: string; adjunto: { nombre: string; bytes: Uint8Array } }[] = [];
     const bitacora: string[] = [];
+    const avisos: Fallo[][] = [];
+    const k = (p: string, t: string, c: number) => `${p}|${t}/${c}`;
+    let fallaAhora = false;
     const d: Dependencias & { fijar(a: string): void } = {
       ahora: () => o.ahora, fijar: (a) => { o.ahora = a; },
       cajasConfiguradas: async () => o.config,
       enviados: async () => new Set([...enviados]),
-      reclamar: async (p, t, c) => { if (enviados.has(`${p}|${t}/${c}`) || reservas.has(`${p}|${t}/${c}`)) return false; reservas.add(`${p}|${t}/${c}`); return true; },
-      liberar: async (p, t, c) => { reservas.delete(`${p}|${t}/${c}`); bitacora.push(`liberado ${p}|${t}/${c}`); },
-      registrar: async (p, t, c, r) => { enviados.add(`${p}|${t}/${c}`); bitacora.push(`registrado ${p}|${t}/${c} ${r.tickets} ${r.total}`); },
+      agotados: async () => new Set([...intentos].filter(([key, n]) => n >= MAX_INTENTOS && !enviados.has(key)).map(([key]) => key)),
+      reclamar: async (p, t, c) => { const key = k(p, t, c); if (enviados.has(key) || reservas.has(key) || (intentos.get(key) ?? 0) >= MAX_INTENTOS) return false; reservas.add(key); return true; },
+      fallar: async (p, t, c, e) => { const key = k(p, t, c); reservas.delete(key); intentos.set(key, (intentos.get(key) ?? 0) + 1); bitacora.push(`fallo ${key} #${intentos.get(key)} ${e}`); return intentos.get(key)!; },
+      reiniciar: async (p, t, c) => { const key = k(p, t, c); if (!enviados.has(key)) { reservas.delete(key); intentos.delete(key); bitacora.push(`reiniciado ${key}`); } },
+      registrar: async (p, t, c, r) => { enviados.add(k(p, t, c)); bitacora.push(`registrado ${k(p, t, c)} ${r.tickets} ${r.total}`); },
+      avisarFallos: async (f) => { avisos.push(f); },
       leerOps: async () => ops(),
       generarXlsx: escribirXlsxNode,
-      enviarCorreo: async (c) => { if (o.fallaCorreo && o.fallaCorreo.n-- > 0) throw new Error('Resend: 503'); correos.push({ para: c.para, asunto: c.asunto, texto: c.texto, adjunto: c.adjunto }); return { id: `re_${correos.length}` }; },
+      enviarCorreo: async (c) => {
+        const caja = /Caja (\d)/.exec(c.asunto)![1]!;
+        const tienda = c.asunto.startsWith('DÚO') ? 'DUO' : 'LON';
+        if (o.falla?.(tienda, Number(caja))) throw new Error('Resend: 503');
+        correos.push({ para: c.para, asunto: c.asunto, texto: c.texto, adjunto: c.adjunto });
+        return { id: `re_${correos.length}` };
+      },
     };
-    return { d, correos, bitacora, enviados };
+    void fallaAhora;
+    return { d, correos, bitacora, enviados, intentos, avisos };
   }
 
-  it('RC4 el último día del mes cada caja manda SU correo a SUS destinatarios con su Excel; no se repite; si un correo falla solo ese se reintenta el día 1', async (t) => {
-    const ctx = nuevoMundo(alm, politica());
-    t.after(ctx.limpiar);
-    const a = admin(ctx);
-    const v = vender(ctx.m, 'DUO', 1, ctx.items[2]!.item_id).venta; // venta de hoy en DÚO Caja 1
-    ctx.m.pump();
+  const mes = () => {
     const periodo = fechaLocal(new Date().toISOString()).slice(0, 7);
     const [y, m] = periodo.split('-').map(Number) as [number, number];
-    const ultimoDia9pm = new Date(Date.UTC(y, m, 1, 4)).toISOString(); // 04:00 UTC del día 1 siguiente = 21:00 del último día local
-    const diaUno = new Date(Date.UTC(y, m, 2, 4)).toISOString();
-    const ops = () => ctx.m.central.repo.ops();
-    assert.ok(a.reporte({}).filas.length >= 1);
+    const hora = (dia: number, h: number) => new Date(Date.UTC(y, m, dia, h)).toISOString();
+    // 21, 22 y 23 h locales del último día = 04, 05 y 06 UTC del día 1 siguiente; 9 a. m. del día 1 = 16 UTC.
+    return { periodo, h21: hora(1, 4), h22: hora(1, 5), h23: hora(1, 6), h9: hora(1, 16) };
+  };
 
-    const x = dependencias(ops, { ahora: ultimoDia9pm, fallaCorreo: { n: 1 }, config: [
+  it('RC4 cada caja manda SU correo a SUS destinatarios; si falla se reintenta a las 22 y 23 h y a las 9 a. m.; al cuarto fallo avisa al teléfono una sola vez; si sale antes no avisa', async (t) => {
+    const ctx = nuevoMundo(alm, politica());
+    t.after(ctx.limpiar);
+    const v = vender(ctx.m, 'DUO', 1, ctx.items[2]!.item_id).venta; // venta de hoy en DÚO Caja 1
+    ctx.m.pump();
+    const { periodo, h21, h22, h23, h9 } = mes();
+    const ops = () => ctx.m.central.repo.ops();
+    const config = [
       { tienda: 'DUO', caja: 1, activo: true, correos: ['conta@despacho.mx', 'dueno@x.mx'] }, { tienda: 'DUO', caja: 2, activo: true, correos: ['otra.conta@despacho.mx'] },
-      { tienda: 'LON', caja: 1, activo: false, correos: ['lon@x.mx'] }] });
-    // Primera corrida: el proveedor falla con la primera (DÚO Caja 1) → se libera su reserva; la Caja 2 sí sale.
+      { tienda: 'LON', caja: 1, activo: false, correos: ['lon@x.mx'] }];
+
+    // Escenario A: DÚO Caja 1 falla en los cuatro intentos; la Caja 2 sale a la primera.
+    const x = dependencias(ops, { ahora: h21, config, falla: (tienda, caja) => tienda === 'DUO' && caja === 1 });
     let r = await ejecutarMensual(x.d);
-    assert.deepEqual(r.resultados.map((e) => [e.tienda, e.caja, e.estado]), [['DUO', 1, 'fallo'], ['DUO', 2, 'enviado']]);
-    assert.match(r.resultados[0]!.error!, /503/);
-    assert.deepEqual(x.bitacora, [`liberado ${periodo}|DUO/1`, `registrado ${periodo}|DUO/2 0 0`]);
+    assert.deepEqual(r.resultados.map((e) => [e.tienda, e.caja, e.estado, e.intentos]), [['DUO', 1, 'fallo', 1], ['DUO', 2, 'enviado', undefined]]);
     assert.deepEqual(x.correos.map((c) => c.para), [['otra.conta@despacho.mx']], 'cada caja va a SUS correos');
     assert.match(x.correos[0]!.asunto, /^DÚO New York · Caja 2 · Reporte de ventas de /);
-    // Día 1 siguiente: reintenta SOLO lo que faltó (Caja 1), a sus dos destinatarios, con su Excel.
-    x.d.fijar(diaUno);
+    assert.equal(x.avisos.length, 0, 'un solo fallo no avisa');
+    x.d.fijar(h22);
     r = await ejecutarMensual(x.d);
+    assert.deepEqual(r.resultados.map((e) => [e.tienda, e.caja, e.estado, e.intentos]), [['DUO', 1, 'fallo', 2]], 'a las 22 h reintenta solo lo que falta');
+    x.d.fijar(h23);
+    r = await ejecutarMensual(x.d);
+    assert.deepEqual(r.resultados.map((e) => e.intentos), [3]);
+    assert.equal(x.avisos.length, 0, 'tres fallos todavía no avisan');
+    x.d.fijar(h9);
+    r = await ejecutarMensual(x.d);
+    assert.deepEqual(r.resultados.map((e) => [e.estado, e.intentos]), [['fallo', 4]], 'cuarto intento, 9 a. m. del día siguiente');
+    assert.equal(x.avisos.length, 1, 'al cuarto fallo se avisa al teléfono');
+    assert.deepEqual(x.avisos[0]!.map((f) => [f.tienda, f.caja, f.intentos, f.error]), [['DUO', 1, 4, 'Resend: 503']]);
+    const aviso = avisoDeFallos(x.avisos[0]!);
+    assert.equal(aviso.titulo, 'El reporte no se envió');
+    assert.match(aviso.cuerpo, /DÚO New York · Caja 1/);
+    assert.match(aviso.cuerpo, /Se intentó 4 veces/);
+    assert.match(aviso.cuerpo, /Resend: 503/);
+    // Ya no se insiste (ni se vuelve a avisar), aunque la función corra otra vez.
+    r = await ejecutarMensual(x.d);
+    assert.deepEqual([r.resultados.length, x.avisos.length], [0, 1]);
+    x.d.fijar(new Date(Date.parse(h9) + 3600_000).toISOString());
+    assert.equal((await ejecutarMensual(x.d)).resultados.length, 0);
+
+    // Escenario B: falla a las 21 y 22 h y sale a las 23 h: sin aviso, con su Excel, y ya no se repite.
+    let rondas = 0;
+    const y = dependencias(ops, { ahora: h21, config: [config[0]!], falla: () => rondas++ < 2 });
+    await ejecutarMensual(y.d);
+    y.d.fijar(h22); await ejecutarMensual(y.d);
+    y.d.fijar(h23); r = await ejecutarMensual(y.d);
     assert.deepEqual(r.resultados.map((e) => [e.tienda, e.caja, e.estado, e.tickets, e.total]), [['DUO', 1, 'enviado', 1, v.total]]);
-    assert.equal(x.correos.length, 2);
-    const c = x.correos[1]!;
+    assert.equal(y.avisos.length, 0, 'si sale antes del cuarto intento no se avisa');
+    const c = y.correos[0]!;
     assert.deepEqual(c.para, ['conta@despacho.mx', 'dueno@x.mx']);
     assert.match(c.asunto, /^DÚO New York · Caja 1 · Reporte de ventas de /);
-    assert.match(c.texto, /Tickets: 1/);
     assert.equal(c.adjunto.nombre, `reporte-de-ventas-duo-caja-1-${periodo}.xlsx`);
-    const hojas = await leerXlsxNode(c.adjunto.bytes);
-    assert.deepEqual(hojas.map((h) => h.nombre), ['Detalle de ventas', 'Resumen por día']);
-    assert.equal(hojas[0]!.filas.length, 2, 'encabezado y el ticket de la Caja 1');
-    assert.equal((await leerXlsxNode(x.correos[0]!.adjunto.bytes))[0]!.filas.length, 1, 'la Caja 2 no vendió: solo el encabezado');
-    // Ya salió todo: otra corrida (o dos a la vez) no manda nada más.
-    r = await ejecutarMensual(x.d);
-    assert.deepEqual([r.resultados.length, r.omitido], [0, 'nada pendiente']);
-    assert.equal(x.correos.length, 2);
-    x.d.fijar(new Date(Date.UTC(y, m, 15, 4)).toISOString());
-    assert.match((await ejecutarMensual(x.d)).omitido!, /no toca enviar/);
+    assert.equal((await leerXlsxNode(c.adjunto.bytes))[0]!.filas.length, 2, 'encabezado y el ticket de la Caja 1');
+    y.d.fijar(h9);
+    assert.equal((await ejecutarMensual(y.d)).resultados.length, 0, 'ya salió: no se repite');
+    y.d.fijar(new Date(Date.parse(h9) + 14 * 86400_000).toISOString());
+    assert.match((await ejecutarMensual(y.d)).omitido!, /no toca enviar/);
+
+    // Reenvío manual de un mes agotado: empieza de cero (intentos en 0) y esta vez sale.
+    x.d.fijar(h9);
+    const antes = x.correos.length;
+    const z = dependencias(ops, { ahora: h9, config: [config[0]!] });
+    z.intentos.set(`${periodo}|DUO/1`, 4);
+    r = await ejecutarMensual(z.d, { periodo, tienda: 'DUO', caja: 1 });
+    assert.deepEqual(r.resultados.map((e) => e.estado), ['enviado']);
+    assert.ok(z.bitacora.includes(`reiniciado ${periodo}|DUO/1`));
+    void antes;
   });
 
   it('RC5 una caja sin correos no manda ni se reserva; la inactiva se ignora; el reporte de una caja no trae las ventas de otra', async (t) => {

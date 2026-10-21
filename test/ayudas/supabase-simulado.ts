@@ -54,7 +54,7 @@ export async function simularSupabase(ctx: BrowserContext, db: PGlite, cuentas: 
           return ruta.fulfill({ status: 201, headers: CORS, body: '' });
         }
       }
-      if (u.pathname === '/rest/v1/envios_reporte') return json(200, await como(db, uid, (q) => q('select periodo, tienda, caja, enviado_en, tickets, total::int as total, correos from pos.envios_reporte where enviado_en is not null order by periodo desc, tienda, caja limit 24')));
+      if (u.pathname === '/rest/v1/envios_reporte') return json(200, await como(db, uid, (q) => q('select periodo, tienda, caja, enviado_en, intentos, ultimo_error, avisado_en, tickets, total::int as total, correos from pos.envios_reporte order by periodo desc, tienda, caja limit 24')));
       if (u.pathname === '/functions/v1/reporte-contadora') { pruebasReporte.push(req.postDataJSON()); return json(200, { ok: true, correo: 'edgardo@x.mx', asunto: '[PRUEBA] DÚO New York · Reporte de ventas', tickets: 3, total: 123400 }); }
       if (u.pathname === '/functions/v1/notificar') { pruebas.push(req.postDataJSON()); return json(200, { ok: true }); }
       return json(404, { message: 'no existe' });

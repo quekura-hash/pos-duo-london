@@ -1,11 +1,12 @@
 // Edge Function `reporte-contadora` (Deno): manda por correo (Resend) el reporte de ventas del mes a la contadora, un correo por CAJA (cada caja con sus destinatarios).
-//  · La dispara pg_cron todos los días a las 9 p. m. de Hermosillo con la cabecera `x-londuo-secret`; ella decide si toca (último día del mes, o días 1 al 3 si faltó).
+//  · La dispara pg_cron a las 9, 10 y 11 p. m. y a las 9 a. m. de Hermosillo con la cabecera `x-londuo-secret`; ella decide si toca (último día del mes de 9 p. m. en adelante, o el día 1 de 9 a. m. en adelante).
+//    Un envío fallido se reintenta en la siguiente corrida; al cuarto fallo avisa al teléfono del supervisor (función `notificar`).
 //  · Un supervisor con sesión la llama con { accion: 'prueba', tienda, caja } para recibir, SOLO él, el reporte de lo que va del mes.
 // Despliegue sin verificación de JWT del gateway (el cron no tiene sesión): la autenticación la hace esta función.
 // Se despliega EMPAQUETADA (scripts/empaquetar-funcion.mjs): importa la lógica de src/ (puro, probado en test/68).
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import ExcelJS from 'npm:exceljs@4.4.0';
-import { ejecutarMensual, ejecutarPrueba, type Dependencias } from '../../../src/reporte-contadora-envio.ts';
+import { avisoDeFallos, ejecutarMensual, ejecutarPrueba, type Dependencias } from '../../../src/reporte-contadora-envio.ts';
 import { limpiarCorreos } from '../../../src/reporte-contadora.ts';
 import { escribirXlsx } from '../../../src/xlsx.ts';
 
@@ -32,8 +33,19 @@ function dependencias(): Dependencias {
     ahora: () => new Date().toISOString(),
     cajasConfiguradas: async () => ((await db.from('reporte_contadora').select('tienda, caja, activo, correos')).data ?? []) as { tienda: string; caja: number; activo: boolean; correos: string[] }[],
     enviados: async () => new Set(((await db.from('envios_reporte').select('periodo, tienda, caja').not('enviado_en', 'is', null)).data ?? []).map((r: { periodo: string; tienda: string; caja: number }) => `${r.periodo}|${r.tienda}/${r.caja}`)),
+    agotados: async () => new Set(((await db.from('envios_reporte').select('periodo, tienda, caja').is('enviado_en', null).gte('intentos', 4)).data ?? []).map((r: { periodo: string; tienda: string; caja: number }) => `${r.periodo}|${r.tienda}/${r.caja}`)),
     reclamar: async (p, t, c) => ((await db.rpc('reclamar_envio_reporte', { p_periodo: p, p_tienda: t, p_caja: c })).data as boolean) === true,
-    liberar: async (p, t, c) => { await db.rpc('liberar_envio_reporte', { p_periodo: p, p_tienda: t, p_caja: c }); },
+    fallar: async (p, t, c, error) => (((await db.rpc('fallar_envio_reporte', { p_periodo: p, p_tienda: t, p_caja: c, p_error: error })).data as number | null) ?? 1),
+    reiniciar: async (p, t, c) => { await db.rpc('liberar_envio_reporte', { p_periodo: p, p_tienda: t, p_caja: c }); },
+    avisarFallos: async (fallos) => {
+      // Aviso al teléfono con la función `notificar` (misma clave compartida): llega a los dispositivos del supervisor que tengan activadas las alertas.
+      const [url, clave] = await Promise.all([ajuste('notificar_url'), ajuste('notificar_clave')]);
+      if (url && clave) {
+        const a = avisoDeFallos(fallos);
+        await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-londuo-secret': clave }, body: JSON.stringify({ accion: 'alerta', titulo: a.titulo, cuerpo: a.cuerpo, tag: a.tag, url: './#reportes' }) }).catch(() => undefined);
+      }
+      for (const f of fallos) await db.rpc('marcar_aviso_reporte', { p_periodo: f.periodo, p_tienda: f.tienda, p_caja: f.caja });
+    },
     registrar: async (p, t, c, r) => { await db.rpc('registrar_envio_reporte', { p_periodo: p, p_tienda: t, p_caja: c, p_correos: r.correos, p_tickets: r.tickets, p_total: r.total, p_proveedor: r.proveedor_id }); },
     leerOps: async (desde, hasta) => {
       const cols = 'op_id, tipo, tienda, caja, origen, ocurrio_en, payload';

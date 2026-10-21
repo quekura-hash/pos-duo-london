@@ -120,6 +120,7 @@ describe('[navegador real] Reportes: envío mensual a la contadora', { timeout: 
     const db = await centralLocal();
     const edgardo = await usuario(db, 'edgardo@x.mx', 'supervisor');
     await db.query(`insert into pos.envios_reporte (periodo, tienda, caja, enviado_en, correos, tickets, total, proveedor_id) values ('2026-09', 'DUO', 1, '2026-10-01T04:00:05Z', array['conta@despacho.mx'], 337, 32215200, 're_1')`);
+    await db.query(`insert into pos.envios_reporte (periodo, tienda, caja, intentos, ultimo_error, avisado_en) values ('2026-10', 'DUO', 2, 4, 'Resend: 503', now()), ('2026-10', 'LON', 1, 2, 'tiempo agotado', null)`);
     const browser = await chromium.launch({ executablePath: chromiumPath, args: ['--no-sandbox'] });
     t.after(async () => { await browser.close(); rmSync(dist, { recursive: true, force: true }); });
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 1100 } });
@@ -134,7 +135,9 @@ describe('[navegador real] Reportes: envío mensual a la contadora', { timeout: 
     await page.click('#nav button[data-vista="reportes"]');
     await page.waitForSelector('#panel-contadora .rc-caja');
     assert.deepEqual(await page.$$eval('#panel-contadora legend', (x) => x.map((e) => e.textContent)), ['DÚO New York · Caja 1', 'DÚO New York · Caja 2', 'London Love · Caja 1', 'London Love · Caja 2'], 'una sección por caja');
-    assert.match((await page.textContent('#tabla-envios tbody'))!, /septiembre 2026.*DÚO New York · Caja 1.*337.*\$322,152\.00.*conta@despacho\.mx/);
+    assert.match((await page.textContent('#tabla-envios tbody'))!, /septiembre 2026.*DÚO New York · Caja 1.*Enviado.*337.*\$322,152\.00.*conta@despacho\.mx/);
+    assert.match((await page.locator('#tabla-envios tbody tr', { hasText: 'DÚO New York · Caja 2' }).textContent())!, /No se envió · 4 de 4 intentos · se avisó a tu teléfono\s*Resend: 503/);
+    assert.match((await page.locator('#tabla-envios tbody tr', { hasText: 'London Love · Caja 1' }).textContent())!, /Reintentando · 2 de 4 intentos\s*tiempo agotado/);
 
     const caja = (t: string, n: number) => page.locator(`.rc-caja[data-tienda="${t}"][data-caja="${n}"]`);
     const duo1 = caja('DUO', 1), duo2 = caja('DUO', 2);

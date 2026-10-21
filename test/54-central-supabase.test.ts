@@ -292,13 +292,56 @@ test('CS11 reporte a la contadora: solo un supervisor configura los destinatario
   assert.equal(((await como(db, sup, (q) => q('select * from pos.envios_reporte'))) as unknown[]).length, 3);
   assert.equal(((await como(db, alm, (q) => q('select * from pos.envios_reporte'))) as unknown[]).length, 0);
   for (const uid of [sup, alm]) await assert.rejects(como(db, uid, (q) => q(`select pos.reclamar_envio_reporte('2026-11', 'DUO', 1)`)), /permission denied/);
-  // Programación: usa la clave compartida de los avisos, una vez al día a las 04:00 UTC (9 p. m. de Hermosillo) y sin duplicarse.
+  // Programación: usa la clave compartida de los avisos, a las 04, 05, 06 y 16 UTC (21, 22, 23 y 9 h de Hermosillo) y sin duplicarse.
   await assert.rejects(db.query(`select pos.configurar_reporte_contadora('https://x.supabase.co/functions/v1/reporte-contadora')`), /primero ejecute pos\.configurar_notificaciones/);
   await db.query(`select pos.configurar_notificaciones('https://x.supabase.co/functions/v1/notificar', 'clave-compartida-de-prueba-123456')`);
   await db.query(`select pos.configurar_reporte_contadora('https://x.supabase.co/functions/v1/reporte-contadora')`);
   await db.query(`select pos.configurar_reporte_contadora('https://x.supabase.co/functions/v1/reporte-contadora')`);
   const jobs = (await db.query<{ jobname: string; schedule: string; command: string }>(`select jobname, schedule, command from cron.job where jobname = 'londuo-reporte-mensual'`)).rows;
-  assert.deepEqual(jobs.map((j) => [j.jobname, j.schedule]), [['londuo-reporte-mensual', '0 4 * * *']]);
+  assert.deepEqual(jobs.map((j) => [j.jobname, j.schedule]), [['londuo-reporte-mensual', '0 4,5,6,16 * * *']]);
   assert.match(jobs[0]!.command, /'accion', 'mensual'/);
   await assert.rejects(como(db, sup, (q) => q(`select pos.configurar_reporte_contadora('https://x.supabase.co/f')`)), /permission denied/);
+});
+
+test('CS12 reintentos del reporte: cada fallo suma un intento y libera la reserva; a los 4 ya no se reserva; el aviso se marca una sola vez; la programación pasa a 21, 22, 23 y 9 h', async () => {
+  const db = await centralLocal();
+  const sup = await usuario(db, 'edgardo@x.mx', 'supervisor');
+  const q = async <T>(sql: string, p: unknown[] = []) => (await db.query<T>(sql, p)).rows;
+  const reclamar = async () => (await q<{ r: boolean }>(`select pos.reclamar_envio_reporte('2026-10', 'DUO', 1) as r`))[0]!.r;
+  const fallar = async (e: string) => (await q<{ n: number }>(`select pos.fallar_envio_reporte('2026-10', 'DUO', 1, $1) as n`, [e]))[0]!.n;
+  assert.equal(await reclamar(), true);
+  assert.equal(await reclamar(), false, 'reservada: otra corrida no la toma');
+  assert.equal(await fallar('Resend: 503'), 1, 'primer fallo: 1 intento');
+  assert.equal(await reclamar(), true, 'el fallo libera la reserva: la siguiente corrida (una hora después) puede intentar');
+  assert.equal(await fallar('Resend: 429'), 2);
+  assert.equal(await reclamar(), true);
+  assert.equal(await fallar('tiempo agotado'), 3);
+  assert.equal(await reclamar(), true);
+  assert.equal(await fallar('Resend: 500 ' + 'x'.repeat(400)), 4, 'cuarto fallo');
+  assert.equal(await reclamar(), false, 'con 4 intentos ya no se reserva');
+  const fila = (await q<{ intentos: number; ultimo_error: string; enviado_en: string | null }>(`select intentos, ultimo_error, enviado_en from pos.envios_reporte where periodo = '2026-10' and tienda = 'DUO' and caja = 1`))[0]!;
+  assert.deepEqual([fila.intentos, fila.enviado_en, fila.ultimo_error.length], [4, null, 300], 'el error se guarda recortado');
+  // Aviso: una sola vez.
+  await db.query(`select pos.marcar_aviso_reporte('2026-10', 'DUO', 1)`);
+  const primero = (await q<{ avisado_en: string }>(`select avisado_en::text from pos.envios_reporte where caja = 1`))[0]!.avisado_en;
+  await db.query(`select pos.marcar_aviso_reporte('2026-10', 'DUO', 1)`);
+  assert.equal((await q<{ avisado_en: string }>(`select avisado_en::text from pos.envios_reporte where caja = 1`))[0]!.avisado_en, primero, 'no se vuelve a marcar');
+  // Reinicio manual: borra el envío que no salió y se puede empezar de cero.
+  await db.query(`select pos.liberar_envio_reporte('2026-10', 'DUO', 1)`);
+  assert.equal(await reclamar(), true);
+  await db.query(`select pos.registrar_envio_reporte('2026-10', 'DUO', 1, array['a@x.mx'], 3, 1000, 're_1')`);
+  assert.equal(await fallar('tarde'), null, 'un envío ya enviado no suma fallos');
+  assert.equal(await reclamar(), false);
+  await db.query(`select pos.liberar_envio_reporte('2026-10', 'DUO', 1)`);
+  assert.equal((await q(`select 1 from pos.envios_reporte where periodo = '2026-10'`)).length, 1, 'lo enviado no se borra');
+  // El supervisor ve intentos y error; nadie más; las funciones son solo del servidor.
+  const como2 = (uid: string, sql: string) => como(db, uid, (qq) => qq(sql)) as Promise<{ intentos: number }[]>;
+  assert.equal((await como2(sup, 'select intentos from pos.envios_reporte')).length, 1);
+  await assert.rejects(como(db, sup, (qq) => qq(`select pos.fallar_envio_reporte('2026-10', 'DUO', 1, 'x')`)), /permission denied/);
+  // Programación: 04, 05, 06 y 16 UTC (21, 22, 23 y 9 h de Hermosillo), sin duplicar.
+  await db.query(`select pos.configurar_notificaciones('https://x.supabase.co/functions/v1/notificar', 'clave-compartida-de-prueba-123456')`);
+  await db.query(`select pos.configurar_reporte_contadora('https://x.supabase.co/functions/v1/reporte-contadora')`);
+  await db.query(`select pos.configurar_reporte_contadora('https://x.supabase.co/functions/v1/reporte-contadora')`);
+  const jobs = await q<{ schedule: string }>(`select schedule from cron.job where jobname = 'londuo-reporte-mensual'`);
+  assert.deepEqual(jobs.map((j) => j.schedule), ['0 4,5,6,16 * * *']);
 });

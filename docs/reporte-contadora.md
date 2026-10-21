@@ -1,6 +1,6 @@
 # Reporte mensual a la contadora (correo automático)
 
-El último día de cada mes a las 9:00 p. m. (hora de Hermosillo) se manda por correo, **un correo por caja y cada caja a sus propios destinatarios** (DÚO Caja 1, DÚO Caja 2, London Caja 1…), el Excel del mes de esa caja (hojas «Detalle de ventas» y «Resumen por día»; las ventas del POS anterior van en la Caja 1 de DÚO). Si ese día falla, reintenta los días 1 al 3. Lo que se venda después de las 9:00 p. m. del último día no entra en ese archivo (se puede descargar el mes completo desde Reportes → Exportar a Excel).
+El último día de cada mes a las 9:00 p. m. (hora de Hermosillo) se manda por correo, **un correo por caja y cada caja a sus propios destinatarios** (DÚO Caja 1, DÚO Caja 2, London Caja 1…), el Excel del mes de esa caja (hojas «Detalle de ventas» y «Resumen por día»; las ventas del POS anterior van en la Caja 1 de DÚO). Si falla, reintenta a las 10 p. m., a las 11 p. m. y a las 9 a. m. del día siguiente (4 intentos en total); si los 4 fallan manda un aviso al teléfono del supervisor («El reporte no se envió») y ya no insiste. Lo que se venda después de las 9:00 p. m. del último día no entra en ese archivo (se puede descargar el mes completo desde Reportes → Exportar a Excel).
 
 ## Piezas
 
@@ -18,8 +18,9 @@ El último día de cada mes a las 9:00 p. m. (hora de Hermosillo) se manda por c
 3. Para escribirle a la contadora hay que verificar un dominio en Resend (registros DNS). Mientras tanto, con el remitente de pruebas de Resend solo se puede escribir al correo de la propia cuenta de Resend.
 4. Remitente: `insert into pos.ajustes_internos (clave, valor) values ('reporte_remitente', 'LonDuo POS <reportes@tu-dominio>') on conflict (clave) do update set valor = excluded.valor;`
 5. Desplegar la función `reporte-contadora` con `verify_jwt: false` (se autentica sola: clave compartida del cron o sesión de supervisor).
-6. `select pos.configurar_reporte_contadora('https://<proyecto>.supabase.co/functions/v1/reporte-contadora');` (programa la corrida diaria a las 04:00 UTC; reutiliza la clave de `configurar_notificaciones`).
-7. En Reportes: escribir los correos de cada caja, activar «Enviar el informe mensual de esta caja» y usar «Enviarme una prueba» (llega solo a tu correo).
+6. Aplicar también la migración 0008 (reintentos) y redesplegar `notificar` (acción `alerta`) y `reporte-contadora`.
+7. `select pos.configurar_reporte_contadora('https://<proyecto>.supabase.co/functions/v1/reporte-contadora');` (programa las corridas de las 04, 05, 06 y 16 UTC = 21, 22, 23 y 9 h de Hermosillo; reutiliza la clave de `configurar_notificaciones`).
+8. En Reportes: escribir los correos de cada caja, activar «Enviar el informe mensual de esta caja» y usar «Enviarme una prueba» (llega solo a tu correo).
 
 ## Verificado y no verificado
 

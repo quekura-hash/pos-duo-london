@@ -18,20 +18,25 @@ export function mesAnterior(periodo: string): string {
 }
 export const rangoDelPeriodo = (periodo: string) => ({ desde: `${periodo}-01`, hasta: `${periodo}-${dos(diasDelMes(periodo))}` });
 
-/**
- * Qué mes y qué tiendas toca enviar «ahora» (la función corre todos los días a las 9 p. m. hora de Hermosillo):
- *  · el último día del mes: el mes en curso completo;
- *  · los días 1 al 3: el mes anterior, si por una falla no salió (así un corte de internet o de correo no deja a la contadora sin reporte).
- * `enviados` trae «periodo|tienda/caja» de lo que ya salió: nunca se manda dos veces.
- */
+/** Intentos por envío: 9, 10 y 11 p. m. del último día y 9 a. m. del día siguiente (hora de Hermosillo). Si los 4 fallan se avisa al teléfono y ya no se insiste. */
+export const MAX_INTENTOS = 4;
 export const claveCaja = (tienda: string, caja: number) => `${tienda}/${caja}`;
 export const nombreCaja = (tienda: string, caja: number) => `${NOMBRE_NEGOCIO[tienda] ?? tienda} · Caja ${caja}`;
-export function porEnviar(ahoraIso: string, cajasActivas: { tienda: string; caja: number }[], enviados: Set<string>): { periodo: string; tienda: string; caja: number }[] {
+/** Hora local (0–23) de un instante. */
+export const horaLocalDe = (iso: string) => new Date(Date.parse(iso) - 7 * 3600_000).getUTCHours();
+
+/**
+ * Qué mes toca enviar «ahora» (la función corre a las 21, 22 y 23 h y a las 9 h de Hermosillo):
+ *  · el último día del mes, de las 9 p. m. en adelante: el mes que termina;
+ *  · el día 1, de las 9 a. m. en adelante: el mes anterior (el cuarto y último intento).
+ * `cerrados` trae «periodo|tienda/caja» de lo que ya salió o ya agotó sus intentos: no se vuelve a intentar.
+ */
+export function porEnviar(ahoraIso: string, cajasActivas: { tienda: string; caja: number }[], cerrados: Set<string>): { periodo: string; tienda: string; caja: number }[] {
   const fecha = fechaLocal(ahoraIso);
-  const dia = Number(fecha.slice(8, 10));
-  const periodo = esUltimoDiaDelMes(fecha) ? fecha.slice(0, 7) : dia <= 3 ? mesAnterior(fecha.slice(0, 7)) : null;
+  const dia = Number(fecha.slice(8, 10)), hora = horaLocalDe(ahoraIso);
+  const periodo = esUltimoDiaDelMes(fecha) && hora >= 21 ? fecha.slice(0, 7) : dia === 1 && hora >= 9 ? mesAnterior(fecha.slice(0, 7)) : null;
   if (!periodo) return [];
-  return cajasActivas.filter((c) => !enviados.has(`${periodo}|${claveCaja(c.tienda, c.caja)}`)).map((c) => ({ periodo, tienda: c.tienda, caja: c.caja }));
+  return cajasActivas.filter((c) => !cerrados.has(`${periodo}|${claveCaja(c.tienda, c.caja)}`)).map((c) => ({ periodo, tienda: c.tienda, caja: c.caja }));
 }
 
 export interface ReporteCaja {

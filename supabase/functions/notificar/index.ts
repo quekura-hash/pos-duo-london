@@ -71,6 +71,16 @@ async function notificarOp(opId: string) {
   return { aviso: aviso.titulo, enviadas: resultados.filter(Boolean).length, fallidas: resultados.filter((x) => !x).length };
 }
 
+/** Alerta del sistema (p. ej. «El reporte no se envió»): a los dispositivos de supervisores con las alertas activadas y fuera de «no molestar». */
+async function alerta(a: { titulo?: string; cuerpo?: string; tag?: string; url?: string }) {
+  if (!a.titulo || !a.cuerpo) return { omitida: 'falta título o cuerpo' };
+  const ahora = new Date().toISOString();
+  const aviso: Aviso = { tipo: 'alertas', tienda: null, titulo: String(a.titulo).slice(0, 80), cuerpo: String(a.cuerpo).slice(0, 300), tag: String(a.tag ?? `alerta:${Date.now()}`).slice(0, 120), url: a.url ?? './' };
+  const destinos = (await suscripciones()).filter((s) => debeEnviar(sanearPrefs(s.prefs), aviso, { pausaHasta: s.pausa_hasta, ahora }));
+  const resultados = await Promise.all(destinos.map((s) => enviar(s, aviso)));
+  return { aviso: aviso.titulo, enviadas: resultados.filter(Boolean).length, fallidas: resultados.filter((x) => !x).length };
+}
+
 /** Datos de un día local para el resumen: ventas, cancelaciones y devoluciones. */
 async function datosDelDia(fecha: string): Promise<DatosDia> {
   const desde = inicioDiaUtc(fecha), hasta = new Date(desde.getTime() + 24 * 3600_000);
@@ -120,7 +130,7 @@ async function prueba(req: Request, endpoint: string) {
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
   if (req.method !== 'POST') return responder(405, { error: 'método no permitido' });
-  const cuerpo = (await req.json().catch(() => ({}))) as { op_id?: string; accion?: string; endpoint?: string };
+  const cuerpo = (await req.json().catch(() => ({}))) as { op_id?: string; accion?: string; endpoint?: string; titulo?: string; cuerpo?: string; tag?: string; url?: string };
   try {
     const publica = await cargarAjustes();
     const clave = (await db.from('ajustes_internos').select('valor').eq('clave', 'notificar_clave').maybeSingle()).data?.valor ?? ''; // se lee en cada petición: se fija después del despliegue
@@ -128,6 +138,7 @@ Deno.serve(async (req) => {
     if (clave && req.headers.get('x-londuo-secret') === clave) {
       if (cuerpo.op_id) return responder(200, await notificarOp(cuerpo.op_id));
       if (cuerpo.accion === 'resumen') return responder(200, await resumenTick());
+      if (cuerpo.accion === 'alerta') return responder(200, await alerta(cuerpo));
       return responder(400, { error: 'petición desconocida' });
     }
     if (cuerpo.accion === 'prueba' && cuerpo.endpoint) return await prueba(req, cuerpo.endpoint);

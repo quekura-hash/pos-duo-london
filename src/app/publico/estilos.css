@@ -237,3 +237,4 @@ tr.fila-usuario:focus-visible { outline: 2px solid var(--primario, currentColor)
 tr.fila-hist td { background: color-mix(in srgb, var(--texto) 5%, transparent); }
 #dlg-hist { max-width: min(760px, 96vw); width: 96vw; max-height: 92vh; overflow: auto; } #dlg-hist table { width: 100%; }
 .barra-busqueda-inv #inv-q { flex: 1 1 320px; }
+tr.fila-fallo td { background: color-mix(in srgb, #ef4444 12%, transparent); }
