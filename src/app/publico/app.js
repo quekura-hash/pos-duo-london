@@ -1189,7 +1189,7 @@ async function vistaInventario() {
       </div>
       <p class="nota">La existencia es la que conoce el central (lo ya sincronizado). Las cantidades de prueba están marcadas como tales en los movimientos.</p>
       <h2>Todos los artículos</h2>
-      <div class="filas barra-busqueda-inv" style="align-items:center"><input id="inv-q" type="search" class="texto" placeholder="Buscar… o filtrar: Lote=202610 · Marca=levis · Estilo=123L · Precio&gt;200" value="${esc(S.inv.q)}" style="padding:6px 8px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie);min-width:320px;flex:1 1 320px" autocapitalize="none" autocorrect="off" spellcheck="false">
+      <div class="filas barra-busqueda-inv" style="align-items:center"><input id="inv-q" type="search" class="texto" placeholder="Buscar… (ej. Lote=202610)" value="${esc(S.inv.q)}" style="padding:6px 8px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie);min-width:320px" autocapitalize="none" autocorrect="off" spellcheck="false">
         <label class="orden-inv" for="inv-orden"><span>Ordenar por</span><select id="inv-orden" style="padding:6px 8px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie)">${ORDENES_INV.map(([v, t]) => `<option value="${v}" ${S.inv.orden === v ? 'selected' : ''}>${t}</option>`).join('')}</select></label></div>
       <p class="nota" id="inv-nota">Toque un artículo para editarlo, ver su historial o crearle una promoción. Para filtrar por un campo escriba, por ejemplo, <b>Lote=202610</b>, <b>Marca=levis</b>, <b>Estilo=123L</b>, <b>Depto=dama</b> o <b>Precio&gt;200</b>; se pueden combinar con palabras.</p>
       <div id="inv-msg" class="mensaje" role="status" aria-live="polite"></div>

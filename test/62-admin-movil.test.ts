@@ -101,12 +101,17 @@ describe('[iPhone] Administración en el teléfono', { timeout: 180_000, skip: c
     assert.ok((await filas.first().boundingBox())!.height < 110, 'cada artículo ocupa pocos renglones');
     assert.match((await filas.first().textContent())!, /BLUSA|FALDA/);
     // Orden y filtros por campo: lo más nuevo primero; «Lote= 20261015» filtra por lote.
+    const caja = await page.locator('#inv-q').boundingBox();
+    assert.ok(caja!.height >= 40 && caja!.height <= 56, `el buscador mide ${caja!.height}px de alto (no debe crecer)`);
+    assert.ok(caja!.width >= 300, 'y ocupa todo el ancho');
     assert.equal(await page.inputValue('#inv-orden'), 'nuevo');
     assert.equal(await filas.first().locator('.fi-desc').textContent(), 'FALDA', 'más nuevo primero');
     await page.selectOption('#inv-orden', 'cara');
     await page.waitForFunction(() => /\$/.test(document.querySelector('#lista-inv .fila-inv .fi-precio')?.textContent ?? ''));
     const precios = await page.$$eval('#lista-inv .fi-precio', (x) => x.map((e) => Number(e.textContent!.replace(/[$,]/g, ''))));
     assert.deepEqual(precios, [...precios].sort((a, b) => b - a), 'más caro primero');
+    await page.evaluate(() => document.querySelector('#inv-q')!.scrollIntoView({ block: 'center' }));
+    await page.screenshot({ path: join(RAIZ, 'docs', 'capturas', '65-movil-buscador.png') });
     await page.fill('#inv-q', 'Lote= 20261015');
     await page.waitForFunction(() => document.querySelectorAll('#lista-inv .fila-inv').length === 1);
     assert.match((await filas.first().textContent())!, /123L-N/);
