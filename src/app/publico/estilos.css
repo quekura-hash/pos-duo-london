@@ -222,6 +222,7 @@ tr.fila-usuario:focus-visible { outline: 2px solid var(--primario, currentColor)
 .sincro-nube.pend .estado-nube::before { background: #fcd34d; }
 .sincro-nube.sync .estado-nube::before { background: #60a5fa; animation: pulso 1s ease-in-out infinite; }
 .sincro-nube.mal .estado-nube::before { background: #f87171; }
+.sn-quien { display: none; } /* el usuario ya aparece en su propio chip */
 .sn-hora { opacity: .7; margin-left: 4px; font-weight: 500; }
 @keyframes pulso { 50% { opacity: .35; } }
 .btn-sync { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; padding: 0; border: 1px solid color-mix(in srgb, var(--marino-texto) 30%, transparent); border-radius: 8px; background: transparent; color: var(--marino-texto); cursor: pointer; }
