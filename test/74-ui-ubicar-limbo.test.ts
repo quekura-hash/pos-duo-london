@@ -129,18 +129,45 @@ describe('[navegador real] Inventario: seleccionar y dar su ubicación real a la
     await esperarTexto(page, '#inv-msg', /dados de baja/);
     assert.deepEqual([enLimbo(ctx, 2), enLimbo(ctx, 3), enAlmacen(ctx, 2)], [1, 1, 0], 'baja de 1 pieza cada uno; no entra a ningún lado');
 
-    // Ubicar piezas desde el artículo
-    await page.fill('#inv-q', 'camisa 4');
-    await page.waitForFunction(() => document.querySelectorAll('#tabla-inv-lista tbody tr[data-item]').length === 1);
-    assert.equal(await page.locator('#tabla-inv-lista input[data-sel]').count(), 0, 'al terminar una acción se sale del modo selección');
-    await page.click('#tabla-inv-lista tr[data-item="v4"] td:nth-child(2)');
+  });
+  it('UL4 Existencias reales (supervisor): «de 71, 41 están en DÚO» → Limbo baja solo a 30; se guarda tal cual, sin escáner', async (t) => {
+    const browser = await chromium.launch({ executablePath: chromiumPath, args: ['--no-sandbox'] });
+    const ctx = nuevoMundo(sqlite, politica());
+    sembrar(ctx);
+    ctx.m.sembrarOps([articulo(20, ''), limbo(20, 71)]);
+    const adm = await appAdmin(ctx);
+    t.after(async () => { await browser.close(); await adm.cerrar(); ctx.limpiar(); });
+    const { page } = await pagina(browser, adm.url);
+    await page.click('#nav button[data-vista="inventario"]');
+    await page.waitForSelector('#inv-pag-info');
+    await page.fill('#inv-q', 'camisa 20');
+    await esperarTexto(page, '#inv-pag-info', /de 1\b/);
+    await page.click('#tabla-inv-lista tr[data-item="v20"] td:nth-child(2)');
     await page.waitForSelector('#dlg-articulo[open]');
-    await page.click('#art-ubicar');
-    await page.waitForSelector('#dlg-reubicar[open]');
-    assert.match((await page.textContent('#ru-titulo'))!, /Ubicar piezas · CAMISA 4/);
-    await esperarTexto(page, '#ru-resumen', /1 artículo · 2 piezas pasarían al almacén/);
-    await page.click('#ru-ok');
-    await esperarTexto(page, '#inv-msg', /pasaron de El Limbo al almacén/);
-    assert.deepEqual([enLimbo(ctx, 4), enAlmacen(ctx, 4)], [0, 2]);
+    assert.equal(await page.locator('#art-ubicar').count(), 0, 'el supervisor tiene la ventana completa, no la de solo Limbo');
+    await page.click('#art-existencias');
+    await page.waitForSelector('#dlg-existencias[open]');
+    assert.deepEqual(await page.$$eval('#ex-tabla tbody tr', (r) => r.map((x) => [x.getAttribute('data-lugar'), (x.querySelector('input') as HTMLInputElement).value])), [['limbo', '71'], ['almacen', '0'], ['DUO', '0'], ['LON', '0']]);
+    assert.equal(await page.isDisabled('#ex-ok'), true, 'sin cambios no se puede guardar');
+    await page.fill('input[data-ex="DUO"]', '41');
+    assert.equal(await page.inputValue('input[data-ex="limbo"]'), '30', 'lo que se agrega en DÚO se descuenta de El Limbo');
+    assert.match((await page.textContent('#ex-total'))!, /71 \(antes 71\)/);
+    // sin la casilla, El Limbo no se mueve solo
+    await page.uncheck('#ex-limbo-auto');
+    await page.fill('input[data-ex="LON"]', '10');
+    assert.equal(await page.inputValue('input[data-ex="limbo"]'), '30');
+    assert.match((await page.textContent('#ex-total'))!, /81 \(antes 71\) · \+10/);
+    // valores inválidos
+    await page.fill('input[data-ex="LON"]', '-3');
+    assert.equal(await page.isDisabled('#ex-ok'), true);
+    assert.match((await page.textContent('#ex-msg'))!, /enteros de 0 o más/);
+    await page.fill('input[data-ex="LON"]', '0');
+    await page.fill('#ex-motivo', 'Conteo del propietario');
+    await page.click('#ex-ok');
+    await esperarTexto(page, '#inv-msg', /guardadas: .*El Limbo \(sin ubicar\) 71 → 30 · Tienda DÚO 0 → 41/);
+    const ops = ctx.m.central.repo.ops();
+    const suma = (tienda: string) => ops.filter((o) => o.tipo === 'inv.movement' && o.payload.tienda === tienda && o.payload.item_id === 'v20').reduce((x, o) => x + o.payload.delta, 0);
+    assert.deepEqual([suma(LIMBO), suma('DUO'), suma('LON')], [30, 41, 0]);
+    assert.equal(ops.filter((o) => o.tipo === 'inv.ajuste').length, 1);
   });
 });

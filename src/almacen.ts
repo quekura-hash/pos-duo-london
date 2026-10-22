@@ -11,12 +11,12 @@ export const TIENDAS_ENTREGA = ['DUO', 'LON'] as const;
 
 export interface EntradaAlmacen { entrada_id: string; item_id: string; qty: number; pedimento: string | null; lote_doc: string; fuente: string; ocurrio_en: string }
 export interface EntregaAlmacen { entrega_id: string; item_id: string; tienda: string; qty: number; etiqueta_precio: boolean; etiqueta_costura: boolean; exceso: boolean; ocurrio_en: string; por: string }
-export interface ExistenciaAlmacen { item_id: string; recibido: number; entregado: number; /** Piezas faltantes que aparecieron en el almacén. */ recuperado: number; existencia: number; pedimentos: string[]; entregas: EntregaAlmacen[] }
+export interface ExistenciaAlmacen { item_id: string; recibido: number; entregado: number; /** Piezas faltantes que aparecieron en el almacén. */ recuperado: number; /** Correcciones del propietario (suma de `alm.ajuste`). */ ajustes: number; existencia: number; pedimentos: string[]; entregas: EntregaAlmacen[] }
 
 /** Existencia del almacén por artículo: lo recibido menos lo entregado a tiendas. Puede quedar negativa (se entrega con aviso). */
 export function existenciaAlmacen(ops: Op[]): Map<string, ExistenciaAlmacen> {
   const m = new Map<string, ExistenciaAlmacen>();
-  const de = (id: string) => { let x = m.get(id); if (!x) m.set(id, (x = { item_id: id, recibido: 0, entregado: 0, recuperado: 0, existencia: 0, pedimentos: [], entregas: [] })); return x; };
+  const de = (id: string) => { let x = m.get(id); if (!x) m.set(id, (x = { item_id: id, recibido: 0, entregado: 0, recuperado: 0, ajustes: 0, existencia: 0, pedimentos: [], entregas: [] })); return x; };
   const corr = correccionesEntradas(ops);
   for (const o of ops) {
     if (o.tipo === 'alm.entrada') {
@@ -26,6 +26,9 @@ export function existenciaAlmacen(ops: Op[]): Map<string, ExistenciaAlmacen> {
       const pedimento = c && c.pedimento !== undefined ? c.pedimento : o.payload.pedimento;
       x.recibido += qty;
       if (pedimento && !x.pedimentos.includes(pedimento)) x.pedimentos.push(pedimento);
+    } else if (o.tipo === 'alm.ajuste') {
+      // Corrección del propietario (Inventario → Existencias reales): suma o resta piezas del almacén sin pasar por una entrada.
+      de(o.payload.item_id).ajustes += o.payload.delta;
     } else if (o.tipo === 'alm.entrega') {
       const x = de(o.payload.item_id);
       x.entregado += o.payload.qty;
@@ -33,7 +36,7 @@ export function existenciaAlmacen(ops: Op[]): Map<string, ExistenciaAlmacen> {
     }
   }
   for (const r of resolucionesFaltantes(ops).values()) if (r.destino === 'almacen' && r.qty > 0) de(r.item_id).recuperado += r.qty;
-  for (const x of m.values()) x.existencia = x.recibido - x.entregado + x.recuperado;
+  for (const x of m.values()) x.existencia = x.recibido - x.entregado + x.recuperado + x.ajustes;
   return m;
 }
 

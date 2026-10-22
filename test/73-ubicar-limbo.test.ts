@@ -12,6 +12,9 @@ const articulo = (item_id: string, item_no: string, lote: string, descripcion = 
   payload: { item_id, codigo: `99${item_no}`, item_no, marca: 'TM', descripcion, estilo: '123L', lote, departamento: 'CABALLERO', precio: 25000, origen: 'migracion' },
 });
 
+const limbo = (ctx: { m: ReturnType<typeof nuevoMundo>['m'] }, item: string, t = 'DUO', c = 1) => ctx.m.caja(t, c).saldoLimbo(item);
+const almacen = (ctx: { m: ReturnType<typeof nuevoMundo>['m'] }, item: string) => existenciaAlmacen(ctx.m.central.repo.ops()).get(item)?.existencia ?? 0;
+
 porAlmacen('Ubicación real de las piezas de El Limbo: almacén, tienda o baja', (alm) => {
   const mundo = (t: { after(f: () => void): void }) => {
     const ctx = nuevoMundo(alm, politica());
@@ -24,8 +27,6 @@ porAlmacen('Ubicación real de las piezas de El Limbo: almacén, tienda o baja',
     const admin = new ServicioAdmin({ central: ctx.m.central, actor: { rol: 'admin', usuario: 'galo' }, fuente: () => ctx.m.central.repo.ops(), cajas: ctx.m.ctx.cajasCfg.map((c) => ({ tienda: c.tienda, caja: c.caja })), inventario: ctx.m.inventarioCentral() });
     return { ctx, admin };
   };
-  const limbo = (ctx: ReturnType<typeof mundo>['ctx'], item: string, t = 'DUO', c = 1) => ctx.m.caja(t, c).saldoLimbo(item);
-  const almacen = (ctx: ReturnType<typeof mundo>['ctx'], item: string) => existenciaAlmacen(ctx.m.central.repo.ops()).get(item)?.existencia ?? 0;
 
   it('LB1 pasar al almacén: El Limbo baja, el almacén sube, lo ven todas las cajas, reintentar no repite y el historial lo cuenta', (t) => {
     const { ctx, admin } = mundo(t);
@@ -101,5 +102,81 @@ porAlmacen('Ubicación real de las piezas de El Limbo: almacén, tienda o baja',
     assert.equal(r.status, 200);
     assert.deepEqual([r.json.articulos, r.json.piezas, r.json.destino], [2, 9, 'almacen']);
     assert.equal((await api(adm.url, '/api/admin/limbo/reubicar', { movimiento_id: 'h2', destino: 'marte', filtro: 'lote=0' })).status >= 400, true);
+  });
+});
+
+porAlmacen('Existencias reales: el propietario deja las cantidades como las contó, sin escáner ni confirmación', (alm) => {
+  const mundo = (t: { after(f: () => void): void }) => {
+    const ctx = nuevoMundo(alm, politica());
+    t.after(ctx.limpiar);
+    ctx.m.sembrarOps([articulo('p1', '4001', '202610', 'CAMISA TM'), mov('p1', 71)]);
+    const admin = new ServicioAdmin({ central: ctx.m.central, actor: { rol: 'admin', usuario: 'galo' }, fuente: () => ctx.m.central.repo.ops(), cajas: ctx.m.ctx.cajasCfg.map((c) => ({ tienda: c.tienda, caja: c.caja })), inventario: ctx.m.inventarioCentral() });
+    return { ctx, admin };
+  };
+  const pump = (ctx: ReturnType<typeof mundo>['ctx']) => { ctx.m.pump(); ctx.m.pump(); ctx.m.pump(); };
+
+  it('EX1 «de estas 71, 41 están en DÚO»: Limbo 30, DÚO 41; la tienda y sus cajas lo ven sin confirmar nada; London no cambia', (t) => {
+    const { ctx, admin } = mundo(t);
+    const r = admin.fijarExistencias({ ajuste_id: 'a1', item_id: 'p1', cantidades: { limbo: 30, DUO: 41, LON: 0 }, motivo: 'Conteo del propietario' });
+    assert.deepEqual(r.cambios.map((c) => [c.lugar, c.antes, c.despues]), [['limbo', 71, 30], ['DUO', 0, 41], ['LON', 0, 0]]);
+    assert.deepEqual([r.aplicado, r.con_cambio, r.repetido], [true, 2, false]);
+    pump(ctx);
+    assert.deepEqual([ctx.m.caja('DUO', 1).stockLocal('p1'), ctx.m.caja('DUO', 2).stockLocal('p1'), ctx.m.caja('LON', 1).stockLocal('p1')], [41, 41, 0]);
+    for (const [tt, c] of [['DUO', 1], ['LON', 2]] as const) assert.equal(limbo(ctx, 'p1', tt, c), 30, `${tt}/${c} ve El Limbo en 30`);
+    assert.deepEqual(r.existencias.ubicaciones.map((u) => [u.clave, u.cantidad]), [['limbo', 30], ['almacen', 0], ['DUO', 41], ['LON', 0]]);
+    // el historial lo cuenta
+    const h = admin.historialArticulo('p1').eventos.find((e) => e.evento === 'Existencias corregidas')!;
+    assert.match(h.detalle, /El Limbo: 71 → 30[\s\S]*DÚO New York: 0 → 41[\s\S]*Conteo del propietario/);
+  });
+
+  it('EX2 contar London: «hay 35» sube o baja tal cual; el almacén también; agregar piezas que no existían; reintentar o repetir no cambia nada', (t) => {
+    const { ctx, admin } = mundo(t);
+    admin.fijarExistencias({ ajuste_id: 'a1', item_id: 'p1', cantidades: { LON: 35, almacen: 12 } });
+    pump(ctx);
+    assert.deepEqual([ctx.m.caja('LON', 1).stockLocal('p1'), almacen(ctx, 'p1'), limbo(ctx, 'p1')], [35, 12, 71], 'solo se tocó lo indicado');
+    const n = ctx.m.central.repo.ops().length;
+    assert.equal(admin.fijarExistencias({ ajuste_id: 'a1', item_id: 'p1', cantidades: { LON: 1 } }).repetido, true);
+    assert.equal(ctx.m.central.repo.ops().length, n, 'el mismo ajuste no se repite');
+    assert.equal(admin.fijarExistencias({ ajuste_id: 'a2', item_id: 'p1', cantidades: { LON: 35, almacen: 12 } }).aplicado, false, 'sin diferencia no se guarda nada');
+    assert.equal(ctx.m.central.repo.ops().length, n);
+    // bajar: hay 30 en London y 0 en el almacén
+    admin.fijarExistencias({ ajuste_id: 'a3', item_id: 'p1', cantidades: { LON: 30, almacen: 0 } });
+    pump(ctx);
+    assert.deepEqual([ctx.m.caja('LON', 2).stockLocal('p1'), almacen(ctx, 'p1')], [30, 0]);
+    // el almacén ajustado se puede seguir entregando con el flujo normal
+    admin.fijarExistencias({ ajuste_id: 'a4', item_id: 'p1', cantidades: { almacen: 10 } });
+    const e = ctx.m.central.entregar({ item_id: 'p1', destinos: { DUO: 4 }, etiqueta_precio: true, etiqueta_costura: true, por: 'galo' });
+    assert.deepEqual([e.ok, e.ok && e.existencia_almacen], [true, 6]);
+  });
+
+  it('EX3 solo revisar no guarda; validaciones; limpia la marca «sin verificar» de la tienda', (t) => {
+    const { ctx, admin } = mundo(t);
+    const n = ctx.m.central.repo.ops().length;
+    const rev = admin.fijarExistencias({ ajuste_id: 'x', item_id: 'p1', cantidades: { DUO: 5 }, solo_revisar: true });
+    assert.deepEqual([rev.aplicado, rev.con_cambio], [false, 1]);
+    assert.equal(ctx.m.central.repo.ops().length, n);
+    assert.throws(() => admin.fijarExistencias({ ajuste_id: 'x', item_id: 'p1', cantidades: { DUO: -1 } }), { codigo: 'CANTIDAD_INVALIDA' });
+    assert.throws(() => admin.fijarExistencias({ ajuste_id: 'x', item_id: 'p1', cantidades: { DUO: 1.5 } }), { codigo: 'CANTIDAD_INVALIDA' });
+    assert.throws(() => admin.fijarExistencias({ ajuste_id: 'x', item_id: 'p1', cantidades: { marte: 1 } }), { codigo: 'UBICACION_INVALIDA' });
+    assert.throws(() => admin.fijarExistencias({ ajuste_id: 'x', item_id: 'no-existe', cantidades: { DUO: 1 } }), { codigo: 'ARTICULO_INEXISTENTE' });
+    assert.throws(() => admin.fijarExistencias({ ajuste_id: 'x', item_id: 'p1', cantidades: {} }), { codigo: 'DATOS_REQUERIDOS' });
+    assert.throws(() => admin.fijarExistencias({ ajuste_id: '', item_id: 'p1', cantidades: { DUO: 1 } }), { codigo: 'DATOS_REQUERIDOS' });
+  });
+
+  it('EX4 por HTTP: el supervisor ve y corrige las existencias; el almacenista no', async (t) => {
+    const { ctx } = mundo(t);
+    const adm = await appAdmin(ctx); t.after(() => adm.cerrar());
+    await api(adm.url, '/api/admin/administradores', { nombre: 'Edgardo', clave: 'clave-segura' });
+    await api(adm.url, '/api/admin/administradores', { nombre: 'Gabo', clave: 'clave-gabo', rol: 'almacenista' });
+    const g = await api(adm.url, '/api/admin/existencias?item_id=p1');
+    assert.equal(g.status, 200);
+    assert.deepEqual(g.json.ubicaciones.map((u: any) => [u.clave, u.cantidad]), [['limbo', 71], ['almacen', 0], ['DUO', 0], ['LON', 0]]);
+    const r = await api(adm.url, '/api/admin/existencias', { ajuste_id: 'h1', item_id: 'p1', cantidades: { limbo: 30, DUO: 41 } });
+    assert.equal(r.status, 200);
+    assert.deepEqual(r.json.existencias.ubicaciones.map((u: any) => u.cantidad), [30, 0, 41, 0]);
+    await api(adm.url, '/api/logout', {});
+    await api(adm.url, '/api/login', { usuario: 'Gabo', clave: 'clave-gabo' });
+    assert.equal((await api(adm.url, '/api/admin/existencias?item_id=p1')).status, 403);
+    assert.equal((await api(adm.url, '/api/admin/existencias', { ajuste_id: 'h2', item_id: 'p1', cantidades: { DUO: 1 } })).status, 403);
   });
 });

@@ -95,6 +95,8 @@ interface Reserva {
 
 /** Lo que se vende de El Limbo descuenta una existencia compartida: todas las tiendas y cajas deben enterarse. */
 const esMovimientoLimbo = (op: Op) => op.tipo === 'inv.movement' && op.payload.tienda === LIMBO;
+/** Corrección de existencias hecha por el propietario en Administración: la tienda y sus cajas deben enterarse (no pasa por la confirmación de recepción). */
+const esAjusteAdmin = (op: Op) => (op.tipo === 'inv.movement' && op.payload.tipo === 'ajuste_admin') || (op.tipo === 'inv.conteo' && op.payload.admin === true);
 const BROADCAST_TIENDA = new Set(['alm.recibida', 'inv.movement', 'inv.conteo', 'inv.verificacion_pendiente', 'doc.perdida_posible', 'item.created', 'item.item_no_assigned', 'giftcard.emitida', 'giftcard.recarga', 'giftcard.uso', 'giftcard.reintegro']);
 // Lo que el central baja a hubs y cajas (catálogo y resoluciones administrativas).
 const CATALOGO = new Set(['item.created', 'item.item_no_assigned', 'item.codigo_corregido', 'doc.perdida_resuelta', 'giftcard.emitida', 'giftcard.recarga', 'giftcard.uso', 'giftcard.reintegro', 'config.tipo_cambio', 'permiso.asignado', 'depto.alta', 'depto.editado', 'alm.entrega', 'alm.faltante', 'promo.guardada', 'recompensa.guardada', 'supervisor.guardado', 'cajero.guardado', 'config.sesion', 'config.negocio', 'item.editado']);
@@ -145,7 +147,7 @@ export class Hub {
         if (BROADCAST_TIENDA.has(op.tipo)) {
           for (const n of this.cajasDeTienda()) if (`caja:${this.tienda}/${n}` !== desde) this.repo.encolar(op.op_id, `caja:${this.tienda}/${n}`);
         }
-      } else if (desde === 'central' && (CATALOGO.has(op.tipo) || esMovimientoLimbo(op))) {
+      } else if (desde === 'central' && (CATALOGO.has(op.tipo) || esMovimientoLimbo(op) || esAjusteAdmin(op))) {
         for (const n of this.cajasDeTienda()) this.repo.encolar(op.op_id, `caja:${this.tienda}/${n}`);
       }
     });
@@ -587,7 +589,7 @@ export class Central {
     if (!tiendas.length || tiendas.some(([, q]) => !Number.isInteger(q) || q < 0)) return { ok: false, motivo: 'cantidad_invalida' };
     if (tiendas.some(([t]) => !this.ctx.tiendas.includes(t))) return { ok: false, motivo: 'tienda_invalida' };
     if (!d.etiqueta_precio || !d.etiqueta_costura) return { ok: false, motivo: 'etiquetas_pendientes' };
-    const disponible = existenciaAlmacen(this.repo.opsDeTipos(['alm.entrada', 'alm.entrega', 'alm.faltante', 'alm.correccion'])).get(d.item_id)?.existencia ?? 0;
+    const disponible = existenciaAlmacen(this.repo.opsDeTipos(['alm.entrada', 'alm.entrega', 'alm.faltante', 'alm.correccion', 'alm.ajuste'])).get(d.item_id)?.existencia ?? 0;
     // Reintento de una entrega ya registrada (misma referencia): se confirma sin moverla otra vez ni pedir confirmación.
     if (d.ref && tiendas.every(([t]) => this.repo.tieneOp(`alm.entrega:${d.ref}:${t}`))) return { ok: true, existencia_almacen: disponible, ops: [] };
     const pedido = tiendas.reduce((a, [, q]) => a + q, 0);
@@ -611,7 +613,7 @@ export class Central {
   corregirEntrada(d: { correccion_id: string; entrada_id: string; qty?: number; pedimento?: string | null; motivo: string; confirmar_negativo?: boolean }, por: string):
     { ok: true; existencia: number } | { ok: false; motivo: 'deja_negativo'; existencia: number } {
     if (!d.correccion_id) throw new ErrorDominio('DATOS_REQUERIDOS', 'falta la referencia de la corrección');
-    const ops = this.repo.opsDeTipos(['alm.entrada', 'alm.entrega', 'alm.faltante', 'alm.correccion']);
+    const ops = this.repo.opsDeTipos(['alm.entrada', 'alm.entrega', 'alm.faltante', 'alm.correccion', 'alm.ajuste']);
     const entrada = ops.find((o) => o.tipo === 'alm.entrada' && o.payload.entrada_id === d.entrada_id);
     if (!entrada) throw new ErrorDominio('ENTRADA_INEXISTENTE', 'esa entrada de almacén no existe');
     const itemId = entrada.payload.item_id as string;
@@ -721,6 +723,45 @@ export class Central {
     return { ...resumen, ocurrio_en: op.ocurrio_en, repetido: false, aplicado: true };
   }
 
+  /**
+   * «Existencias reales» (solo propietario/administradores): deja el artículo con EXACTAMENTE estas cantidades por ubicación, tal cual, sin escáner ni
+   * confirmación de recepción. `cantidades` trae `limbo`, `almacen` y/o una tienda (DUO, LON…) con la cantidad que de verdad hay (entero ≥ 0); lo que
+   * no se menciona no se toca. Se guarda la diferencia contra lo que conoce el central como un movimiento `ajuste_admin` (las tiendas y sus cajas lo
+   * reciben) y, en el almacén, un `alm.ajuste`. Un conteo de tienda también limpia la marca «sin verificar» de ese artículo.
+   * `ajuste_id` hace que reintentar no repita nada; con `solo_revisar` solo devuelve lo que cambiaría.
+   */
+  fijarExistencias(d: { ajuste_id: string; item_id: string; cantidades: Record<string, number>; motivo?: string; por: string; solo_revisar?: boolean }): ResultadoAjuste {
+    if (!d.ajuste_id) throw new ErrorDominio('DATOS_REQUERIDOS', 'falta la referencia del ajuste');
+    const previo = this.repo.getOp(`inv.ajuste:${d.ajuste_id}`);
+    if (previo && !d.solo_revisar) return { ...(previo.payload as Omit<ResultadoAjuste, 'repetido' | 'ocurrio_en'>), ocurrio_en: previo.ocurrio_en, repetido: true };
+    const ops = this.repo.ops();
+    if (!catalogo(ops).has(d.item_id)) throw new ErrorDominio('ARTICULO_INEXISTENTE', d.item_id);
+    const pedidos = Object.entries(d.cantidades ?? {});
+    if (!pedidos.length) throw new ErrorDominio('DATOS_REQUERIDOS', 'indique las cantidades');
+    for (const [lugar, q] of pedidos) {
+      if (lugar !== 'limbo' && lugar !== 'almacen' && !this.ctx.tiendas.includes(lugar)) throw new ErrorDominio('UBICACION_INVALIDA', `ubicación desconocida: ${lugar}`);
+      if (!Number.isInteger(q) || q < 0) throw new ErrorDominio('CANTIDAD_INVALIDA', 'las cantidades son enteros de 0 o más');
+    }
+    const actual = (lugar: string) => (lugar === 'limbo' ? stock(ops, LIMBO).get(d.item_id) ?? 0 : lugar === 'almacen' ? existenciaAlmacen(ops.filter((o) => o.tipo.startsWith('alm.'))).get(d.item_id)?.existencia ?? 0 : stock(ops, lugar).get(d.item_id) ?? 0);
+    const cambios = pedidos.map(([lugar, despues]) => ({ lugar, antes: actual(lugar), despues })).map((c) => ({ ...c, delta: c.despues - c.antes }));
+    const resumen = { ajuste_id: d.ajuste_id, item_id: d.item_id, por: d.por, motivo: String(d.motivo ?? '').trim().slice(0, 200), cambios, con_cambio: cambios.filter((c) => c.delta !== 0).length };
+    if (d.solo_revisar || !resumen.con_cambio) return { ...resumen, ocurrio_en: this.ctx.reloj.now(), repetido: false, aplicado: false };
+    const doc = `ajuste_admin:${d.ajuste_id}`;
+    for (const c of cambios) {
+      if (c.delta === 0) continue;
+      if (c.lugar === 'almacen') this.emitirUna('alm.ajuste', { ajuste_id: d.ajuste_id, item_id: d.item_id, delta: c.delta, motivo: resumen.motivo, por: d.por }, `alm.ajuste:${d.ajuste_id}`, false);
+      else {
+        this.emitirAdmin('inv.movement', { item_id: d.item_id, tienda: c.lugar === 'limbo' ? LIMBO : c.lugar, delta: c.delta, tipo: 'ajuste_admin', doc }, `mov:ajuste:${d.ajuste_id}:${c.lugar}`);
+        if (c.lugar !== 'limbo') {
+          const pendientes = existenciaVerificada(ops, c.lugar, d.item_id).pendientes;
+          if (pendientes.length) this.emitirAdmin('inv.conteo', { item_id: d.item_id, tienda: c.lugar, contado: c.despues, saldo_previo: c.antes, delta: c.delta, usuario: d.por, cubre: pendientes, admin: true }, `conteo:ajuste:${d.ajuste_id}:${c.lugar}`);
+        }
+      }
+    }
+    const op = this.emitirUna('inv.ajuste', resumen, `inv.ajuste:${d.ajuste_id}`, false)!;
+    return { ...resumen, ocurrio_en: op.ocurrio_en, repetido: false, aplicado: true };
+  }
+
   anclas(tienda: string, caja: number): Anclas {
     let ceiling: number | null = null;
     let hwm = 0;
@@ -738,6 +779,19 @@ export class Central {
 }
 
 // ───────────────────────────── Caja ─────────────────────────────
+
+export interface ResultadoAjuste {
+  ajuste_id: string;
+  item_id: string;
+  por: string;
+  motivo: string;
+  cambios: { lugar: string; antes: number; despues: number; delta: number }[];
+  con_cambio: number;
+  ocurrio_en: string;
+  repetido: boolean;
+  /** false = solo se revisó (o no había nada que cambiar). */
+  aplicado?: boolean;
+}
 
 export interface ResultadoReubicacion {
   movimiento_id: string;

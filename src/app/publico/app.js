@@ -1574,6 +1574,69 @@ async function cargarListaInventario() {
   $('#inv-ant').addEventListener('click', () => { I.pag--; cargarListaInventario(); });
   $('#inv-sig').addEventListener('click', () => { I.pag++; cargarListaInventario(); });
 }
+/**
+ * «Existencias reales» (solo supervisores): el propietario deja las cantidades de UN artículo exactamente como las contó (El Limbo, almacén y cada tienda).
+ * Se guardan tal cual, sin escáner ni confirmación de recepción. Lo que se agrega en el almacén o en una tienda se puede descontar de El Limbo (casilla).
+ */
+async function abrirExistencias(a) {
+  const j = await api(`/api/admin/existencias?item_id=${encodeURIComponent(a.item_id)}`);
+  const d = dialogo('dlg-existencias');
+  d.setAttribute('aria-labelledby', 'ex-titulo');
+  const id = (crypto.randomUUID && crypto.randomUUID()) || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const NOM = { limbo: 'El Limbo (sin ubicar)', almacen: 'Almacén', DUO: 'Tienda DÚO', LON: 'Tienda London' };
+  const ub = j.ubicaciones;
+  const campo = 'width:90px;padding:8px;border:2px solid var(--borde);border-radius:10px;background:var(--superficie);text-align:right;font:inherit;font-size:18px';
+  const antes = Object.fromEntries(ub.map((u) => [u.clave, u.cantidad]));
+  d.innerHTML = `<h2 id="ex-titulo" style="margin-top:0">Existencias reales</h2>
+    <p style="margin:0 0 6px"><b>${esc(j.articulo.descripcion)}</b>${j.articulo.marca ? ` · ${esc(j.articulo.marca)}` : ''}${j.articulo.estilo ? ` · ${esc(j.articulo.estilo)}` : ''} <small>#${esc(j.articulo.item_no ?? '—')}</small></p>
+    <p class="nota" style="margin-top:0">Escriba cuántas piezas hay <b>realmente</b> en cada lugar. Se guarda tal cual, sin escáner ni confirmación de la tienda. Solo supervisores.</p>
+    <form id="form-existencias" autocomplete="off">
+      <table id="ex-tabla" style="width:100%"><thead><tr><th style="text-align:left">Lugar</th><th class="num">Ahora</th><th class="num">Hay realmente</th></tr></thead><tbody>
+      ${ub.map((u) => `<tr data-lugar="${esc(u.clave)}"><td>${esc(NOM[u.clave] ?? u.clave)}</td><td class="num" data-label="Ahora">${u.cantidad}</td><td class="num" data-label="Hay realmente"><input type="number" min="0" step="1" inputmode="numeric" value="${u.cantidad}" data-ex="${esc(u.clave)}" style="${campo}" aria-label="Piezas reales: ${esc(NOM[u.clave] ?? u.clave)}"></td></tr>`).join('')}
+      </tbody></table>
+      <label class="ex-desc" style="display:flex;gap:8px;align-items:center;padding:8px 0"><input type="checkbox" id="ex-limbo-auto" ${antes.limbo > 0 ? 'checked' : ''}> Lo que agregue al almacén o a una tienda se descuenta de El Limbo</label>
+      <p class="nota" id="ex-total" style="margin:0 0 6px"></p>
+      <div class="campo"><label for="ex-motivo">Motivo (opcional)</label><input id="ex-motivo" class="texto" maxlength="200" placeholder="Conteo del propietario" style="width:100%;box-sizing:border-box"></div>
+      <div id="ex-msg" class="mensaje" role="status" aria-live="polite"></div>
+      <div class="filas"><button class="btn" type="button" id="ex-no">Cancelar</button><button class="btn btn-primario" type="submit" id="ex-ok" style="width:auto;flex:1" disabled>${ico('check')}<span>Guardar existencias</span></button></div>
+    </form>`;
+  const inp = (k) => d.querySelector(`input[data-ex="${k}"]`);
+  const valor = (k) => { const v = inp(k).value.trim(); return v === '' ? NaN : Number(v); };
+  const cantidades = () => Object.fromEntries(ub.map((u) => [u.clave, valor(u.clave)]));
+  let limboAMano = false;
+  const refrescar = () => {
+    const c = cantidades();
+    const valido = Object.values(c).every((n) => Number.isInteger(n) && n >= 0);
+    const cambia = ub.some((u) => c[u.clave] !== u.cantidad);
+    const total = Object.values(c).reduce((x, n) => x + (Number.isFinite(n) ? n : 0), 0), totalAntes = ub.reduce((x, u) => x + u.cantidad, 0);
+    $('#ex-total').textContent = `Total en todos los lugares: ${total} (antes ${totalAntes})${total !== totalAntes ? ` · ${total > totalAntes ? '+' : ''}${total - totalAntes}` : ''}`;
+    $('#ex-ok').disabled = !valido || !cambia;
+    $('#ex-msg').className = valido ? 'mensaje' : 'mensaje error';
+    $('#ex-msg').textContent = valido ? '' : 'Escriba enteros de 0 o más en cada lugar.';
+  };
+  const recalcularLimbo = () => {
+    if (!$('#ex-limbo-auto').checked || limboAMano) return;
+    const subidas = ub.filter((u) => u.clave !== 'limbo').reduce((x, u) => x + Math.max(0, (valor(u.clave) || 0) - u.cantidad), 0);
+    inp('limbo').value = String(Math.max(0, antes.limbo - subidas));
+  };
+  for (const u of ub) inp(u.clave).addEventListener('input', () => { if (u.clave === 'limbo') limboAMano = true; else recalcularLimbo(); refrescar(); });
+  $('#ex-limbo-auto').addEventListener('change', () => { limboAMano = false; if ($('#ex-limbo-auto').checked) recalcularLimbo(); refrescar(); });
+  $('#ex-no').addEventListener('click', () => d.close());
+  $('#form-existencias').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const m = $('#ex-msg'), ok = $('#ex-ok');
+    ok.disabled = true;
+    try {
+      const r = await api('/api/admin/existencias', { ajuste_id: id, item_id: a.item_id, cantidades: cantidades(), motivo: $('#ex-motivo').value.trim() });
+      d.close();
+      await vistaInventario();
+      const mm = $('#inv-msg'); mm.className = 'mensaje ok';
+      mm.textContent = `Existencias de «${a.descripcion}» guardadas: ${r.cambios.filter((c) => c.antes !== c.despues).map((c) => `${NOM[c.lugar] ?? c.lugar} ${c.antes} → ${c.despues}`).join(' · ') || 'sin cambios'}.`;
+    } catch (e) { m.className = 'mensaje error'; m.textContent = e.message; ok.disabled = false; }
+  });
+  d.showModal();
+  refrescar();
+}
 /** Edición de un artículo: se abre editable, con Historial y Crear promoción. */
 async function abrirArticulo(a) {
   const { departamentos } = await api('/api/admin/departamentos');
@@ -1590,11 +1653,12 @@ async function abrirArticulo(a) {
       ${campo('art-precio', 'Precio de venta (MXN)', centavosAPesos(a.precio), `inputmode="decimal" ${S.sesion.rol_usuario === 'almacenista' ? 'readonly title="Solo un supervisor cambia precios"' : ''}`)}
       <p class="nota">${S.sesion.rol_usuario === 'almacenista' ? 'El precio solo lo cambia un supervisor. ' : ''}Un cambio de precio vale para las ventas siguientes; lo ya vendido conserva el suyo. Queda registrado en el historial.</p>
       <div id="msg-art" class="mensaje" role="status" aria-live="polite"></div>
-      <div class="filas"><button class="btn" type="button" id="art-cerrar">Cerrar</button><button class="btn" type="button" id="art-ubicar" title="Dar su ubicación real a las piezas que figuran en El Limbo">${ico('warehouse')}<span>Ubicar piezas</span></button><button class="btn" type="button" id="art-historial">${ico('clock')}<span>Historial</span></button>${S.sesion.rol_usuario === 'almacenista' ? '' : `<button class="btn" type="button" id="art-promo">${ico('percent')}<span>Crear promoción</span></button>`}<button class="btn btn-primario" type="submit" id="art-guardar" style="width:auto;flex:1">${ico('check')}<span>Guardar cambios</span></button></div>
+      <div class="filas"><button class="btn" type="button" id="art-cerrar">Cerrar</button>${S.sesion.rol_usuario === 'supervisor' ? `<button class="btn" type="button" id="art-existencias" title="Dejar las piezas de cada lugar tal como las contó">${ico('box')}<span>Existencias reales</span></button>` : `<button class="btn" type="button" id="art-ubicar" title="Dar su ubicación real a las piezas que figuran en El Limbo">${ico('warehouse')}<span>Ubicar piezas</span></button>`}<button class="btn" type="button" id="art-historial">${ico('clock')}<span>Historial</span></button>${S.sesion.rol_usuario === 'almacenista' ? '' : `<button class="btn" type="button" id="art-promo">${ico('percent')}<span>Crear promoción</span></button>`}<button class="btn btn-primario" type="submit" id="art-guardar" style="width:auto;flex:1">${ico('check')}<span>Guardar cambios</span></button></div>
     </form>
     <div id="art-hist" class="tabla-cont" hidden></div>`;
   $('#art-cerrar').addEventListener('click', () => d.close());
   if ($('#art-promo')) $('#art-promo').addEventListener('click', async () => { d.close(); S.hoyPromo = S.hoyPromo ?? new Date(Date.now() - 7 * 3600e3).toISOString().slice(0, 10); await abrirPromo(null, { item: a }); });
+  if ($('#art-existencias')) $('#art-existencias').addEventListener('click', () => { d.close(); abrirExistencias(a).catch((e) => { const m = $('#inv-msg'); if (m) { m.className = 'mensaje error'; m.textContent = e.message; } }); });
   if ($('#art-ubicar')) $('#art-ubicar').addEventListener('click', () => { d.close(); abrirReubicar('almacen', { items: [{ item_id: a.item_id }] }, `Ubicar piezas · ${a.descripcion}`); });
   $('#art-historial').addEventListener('click', async () => {
     const h = $('#art-hist');

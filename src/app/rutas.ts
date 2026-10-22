@@ -162,6 +162,8 @@ export async function atender(o: { cajero?: ServicioCaja; admin?: ServicioAdmin 
       }));
       case 'GET /api/admin/limbo/buscar': return ok(exigirAdmin().buscarLimbo(q.get('codigo') ?? ''));
       case 'POST /api/admin/limbo/revisar': return ok(exigirAdmin().revisarConteoLimbo(Array.isArray(b.filas) ? b.filas : []));
+      case 'GET /api/admin/existencias': return ok(exigirAdmin().existenciasArticulo(q.get('item_id') ?? ''));
+      case 'POST /api/admin/existencias': return ok(exigirAdmin().fijarExistencias({ ajuste_id: String(b.ajuste_id ?? ''), item_id: String(b.item_id ?? ''), cantidades: b.cantidades ?? {}, motivo: b.motivo, solo_revisar: !!b.solo_revisar }));
       case 'POST /api/admin/limbo/reubicar': return ok(exigirAdmin().reubicarLimbo({ movimiento_id: String(b.movimiento_id ?? ''), destino: String(b.destino ?? ''), cantidad: b.cantidad, items: b.items, filtro: typeof b.filtro === 'string' ? b.filtro : undefined, excluir: b.excluir, solo_revisar: !!b.solo_revisar }));
       case 'POST /api/admin/limbo/conteo': return ok(exigirAdmin().contarLimbo({ conteo_id: String(b.conteo_id ?? ''), lineas: Array.isArray(b.lineas) ? b.lineas : [] }));
       case 'GET /api/admin/limbo/conteos': return ok({ conteos: exigirAdmin().conteosLimbo() });

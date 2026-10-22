@@ -715,7 +715,7 @@ export class ServicioAdmin {
   readonly cajas: { tienda: string; caja: number }[];
   private inv?: FuenteInventario;
   private central?: { fijarTipoCambio(tasa: number, usuario: string, versionBase: number, confirmarVariacion?: boolean): import('../nodos.ts').ResultadoTipoCambio; asignarPermiso(usuario: string, permiso: string, valor: boolean, por: string): Op; guardarDepto(c: import('../departamentos.ts').CambioDepto, por: string): { ok: true; op: Op } | { ok: false; error: import('../departamentos.ts').ErrorDepto };
-    guardarDatosTienda: import('../nodos.ts').Central['guardarDatosTienda']; editarArticulo: import('../nodos.ts').Central['editarArticulo']; guardarPromocion: import('../nodos.ts').Central['guardarPromocion']; guardarRecompensa: import('../nodos.ts').Central['guardarRecompensa']; guardarSupervisor: import('../nodos.ts').Central['guardarSupervisor']; guardarCajero: import('../nodos.ts').Central['guardarCajero']; guardarAdmin: import('../nodos.ts').Central['guardarAdmin']; guardarConfigSesion: import('../nodos.ts').Central['guardarConfigSesion']; recordarSacarAPiso: import('../nodos.ts').Central['recordarSacarAPiso']; resolverFaltante: import('../nodos.ts').Central['resolverFaltante']; contarLimbo: import('../nodos.ts').Central['contarLimbo']; reubicarLimbo: import('../nodos.ts').Central['reubicarLimbo']; corregirEntrada: import('../nodos.ts').Central['corregirEntrada']; altaLote: import('../nodos.ts').Central['altaLote']; importarVentasHistoricas: import('../nodos.ts').Central['importarVentasHistoricas']; entregar: import('../nodos.ts').Central['entregar'] };
+    guardarDatosTienda: import('../nodos.ts').Central['guardarDatosTienda']; editarArticulo: import('../nodos.ts').Central['editarArticulo']; guardarPromocion: import('../nodos.ts').Central['guardarPromocion']; guardarRecompensa: import('../nodos.ts').Central['guardarRecompensa']; guardarSupervisor: import('../nodos.ts').Central['guardarSupervisor']; guardarCajero: import('../nodos.ts').Central['guardarCajero']; guardarAdmin: import('../nodos.ts').Central['guardarAdmin']; guardarConfigSesion: import('../nodos.ts').Central['guardarConfigSesion']; recordarSacarAPiso: import('../nodos.ts').Central['recordarSacarAPiso']; resolverFaltante: import('../nodos.ts').Central['resolverFaltante']; contarLimbo: import('../nodos.ts').Central['contarLimbo']; reubicarLimbo: import('../nodos.ts').Central['reubicarLimbo']; fijarExistencias: import('../nodos.ts').Central['fijarExistencias']; corregirEntrada: import('../nodos.ts').Central['corregirEntrada']; altaLote: import('../nodos.ts').Central['altaLote']; importarVentasHistoricas: import('../nodos.ts').Central['importarVentasHistoricas']; entregar: import('../nodos.ts').Central['entregar'] };
   constructor(o: { actor: Extract<Actor, { rol: 'admin' }>; fuente: () => Op[]; cajas: { tienda: string; caja: number }[]; inventario?: FuenteInventario; central?: ServicioAdmin['central']; reloj?: { now(): string } }) {
     this.central = o.central;
     this.actor = o.actor;
@@ -859,6 +859,25 @@ export class ServicioAdmin {
       .sort(comparar[orden] ?? porItem);
     return { hallados, almacen };
   }
+  /** Cuántas piezas hay hoy de un artículo en cada ubicación (lo que conoce el central), para la ventana «Existencias reales». */
+  existenciasArticulo(itemId: string) {
+    const a = catalogo(this.fuente()).get(String(itemId ?? ''));
+    if (!a) throw new ErrorDominio('NO_ENCONTRADO', 'no existe ese artículo');
+    const v = this.vistaArticulo(a, existenciaAlmacen(this.fuente()).get(a.item_id)?.existencia ?? 0);
+    return { articulo: v, ubicaciones: [{ clave: 'limbo', cantidad: v.limbo }, { clave: 'almacen', cantidad: v.almacen }, ...this.tiendas().map((t) => ({ clave: t, cantidad: v.existencias[t] ?? 0 }))] };
+  }
+  /**
+   * «Existencias reales»: el propietario deja las cantidades de un artículo exactamente como las contó (El Limbo, almacén y cada tienda), sin escáner ni
+   * confirmación de recepción. Solo supervisores. Con `solo_revisar` no guarda nada.
+   */
+  fijarExistencias(d: { ajuste_id: string; item_id: string; cantidades: Record<string, number>; motivo?: string; solo_revisar?: boolean }) {
+    if (!this.central) throw new ErrorDominio('SIN_CENTRAL', 'esta sesión no tiene acceso al servicio central');
+    if (this.rol() !== 'supervisor') throw new ErrorDominio('PROHIBIDO', 'solo un supervisor corrige las existencias');
+    const cantidades: Record<string, number> = {};
+    for (const [k, v] of Object.entries(d.cantidades ?? {})) cantidades[String(k)] = Number(v);
+    const r = this.central.fijarExistencias({ ajuste_id: String(d.ajuste_id ?? ''), item_id: String(d.item_id ?? ''), cantidades, motivo: d.motivo, por: this.actor.usuario, solo_revisar: !!d.solo_revisar });
+    return { ...r, existencias: this.existenciasArticulo(r.item_id) };
+  }
   /**
    * Ubicación real de piezas que figuran en El Limbo (Inventario → «Seleccionar»). Los artículos se indican uno por uno (`items`) o como «todo lo que
    * muestra el buscador» (`filtro`) menos los que se quitaron de la selección (`excluir`). `destino`: «almacen» o «baja» (ya no existe).
@@ -968,6 +987,7 @@ export class ServicioAdmin {
         case 'venta': evento = 'Venta'; detalle = `${pza(d.qty)} por ${formatoMXN(d.importe)} · ${t(d.tienda)} caja ${d.caja}, folio ${String(d.folio).padStart(6, '0')}`; break;
         case 'venta_cancelada': evento = 'Venta cancelada'; detalle = `${pza(d.qty)} · ${t(d.tienda)} caja ${d.caja}, folio ${String(d.folio).padStart(6, '0')}${d.motivo ? ` · ${d.motivo}` : ''}`; break;
         case 'devolucion': evento = 'Devolución'; detalle = `${pza(d.qty)} por ${formatoMXN(d.importe)} · ${t(d.tienda)} caja ${d.caja}, folio ${String(d.folio).padStart(6, '0')}${d.motivo ? ` · ${d.motivo}` : ''}`; break;
+        case 'ajuste_existencias': evento = 'Existencias corregidas'; detalle = (d.cambios as { lugar: string; antes: number; despues: number }[]).filter((c) => c.antes !== c.despues).map((c) => `${c.lugar === 'limbo' ? 'El Limbo' : c.lugar === 'almacen' ? 'Almacén' : t(c.lugar)}: ${c.antes} → ${c.despues}`).join(' · ') + (d.motivo ? ` (${d.motivo})` : ''); break;
         case 'limbo_ubicacion': evento = 'Ubicación real'; detalle = d.destino === 'baja' ? `${d.qty} pieza(s) dadas de baja de El Limbo (ya no existen)` : `${d.qty} pieza(s) pasaron de El Limbo al almacén`; break;
         case 'conteo': evento = 'Conteo físico'; detalle = `Ajuste de ${d.delta > 0 ? '+' : ''}${d.delta} en ${d.tienda === LIMBO ? 'El Limbo' : t(d.tienda)}`; break;
       }
