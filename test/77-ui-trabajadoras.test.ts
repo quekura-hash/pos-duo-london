@@ -31,6 +31,16 @@ describe('[navegador real] Usuarios: tienda de cada trabajadora y expediente pri
     await page.waitForSelector('#tabla-cajeros tr[data-cajero]');
     // la lista muestra la tienda (sin asignar al principio)
     assert.match((await page.textContent('#tabla-cajeros tr[data-cajero]'))!, /Sin asignar/);
+    // las claves cortas no son campos de contraseña (Chrome les pondría la contraseña guardada) y los errores se ven junto al botón
+    assert.equal(await page.getAttribute('#caj-clave', 'type'), 'text');
+    assert.notEqual(await page.getAttribute('#caj-clave', 'type'), 'password');
+    assert.equal(await page.getAttribute('#caj-nombre', 'autocomplete'), 'off');
+    await page.fill('#caj-nombre', 'Pepe'); await page.fill('#caj-clave', '5555');
+    await page.click('#btn-caj');
+    await esperarTexto(page, '#msg-caj-alta', /nombres y los apellidos/);
+    assert.equal(await page.locator('#tabla-cajeros tr[data-cajero]').count(), 1, 'con datos incompletos no se guarda nada');
+    await page.fill('#caj-nombre', '');
+    await page.fill('#caj-clave', '');
     // alta con tienda
     await page.fill('#caj-nombre', 'Bea'); await page.fill('#caj-clave', '2222');
     await page.fill('#caj-nombres', 'Beatriz'); await page.fill('#caj-apellidos', 'Soto');

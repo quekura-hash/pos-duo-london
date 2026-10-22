@@ -323,7 +323,7 @@ async function vistaFolios() {
           <div class="campo" style="flex:1;min-width:220px"><label for="fo-ref">En qué se apoya (obligatorio)</label><input id="fo-ref" class="texto" maxlength="120" placeholder="Ej. último ticket impreso D1-000142"></div></div>
         ${f.hub.disponible ? '' : '<label style="display:block;margin:8px 0"><input type="checkbox" id="fo-sin-hub"> Confirmo que no hay forma de contrastar con el hub o el central y quiero continuar sin ese contraste.</label>'}
         ${pideClave ? `<div class="filas" style="align-items:flex-end"><div class="campo"><label for="fo-quien">Confirma (supervisor)</label><select id="fo-quien" style="padding:10px;border:2px solid var(--borde);border-radius:10px;background:var(--superficie)">${f.supervisores.map((n) => `<option>${esc(n)}</option>`).join('')}</select></div>
-          <div class="campo"><label for="fo-clave">Su clave</label><input id="fo-clave" type="password" inputmode="numeric" autocomplete="off" placeholder="••••"></div></div>` : ''}
+          <div class="campo"><label for="fo-clave">Su clave</label><input id="fo-clave" type="text" data-pin inputmode="numeric" autocomplete="off" placeholder="••••"></div></div>` : ''}
         <div id="msg-folios" class="mensaje" role="alert"></div>
         <button class="btn btn-peligro" type="submit" id="fo-confirmar" style="width:auto">${ico('check')}<span>Confirmar y continuar</span></button>
       </form></section>`;
@@ -800,7 +800,7 @@ async function abrirNuevoArticulo(codigo = '') {
       ${campo('na-codigo', 'Código (el de la etiqueta)', codigo, 'spellcheck="false"')}${campo('na-descripcion', 'Descripción', '', 'maxlength="60"')}${campo('na-marca', 'Marca (opcional)', '', 'maxlength="40"')}${campo('na-estilo', 'Estilo (opcional)', '', 'maxlength="40"')}${campo('na-lote', 'Lote (opcional)', '', 'maxlength="20"')}
       <div class="campo"><label for="na-depto">Departamento</label><select id="na-depto" style="width:100%;padding:10px;border:2px solid var(--borde);border-radius:10px;background:var(--superficie)">${deptos.map((n) => `<option>${esc(n)}</option>`).join('')}</select></div>
       ${campo('na-precio', 'Precio de venta (MXN)', '', 'inputmode="decimal"')}
-      <div class="campo"><label for="na-clave">Su clave (${esc(S.sesion.usuario)})</label><input id="na-clave" type="password" inputmode="numeric" autocomplete="off" placeholder="••••"></div>
+      <div class="campo"><label for="na-clave">Su clave (${esc(S.sesion.usuario)})</label><input id="na-clave" type="text" data-pin inputmode="numeric" autocomplete="off" placeholder="••••"></div>
       <div id="msg-na" class="mensaje" role="status" aria-live="polite"></div>
       <div class="filas"><button class="btn" type="button" id="na-cerrar">Cancelar</button><button class="btn btn-primario" type="submit" id="na-guardar" style="width:auto;flex:1">${ico('check')}<span>Dar de alta y agregar a la venta</span></button></div>
     </form>`;
@@ -1081,7 +1081,7 @@ async function abrirRevertirVenta(det, alTerminar) {
     <form id="form-revertir" autocomplete="off">${camposClienta('rv', 'Motivo de la cancelación')}
       ${a.pide_clave ? `<p class="nota">La cancelación la autoriza otra Vendedora-Cajera o un supervisor con su clave.</p>
       <div class="campo"><label for="rv-quien">Autoriza</label><select id="rv-quien" style="width:100%;padding:10px;border:2px solid var(--borde);border-radius:10px;background:var(--superficie)">${a.autorizadores.map((x) => `<option value="${esc(x.nombre)}">${esc(x.nombre)}${x.tipo === 'supervisor' ? ' (supervisor)' : ''}</option>`).join('')}</select></div>
-      <div class="campo"><label for="rv-clave">Su clave</label><input id="rv-clave" type="password" inputmode="numeric" autocomplete="off" placeholder="••••"></div>` : ''}
+      <div class="campo"><label for="rv-clave">Su clave</label><input id="rv-clave" type="text" data-pin inputmode="numeric" autocomplete="off" placeholder="••••"></div>` : ''}
       <div id="msg-rv" class="mensaje" role="alert"></div>
       <div class="filas"><button class="btn" type="button" id="rv-no">No revertir</button><button class="btn btn-peligro" type="submit" id="rv-ok" style="width:auto;flex:1">${ico('undo')}<span>Revertir venta</span></button></div>
     </form>`;
@@ -1863,7 +1863,7 @@ async function abrirDevolverDinero() {
     <form id="form-devolver-dinero" autocomplete="off">
       ${a.pide_clave ? `<p class="nota" style="margin-top:0">Devolución de efectivo autorizada por quien teclee aquí su clave (la misma Vendedora-Cajera, otra o un supervisor).</p>
       <div class="campo"><label for="dd-quien">Autoriza</label><select id="dd-quien" style="width:100%;padding:10px;border:2px solid var(--borde);border-radius:10px;background:var(--superficie)">${a.autorizadores.map((x) => `<option value="${esc(x.nombre)}" ${x.nombre === a.actual ? 'selected' : ''}>${esc(x.nombre)}${x.tipo === 'supervisor' ? ' (supervisor)' : ''}</option>`).join('')}</select></div>
-      <div class="campo"><label for="dd-clave">Su clave</label><input id="dd-clave" type="password" inputmode="numeric" autocomplete="off" placeholder="••••"></div>` : ''}
+      <div class="campo"><label for="dd-clave">Su clave</label><input id="dd-clave" type="text" data-pin inputmode="numeric" autocomplete="off" placeholder="••••"></div>` : ''}
       <div id="msg-dd" class="mensaje" role="alert"></div>
       <div class="filas"><button class="btn" type="button" id="dd-no">Cancelar</button><button class="btn btn-peligro" type="submit" id="dd-ok" style="width:auto;flex:1">${ico('cash')}<span>Devolver ${mxn(monto)}</span></button></div>
     </form>`;
@@ -2070,7 +2070,7 @@ async function vistaRetiro() {
         ${e.billetes.usd.map((d) => `<tr><td>${nomUsd(d)}</td><td class="num"><input type="number" min="0" step="1" class="ret-usd" data-den="${d}" aria-label="Billetes de ${nomUsd(d)}" style="width:80px;text-align:right"></td><td class="num" data-sub="usd-${d}">${usd(0)}</td></tr>`).join('')}</tbody></table>
       </div>
       <dl class="calc-usd"><dt>Pesos</dt><dd id="ret-t-mxn">${mxn(0)}</dd><dt>Dólares</dt><dd id="ret-t-usd">${usd(0)}</dd><dt>Total a retirar (MXN)</dt><dd id="ret-total"><b>${mxn(0)}</b></dd></dl>
-      ${e.pide_clave ? `<div class="campo" style="max-width:260px"><label for="ret-clave">Su clave (${esc(S.sesion.usuario ?? '')}) para confirmar el retiro</label><input id="ret-clave" type="password" inputmode="numeric" autocomplete="off" placeholder="••••"></div>` : ''}
+      ${e.pide_clave ? `<div class="campo" style="max-width:260px"><label for="ret-clave">Su clave (${esc(S.sesion.usuario ?? '')}) para confirmar el retiro</label><input id="ret-clave" type="text" data-pin inputmode="numeric" autocomplete="off" placeholder="••••"></div>` : ''}
       <div class="mensaje" id="ret-estado" role="status" aria-live="polite"></div>
       <button class="btn btn-primario" id="btn-retirar" type="button" disabled>${ico('printer')}<span>Registrar retiro e imprimir</span></button></section>
     <section class="panel" style="margin-top:12px"><h2 style="margin-top:0">Retiros de hoy</h2>
@@ -2341,7 +2341,7 @@ function abrirClaveCaja() {
   d.setAttribute('aria-labelledby', 'ac-titulo');
   d.innerHTML = `<h2 id="ac-titulo" style="margin-top:0">Abrir caja</h2>
     <p class="nota" style="margin-top:0">Teclee su clave, ${esc(S.sesion.usuario ?? '')}. La apertura queda registrada a su nombre.</p>
-    <form id="form-abrir-caja" autocomplete="off"><div class="campo"><label for="ac-clave">Su clave</label><input id="ac-clave" type="password" inputmode="numeric" autocomplete="off" placeholder="••••"></div>
+    <form id="form-abrir-caja" autocomplete="off"><div class="campo"><label for="ac-clave">Su clave</label><input id="ac-clave" type="text" data-pin inputmode="numeric" autocomplete="off" placeholder="••••"></div>
       <div id="msg-ac" class="mensaje" role="alert"></div>
       <div class="filas"><button class="btn" type="button" id="ac-no">Cancelar</button><button class="btn btn-primario" type="submit" style="width:auto;flex:1">${ico('cash')}<span>Abrir caja</span></button></div></form>`;
   $('#ac-no').addEventListener('click', () => { d.close(); $('#scan').focus(); });
@@ -2383,7 +2383,7 @@ function abrirEditarLinea() {
     <form id="form-editar-linea" autocomplete="off">
       <div class="campo"><label for="el-desc">Descripción</label><input id="el-desc" maxlength="60" value="${esc(l.descripcion)}"></div>
       <div class="campo"><label for="el-precio">Precio unitario</label><input id="el-precio" inputmode="decimal" value="${centavosAPesos(l.precio_unit)}"></div>
-      <div class="campo" id="el-clave-bloque" hidden><label for="el-clave">Clave del supervisor</label><input id="el-clave" type="password" inputmode="numeric" autocomplete="off" placeholder="••••"></div>
+      <div class="campo" id="el-clave-bloque" hidden><label for="el-clave">Clave del supervisor</label><input id="el-clave" type="text" data-pin inputmode="numeric" autocomplete="off" placeholder="••••"></div>
       <div id="msg-el" class="mensaje" role="status" aria-live="polite"></div>
       <div class="filas"><button class="btn" type="button" id="el-cerrar">Cancelar</button><button class="btn btn-primario" type="submit" style="width:auto;flex:1">${ico('check')}<span>Guardar cambios</span></button></div>
     </form>`;
@@ -2419,7 +2419,7 @@ function abrirDescuento() {
         <label style="display:inline-block;margin-right:16px"><input type="radio" name="desc-tipo" value="pct" checked> Porcentaje (%)</label>
         <label style="display:inline-block"><input type="radio" name="desc-tipo" value="monto"> Monto ($)</label></fieldset>
       <div class="campo"><label for="desc-valor">Valor</label><input id="desc-valor" inputmode="decimal" placeholder="10"></div>
-      <div class="campo"><label for="desc-clave">Clave del supervisor</label><input id="desc-clave" type="password" inputmode="numeric" autocomplete="off" placeholder="••••"></div>
+      <div class="campo"><label for="desc-clave">Clave del supervisor</label><input id="desc-clave" type="text" data-pin inputmode="numeric" autocomplete="off" placeholder="••••"></div>
       <div id="msg-desc" class="mensaje" role="status" aria-live="polite"></div>
       <div class="filas"><button class="btn" type="button" id="desc-cerrar">Cancelar</button>${hayManual ? `<button class="btn btn-peligro" type="button" id="desc-quitar">Quitar descuentos</button>` : ''}<button class="btn btn-primario" type="submit" id="desc-aplicar" style="width:auto;flex:1">${ico('check')}<span>Autorizar y aplicar</span></button></div>
     </form>`;
@@ -2916,9 +2916,9 @@ async function vistaPromociones() {
     <section class="panel" style="margin-top:12px"><h2 style="margin-top:0">Supervisores que autorizan descuentos</h2>
       <p class="nota">Solo un supervisor puede autorizar un descuento en la caja, tecleando su clave (4 a 8 dígitos). El descuento puede llegar hasta el 100 %. La clave no se puede volver a ver: si se olvida, se cambia.</p>
       <div class="tabla-cont"><table id="tabla-supervisores"><thead><tr><th>Nombre</th><th>Estado</th><th>Nueva clave</th><th></th></tr></thead><tbody>
-      ${supervisores.map((x) => `<tr data-sup="${esc(x.id)}"><td>${esc(x.nombre)}</td><td>${x.activo ? 'Activo' : 'Desactivado'}</td><td><input type="password" inputmode="numeric" class="s-clave" placeholder="dejar vacío = no cambiar" aria-label="Nueva clave de ${esc(x.nombre)}" style="padding:4px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie)"></td>
+      ${supervisores.map((x) => `<tr data-sup="${esc(x.id)}"><td>${esc(x.nombre)}</td><td>${x.activo ? 'Activo' : 'Desactivado'}</td><td><input type="text" data-pin inputmode="numeric" class="s-clave" placeholder="dejar vacío = no cambiar" aria-label="Nueva clave de ${esc(x.nombre)}" style="padding:4px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie)"></td>
         <td class="filas" style="flex-wrap:nowrap"><button class="btn s-guardar" type="button">${ico('check')}<span>Cambiar clave</span></button><button class="btn s-activo" type="button">${x.activo ? 'Desactivar' : 'Activar'}</button></td></tr>`).join('') || '<tr><td colspan="4" class="vacio">Aún no hay supervisores: sin uno nadie puede autorizar descuentos.</td></tr>'}</tbody></table></div>
-      <form id="form-sup" autocomplete="off" class="filas" style="align-items:end;margin-top:10px"><div class="campo" style="margin:0"><label for="sup-nombre">Nombre</label><input id="sup-nombre" class="texto"></div><div class="campo" style="margin:0"><label for="sup-clave">Clave (4 a 8 dígitos)</label><input id="sup-clave" type="password" inputmode="numeric" class="texto"></div>
+      <form id="form-sup" autocomplete="off" class="filas" style="align-items:end;margin-top:10px"><div class="campo" style="margin:0"><label for="sup-nombre">Nombre</label><input id="sup-nombre" class="texto"></div><div class="campo" style="margin:0"><label for="sup-clave">Clave (4 a 8 dígitos)</label><input id="sup-clave" type="text" data-pin inputmode="numeric" class="texto"></div>
       <button class="btn btn-primario" id="btn-sup" type="submit" style="width:auto">${ico('plus')}<span>Agregar supervisor</span></button></form>
       <div id="msg-sup" class="mensaje" role="status" aria-live="polite"></div></section>`;
   $('#btn-nueva-promo').addEventListener('click', () => abrirPromo(null));
@@ -3176,7 +3176,7 @@ function abrirExpediente(x, recargar) {
   const bloquear = () => api('/api/admin/expediente/bloquear', {}).catch(() => {});
   const cerrar = () => { bloquear(); if (d.open) d.close(); };
   d.addEventListener('close', () => { bloquear(); d.innerHTML = ''; }, { once: true }); // al salir se cierra el candado y no queda nada del expediente en la pantalla
-  const campoClave = (id, rotulo) => `<div class="campo"><label for="${id}">${rotulo}</label><input id="${id}" type="password" inputmode="numeric" autocomplete="off" maxlength="8" placeholder="••••" style="width:100%;box-sizing:border-box;padding:10px;border:2px solid var(--borde);border-radius:10px;background:var(--superficie);font:inherit;font-size:20px"></div>`;
+  const campoClave = (id, rotulo) => `<div class="campo"><label for="${id}">${rotulo}</label><input id="${id}" type="text" data-pin inputmode="numeric" autocomplete="off" maxlength="8" placeholder="••••" style="width:100%;box-sizing:border-box;padding:10px;border:2px solid var(--borde);border-radius:10px;background:var(--superficie);font:inherit;font-size:20px"></div>`;
   const candado = async (aviso, modo) => {
     let tiene = true;
     try { tiene = (await api('/api/admin/expediente/clave')).tiene; } catch (e) { d.innerHTML = `<div class="mensaje error">${esc(e.message)}</div><div class="filas"><button class="btn" type="button" id="exp-cancelar">Cerrar</button></div>`; $('#exp-cancelar').addEventListener('click', cerrar); return; }
@@ -3186,6 +3186,7 @@ function abrirExpediente(x, recargar) {
       <form id="form-exp-clave" autocomplete="off">
         ${crear ? `${tiene ? campoClave('exp-actual', 'Su clave actual') : ''}${campoClave('exp-nueva', tiene ? 'Clave nueva (4 a 8 dígitos)' : 'Su clave corta (4 a 8 dígitos)')}${campoClave('exp-nueva2', 'Repita la clave')}` : campoClave('exp-clave', 'Su clave corta')}
         <div id="msg-exp" class="mensaje ${aviso ? 'aviso' : ''}" role="alert">${esc(aviso ?? '')}</div>
+        ${tiene && !crear ? '<p class="nota" style="margin:0 0 8px">Es la misma «Clave de caja» de su usuario. ¿La olvidó? Escriba una nueva en Configuración › Usuarios, en su renglón, columna «Clave de caja», y toque «Guardar cambios».</p>' : ''}
         <div class="filas"><button class="btn" type="button" id="exp-cancelar">Cancelar</button>${tiene && !crear ? `<button class="btn" type="button" id="exp-cambiar">Cambiar mi clave</button>` : ''}<button class="btn btn-primario" type="submit" style="width:auto;flex:1">${ico('lock')}<span>${crear ? (tiene ? 'Cambiar clave' : 'Crear mi clave y abrir') : 'Abrir ficha'}</span></button></div></form>`;
     $('#exp-cancelar').addEventListener('click', cerrar);
     if ($('#exp-cambiar')) $('#exp-cambiar').addEventListener('click', () => candado(null, 'cambiar'));
@@ -3284,11 +3285,11 @@ async function vistaCajeros() {
       <div class="tabla-cont"><table id="tabla-admins"><thead><tr><th>Usuario y datos</th><th>Rol</th><th>Estado</th><th>Acciones</th><th>Nueva contraseña</th><th>Clave de caja</th><th></th></tr></thead><tbody>
       ${administradores.map((x) => `<tr data-admin="${esc(x.id)}" data-rol="${x.rol}" class="fila-usuario" tabindex="0" title="Clic para editar los datos de ${esc(x.nombre)}"><td>${celdaPersona(x)}</td><td>${x.rol === 'almacenista' ? 'Almacenista' : 'Supervisor'}</td><td>${x.activo ? 'Activo' : 'Desactivado'}</td>
         <td class="filas" style="flex-wrap:nowrap"><button class="btn a-editar" type="button">${ico('pencil')}<span>Editar datos</span></button><button class="btn a-activo" type="button">${x.activo ? 'Desactivar' : 'Activar'}</button></td>
-        <td><input type="password" class="a-clave" placeholder="dejar vacío = no cambiar" aria-label="Nueva contraseña de ${esc(x.nombre)}" style="padding:4px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie)"></td><td>${x.rol === 'supervisor' ? `<input type="password" inputmode="numeric" class="a-clave-caja" placeholder="${x.clave_caja ? 'dejar vacío = no cambiar' : 'sin clave: no autoriza en la caja'}" aria-label="Clave de caja de ${esc(x.nombre)}" style="padding:4px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie)">` : '—'}</td>
+        <td><input type="password" class="a-clave" placeholder="dejar vacío = no cambiar" aria-label="Nueva contraseña de ${esc(x.nombre)}" style="padding:4px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie)"></td><td>${x.rol === 'supervisor' ? `<input type="text" data-pin inputmode="numeric" class="a-clave-caja" placeholder="${x.clave_caja ? 'dejar vacío = no cambiar' : 'sin clave: no autoriza en la caja'}" aria-label="Clave de caja de ${esc(x.nombre)}" style="padding:4px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie)">` : '—'}</td>
         <td class="filas" style="flex-wrap:nowrap"><button class="btn a-guardar" type="button">${ico('check')}<span>Guardar cambios</span></button></td></tr>`).join('') || '<tr><td colspan="7" class="vacio">Aún no hay usuarios de Administración.</td></tr>'}</tbody></table></div>
-      <form id="form-admin" class="filas" style="margin-top:12px;align-items:flex-end"><div class="campo"><label for="adm-nombre">Usuario (alias)</label><input id="adm-nombre" class="texto" maxlength="40" autocomplete="off"></div>${perfilCampos('adm')}<div class="campo"><label for="adm-clave">Contraseña</label><input id="adm-clave" type="password" autocomplete="new-password"></div>
+      <form id="form-admin" class="filas" style="margin-top:12px;align-items:flex-end"><div class="campo"><label for="adm-nombre">Usuario (alias)</label><input id="adm-nombre" class="texto" maxlength="40" autocomplete="off" name="alias-adm-nombre" data-lpignore="true" autocomplete="off"></div>${perfilCampos('adm')}<div class="campo"><label for="adm-clave">Contraseña</label><input id="adm-clave" type="password" autocomplete="new-password"></div>
         <div class="campo"><label for="adm-rol">Rol</label><select id="adm-rol" style="padding:10px;border:2px solid var(--borde);border-radius:10px;background:var(--superficie)"><option value="supervisor">Supervisor</option><option value="almacenista" ${administradores.length ? '' : 'disabled'}>Almacenista</option></select></div>
-        <div class="campo" id="adm-caja-campo"><label for="adm-clave-caja">Clave de caja (4 a 8 dígitos)</label><input id="adm-clave-caja" type="password" inputmode="numeric" autocomplete="off"></div>
+        <div class="campo" id="adm-caja-campo"><label for="adm-clave-caja">Clave de caja (4 a 8 dígitos)</label><input id="adm-clave-caja" type="text" data-pin inputmode="numeric" autocomplete="off"></div>
         <button class="btn btn-primario" id="btn-adm" type="submit" style="width:auto">${ico('plus')}<span>Agregar usuario</span></button></form></section>
     <h2>Vendedoras-Cajeras</h2>
     <p class="nota">Cada Vendedora-Cajera tiene su propia clave (4 a 8 dígitos) para confirmar operaciones a su nombre, como dar de alta un artículo en la caja. El <b>usuario (alias)</b> es con el que entra a la caja y el que sale en tickets y reportes; los nombres, apellidos, teléfono, dirección y foto son su registro. La clave no se puede volver a ver: si se olvida, se cambia.</p>
@@ -3296,10 +3297,11 @@ async function vistaCajeros() {
     <div class="tabla-cont"><table id="tabla-cajeros"><thead><tr><th>Usuario y datos</th><th>Tienda</th><th>Estado</th><th>Acciones</th><th>Nueva clave</th></tr></thead><tbody>
     ${cajeros.map((x) => `<tr data-cajero="${esc(x.id)}" class="fila-usuario" tabindex="0" title="Clic para editar los datos de ${esc(x.nombre)}"><td>${celdaPersona(x)}</td><td data-col="tienda">${esc(NOM_TIENDA_TRAB[x.tienda ?? ''] ?? x.tienda)}</td><td>${x.activo ? 'Activo' : 'Desactivado'}</td>
       <td class="filas" style="flex-wrap:nowrap"><button class="btn c-editar" type="button">${ico('pencil')}<span>Editar datos</span></button><button class="btn c-activo" type="button">${x.activo ? 'Desactivar' : 'Activar'}</button></td>
-      <td class="filas" style="flex-wrap:nowrap"><input type="password" inputmode="numeric" class="c-clave" placeholder="dejar vacío = no cambiar" aria-label="Nueva clave de ${esc(x.nombre)}" style="padding:4px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie)"><button class="btn c-guardar" type="button">${ico('check')}<span>Cambiar clave</span></button></td></tr>`).join('') || '<tr><td colspan="5" class="vacio">Aún no hay Vendedoras-Cajeras con clave: sin ella nadie puede dar de alta artículos en la caja.</td></tr>'}</tbody></table></div>
-    <form id="form-cajero" class="filas" style="margin-top:12px;align-items:flex-end"><div class="campo"><label for="caj-nombre">Usuario (alias)</label><input id="caj-nombre" class="texto" maxlength="40"></div>${perfilCampos('caj')} <div class="campo"><label for="caj-clave">Clave</label><input id="caj-clave" type="password" inputmode="numeric" autocomplete="off"></div>
+      <td class="filas" style="flex-wrap:nowrap"><input type="text" data-pin inputmode="numeric" class="c-clave" placeholder="dejar vacío = no cambiar" aria-label="Nueva clave de ${esc(x.nombre)}" style="padding:4px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie)"><button class="btn c-guardar" type="button">${ico('check')}<span>Cambiar clave</span></button></td></tr>`).join('') || '<tr><td colspan="5" class="vacio">Aún no hay Vendedoras-Cajeras con clave: sin ella nadie puede dar de alta artículos en la caja.</td></tr>'}</tbody></table></div>
+    <form id="form-cajero" class="filas" style="margin-top:12px;align-items:flex-end"><div class="campo"><label for="caj-nombre">Usuario (alias)</label><input id="caj-nombre" class="texto" maxlength="40" autocomplete="off" name="alias-caj-nombre" data-lpignore="true"></div>${perfilCampos('caj')} <div class="campo"><label for="caj-clave">Clave</label><input id="caj-clave" type="text" data-pin inputmode="numeric" autocomplete="off"></div>
       <div class="campo"><label for="caj-tienda">Tienda donde trabaja</label><select id="caj-tienda" style="padding:10px;border:2px solid var(--borde);border-radius:10px;background:var(--superficie)">${Object.entries(NOM_TIENDA_TRAB).map(([k, t]) => `<option value="${k}">${t}</option>`).join('')}</select></div>
       <button class="btn btn-primario" id="btn-caj" type="submit" style="width:auto">${ico('plus')}<span>Agregar Vendedora-Cajera</span></button></form>
+    <div id="msg-caj-alta" class="mensaje" role="alert" aria-live="assertive" style="margin-top:8px"></div>
     <section class="panel" id="panel-inactividad" style="margin-top:16px"><h2 style="margin-top:0">Cierre de sesión por inactividad</h2>
       <p class="nota" style="margin-top:0">Si nadie toca la pantalla durante estos minutos, la sesión se cierra y hay que volver a entrar. Un minuto antes aparece un aviso con «Seguir trabajando». La venta con artículos queda en «Venta en espera». <b>0 = nunca se cierra.</b></p>
       <div id="msg-inactividad" class="mensaje" role="status" aria-live="polite"></div>
@@ -3341,7 +3343,7 @@ async function vistaCajeros() {
       try { await api('/api/admin/administradores', { id, activo: !activo }); S.sesion = await api('/api/sesion'); await vistaCajeros(); } catch (e) { msgA(e.message); }
     });
   }
-  const msgC = (t, tipo = 'error') => { const m = $('#msg-cajeros'); m.className = `mensaje ${tipo}`; m.textContent = t; m.scrollIntoView({ block: 'nearest' }); };
+  const msgC = (t, tipo = 'error') => { for (const id of ['#msg-cajeros', '#msg-caj-alta']) { const m = $(id); m.className = `mensaje ${tipo}`; m.textContent = t; } $('#msg-caj-alta').scrollIntoView({ block: 'nearest' }); };
   const perfilCaj = perfilEnlazar('caj');
   $('#form-cajero').addEventListener('submit', async (ev) => {
     ev.preventDefault();

@@ -282,3 +282,6 @@ tr.fila-fallo td { background: color-mix(in srgb, #ef4444 12%, transparent); }
 .exp-crit-b { display: inline-flex; gap: 6px; }
 .exp-n { min-width: 42px; height: 42px; border: 2px solid var(--borde); border-radius: 10px; background: var(--superficie); color: inherit; font: inherit; font-size: 17px; font-weight: 700; cursor: pointer; }
 .exp-n.on { background: var(--acento); border-color: var(--acento); color: #fff; } .exp-n.exp-sin.on { background: var(--texto-2); border-color: var(--texto-2); }
+
+/* Claves numéricas (PIN): se ocultan con puntos pero NO son campos de contraseña, para que el navegador no les ponga la contraseña guardada */
+input[data-pin] { -webkit-text-security: disc; text-security: disc; }
