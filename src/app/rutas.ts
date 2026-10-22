@@ -47,7 +47,7 @@ export async function atender(o: { cajero?: ServicioCaja; admin?: ServicioAdmin 
       case 'POST /api/admin/administradores': return ok(exigirAdmin().guardarAdmin({ id: b.id, nombre: b.nombre, clave: b.clave === undefined ? undefined : String(b.clave), activo: b.activo === undefined ? undefined : !!b.activo, rol: b.rol, clave_caja: b.clave_caja === undefined ? undefined : String(b.clave_caja), perfil: b.perfil }));
       case 'GET /api/sesion':
         return ok(C
-          ? { rol: 'cajero', ...C.sesionInfo(), usuario: C.autenticada() ? C.actor.usuario : null, tienda: C.caja.tienda, caja: C.caja.caja, nav: ['venta', 'retiro', 'ventas', 'corte', ...(C.caja.cfg.metodos.includes('tarjeta_regalo') ? ['tarjetas'] : [])] }
+          ? { rol: 'cajero', ...C.sesionInfo(), usuario: C.autenticada() ? C.actor.usuario : null, tienda: C.caja.tienda, caja: C.caja.caja, nav: ['venta', 'retiro', 'ventas', 'corte', 'extraordinarias', ...(C.caja.cfg.metodos.includes('tarjeta_regalo') ? ['tarjetas'] : [])] }
           : { rol: 'admin', ...A!.sesionInfo(), usuario: A!.autenticada() ? A!.actor.usuario : null, cajas: A!.cajas, nav: A!.nav() });
       // ── cajero ──
       case 'GET /api/estado': return ok({ estado: exigirCajero().estado() });
@@ -68,9 +68,12 @@ export async function atender(o: { cajero?: ServicioCaja; admin?: ServicioAdmin 
       case 'POST /api/venta/tasa': return ok(exigirCajero().bloquearTasa(b.cart, !!b.renovar));
       case 'GET /api/tipo-cambio': return ok({ tipo_cambio: exigirCajero().tipoCambio() });
       case 'POST /api/tipo-cambio': return ok({ tipo_cambio: await exigirCajero().fijarTipoCambio(Number(b.tasa), !!b.confirmar) });
-      case 'POST /api/efectivo/movimiento': return ok({ corte: exigirCajero().movimientoEfectivo(b.tipo, Number(b.monto), b.moneda ?? 'MXN') });
+      case 'POST /api/efectivo/movimiento': return ok({ corte: exigirCajero().movimientoEfectivo(b.tipo, Number(b.monto), b.moneda ?? 'MXN', { ref: b.ref, motivo: b.motivo, clave: b.clave }) });
+      case 'POST /api/efectivo/entrada': return ok({ corte: exigirCajero().entradaEfectivo({ monto: Number(b.monto), moneda: b.moneda ?? 'MXN', motivo: b.motivo, ref: b.ref, clave: b.clave }) });
+      case 'GET /api/efectivo/extraordinarias': return ok(exigirCajero().operacionesExtraordinarias());
+      case 'POST /api/cierre/fondo': return ok(exigirCajero().confirmarFondo(b.denominaciones ?? {}, b.nota));
       case 'POST /api/efectivo/conteo-usd': return ok(exigirCajero().registrarConteoUsd(b.denominaciones ?? {}));
-      case 'POST /api/efectivo/conteo': return ok(exigirCajero().registrarConteo(b.moneda === 'USD' ? 'USD' : 'MXN', b.denominaciones ?? {}));
+      case 'POST /api/efectivo/conteo': return ok(exigirCajero().registrarConteo(b.moneda === 'USD' ? 'USD' : 'MXN', b.denominaciones ?? {}, b.alcance === 'ventas' ? 'ventas' : undefined));
       case 'POST /api/efectivo/billete-rechazado': return ok(exigirCajero().billeteRechazado(Number(b.denominacion), b.motivo, b.nota, b.cantidad === undefined ? 1 : Number(b.cantidad)));
       case 'GET /api/venta/espera': return ok({ espera: exigirCajero().ventasEnEspera() });
       case 'POST /api/venta/espera': return ok(exigirCajero().ponerEnEspera(b.cart, String(b.nota ?? '')));
@@ -121,10 +124,13 @@ export async function atender(o: { cajero?: ServicioCaja; admin?: ServicioAdmin 
         if (cajas) c.cortesPropios({ cajas });
         return ok({ ...c.corte(q.get('fecha') ?? c.estado().fecha_local) });
       }
-      case 'POST /api/corte/cerrar': { const c = exigirCajero(); return ok({ corte: c.cerrarCorte(b.fecha ?? c.estado().fecha_local) }); }
+      case 'POST /api/corte/cerrar': { const c = exigirCajero(); return ok({ corte: c.cerrarCorte(b.fecha ?? c.estado().fecha_local, { clave: b.clave, observaciones: b.observaciones }) }); }
       case 'POST /api/sincronizar': return ok({ conexion: await exigirCajero().sincronizar() });
       // ── administración ──
       case 'GET /api/admin/cajas': return ok({ cajas: exigirAdmin().cajas });
+      case 'GET /api/admin/cajas/fondo': return ok(exigirAdmin().cajasFondo());
+      case 'POST /api/admin/cajas/fondo': return ok(exigirAdmin().fijarFondoCaja({ tienda: b.tienda, caja: Number(b.caja), monto: Number(b.monto), motivo: b.motivo }));
+      case 'POST /api/admin/cajas/ajuste': return ok(exigirAdmin().ajusteCaja({ tienda: b.tienda, caja: Number(b.caja), tipo: b.tipo, monto: Number(b.monto), motivo: b.motivo, ref: b.ref }));
       case 'POST /api/admin/reporte-vendedoras': return ok(exigirAdmin().reporteVendedoras({ cajas: b.cajas, desde: b.desde, hasta: b.hasta }));
       case 'POST /api/admin/reporte': return ok({ reporte: exigirAdmin().reporte({ cajas: b.cajas, desde: b.desde, hasta: b.hasta, historicas: b.historicas !== false }) });
       case 'GET /api/admin/tipo-cambio': return ok(exigirAdmin().tipoCambio());

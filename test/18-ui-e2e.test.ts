@@ -5,6 +5,7 @@ import { describe, it } from 'node:test';
 import { chromium, type Browser, type Page } from 'playwright-core';
 import { nuevoMundo, politica, ALMACENES } from './ayudas/comun.ts';
 import { appAdmin, appCajero } from './ayudas/app.ts';
+import { abrirDetalleCorte } from './ayudas/cierre.ts';
 import { leerXlsxNode } from '../src/xlsx-node.ts';
 import { readFileSync } from 'node:fs';
 
@@ -46,7 +47,7 @@ describe('[navegador real — Chromium con Playwright, UI sobre SQLite]', { time
     assert.equal(await chip('hub'), 'Conectado');
     assert.equal(await chip('pendientes'), '0');
     // navegación según permisos: un cajero NO ve Administración ni Reportes
-    assert.deepEqual(await page.$$eval('#nav button', (b) => b.map((x) => x.textContent)), ['Venta', 'Retiro', 'Historial', 'Corte de caja', 'Tarjetas de regalo', 'Calculadora']);
+    assert.deepEqual(await page.$$eval('#nav button', (b) => b.map((x) => x.textContent)), ['Venta', 'Retiro', 'Historial', 'Cierre de caja', 'Operaciones extraordinarias', 'Tarjetas de regalo', 'Calculadora']);
     // tabla: columnas separadas y en el orden pedido
     assert.deepEqual(await page.$$eval('#tabla-venta thead th:not(:last-child)', (h) => h.map((x) => x.textContent)),
       ['Item #', 'Código', 'Descripción', 'Marca', 'Estilo', 'Lote', 'Cant.', 'Precio', 'Desc.', 'Importe']);
@@ -109,15 +110,14 @@ describe('[navegador real — Chromium con Playwright, UI sobre SQLite]', { time
     await page.waitForFunction(() => document.querySelector('#total')?.textContent === '$0.00');
 
     // corte de ESTA caja
-    await page.click('#nav button[data-vista="corte"]');
-    await page.waitForSelector('#tabla-corte');
+    await abrirDetalleCorte(page);
     const corte = async (k: string) => (await page.textContent(`#tabla-corte tr[data-campo="${k}"] td`))!.trim();
     assert.deepEqual([await corte('tickets'), await corte('ventas'), await corte('cobros_efectivo'), await corte('efectivo_esperado'), await corte('folio_inicial'), await corte('folio_final')],
       ['1', '$2,038.00', '$2,038.00', '$2,038.00', '1', '1']);
     await page.screenshot({ path: join(CAPTURAS, '03-corte.png') });
     await page.click('#btn-cerrar-corte');
-    await page.waitForSelector('#estado-corte .mensaje');
-    assert.match((await page.textContent('#estado-corte'))!, /Corte cerrado/);
+    await page.waitForSelector('#corte-cerrado');
+    assert.match((await page.textContent('#corte-cerrado'))!, /Corte cerrado/);
 
     // ventas de la caja y reimpresión
     await page.click('#nav button[data-vista="ventas"]');
@@ -317,7 +317,7 @@ describe('[navegador real — Chromium con Playwright, UI sobre SQLite]', { time
       assert.equal(await page.evaluate(() => (document.querySelector('.encabezado .logo') as HTMLImageElement).naturalWidth > 50), true, 'el logo cargó');
       const texto = (await page.textContent('body'))!;
       assert.doesNotMatch(texto, /apartado/i, 'no hay botones ni referencias a apartados');
-      assert.equal(await page.locator('#nav button svg').count(), tienda === 'DUO' ? 6 : 5, 'cada opción de navegación (y la calculadora) tiene su icono (la Caja 2 no tiene Tarjetas de regalo)');
+      assert.equal(await page.locator('#nav button svg').count(), tienda === 'DUO' ? 7 : 6, 'cada opción de navegación (y la calculadora) tiene su icono (la Caja 2 no tiene Tarjetas de regalo)');
       const sinIcono = await page.$$eval('button:not(.btn-icono):not([type=submit])', (bs) => bs.filter((b) => !b.querySelector('svg') && !/^[−+]$/.test(b.textContent!.trim())).map((b) => b.textContent!.trim()));
       assert.deepEqual(sinIcono, [], 'todo botón visible lleva icono');
       assert.equal(await page.locator('#btn-editar-catalogo').count(), 0, 'Editar catálogo ya no existe en la venta');
@@ -422,8 +422,7 @@ describe('[navegador real — Chromium con Playwright, UI sobre SQLite]', { time
     assert.equal(await page.locator('#btn-cobrar').isDisabled(), true, 'sin saldo no se cobra');
 
     // corte: efectivo esperado = efectivo del resto ($160) + alta ($200)
-    await page.click('#nav button[data-vista="corte"]');
-    await page.waitForSelector('#tabla-corte');
+    await abrirDetalleCorte(page);
     const corte = async (k: string) => (await page.textContent(`#tabla-corte tr[data-campo="${k}"] td`))!.trim();
     assert.deepEqual([await corte('tickets'), await corte('cobros_efectivo'), await corte('cobros_tarjeta_regalo'), await corte('tarjetas_regalo_vendidas'), await corte('ventas_mercancia'), await corte('ventas_netas'), await corte('efectivo_esperado')],
       ['3', '$360.00', '$200.00', '$200.00', '$360.00', '$360.00', '$360.00']);
@@ -636,24 +635,26 @@ describe('[navegador real — Chromium con Playwright, UI sobre SQLite]', { time
 
     // corte: pesos y dólares por separado (US$150 recibidos; cambio de $51 y $1,780 en pesos)
     await page.click('#nav button[data-vista="corte"]');
+    await page.waitForSelector('#cierre-pasos');
+    await page.fill('[data-fondo="b100000"]', '5');
+    await page.click('#btn-fondo');
+    await page.waitForSelector('#paso-ventas');
+    assert.equal(await page.locator('#panel-usd').count(), 1, 'con dólares recibidos se pide su conteo');
+    // conteo por denominaciones: US$100 x1 + US$50 x1 = US$150 recibidos (sin fondo en dólares)
+    await page.fill('[data-usd="u100"]', '1');
+    await page.fill('[data-usd="u50"]', '1');
+    assert.equal(await page.textContent('#venta-total-usd'), 'US$150.00');
+    await page.click('#btn-conteo');
+    await page.waitForSelector('#paso-cierre');
+    await page.click('#detalle-corte summary');
     await page.waitForSelector('#tabla-corte');
     const corte = async (k: string) => (await page.textContent(`#tabla-corte tr[data-campo="${k}"] td`))!.trim();
     assert.equal(await corte('usd_recibidos'), 'US$150.00');
     assert.equal(await corte('usd_equivalente_mxn_historico'), '$2,800.00', '900 a 18.00 + 1,900 a 19.00: cada operación con su tasa');
     assert.equal(await corte('cambio_mxn_con_usd'), '$1,831.00');
-    assert.equal(await corte('efectivo_esperado'), '-$1,211.00', 'pesos físicos: +120 +449 −1,780 (sin fondo en pesos el cajón queda corto: el cambio sale de pesos, no de dólares)');
-    // movimientos y conteo por denominaciones
-    await page.selectOption('#mov-tipo', 'fondo_inicial');
-    await page.selectOption('#mov-moneda', 'USD');
-    await page.fill('#mov-monto', '100');
-    await page.click('#btn-movimiento');
-    await page.waitForFunction(() => document.querySelector('#tabla-corte tr[data-campo="fondo_inicial_usd"] td')?.textContent === 'US$100.00');
-    assert.equal(await corte('efectivo_usd_esperado'), 'US$250.00');
-    await page.fill('[data-conteo="USD"][data-clave="100"]', '2');
-    await page.fill('[data-conteo="USD"][data-clave="50"]', '1');
-    assert.equal(await page.textContent('#conteo-total-USD'), 'US$250.00');
-    await page.click('#btn-conteo-USD');
-    await page.waitForFunction(() => document.querySelector('#tabla-corte tr[data-campo="conteo_usd"] td')?.textContent === 'US$250.00');
+    assert.equal(await corte('efectivo_esperado'), '-$1,211.00', 'pesos físicos: +120 +449 −1,780 (el fondo ya no es movimiento: el cajón queda corto porque el cambio sale de pesos, no de dólares)');
+    assert.equal(await corte('efectivo_usd_esperado'), 'US$150.00');
+    assert.equal(await corte('conteo_usd'), 'US$150.00');
     assert.equal(await corte('diferencia_usd'), 'US$0.00');
     await page.screenshot({ path: join(CAPTURAS, '18-corte-pesos-y-dolares.png') });
 
@@ -779,17 +780,26 @@ describe('[navegador real — Chromium con Playwright, UI sobre SQLite]', { time
 
     // corte: conteo de pesos con diferencia, billetes rechazados y cierre
     await page.click('#nav button[data-vista="corte"]');
+    await page.waitForSelector('#cierre-pasos');
+    await page.fill('[data-fondo="b100000"]', '5');
+    await page.click('#btn-fondo');
+    await page.waitForSelector('#paso-ventas');
+    await page.fill('[data-venta="b10000"]', '1');
+    assert.equal(await page.textContent('#venta-total-mxn'), '$100.00');
+    await page.fill('[data-usd="u100"]', '1'); // los US$100 recibidos
+    await page.click('#btn-conteo');
+    await page.waitForSelector('#paso-cierre');
+    // el fondo de $100 sembrado en el libro es del formato anterior: no se cuenta con las ventas (el esperado de ventas es −$1,680)
+    assert.match((await page.textContent('#rc-dif-mxn'))!, /\$1,780\.00[\s\S]*Sobrante/, 'la diferencia se muestra y se registra, no se corrige');
+    await page.click('#detalle-corte summary');
     await page.waitForSelector('#tabla-corte');
     const corte = async (k: string) => (await page.textContent(`#tabla-corte tr[data-campo="${k}"] td`))!.trim();
     assert.equal(await corte('billetes_usd_rechazados'), '1');
     assert.equal(await corte('efectivo_esperado'), '-$1,580.00');
-    await page.fill('[data-conteo="MXN"][data-clave="10000"]', '1');
-    assert.equal(await page.textContent('#conteo-total-MXN'), '$100.00');
-    await page.click('#btn-conteo-MXN');
-    await page.waitForFunction(() => document.querySelector('#tabla-corte tr[data-campo="conteo_mxn"] td')?.textContent === '$100.00');
-    assert.equal(await corte('diferencia_mxn'), '$1,680.00');
+    assert.equal(await corte('conteo_mxn'), '$100.00');
+    assert.equal(await corte('diferencia_mxn'), '$1,780.00');
     await page.click('#btn-cerrar-corte');
-    await page.waitForSelector('#estado-corte .mensaje');
+    await page.waitForSelector('#corte-cerrado');
     ctx.m.pump(); ctx.m.pump();
 
     // Administración: pesos y dólares en columnas separadas; el equivalente es contable
@@ -800,8 +810,8 @@ describe('[navegador real — Chromium con Playwright, UI sobre SQLite]', { time
     await a.click('#filtros-cortes button[type="submit"]');
     await a.waitForSelector('#tabla-cortes tr[data-corte="DUO-1-2026-10-01"]');
     const c = async (col: string) => (await a.textContent(`#tabla-cortes tr[data-corte="DUO-1-2026-10-01"] [data-col="${col}"]`))!.trim();
-    assert.deepEqual([await c('mxn-fondo'), await c('mxn-cobros'), await c('mxn-cambio'), await c('mxn-esperado'), await c('mxn-contado'), await c('mxn-diferencia')], ['$100.00', '$0.00', '$1,680.00', '-$1,580.00', '$100.00', '$1,680.00']);
-    assert.deepEqual([await c('usd-cobros'), await c('usd-esperado'), await c('usd-contado'), await c('usd-diferencia'), await c('equivalente')], ['US$100.00', 'US$100.00', '—', '—', '$1,800.00']);
+    assert.deepEqual([await c('mxn-fondo'), await c('mxn-cobros'), await c('mxn-cambio'), await c('mxn-esperado'), await c('mxn-contado'), await c('mxn-diferencia')], ['$100.00', '$0.00', '$1,680.00', '-$1,580.00', '$100.00', '$1,780.00']);
+    assert.deepEqual([await c('usd-cobros'), await c('usd-esperado'), await c('usd-contado'), await c('usd-diferencia'), await c('equivalente')], ['US$100.00', 'US$100.00', 'US$100.00', 'US$0.00', '$1,800.00']);
     assert.match((await a.textContent('#resultado-cortes'))!, /Pesos y dólares son dinero físico distinto/);
     await a.screenshot({ path: join(CAPTURAS, '22-cortes-consolidados-por-moneda.png') });
     assert.deepEqual(errores.filter((e) => !/409/.test(e)), []);

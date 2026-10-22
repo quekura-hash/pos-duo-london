@@ -76,6 +76,8 @@ porAlmacen('Primera operación completa: escanear → cobrar → guardar → inv
     );
     assert.equal(ctx.m.caja('DUO', 2).corteEnVivo(HOY).tickets, 0, 'la otra caja no ve la venta en su corte');
     // cierre del corte y venta posterior => el cierre queda desactualizado, no se reescribe
+    svc.confirmarFondo({ '100000': 5 });
+    svc.registrarConteo('MXN', { '100000': 2, '10000': 1, '5000': 1, '500': 1, '200': 1, '100': 1 }, 'ventas');
     assert.equal(svc.cerrarCorte(HOY).tickets, 1);
     const cart2 = svc.nuevaVenta();
     svc.escanear(cart2, masc.codigo);

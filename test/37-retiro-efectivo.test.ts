@@ -24,7 +24,7 @@ porAlmacen('Retiro de efectivo de la caja', (alm) => {
   it('RT1 el aviso sale con $10,000 de efectivo de VENTA; el fondo inicial no cuenta y no se bloquea la venta', async (t) => {
     const ctx = nuevo(t);
     const s = servicioDe(ctx, 'DUO', 1, 'Ana');
-    s.svc.movimientoEfectivo('fondo_inicial', 500000, 'MXN');
+    s.svc.caja.movimientoEfectivo('fondo_inicial', 500000, 'MXN');
     assert.deepEqual([s.svc.estadoRetiro().venta.equivalente, s.svc.estadoRetiro().avisar], [0, false]);
     await vender(s, 11); // 11 × $899 = $9,889
     let e = s.svc.estadoRetiro();
@@ -40,7 +40,7 @@ porAlmacen('Retiro de efectivo de la caja', (alm) => {
   it('RT2 retiro con billetes grandes: mínimo $8,000, descuenta del corte, imprime sus datos, reintento idempotente y folio consecutivo', async (t) => {
     const ctx = nuevo(t);
     const s = servicioDe(ctx, 'DUO', 1, 'Ana');
-    s.svc.movimientoEfectivo('fondo_inicial', 200000, 'MXN');
+    s.svc.caja.movimientoEfectivo('fondo_inicial', 200000, 'MXN');
     await vender(s, 12); // $10,788 de venta
     const mil = '100000';
     await assert.rejects(() => s.svc.registrarRetiro({ retiro_id: 'r0', mxn: { [mil]: 7 } }), { codigo: 'RETIRO_INSUFICIENTE' });

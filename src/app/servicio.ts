@@ -6,7 +6,7 @@ import { DEPARTAMENTOS_BASE, resolverDepartamento } from '../departamentos.ts';
 import { formatoTasa } from '../dinero.ts';
 import { ErrorDominio } from '../errores.ts';
 import type { Impresora } from '../impresion.ts';
-import type { Caja } from '../nodos.ts';
+import { FONDO_AUTORIZADO_DEFECTO, type Caja } from '../nodos.ts';
 import { estadoPromo, type Promocion } from '../promociones.ts';
 import { CRITERIOS_EXPEDIENTE, expedientesDe, expedienteVacio, registradaEn, CAMPOS_EDITABLES, catalogo, historialArticulo, nombresTienda, datosTiendas, departamentos as proyDepartamentos, devoluciones, type Devolucion, promocionesDe, recompensasDe, supervisoresDe, cajerosDe, administradoresDe, configSesionDe, permisos as proyPermisos, tarjetasRegalo, tiposDeCambio, tipoCambioVigente, ventas, type TipoCambio } from '../proyecciones.ts';
 import { hojaAnalisis, hojaDetalleVentas, hojaResumenVentas, hojaDescuentos, hojaEntregas, hojaDolares, hojaInventario, leerInventario, PERFIL_CONFIRMADO, type Hoja } from '../inventario.ts';
@@ -180,12 +180,33 @@ export class ServicioCaja {
     const r = this.caja.bloquearTasa(cartId, renovar);
     return { bloqueada: { version: r.bloqueada.version, tasa: r.bloqueada.tasa, texto: formatoTasa(r.bloqueada.tasa) }, vigente: { version: r.vigente.version, tasa: r.vigente.tasa, texto: formatoTasa(r.vigente.tasa) }, hay_nueva: r.hay_nueva };
   }
-  movimientoEfectivo(tipo: 'fondo_inicial' | 'retiro' | 'entrada', monto: number, moneda: 'MXN' | 'USD') {
-    this.caja.movimientoEfectivo(tipo, monto, moneda);
+  /** Compatibilidad: el fondo ya no se registra como movimiento (se cuenta y confirma en el cierre) y los retiros tienen su módulo. Solo queda la entrada extraordinaria. */
+  movimientoEfectivo(tipo: 'fondo_inicial' | 'retiro' | 'entrada', monto: number, moneda: 'MXN' | 'USD', extra: { ref?: string; motivo?: string; clave?: string } = {}) {
+    if (tipo === 'fondo_inicial') throw new ErrorDominio('PROHIBIDO', 'el fondo no se registra como movimiento: se cuenta y confirma en el cierre de caja, y su monto lo asigna Administración');
+    if (tipo === 'retiro') throw new ErrorDominio('PROHIBIDO', 'los retiros se registran en el módulo Retiro');
+    return this.entradaEfectivo({ monto, moneda, ...extra });
+  }
+  /** Entrada extraordinaria de efectivo: la autoriza un supervisor con su clave, lleva motivo y referencia única. */
+  entradaEfectivo(d: { monto: number; moneda?: 'MXN' | 'USD'; motivo?: string; ref?: string; clave?: string }) {
+    this.caja.registrarEntrada({ ref: String(d.ref ?? ''), monto: d.monto, moneda: d.moneda ?? 'MXN', motivo: String(d.motivo ?? ''), claveSupervisor: String(d.clave ?? ''), usuario: this.actor.usuario });
     return this.caja.corteEnVivo(fechaLocal(this.reloj.now()));
   }
-  registrarConteo(moneda: 'MXN' | 'USD', denominaciones: Record<string, number>) {
-    return this.caja.registrarConteo({ moneda, denominaciones, usuario: this.actor.usuario });
+  /** Entradas, retiros y ajustes administrativos de hoy en esta caja (el módulo de operaciones extraordinarias). */
+  operacionesExtraordinarias() {
+    const fecha = fechaLocal(this.reloj.now());
+    const propia = (p: any) => p.tienda === this.caja.tienda && p.caja === this.caja.caja && p.fecha === fecha;
+    const entradas = this.caja.opsDe('cash.movement').filter((o) => propia(o.payload) && o.payload.tipo === 'entrada').map((o) => ({ tipo: 'entrada', moneda: o.payload.moneda, monto: o.payload.monto, motivo: o.payload.motivo ?? '', autorizado_por: o.payload.autorizado_por ?? null, usuario: o.payload.usuario ?? null, ocurrio_en: o.ocurrio_en }));
+    const retiros = this.caja.opsDe('cash.retiro').filter((o) => propia(o.payload)).map((o) => ({ tipo: 'retiro', moneda: 'MXN', monto: o.payload.equivalente_mxn, motivo: '', autorizado_por: null, usuario: o.payload.usuario, ocurrio_en: o.ocurrio_en, folio: o.payload.folio_retiro }));
+    const ajustes = this.caja.opsDe('cash.ajuste_admin').filter((o) => propia(o.payload)).map((o) => ({ tipo: o.payload.tipo === 'salida' ? 'ajuste_salida' : 'ajuste_entrada', moneda: 'MXN', monto: o.payload.monto, motivo: o.payload.motivo, autorizado_por: o.payload.por, usuario: o.payload.por, ocurrio_en: o.ocurrio_en }));
+    return { fecha, operaciones: [...entradas, ...retiros, ...ajustes].sort((a, b) => b.ocurrio_en.localeCompare(a.ocurrio_en)) };
+  }
+  /** Cuenta y confirma el fondo físico. La cajera no cambia el monto autorizado: solo registra lo que hay (con nota si no coincide). */
+  confirmarFondo(denominaciones: Record<string, number>, nota?: string) {
+    this.caja.confirmarFondo({ denominaciones, nota, usuario: this.actor.usuario });
+    return this.corte(fechaLocal(this.reloj.now()));
+  }
+  registrarConteo(moneda: 'MXN' | 'USD', denominaciones: Record<string, number>, alcance?: 'ventas') {
+    return this.caja.registrarConteo({ moneda, denominaciones, usuario: this.actor.usuario, alcance });
   }
   registrarConteoUsd(denominaciones: Record<string, number>) {
     return this.registrarConteo('USD', denominaciones);
@@ -687,10 +708,15 @@ export class ServicioCaja {
   corte(fecha: string) {
     const vivo = this.caja.corteEnVivo(fecha);
     const cerrado = this.caja.repo.getOp(`corte:${this.caja.id}:${fecha}`)?.payload ?? null;
-    return { vivo, cerrado, desactualizado: cerrado ? JSON.stringify(cerrado) !== JSON.stringify(vivo) : false };
+    const sinDatosDelCierre = (c: any) => { const { cerrado_por: _a, observaciones: _b, ...resto } = c ?? {}; return resto; };
+    return {
+      vivo, cerrado, desactualizado: cerrado ? JSON.stringify(sinDatosDelCierre(cerrado)) !== JSON.stringify(vivo) : false,
+      estado: this.caja.estadoCierre(fecha), pide_clave: this.caja.controlesConClave(),
+    };
   }
-  cerrarCorte(fecha: string) {
-    return this.caja.generarCorte(fecha);
+  /** Cierra el corte del día (flujo guiado): exige fondo confirmado y conteos al día, y la clave de la propia cajera. */
+  cerrarCorte(fecha: string, d: { clave?: string; observaciones?: string } = {}) {
+    return this.caja.cerrarCorteGuiado(fecha, { usuario: this.actor.usuario, clave: d.clave, observaciones: d.observaciones });
   }
   cortesPropios(filtro: Filtro = {}) {
     return cortesPorCaja(this.actor, this.caja.opsDe('corte.generado'), filtro);
@@ -745,7 +771,7 @@ export class ServicioAdmin {
   readonly cajas: { tienda: string; caja: number }[];
   private inv?: FuenteInventario;
   private central?: { fijarTipoCambio(tasa: number, usuario: string, versionBase: number, confirmarVariacion?: boolean): import('../nodos.ts').ResultadoTipoCambio; asignarPermiso(usuario: string, permiso: string, valor: boolean, por: string): Op; guardarDepto(c: import('../departamentos.ts').CambioDepto, por: string): { ok: true; op: Op } | { ok: false; error: import('../departamentos.ts').ErrorDepto };
-    guardarDatosTienda: import('../nodos.ts').Central['guardarDatosTienda']; editarArticulo: import('../nodos.ts').Central['editarArticulo']; guardarPromocion: import('../nodos.ts').Central['guardarPromocion']; guardarRecompensa: import('../nodos.ts').Central['guardarRecompensa']; guardarSupervisor: import('../nodos.ts').Central['guardarSupervisor']; guardarCajero: import('../nodos.ts').Central['guardarCajero']; guardarAdmin: import('../nodos.ts').Central['guardarAdmin']; guardarConfigSesion: import('../nodos.ts').Central['guardarConfigSesion']; recordarSacarAPiso: import('../nodos.ts').Central['recordarSacarAPiso']; resolverFaltante: import('../nodos.ts').Central['resolverFaltante']; contarLimbo: import('../nodos.ts').Central['contarLimbo']; reubicarLimbo: import('../nodos.ts').Central['reubicarLimbo']; fijarExistencias: import('../nodos.ts').Central['fijarExistencias']; guardarExpediente: import('../nodos.ts').Central['guardarExpediente']; eliminarCajero: import('../nodos.ts').Central['eliminarCajero']; corregirEntrada: import('../nodos.ts').Central['corregirEntrada']; altaLote: import('../nodos.ts').Central['altaLote']; importarVentasHistoricas: import('../nodos.ts').Central['importarVentasHistoricas']; entregar: import('../nodos.ts').Central['entregar'] };
+    guardarDatosTienda: import('../nodos.ts').Central['guardarDatosTienda']; editarArticulo: import('../nodos.ts').Central['editarArticulo']; guardarPromocion: import('../nodos.ts').Central['guardarPromocion']; guardarRecompensa: import('../nodos.ts').Central['guardarRecompensa']; fijarFondoCaja: import('../nodos.ts').Central['fijarFondoCaja']; registrarAjusteCaja: import('../nodos.ts').Central['registrarAjusteCaja']; guardarSupervisor: import('../nodos.ts').Central['guardarSupervisor']; guardarCajero: import('../nodos.ts').Central['guardarCajero']; guardarAdmin: import('../nodos.ts').Central['guardarAdmin']; guardarConfigSesion: import('../nodos.ts').Central['guardarConfigSesion']; recordarSacarAPiso: import('../nodos.ts').Central['recordarSacarAPiso']; resolverFaltante: import('../nodos.ts').Central['resolverFaltante']; contarLimbo: import('../nodos.ts').Central['contarLimbo']; reubicarLimbo: import('../nodos.ts').Central['reubicarLimbo']; fijarExistencias: import('../nodos.ts').Central['fijarExistencias']; guardarExpediente: import('../nodos.ts').Central['guardarExpediente']; eliminarCajero: import('../nodos.ts').Central['eliminarCajero']; corregirEntrada: import('../nodos.ts').Central['corregirEntrada']; altaLote: import('../nodos.ts').Central['altaLote']; importarVentasHistoricas: import('../nodos.ts').Central['importarVentasHistoricas']; entregar: import('../nodos.ts').Central['entregar'] };
   constructor(o: { actor: Extract<Actor, { rol: 'admin' }>; fuente: () => Op[]; cajas: { tienda: string; caja: number }[]; inventario?: FuenteInventario; central?: ServicioAdmin['central']; reloj?: { now(): string } }) {
     this.central = o.central;
     this.actor = o.actor;
@@ -1059,6 +1085,37 @@ export class ServicioAdmin {
     const g = this.central.guardarRecompensa(r, this.actor.usuario);
     if (!g.ok) throw new ErrorDominio(g.error.codigo === 'NO_EXISTE' ? 'NO_ENCONTRADO' : 'RECOMPENSA_INVALIDA', g.error.mensaje, { motivo: g.error.codigo });
     return { ...this.recompensas(), guardada: g.regla };
+  }
+  // ── fondo fijo y ajustes de efectivo por caja (solo Administración) ──
+  /** Fondo autorizado de cada caja con su historial de cambios, el último fondo confirmado por la cajera y los ajustes administrativos. */
+  cajasFondo() {
+    const ops = this.fuente();
+    const de = (tipo: string, c: { tienda: string; caja: number }) => ops.filter((o) => o.tipo === tipo && o.payload.tienda === c.tienda && o.payload.caja === c.caja);
+    return {
+      defecto: FONDO_AUTORIZADO_DEFECTO,
+      cajas: this.cajas.map((c) => {
+        const hist = de('caja.fondo_autorizado', c);
+        const ult = de('cash.fondo', c).at(-1);
+        return {
+          tienda: c.tienda, caja: c.caja, fondo: hist.length ? (hist.at(-1)!.payload.monto as number) : FONDO_AUTORIZADO_DEFECTO, asignado: hist.length > 0,
+          historial: hist.map((o) => ({ monto: o.payload.monto, motivo: o.payload.motivo, por: o.payload.por, ocurrio_en: o.ocurrio_en })).reverse(),
+          ultimo_fondo: ult ? { fecha: ult.payload.fecha, total: ult.payload.total, estado: ult.payload.estado, diferencia: ult.payload.diferencia, nota: ult.payload.nota, usuario: ult.payload.usuario, denominaciones: ult.payload.denominaciones } : null,
+          ajustes: de('cash.ajuste_admin', c).map((o) => ({ tipo: o.payload.tipo, monto: o.payload.monto, motivo: o.payload.motivo, por: o.payload.por, fecha: o.payload.fecha, ocurrio_en: o.ocurrio_en })).reverse().slice(0, 20),
+        };
+      }),
+    };
+  }
+  fijarFondoCaja(d: { tienda: string; caja: number; monto: number; motivo: string }) {
+    if (!this.central) throw new ErrorDominio('SIN_CENTRAL', 'esta sesión no tiene acceso al servicio central');
+    const r = this.central.fijarFondoCaja({ tienda: String(d.tienda ?? ''), caja: Number(d.caja), monto: Number(d.monto), motivo: String(d.motivo ?? '') }, this.actor.usuario);
+    if (!r.ok) throw new ErrorDominio('DATOS_INVALIDOS', r.error.mensaje);
+    return this.cajasFondo();
+  }
+  ajusteCaja(d: { tienda: string; caja: number; tipo: 'entrada' | 'salida'; monto: number; motivo: string; ref: string }) {
+    if (!this.central) throw new ErrorDominio('SIN_CENTRAL', 'esta sesión no tiene acceso al servicio central');
+    const r = this.central.registrarAjusteCaja({ tienda: String(d.tienda ?? ''), caja: Number(d.caja), tipo: d.tipo, monto: Number(d.monto), motivo: String(d.motivo ?? ''), ref: String(d.ref ?? '') }, this.actor.usuario);
+    if (!r.ok) throw new ErrorDominio('DATOS_INVALIDOS', r.error.mensaje);
+    return this.cajasFondo();
   }
   guardarPromocion(p: Promocion) {
     if (!this.central) throw new ErrorDominio('SIN_CENTRAL', 'esta sesión no tiene acceso al servicio central');

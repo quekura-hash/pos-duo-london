@@ -100,7 +100,11 @@ const esMovimientoLimbo = (op: Op) => op.tipo === 'inv.movement' && op.payload.t
 const esAjusteAdmin = (op: Op) => (op.tipo === 'inv.movement' && op.payload.tipo === 'ajuste_admin') || (op.tipo === 'inv.conteo' && op.payload.admin === true);
 const BROADCAST_TIENDA = new Set(['cajero.ubicacion', 'alm.recibida', 'inv.movement', 'inv.conteo', 'inv.verificacion_pendiente', 'doc.perdida_posible', 'item.created', 'item.item_no_assigned', 'giftcard.emitida', 'giftcard.recarga', 'giftcard.uso', 'giftcard.reintegro']);
 // Lo que el central baja a hubs y cajas (catálogo y resoluciones administrativas).
-const CATALOGO = new Set(['cajero.ubicacion', 'item.created', 'item.item_no_assigned', 'item.codigo_corregido', 'doc.perdida_resuelta', 'giftcard.emitida', 'giftcard.recarga', 'giftcard.uso', 'giftcard.reintegro', 'config.tipo_cambio', 'permiso.asignado', 'depto.alta', 'depto.editado', 'alm.entrega', 'alm.faltante', 'promo.guardada', 'recompensa.guardada', 'supervisor.guardado', 'cajero.guardado', 'config.sesion', 'config.negocio', 'item.editado']);
+const CATALOGO = new Set(['cajero.ubicacion', 'item.created', 'item.item_no_assigned', 'item.codigo_corregido', 'doc.perdida_resuelta', 'giftcard.emitida', 'giftcard.recarga', 'giftcard.uso', 'giftcard.reintegro', 'config.tipo_cambio', 'permiso.asignado', 'depto.alta', 'depto.editado', 'alm.entrega', 'alm.faltante', 'promo.guardada', 'recompensa.guardada', 'supervisor.guardado', 'cajero.guardado', 'config.sesion', 'config.negocio', 'item.editado', 'caja.fondo_autorizado', 'cash.ajuste_admin']);
+/** Fondo fijo de cada caja mientras Administración no asigne otro (centavos). */
+export const FONDO_AUTORIZADO_DEFECTO = 500000;
+/** Monedas y billetes con los que se cuenta el fondo (en centavos): sin la moneda de 50 centavos. */
+export const DENOMINACIONES_FONDO = [100000, 50000, 20000, 10000, 5000, 2000, 1000, 500, 200, 100] as const;
 
 /** Lo que llega del central (Supabase) y debe repartirse al hub de esa tienda: catálogo y configuración, El Limbo y lo de inventario/almacén/tarjetas de la tienda. */
 export function relevanteParaHub(op: Op, tienda: string): boolean {
@@ -434,6 +438,30 @@ export class Central {
     if (!v.ok) return { ok: false, error: { codigo: 'DATOS_INVALIDOS', mensaje: v.mensaje } };
     this.emitirAdmin('recompensa.guardada', { ...v.regla, por });
     return { ok: true, regla: v.regla };
+  }
+  /** Solo Administración fija el fondo fijo autorizado de una caja (queda el historial de cambios con quién y por qué). */
+  fijarFondoCaja(d: { tienda: string; caja: number; monto: number; motivo: string }, por: string): { ok: true } | { ok: false; error: { codigo: 'DATOS_INVALIDOS'; mensaje: string } } {
+    const mal = (mensaje: string) => ({ ok: false as const, error: { codigo: 'DATOS_INVALIDOS' as const, mensaje } });
+    if (!this.ctx.tiendas.includes(d.tienda)) return mal('tienda desconocida');
+    if (!Number.isInteger(d.caja) || d.caja < 1) return mal('caja inválida');
+    if (!Number.isInteger(d.monto) || d.monto <= 0) return mal('el fondo es un importe en pesos mayor que 0');
+    const motivo = String(d.motivo ?? '').trim();
+    if (motivo.length < 3) return mal('escriba el motivo del cambio de fondo');
+    this.emitirAdmin('caja.fondo_autorizado', { tienda: d.tienda, caja: d.caja, monto: d.monto, motivo, por });
+    return { ok: true };
+  }
+  /** Entrega o ajuste administrativo de efectivo en una caja (entrada o salida en pesos), con motivo y referencia única. */
+  registrarAjusteCaja(d: { tienda: string; caja: number; tipo: 'entrada' | 'salida'; monto: number; motivo: string; ref: string }, por: string): { ok: true } | { ok: false; error: { codigo: 'DATOS_INVALIDOS'; mensaje: string } } {
+    const mal = (mensaje: string) => ({ ok: false as const, error: { codigo: 'DATOS_INVALIDOS' as const, mensaje } });
+    if (!this.ctx.tiendas.includes(d.tienda)) return mal('tienda desconocida');
+    if (!Number.isInteger(d.caja) || d.caja < 1) return mal('caja inválida');
+    if (d.tipo !== 'entrada' && d.tipo !== 'salida') return mal('indique si es una entrega o una salida de efectivo');
+    if (!Number.isInteger(d.monto) || d.monto <= 0) return mal('el monto es un importe en pesos mayor que 0');
+    const motivo = String(d.motivo ?? '').trim();
+    if (motivo.length < 3) return mal('escriba el motivo');
+    if (!d.ref) return mal('falta la referencia de la operación');
+    this.emitirAdmin('cash.ajuste_admin', { tienda: d.tienda, caja: d.caja, tipo: d.tipo, monto: d.monto, motivo, por, ref: d.ref, fecha: fechaLocal(this.ctx.reloj.now()) }, `ajuste:${d.ref}`);
+    return { ok: true };
   }
   /** Alta o edición de un supervisor que autoriza descuentos con clave numérica. La clave se guarda con sal y hash. */
   guardarSupervisor(d: { id?: string; id_nuevo?: string; nombre?: string; clave?: string; activo?: boolean }, por: string): { ok: true; supervisor: Omit<Supervisor, 'sal' | 'hash'> } | { ok: false; error: { codigo: 'DATOS_INVALIDOS' | 'CLAVE_REPETIDA' | 'NO_EXISTE'; mensaje: string } } {
@@ -2327,10 +2355,68 @@ export class Caja {
     if (!Number.isInteger(monto) || monto <= 0) throw new ErrorDominio('PAGO_INVALIDO', 'el monto es un entero positivo en centavos');
     this.emitir('cash.movement', { tienda: this.tienda, caja: this.caja, tipo, monto, moneda, fecha: fechaLocal(this.ctx.reloj.now()) });
   }
+  /**
+   * Entrada extraordinaria de efectivo (operación fuera del cierre): la autoriza un supervisor con su clave, lleva motivo y una referencia única
+   * (reintentar con la misma referencia no la duplica).
+   */
+  registrarEntrada(d: { ref: string; monto: number; moneda: 'MXN' | 'USD'; motivo: string; claveSupervisor: string; usuario: string }) {
+    if (!d.ref) throw new ErrorDominio('DATOS_REQUERIDOS', 'falta la referencia de la operación');
+    const previo = this.repo.getOp(`entrada:${d.ref}`);
+    if (previo) return { ...previo.payload, ocurrio_en: previo.ocurrio_en };
+    const motivo = String(d.motivo ?? '').trim();
+    if (motivo.length < 3) throw new ErrorDominio('DATOS_REQUERIDOS', 'escriba el motivo de la entrada de efectivo');
+    const sup = supervisorPorClave(this.idx.supervisores(), String(d.claveSupervisor ?? ''));
+    if (!sup) throw new ErrorDominio('AUTORIZACION_REQUERIDA', 'una entrada de efectivo la autoriza un supervisor con su clave');
+    if (d.moneda !== 'MXN' && d.moneda !== 'USD') throw new ErrorDominio('PAGO_INVALIDO', `moneda no soportada: ${d.moneda}`);
+    if (!Number.isInteger(d.monto) || d.monto <= 0) throw new ErrorDominio('PAGO_INVALIDO', 'el monto es un entero positivo en centavos');
+    const op = this.emitir('cash.movement', { tienda: this.tienda, caja: this.caja, tipo: 'entrada', monto: d.monto, moneda: d.moneda, fecha: fechaLocal(this.ctx.reloj.now()), motivo, autorizado_por: sup.nombre, usuario: d.usuario, ref: d.ref }, `entrada:${d.ref}`);
+    return { ...op.payload, ocurrio_en: op.ocurrio_en };
+  }
+
+  // ── cierre guiado: fondo fijo, conteo de ventas y cierre ──
+  /** Fondo fijo autorizado por Administración para ESTA caja (el último asignado; sin asignación, $5,000). */
+  fondoAutorizado(): number {
+    const a = this.opsDe('caja.fondo_autorizado').filter((o) => o.payload.tienda === this.tienda && o.payload.caja === this.caja).at(-1);
+    return a ? (a.payload.monto as number) : FONDO_AUTORIZADO_DEFECTO;
+  }
+  /** Última confirmación del fondo de una fecha (o null). */
+  fondoDelDia(fecha: string) {
+    const o = this.opsDe('cash.fondo').filter((x) => x.payload.tienda === this.tienda && x.payload.caja === this.caja && x.payload.fecha === fecha).at(-1);
+    return o ? { ...o.payload, ocurrio_en: o.ocurrio_en } as { total: number; autorizado: number; diferencia: number; estado: 'completo' | 'faltante' | 'sobrante'; nota: string; denominaciones: Record<string, number>; usuario: string; fecha: string; ocurrio_en: string } : null;
+  }
+  /** Composición del último fondo confirmado ANTES de esta fecha: referencia para armar el del turno siguiente. */
+  fondoReferencia(fecha: string) {
+    const o = this.opsDe('cash.fondo').filter((x) => x.payload.tienda === this.tienda && x.payload.caja === this.caja && x.payload.fecha < fecha).at(-1);
+    return o ? { fecha: o.payload.fecha as string, total: o.payload.total as number, denominaciones: o.payload.denominaciones as Record<string, number> } : null;
+  }
+  /**
+   * Confirma la composición física del fondo. Separarlo del cajón NO es ingreso ni venta: no genera movimiento de efectivo. Solo es «fondo completo»
+   * con el importe autorizado exacto; con faltante o sobrante la cajera lo registra con una nota (queda en el corte, nunca se corrige solo).
+   */
+  confirmarFondo(d: { denominaciones: Record<string, number>; nota?: string; usuario: string }) {
+    const fecha = fechaLocal(this.ctx.reloj.now());
+    if (this.repo.getOp(`corte:${this.id}:${fecha}`)) throw new ErrorDominio('CORTE_CERRADO', 'el corte de hoy ya está cerrado: el fondo no se modifica');
+    const den: Record<string, number> = {};
+    for (const [k, n] of Object.entries(d.denominaciones ?? {})) {
+      if (!n) continue;
+      if (!(DENOMINACIONES_FONDO as readonly number[]).includes(Number(k))) throw new ErrorDominio('CONTEO_INVALIDO', `en el fondo no se admite la denominación ${k}`);
+      if (!Number.isInteger(n) || n < 0) throw new ErrorDominio('CONTEO_INVALIDO', `cantidad inválida de ${k}`);
+      den[k] = n;
+    }
+    const total = totalDenominacionesMxn(den);
+    if (total <= 0) throw new ErrorDominio('CONTEO_INVALIDO', 'cuente el fondo: no hay monedas ni billetes registrados');
+    const autorizado = this.fondoAutorizado();
+    const diferencia = total - autorizado;
+    const nota = String(d.nota ?? '').trim().slice(0, 300);
+    if (diferencia !== 0 && nota.length < 3) throw new ErrorDominio('FONDO_NO_COINCIDE', `el fondo suma ${diferencia < 0 ? 'menos' : 'más'} que lo autorizado (${diferencia < 0 ? 'faltan' : 'sobran'} ${Math.abs(diferencia) / 100} pesos): registre el ${diferencia < 0 ? 'faltante' : 'sobrante'} con una nota`, { diferencia });
+    const estado = diferencia === 0 ? 'completo' : diferencia < 0 ? 'faltante' : 'sobrante';
+    const op = this.emitir('cash.fondo', { tienda: this.tienda, caja: this.caja, fecha, denominaciones: den, total, autorizado, diferencia, estado, nota, usuario: d.usuario });
+    return { ...op.payload, ocurrio_en: op.ocurrio_en };
+  }
   /** Efectivo de venta en el cajón hoy (sin fondo ni entradas), lo disponible por moneda y si ya toca un retiro. */
   estadoRetiro() {
     const fecha = fechaLocal(this.ctx.reloj.now());
-    const libro = movimientosCaja(this.opsDe('sale.confirmed', 'sale.cancelled', 'return.registered', 'cash.movement'), this.tienda, this.caja).filter((m) => m.fecha === fecha);
+    const libro = movimientosCaja(this.opsDe('sale.confirmed', 'sale.cancelled', 'return.registered', 'cash.movement', 'cash.ajuste_admin'), this.tienda, this.caja).filter((m) => m.fecha === fecha);
     const tc = this.tipoCambio();
     const venta = efectivoDeVentaEnCaja(libro, tc?.tasa ?? null);
     const en = (moneda: 'MXN' | 'USD') => libro.filter((m) => m.moneda === moneda).reduce((a, m) => a + m.monto, 0);
@@ -2393,10 +2479,13 @@ export class Caja {
     });
   }
   /** Conteo físico por denominación (USD: billetes en dólares; MXN: billetes y monedas en centavos). El corte lo compara con lo esperado. */
-  registrarConteo(d: { moneda: 'MXN' | 'USD'; denominaciones: Record<string, number>; usuario: string }) {
+  registrarConteo(d: { moneda: 'MXN' | 'USD'; denominaciones: Record<string, number>; usuario: string; alcance?: 'ventas' }) {
     let total: number;
     try { total = d.moneda === 'USD' ? totalDenominacionesUsd(d.denominaciones) : totalDenominacionesMxn(d.denominaciones); } catch (e) { throw new ErrorDominio('CONTEO_INVALIDO', (e as Error).message); }
-    this.emitir('cash.conteo', { tienda: this.tienda, caja: this.caja, moneda: d.moneda, denominaciones: d.denominaciones, total, usuario: d.usuario, fecha: fechaLocal(this.ctx.reloj.now()) });
+    const fecha = fechaLocal(this.ctx.reloj.now());
+    // `alcance: 'ventas'` = efectivo restante SIN el fondo (cierre guiado); sin alcance = cajón completo (conteos anteriores).
+    if (d.alcance === 'ventas' && d.moneda === 'MXN' && !this.fondoDelDia(fecha)) throw new ErrorDominio('FONDO_PENDIENTE', 'primero cuente y confirme el fondo');
+    this.emitir('cash.conteo', { tienda: this.tienda, caja: this.caja, moneda: d.moneda, denominaciones: d.denominaciones, total, usuario: d.usuario, fecha, ...(d.alcance && d.moneda === 'MXN' ? { alcance: d.alcance } : {}) });
     return { total };
   }
   registrarConteoUsd(d: { denominaciones: Record<string, number>; usuario: string }) {
@@ -2418,7 +2507,7 @@ export class Caja {
    * `conocido` es false y no hay advertencia de cambio. Suma el libro de movimientos físicos del día.
    */
   efectivoMxnConocido(fecha = fechaLocal(this.ctx.reloj.now())): { conocido: boolean; disponible: number | null } {
-    const mov = movimientosCaja(this.opsDe('sale.confirmed', 'sale.cancelled', 'return.registered', 'cash.movement'), this.tienda, this.caja).filter((m) => m.fecha === fecha && m.moneda === 'MXN');
+    const mov = movimientosCaja(this.opsDe('sale.confirmed', 'sale.cancelled', 'return.registered', 'cash.movement', 'cash.ajuste_admin'), this.tienda, this.caja).filter((m) => m.fecha === fecha && m.moneda === 'MXN');
     const conocido = mov.some((m) => m.tipo === 'fondo_inicial');
     return { conocido, disponible: conocido ? mov.reduce((a, m) => a + m.monto, 0) : null };
   }
@@ -2428,7 +2517,7 @@ export class Caja {
   }
   /** Corte "en vivo": se calcula SOLO con las operaciones de esta caja y refleja todo lo ocurrido hasta ahora. No se guarda. */
   corteEnVivo(fecha: string) {
-    const ops = this.opsDe('sale.confirmed', 'sale.cancelled', 'sale.voided', 'return.registered', 'cash.movement', 'cash.conteo', 'cash.billete_rechazado', 'cash.cajon_abierto');
+    const ops = this.opsDe('sale.confirmed', 'sale.cancelled', 'sale.voided', 'return.registered', 'cash.movement', 'cash.ajuste_admin', 'cash.conteo', 'cash.billete_rechazado', 'cash.cajon_abierto');
     const propia = (t: string | null, c: number | null) => t === this.tienda && c === this.caja;
     const vs = [...ventas(ops).values()].filter((v) => propia(v.tienda, v.caja) && fechaLocal(v.ocurrio_en) === fecha);
     const confirmadas = vs.filter((v) => v.estado === 'confirmada');
@@ -2451,16 +2540,23 @@ export class Caja {
       const de = (tipo: string) => suma(m.filter((x) => x.tipo === tipo).map((x) => x.monto));
       const esperado = suma(m.map((x) => x.monto));
       const conteo = ops.filter((o) => o.tipo === 'cash.conteo' && propia(o.payload.tienda, o.payload.caja) && o.payload.fecha === fecha && o.payload.moneda === moneda).at(-1);
+      // Un conteo «de ventas» (cierre guiado) no incluye el fondo: se compara con el esperado sin él. Los conteos anteriores eran del cajón completo.
+      const deVentas = conteo?.payload.alcance === 'ventas';
+      const comparable = deVentas ? esperado - de('fondo_inicial') : esperado;
       return {
-        fondo: de('fondo_inicial'), cobros: de('cobro'), cambio: -de('cambio'), entradas: de('entrada'), devoluciones: -de('devolucion'), cancelaciones: -de('cancelacion'), retiros: -de('retiro'),
+        fondo: de('fondo_inicial'), cobros: de('cobro'), cambio: -de('cambio'), entradas: de('entrada'), ajustes: de('ajuste'), devoluciones: -de('devolucion'), cancelaciones: -de('cancelacion'), retiros: -de('retiro'),
         esperado,
         contado: conteo ? (conteo.payload.total as number) : null,
-        diferencia: conteo ? (conteo.payload.total as number) - esperado : null,
+        diferencia: conteo ? (conteo.payload.total as number) - comparable : null,
+        alcance: (deVentas ? 'ventas' : conteo ? 'cajon' : null) as 'ventas' | 'cajon' | null,
+        desactualizado: conteo ? m.some((x) => x.ocurrio_en > conteo.ocurrio_en) : false,
         conteo: conteo ? { denominaciones: conteo.payload.denominaciones as Record<string, number>, usuario: conteo.payload.usuario as string, ocurrio_en: conteo.ocurrio_en } : null,
       };
     };
     const mxn = porMoneda('MXN');
     const usd = porMoneda('USD');
+    const fondoDia = this.fondoDelDia(fecha);
+    const refFondo = this.fondoReferencia(fecha);
     const usdRecibidos = usd.cobros;
     const usdEquivalenteHistorico = suma(pagosUsdFisicos.map((p) => p.equivalente!)); // contable: cada operación con SU tasa; NO es dinero físico
     const pesosConUsd = suma(pagosUsdFisicos.map((p) => p.pesos_recibidos!));
@@ -2496,6 +2592,14 @@ export class Caja {
       cobros_efectivo: efectivoCobrado, cobros_tarjeta: tarjeta, cobros_tarjeta_regalo: regalo, fondo_inicial: mxn.fondo, entradas: mxn.entradas, retiros: mxn.retiros,
       // Pesos FÍSICOS en el cajón (libro MXN): cobros recibidos − cambio entregado + fondo + entradas − devoluciones − cancelaciones − retiros.
       efectivo_esperado: mxn.esperado,
+      // Cierre guiado: efectivo de ventas esperado SIN el fondo, y el fondo fijo (autorizado, confirmado y composición). El fondo no es movimiento de efectivo.
+      efectivo_ventas_esperado: mxn.esperado - mxn.fondo, ajustes_admin: mxn.ajustes,
+      // Lo que debe haber en el cajón al final: efectivo de ventas esperado + el fondo fijo (el confirmado; sin confirmar, el autorizado).
+      efectivo_cajon_esperado: mxn.esperado - mxn.fondo + (fondoDia ? fondoDia.total : this.fondoAutorizado()),
+      fondo_autorizado: this.fondoAutorizado(),
+      fondo_confirmado: fondoDia ? fondoDia.total : null, fondo_estado: fondoDia ? fondoDia.estado : null, fondo_diferencia: fondoDia ? fondoDia.diferencia : null,
+      fondo_nota: fondoDia ? fondoDia.nota : null, fondo_denominaciones: fondoDia ? fondoDia.denominaciones : null, fondo_referencia: refFondo,
+      conteo_alcance: mxn.alcance, conteo_desactualizado: { mxn: mxn.desactualizado, usd: usd.desactualizado },
       // Dólares recibidos en efectivo: tickets, importe MXN que liquidan, y detalle físico.
       tickets_con_usd: pagosUsd.length, cobros_efectivo_usd: cobrosUsd, usd_recibidos: usdRecibidos, usd_equivalente_mxn_historico: usdEquivalenteHistorico,
       pesos_recibidos_con_usd: pesosConUsd, cambio_mxn_con_usd: cambioConUsd,
@@ -2511,6 +2615,32 @@ export class Caja {
       folio_inicial: folios.length ? Math.min(...folios) : null, folio_final: folios.length ? Math.max(...folios) : null,
       perdida_documental_abierta: this.perdidasDocumentalesAbiertas().map((x) => x.perdida_id),
     };
+  }
+  /** Qué falta para cerrar el corte: fondo confirmado, conteo de pesos (sin fondo) y, si hubo dólares, su conteo; todos vigentes. */
+  estadoCierre(fecha: string) {
+    const v = this.corteEnVivo(fecha);
+    const cerrado = !!this.repo.getOp(`corte:${this.id}:${fecha}`);
+    const usdRequerido = v.usd.cobros !== 0 || v.usd.esperado !== 0 || v.usd.contado !== null;
+    const faltan: string[] = [];
+    if (v.fondo_confirmado === null) faltan.push('fondo');
+    if (v.conteo_alcance !== 'ventas') faltan.push('conteo_ventas');
+    else if (v.conteo_desactualizado.mxn) faltan.push('recontar_ventas');
+    if (usdRequerido) { if (v.usd.contado === null) faltan.push('conteo_usd'); else if (v.conteo_desactualizado.usd) faltan.push('recontar_usd'); }
+    return { cerrado, usd_requerido: usdRequerido, faltan, puede_cerrar: !cerrado && faltan.length === 0 };
+  }
+  /** Cierra el corte del día con el flujo guiado: exige los conteos al día y la clave de quien cierra; guarda observaciones y quién cerró. */
+  cerrarCorteGuiado(fecha: string, d: { usuario: string; clave?: string; observaciones?: string }) {
+    const previo = this.repo.getOp(`corte:${this.id}:${fecha}`);
+    if (previo) return previo.payload as ReturnType<Caja['corteEnVivo']>;
+    const est = this.estadoCierre(fecha);
+    if (!est.puede_cerrar) {
+      const texto: Record<string, string> = { fondo: 'confirme el fondo', conteo_ventas: 'cuente el efectivo de ventas', recontar_ventas: 'hubo movimientos después del conteo de pesos: vuelva a contar', conteo_usd: 'cuente los dólares', recontar_usd: 'hubo movimientos después del conteo de dólares: vuelva a contar' };
+      throw new ErrorDominio('CIERRE_INCOMPLETO', `no se puede cerrar el corte: ${est.faltan.map((f) => texto[f]).join('; ')}`, { faltan: est.faltan });
+    }
+    if (this.controlesConClave()) this.verificarClaveCajero(d.usuario, String(d.clave ?? ''));
+    const corte = { ...this.corteEnVivo(fecha), cerrado_por: d.usuario, observaciones: String(d.observaciones ?? '').trim().slice(0, 500) };
+    this.emitir('corte.generado', corte, `corte:${this.id}:${fecha}`);
+    return corte;
   }
   /** Cierre del corte del día: se guarda UNA vez por caja y fecha; llamarlo otra vez devuelve el ya guardado. */
   generarCorte(fecha: string) {

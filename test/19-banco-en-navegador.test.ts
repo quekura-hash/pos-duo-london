@@ -8,6 +8,7 @@ import { mkdtempSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { leerXlsxNode } from '../src/xlsx-node.ts';
 import { ENCABEZADOS_REALES, FILAS_REALISTAS, xlsxDeFilas } from './ayudas/inventario.ts';
+import { abrirDetalleCorte } from './ayudas/cierre.ts';
 
 const RAIZ = join(import.meta.dirname, '..');
 const HTML = join(RAIZ, 'dist', 'pos-venta-prueba.html');
@@ -936,10 +937,9 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     await page.goto(`file://${HTML}`);
     await page.waitForSelector('[data-chip="tienda"]');
     assert.equal(await page.locator('#nav button[data-vista="retiro"]').count(), 1, 'Retiro está en el menú de venta');
-    // $12,000 de efectivo de venta (el fondo no cuenta): una venta de 12 jeans de $899 + fondo de $3,000
+    // $12,000 de efectivo de venta (el fondo no cuenta): una venta de 12 jeans de $899
     await page.evaluate(async () => {
       const a = (window as any).__POS_ATENDER__;
-      await a('POST', '/api/efectivo/movimiento', { tipo: 'fondo_inicial', monto: 300000, moneda: 'MXN' });
       const { json: v } = await a('POST', '/api/venta/nueva', {});
       const { json: e } = await a('POST', '/api/venta/escanear', { cart: v.cart, codigo: '0002026090782' });
       await a('POST', '/api/venta/cantidad', { cart: v.cart, linea_id: e.linea.linea_id, qty: 12 });
@@ -1785,8 +1785,7 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     await page.check('#falla-imp');
     await page.click('#btn-abrir-caja');
     await page.waitForFunction(() => /no se pudo abrir la caja/.test(document.querySelector('#mensaje')!.textContent!));
-    await page.click('#nav button[data-vista="corte"]');
-    await page.waitForSelector('[data-campo="aperturas_cajon_sin_venta"], #tabla-corte');
+    await abrirDetalleCorte(page);
     assert.match((await page.textContent('body'))!, /Aperturas del cajón sin venta[\s\S]{0,40}1/);
     assert.deepEqual(errores.filter((e) => !/401|403|Failed to load resource/.test(e)), []);
   });

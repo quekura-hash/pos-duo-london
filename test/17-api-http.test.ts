@@ -9,7 +9,7 @@ porAlmacen('API HTTP local de la aplicación (cajero y Administración)', (alm) 
     const app = await appCajero(ctx, 'DUO', 1, 'Ana');
     t.after(async () => { await app.cerrar(); ctx.limpiar(); });
     const s = await api(app.url, '/api/sesion');
-    assert.deepEqual([s.json.rol, s.json.tienda, s.json.caja, s.json.nav], ['cajero', 'DUO', 1, ['venta', 'retiro', 'ventas', 'corte', 'tarjetas']]);
+    assert.deepEqual([s.json.rol, s.json.tienda, s.json.caja, s.json.nav], ['cajero', 'DUO', 1, ['venta', 'retiro', 'ventas', 'corte', 'extraordinarias', 'tarjetas']]);
     const { cart } = (await api(app.url, '/api/venta/actual', {})).json;
     const e = (await api(app.url, '/api/venta/escanear', { cart, codigo: '0002026090782' })).json;
     assert.equal(e.resultado, 'agregado');

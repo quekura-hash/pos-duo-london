@@ -44,7 +44,6 @@ porAlmacen('Cambio de mercancía: exactamente dos tickets, sin comprobante de cr
 
   it('CD1 escenario del corte: $8,000 en ventas, cambio de $500 por $899 (+$399), devolución en efectivo de $1,000, fondo fijo de $5,000', async (t) => {
     const { caja } = await preparar(t);
-    await api(caja.url, '/api/efectivo/movimiento', { tipo: 'fondo_inicial', monto: pesos(5000) });
     // $8,000 de ventas normales en efectivo (entre ellas las prendas de $500 y $1,000 que luego se cambian / devuelven)
     const v6500 = await vender(caja, JEANS, 6500), v500 = await vender(caja, MASCADA, 500), v1000 = await vender(caja, MASCADA, 1000);
     assert.equal(v6500.total + v500.total + v1000.total, pesos(8000));
@@ -73,9 +72,11 @@ porAlmacen('Cambio de mercancía: exactamente dos tickets, sin comprobante de cr
     assert.equal(c.cobros_efectivo, pesos(8399));
     assert.equal(c.devoluciones_en_efectivo, pesos(1000));
     assert.equal(c.mxn.cobros - c.mxn.cambio - c.mxn.devoluciones, pesos(7399), 'movimiento neto del efectivo');
-    assert.equal(c.efectivo_esperado, pesos(12399), 'con el fondo fijo de $5,000');
-    // conteo por denominaciones del fondo + movimiento: 12,399 → sin diferencia
-    const conteo = await api(caja.url, '/api/efectivo/conteo', { moneda: 'MXN', denominaciones: { '100000': 12, '10000': 3, '5000': 1, '2000': 2, '500': 1, '200': 2 } });
+    assert.equal(c.efectivo_esperado, pesos(7399), 'el fondo no es movimiento de efectivo');
+    assert.equal(c.efectivo_cajon_esperado, pesos(12399), 'con el fondo fijo de $5,000 en el cajón');
+    // cierre guiado: se cuenta el fondo ($5,000) y, aparte, el efectivo de ventas ($7,399) → sin diferencia
+    assert.equal((await api(caja.url, '/api/cierre/fondo', { denominaciones: { '100000': 5 } })).status, 200);
+    const conteo = await api(caja.url, '/api/efectivo/conteo', { moneda: 'MXN', denominaciones: { '100000': 7, '20000': 1, '10000': 1, '5000': 1, '2000': 2, '500': 1, '200': 2 }, alcance: 'ventas' });
     assert.equal(conteo.status, 200, JSON.stringify(conteo.json));
     assert.equal((await corte(caja)).diferencia_mxn, 0);
   });

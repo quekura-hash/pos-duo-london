@@ -309,3 +309,16 @@ input[data-pin] { -webkit-text-security: disc; text-security: disc; }
 .encabezado #btn-salir { background: transparent; border: 1px solid var(--marino-texto-2); color: var(--marino-texto); font-weight: 600; }
 .encabezado #btn-salir:hover { background: rgba(255, 255, 255, .14); border-color: var(--marino-texto); }
 [data-sinregalo][hidden], #pr-regalo-campos[hidden] { display: none !important; }
+
+/* Cierre de caja guiado */
+.cierre-pasos { list-style: none; display: flex; gap: 10px; padding: 0; margin: 0 0 14px; flex-wrap: wrap; }
+.cierre-pasos li { flex: 1 1 160px; }
+.paso-btn { width: 100%; display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 2px solid var(--borde); border-radius: 12px; background: var(--superficie); color: var(--texto); font: inherit; font-weight: 600; cursor: pointer; }
+.paso-btn:disabled { opacity: .55; cursor: not-allowed; }
+.paso-btn.activo { border-color: var(--acento); }
+.paso-btn.hecho .paso-num { background: var(--acento); color: #fff; }
+.paso-num { display: inline-flex; width: 28px; height: 28px; border-radius: 50%; align-items: center; justify-content: center; background: var(--borde); font-weight: 700; flex: none; }
+.paso-num svg { width: 16px; height: 16px; }
+.tabla-denom { width: 100%; border-collapse: collapse; }
+.tabla-denom th, .tabla-denom td { padding: 4px 8px; border-bottom: 1px solid var(--borde); text-align: left; }
+.tabla-denom .num { text-align: right; }

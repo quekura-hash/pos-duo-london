@@ -23,7 +23,7 @@ export interface EfectivoDeVenta {
 
 /** Efectivo que la caja ha juntado por VENTAS en el día; el fondo inicial y las entradas de efectivo no cuentan. */
 export function efectivoDeVentaEnCaja(libro: MovimientoCaja[], tasa: number | null): EfectivoDeVenta {
-  const de = (moneda: 'MXN' | 'USD') => libro.filter((m) => m.moneda === moneda && m.tipo !== 'fondo_inicial' && m.tipo !== 'entrada').reduce((a, m) => a + m.monto, 0);
+  const de = (moneda: 'MXN' | 'USD') => libro.filter((m) => m.moneda === moneda && m.tipo !== 'fondo_inicial' && m.tipo !== 'entrada' && m.tipo !== 'ajuste').reduce((a, m) => a + m.monto, 0);
   const mxn = de('MXN');
   const usd = de('USD');
   const t = tasa ?? [...libro].reverse().find((m) => m.moneda === 'USD' && m.tasa)?.tasa ?? null; // sin tasa vigente, la de la última venta en dólares
