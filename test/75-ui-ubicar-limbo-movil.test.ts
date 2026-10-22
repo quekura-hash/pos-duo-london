@@ -87,4 +87,40 @@ describe('[iPhone] Inventario: seleccionar y ubicar piezas de El Limbo', { timeo
     await esperarTexto(page, '#inv-pag-info', /de 3\b/);
     assert.deepEqual(errores, []);
   });
+  it('UM2 el historial de ventas de Administración es una lista compacta (no tarjetas gigantes) y tocar una venta abre el detalle', async (t) => {
+    execFileSync(process.execPath, [join(RAIZ, 'scripts', 'construir-admin.mjs')], { stdio: 'pipe', env: { ...process.env, LONDUO_DIST: DIST, LONDUO_SUPABASE_URL: URL_CENTRAL, LONDUO_SUPABASE_KEY: 'sb_publishable_prueba' } });
+    const db = await centralLocal();
+    const edgardo = await usuario(db, 'edgardo@x.mx', 'supervisor');
+    for (let n = 1; n <= 6; n++) {
+      const linea = { linea_id: `l${n}`, item_id: 'x', item_no: '1', codigo: '1', descripcion: 'BLUSA', marca: 'TM', estilo: 'E', lote: '', departamento: 'DAMA', qty: 1, precio_unit: 10000 * n, descuento: 0, importe: 10000 * n };
+      const venta = { sale_id: `s${n}`, tienda: 'DUO', caja: 2, folio: n, cajero: 'Caja DUO-2', lineas: [linea], total: 10000 * n, pagos: [{ metodo: 'efectivo', monto: 10000 * n }], vendedora: 'Autocompra', vendedora_id: null };
+      await db.query(`insert into pos.ops (op_id, tipo, tienda, caja, origen, ocurrio_en, payload) values ($1, 'sale.confirmed', 'DUO', 2, 'caja:DUO/2', $2, $3::jsonb)`, [`sale:s${n}`, `2026-10-21T19:${10 + n}:00Z`, JSON.stringify(venta)]);
+    }
+    const browser = await chromium.launch({ executablePath: chromiumPath, args: ['--no-sandbox'] });
+    t.after(() => browser.close());
+    const ctx = await browser.newContext({ ...IPHONE, deviceScaleFactor: 2 });
+    await simularSupabase(ctx, db, { 'edgardo@x.mx': edgardo });
+    const page = await ctx.newPage();
+    await page.goto(`file://${HTML}`);
+    await page.waitForSelector('#puerta:not([hidden])');
+    await page.fill('#pu-correo', 'edgardo@x.mx'); await page.fill('#pu-clave', 'buena'); await page.click('#pu-entrar');
+    await page.waitForSelector('#puerta', { state: 'hidden' });
+    await page.waitForSelector('#nav button');
+    await page.click('#nav button[data-vista="historial"]');
+    await page.waitForSelector('#ha-filtros');
+    await page.fill('#ha-desde', '2026-10-21'); await page.fill('#ha-hasta', '2026-10-21');
+    await page.tap('#ha-filtros button[type="submit"]');
+    await page.waitForSelector('#lista-historial-admin .fila-inv');
+    assert.equal(await page.locator('#lista-historial-admin .fila-inv').count(), 6);
+    assert.equal(await page.locator('#tabla-historial-admin').isVisible(), false, 'en el teléfono no se usa la tabla de tarjetas');
+    const alto = await page.locator('#lista-historial-admin .fila-inv').first().boundingBox();
+    assert.ok(alto && alto.height < 100, `cada venta es una fila compacta (${alto?.height}px)`);
+    const visibles = await page.evaluate(() => [...document.querySelectorAll('#lista-historial-admin .fila-inv')].filter((e) => { const r = e.getBoundingClientRect(); return r.bottom <= window.innerHeight; }).length);
+    assert.ok(visibles >= 3, `caben varias ventas en la pantalla (${visibles})`);
+    assert.match((await page.textContent('#lista-historial-admin .fila-inv'))!, /000006[\s\S]*Caja 2[\s\S]*Efectivo/);
+    await page.tap('#lista-historial-admin .fila-inv');
+    await page.waitForSelector('#dlg-detalle-venta[open]');
+    assert.match((await page.textContent('#dv-titulo'))!, /Venta 000006/);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), true);
+  });
 });
