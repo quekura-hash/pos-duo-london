@@ -8,13 +8,13 @@ import { ErrorDominio } from '../errores.ts';
 import type { Impresora } from '../impresion.ts';
 import type { Caja } from '../nodos.ts';
 import { estadoPromo, type Promocion } from '../promociones.ts';
-import { CAMPOS_EDITABLES, catalogo, historialArticulo, nombresTienda, datosTiendas, departamentos as proyDepartamentos, devoluciones, type Devolucion, promocionesDe, recompensasDe, supervisoresDe, cajerosDe, administradoresDe, configSesionDe, permisos as proyPermisos, tarjetasRegalo, tiposDeCambio, tipoCambioVigente, ventas, type TipoCambio } from '../proyecciones.ts';
+import { CRITERIOS_EXPEDIENTE, expedientesDe, expedienteVacio, registradaEn, CAMPOS_EDITABLES, catalogo, historialArticulo, nombresTienda, datosTiendas, departamentos as proyDepartamentos, devoluciones, type Devolucion, promocionesDe, recompensasDe, supervisoresDe, cajerosDe, administradoresDe, configSesionDe, permisos as proyPermisos, tarjetasRegalo, tiposDeCambio, tipoCambioVigente, ventas, type TipoCambio } from '../proyecciones.ts';
 import { hojaAnalisis, hojaDetalleVentas, hojaResumenVentas, hojaDescuentos, hojaEntregas, hojaDolares, hojaInventario, leerInventario, PERFIL_CONFIRMADO, type Hoja } from '../inventario.ts';
 import { LOGOS_TICKET } from '../logos-ticket.ts';
 import { detalleDeVenta, validarDatosClienta, type DatosClienta } from '../detalle-venta.ts';
 import { aplicarDatosTienda, codigoTicket, construirTicket, construirTicketRegalo, formatoMXN, NEGOCIOS, renderTextoEscPos, renderTicketCancelacionTexto, renderTicketFirmaTexto, renderTicketDevolucionTexto, type ComprobanteClienta, renderTicketRetiroTexto, renderTicketEscPos, renderTicketTexto, type NegocioCfg } from '../ticket.ts';
 import type { ReglaRecompensa } from '../recompensas.ts';
-import { hashClave, nombreClave, type Perfil, type RolAdmin } from '../supervisores.ts';
+import { hashClave, nombreClave, supervisorPorClave, type Perfil, type RolAdmin } from '../supervisores.ts';
 import { LIMBO, type Actor, type Articulo, type Linea, type Op, type Venta } from '../tipos.ts';
 import { fechaLocal } from '../util.ts';
 
@@ -711,11 +711,13 @@ export class ServicioAdmin {
   private ultimaActividad = 0;
   private reloj: { now(): string };
   private fallos = new Map<string, { n: number; hasta: number }>();
+  /** Hasta cuándo está abierto el expediente privado de las trabajadoras (se cierra solo a los 3 minutos sin usarlo). */
+  private expedienteHasta = 0;
   private fuente: () => Op[];
   readonly cajas: { tienda: string; caja: number }[];
   private inv?: FuenteInventario;
   private central?: { fijarTipoCambio(tasa: number, usuario: string, versionBase: number, confirmarVariacion?: boolean): import('../nodos.ts').ResultadoTipoCambio; asignarPermiso(usuario: string, permiso: string, valor: boolean, por: string): Op; guardarDepto(c: import('../departamentos.ts').CambioDepto, por: string): { ok: true; op: Op } | { ok: false; error: import('../departamentos.ts').ErrorDepto };
-    guardarDatosTienda: import('../nodos.ts').Central['guardarDatosTienda']; editarArticulo: import('../nodos.ts').Central['editarArticulo']; guardarPromocion: import('../nodos.ts').Central['guardarPromocion']; guardarRecompensa: import('../nodos.ts').Central['guardarRecompensa']; guardarSupervisor: import('../nodos.ts').Central['guardarSupervisor']; guardarCajero: import('../nodos.ts').Central['guardarCajero']; guardarAdmin: import('../nodos.ts').Central['guardarAdmin']; guardarConfigSesion: import('../nodos.ts').Central['guardarConfigSesion']; recordarSacarAPiso: import('../nodos.ts').Central['recordarSacarAPiso']; resolverFaltante: import('../nodos.ts').Central['resolverFaltante']; contarLimbo: import('../nodos.ts').Central['contarLimbo']; reubicarLimbo: import('../nodos.ts').Central['reubicarLimbo']; fijarExistencias: import('../nodos.ts').Central['fijarExistencias']; corregirEntrada: import('../nodos.ts').Central['corregirEntrada']; altaLote: import('../nodos.ts').Central['altaLote']; importarVentasHistoricas: import('../nodos.ts').Central['importarVentasHistoricas']; entregar: import('../nodos.ts').Central['entregar'] };
+    guardarDatosTienda: import('../nodos.ts').Central['guardarDatosTienda']; editarArticulo: import('../nodos.ts').Central['editarArticulo']; guardarPromocion: import('../nodos.ts').Central['guardarPromocion']; guardarRecompensa: import('../nodos.ts').Central['guardarRecompensa']; guardarSupervisor: import('../nodos.ts').Central['guardarSupervisor']; guardarCajero: import('../nodos.ts').Central['guardarCajero']; guardarAdmin: import('../nodos.ts').Central['guardarAdmin']; guardarConfigSesion: import('../nodos.ts').Central['guardarConfigSesion']; recordarSacarAPiso: import('../nodos.ts').Central['recordarSacarAPiso']; resolverFaltante: import('../nodos.ts').Central['resolverFaltante']; contarLimbo: import('../nodos.ts').Central['contarLimbo']; reubicarLimbo: import('../nodos.ts').Central['reubicarLimbo']; fijarExistencias: import('../nodos.ts').Central['fijarExistencias']; guardarExpediente: import('../nodos.ts').Central['guardarExpediente']; corregirEntrada: import('../nodos.ts').Central['corregirEntrada']; altaLote: import('../nodos.ts').Central['altaLote']; importarVentasHistoricas: import('../nodos.ts').Central['importarVentasHistoricas']; entregar: import('../nodos.ts').Central['entregar'] };
   constructor(o: { actor: Extract<Actor, { rol: 'admin' }>; fuente: () => Op[]; cajas: { tienda: string; caja: number }[]; inventario?: FuenteInventario; central?: ServicioAdmin['central']; reloj?: { now(): string } }) {
     this.central = o.central;
     this.actor = o.actor;
@@ -1092,6 +1094,7 @@ export class ServicioAdmin {
   }
   cerrarSesion() {
     const estaba = this.autenticado;
+    this.expedienteHasta = 0; // el expediente privado vuelve a quedar bajo llave
     this.autenticado = false;
     this.actor.usuario = this.usuarioInicial;
     this.rolUsuario = null;
@@ -1122,13 +1125,56 @@ export class ServicioAdmin {
     return this.administradores();
   }
   cajeros() {
-    return { cajeros: cajerosDe(this.fuente()).map(({ id, nombre, activo, perfil }) => ({ id, nombre, activo, perfil: perfil ?? null })) };
+    return { cajeros: cajerosDe(this.fuente()).map(({ id, nombre, activo, perfil, tienda }) => ({ id, nombre, activo, perfil: perfil ?? null, tienda: tienda ?? '' })) };
   }
-  guardarCajero(d: { id?: string; nombre?: string; clave?: string; activo?: boolean; perfil?: Partial<Perfil> }) {
+  guardarCajero(d: { id?: string; nombre?: string; clave?: string; activo?: boolean; perfil?: Partial<Perfil>; tienda?: string }) {
     if (!this.central) throw new ErrorDominio('SIN_CENTRAL', 'esta sesión no tiene acceso al servicio central');
     const r = this.central.guardarCajero(d, this.actor.usuario);
     if (!r.ok) throw new ErrorDominio(r.error.codigo === 'NO_EXISTE' ? 'NO_ENCONTRADO' : 'CAJERO_INVALIDO', r.error.mensaje, { motivo: r.error.codigo });
     return this.cajeros();
+  }
+  // ── Expediente PRIVADO de las trabajadoras: oculto aunque la sesión sea de administrador; se abre con la clave de un supervisor (la de caja/descuentos) ──
+  private exigirExpediente() {
+    if (this.rol() !== 'supervisor') throw new ErrorDominio('PROHIBIDO', 'solo un supervisor ve el expediente');
+    if (this.ahoraMs() > this.expedienteHasta) throw new ErrorDominio('EXPEDIENTE_BLOQUEADO', 'el expediente está bloqueado: teclee su clave de supervisor');
+    this.expedienteHasta = this.ahoraMs() + 3 * 60_000;
+  }
+  /** Abre el expediente 3 minutos (se renueva con cada uso). 5 claves equivocadas seguidas lo bloquean 5 minutos. */
+  desbloquearExpediente(clave: string) {
+    if (this.rol() !== 'supervisor') throw new ErrorDominio('PROHIBIDO', 'solo un supervisor ve el expediente');
+    const f = this.fallos.get('expediente') ?? { n: 0, hasta: 0 };
+    const ahora = this.ahoraMs();
+    if (f.hasta > ahora) throw new ErrorDominio('CLAVE_BLOQUEADA', `demasiados intentos con una clave equivocada: espere ${Math.ceil((f.hasta - ahora) / 60000)} minuto(s)`);
+    const sups = supervisoresDe(this.fuente());
+    if (!sups.some((x) => x.activo)) throw new ErrorDominio('SIN_CLAVE_SUPERVISOR', 'todavía no hay una clave de supervisor: cree una en Promociones › Supervisores');
+    if (!supervisorPorClave(sups, String(clave ?? ''))) {
+      const n = f.n + 1;
+      this.fallos.set('expediente', n >= 5 ? { n: 0, hasta: ahora + 5 * 60_000 } : { n, hasta: 0 });
+      throw new ErrorDominio('CLAVE_INVALIDA', 'la clave de supervisor no es correcta');
+    }
+    this.fallos.delete('expediente');
+    this.expedienteHasta = ahora + 3 * 60_000;
+    return { abierto: true, minutos: 3 };
+  }
+  bloquearExpediente() {
+    this.expedienteHasta = 0;
+    return { abierto: false };
+  }
+  /** Expediente de una trabajadora (con el candado abierto): fechas, recontratable, calificaciones y notas, más su fecha de registro en el sistema. */
+  expedienteDe(cajeroId: string) {
+    this.exigirExpediente();
+    const ops = this.fuente();
+    const c = cajerosDe(ops).find((x) => x.id === cajeroId);
+    if (!c) throw new ErrorDominio('NO_ENCONTRADO', 'la trabajadora no existe');
+    const e = expedientesDe(ops).get(cajeroId) ?? expedienteVacio(cajeroId);
+    const notas = CRITERIOS_EXPEDIENTE.map((k) => e.calificaciones[k]).filter((x): x is number => x !== null);
+    return { cajero: { id: c.id, nombre: c.nombre, activo: c.activo, tienda: c.tienda ?? '' }, expediente: e, registrada_en: registradaEn(ops, cajeroId), promedio: notas.length ? Math.round((notas.reduce((a, b) => a + b, 0) / notas.length) * 10) / 10 : null };
+  }
+  guardarExpediente(d: { cajero_id: string; fecha_alta?: string | null; fecha_baja?: string | null; recontratable?: boolean | null; notas?: string; calificaciones?: Partial<Record<string, number | null>> }) {
+    this.exigirExpediente();
+    if (!this.central) throw new ErrorDominio('SIN_CENTRAL', 'esta sesión no tiene acceso al servicio central');
+    this.central.guardarExpediente(d, this.actor.usuario);
+    return this.expedienteDe(d.cajero_id);
   }
   supervisores() {
     return { supervisores: supervisoresDe(this.fuente()).map(({ id, nombre, activo }) => ({ id, nombre, activo })) };

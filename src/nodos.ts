@@ -11,6 +11,7 @@ import { DENOMINACIONES_USD, esImporteEnBilletesUsd, superaUmbralTasa, totalDeno
 import { TASA_SIN_VERIFICAR_OMISION, type Politicas } from './politicas.ts';
 import { Indice } from './indice.ts';
 import { localizarVentas } from './consultas.ts';
+import { CRITERIOS_EXPEDIENTE, expedientesDe, expedienteVacio, type Expediente } from './proyecciones.ts';
 import { CAMPOS_EDITABLES, CAMPOS_TIENDA, type CampoEditable, departamentos, promocionesDe, recompensasDe, supervisoresDe, cajerosDe, administradoresDe, efectivoDeVenta, movimientosCaja, tipoCambioVigente, catalogo, devoluciones, devueltoPorLinea, existenciaVerificada, intentos, perdidasDocumentales, stock, ventas, type Devolucion, type ExistenciaVerificada, type Intento, type PerdidaDocumental, type TarjetaRegalo, type TipoCambio } from './proyecciones.ts';
 import type { Repo } from './repo.ts';
 import { validarOpEntrante } from './reglas.ts';
@@ -97,9 +98,9 @@ interface Reserva {
 const esMovimientoLimbo = (op: Op) => op.tipo === 'inv.movement' && op.payload.tienda === LIMBO;
 /** Corrección de existencias hecha por el propietario en Administración: la tienda y sus cajas deben enterarse (no pasa por la confirmación de recepción). */
 const esAjusteAdmin = (op: Op) => (op.tipo === 'inv.movement' && op.payload.tipo === 'ajuste_admin') || (op.tipo === 'inv.conteo' && op.payload.admin === true);
-const BROADCAST_TIENDA = new Set(['alm.recibida', 'inv.movement', 'inv.conteo', 'inv.verificacion_pendiente', 'doc.perdida_posible', 'item.created', 'item.item_no_assigned', 'giftcard.emitida', 'giftcard.recarga', 'giftcard.uso', 'giftcard.reintegro']);
+const BROADCAST_TIENDA = new Set(['cajero.ubicacion', 'alm.recibida', 'inv.movement', 'inv.conteo', 'inv.verificacion_pendiente', 'doc.perdida_posible', 'item.created', 'item.item_no_assigned', 'giftcard.emitida', 'giftcard.recarga', 'giftcard.uso', 'giftcard.reintegro']);
 // Lo que el central baja a hubs y cajas (catálogo y resoluciones administrativas).
-const CATALOGO = new Set(['item.created', 'item.item_no_assigned', 'item.codigo_corregido', 'doc.perdida_resuelta', 'giftcard.emitida', 'giftcard.recarga', 'giftcard.uso', 'giftcard.reintegro', 'config.tipo_cambio', 'permiso.asignado', 'depto.alta', 'depto.editado', 'alm.entrega', 'alm.faltante', 'promo.guardada', 'recompensa.guardada', 'supervisor.guardado', 'cajero.guardado', 'config.sesion', 'config.negocio', 'item.editado']);
+const CATALOGO = new Set(['cajero.ubicacion', 'item.created', 'item.item_no_assigned', 'item.codigo_corregido', 'doc.perdida_resuelta', 'giftcard.emitida', 'giftcard.recarga', 'giftcard.uso', 'giftcard.reintegro', 'config.tipo_cambio', 'permiso.asignado', 'depto.alta', 'depto.editado', 'alm.entrega', 'alm.faltante', 'promo.guardada', 'recompensa.guardada', 'supervisor.guardado', 'cajero.guardado', 'config.sesion', 'config.negocio', 'item.editado']);
 
 /** Lo que llega del central (Supabase) y debe repartirse al hub de esa tienda: catálogo y configuración, El Limbo y lo de inventario/almacén/tarjetas de la tienda. */
 export function relevanteParaHub(op: Op, tienda: string): boolean {
@@ -301,7 +302,7 @@ export class Central {
       if (op.tipo.startsWith('giftcard.') && (this.ctx.politicas.P23_tarjeta_regalo_entre_tiendas ?? 'solo_tienda_emisora') === 'compartida') {
         for (const t of this.ctx.tiendas) if (`hub:${t}` !== desde) this.repo.encolar(op.op_id, `hub:${t}`);
       }
-      if (esMovimientoLimbo(op)) for (const t of this.ctx.tiendas) if (`hub:${t}` !== desde) this.repo.encolar(op.op_id, `hub:${t}`);
+      if (esMovimientoLimbo(op) || op.tipo === 'cajero.ubicacion') for (const t of this.ctx.tiendas) if (`hub:${t}` !== desde) this.repo.encolar(op.op_id, `hub:${t}`);
       if (op.tipo === 'item.created') {
         if (this.ctx.catalogoCompartido) for (const t of this.ctx.tiendas) if (`hub:${t}` !== desde) this.repo.encolar(op.op_id, `hub:${t}`);
         if (this.ctx.politicas.P07_item_no === 'a_central' && op.payload.item_no == null) {
@@ -457,7 +458,7 @@ export class Central {
   }
 
   /** Alta o edición de un cajero con clave propia (4 a 8 dígitos). El nombre es el del usuario de la caja y no se repite. */
-  guardarCajero(d: { id?: string; nombre?: string; clave?: string; activo?: boolean; perfil?: Partial<Perfil> }, por: string): { ok: true; cajero: Omit<Cajero, 'sal' | 'hash'> } | { ok: false; error: { codigo: 'DATOS_INVALIDOS' | 'NOMBRE_REPETIDO' | 'NO_EXISTE'; mensaje: string } } {
+  guardarCajero(d: { id?: string; nombre?: string; clave?: string; activo?: boolean; perfil?: Partial<Perfil>; tienda?: string }, por: string): { ok: true; cajero: Omit<Cajero, 'sal' | 'hash'> } | { ok: false; error: { codigo: 'DATOS_INVALIDOS' | 'NOMBRE_REPETIDO' | 'NO_EXISTE'; mensaje: string } } {
     const lista = cajerosDe(this.repo.ops());
     const actual = d.id ? lista.find((c) => c.id === d.id) : undefined;
     if (d.id && !actual) return { ok: false, error: { codigo: 'NO_EXISTE', mensaje: 'la Vendedora-Cajera no existe' } };
@@ -472,8 +473,51 @@ export class Central {
     const id = actual?.id ?? `caj-${uuid().slice(0, 8)}`;
     const pf = mezclarPerfil(actual?.perfil, d.perfil);
     if (!pf.ok) return { ok: false, error: { codigo: 'DATOS_INVALIDOS', mensaje: pf.mensaje } };
-    this.emitirAdmin('cajero.guardado', { id, nombre, activo, sal, hash, ...(pf.perfil ? { perfil: pf.perfil } : {}), por });
-    return { ok: true, cajero: { id, nombre, activo, ...(pf.perfil ? { perfil: pf.perfil } : {}) } };
+    // Tienda donde trabaja: vacía = en todas. Si no se indica se conserva la de hoy (que ya incluye si inició sesión en otra tienda).
+    const tienda = d.tienda === undefined ? actual?.tienda : String(d.tienda).trim();
+    if (tienda && !this.ctx.tiendas.includes(tienda)) return { ok: false, error: { codigo: 'DATOS_INVALIDOS', mensaje: `la tienda «${tienda}» no existe` } };
+    this.emitirAdmin('cajero.guardado', { id, nombre, activo, sal, hash, ...(pf.perfil ? { perfil: pf.perfil } : {}), ...(tienda !== undefined ? { tienda } : {}), por });
+    // Inactividad: al desactivarla queda la fecha en su expediente (el registro se conserva); al reactivarla se quita.
+    if (actual && actual.activo !== activo) this.guardarExpediente({ cajero_id: id, fecha_baja: activo ? null : fechaLocal(this.ctx.reloj.now()) }, por);
+    return { ok: true, cajero: { id, nombre, activo, ...(pf.perfil ? { perfil: pf.perfil } : {}), ...(tienda !== undefined ? { tienda } : {}) } };
+  }
+
+  /**
+   * Expediente PRIVADO de una trabajadora: fecha de alta (la captura el propietario), fecha de inactividad, ¿recontratable?, calificaciones de 1 a 5 y notas.
+   * Lo no enviado se conserva; `null` o texto vacío lo borra. Solo vive en el central (no se reparte a tiendas ni cajas).
+   */
+  guardarExpediente(d: { cajero_id: string; fecha_alta?: string | null; fecha_baja?: string | null; recontratable?: boolean | null; notas?: string; calificaciones?: Partial<Record<string, number | null>> }, por: string): Expediente {
+    const ops = this.repo.ops();
+    if (!cajerosDe(ops).some((c) => c.id === d.cajero_id)) throw new ErrorDominio('NO_ENCONTRADO', 'la trabajadora no existe');
+    const actual = expedientesDe(ops).get(d.cajero_id) ?? expedienteVacio(d.cajero_id);
+    const fecha = (v: unknown, rotulo: string): string | null => {
+      if (v === null || v === '') return null;
+      if (typeof v !== 'string' || !fechaValida(v)) throw new ErrorDominio('FECHA_INVALIDA', `${rotulo}: la fecha debe ser un día válido (AAAA-MM-DD)`);
+      return v;
+    };
+    const nuevo: Expediente = { ...actual, calificaciones: { ...actual.calificaciones }, por };
+    if (d.fecha_alta !== undefined) nuevo.fecha_alta = fecha(d.fecha_alta, 'Fecha de alta');
+    if (d.fecha_baja !== undefined) nuevo.fecha_baja = fecha(d.fecha_baja, 'Fecha de inactividad');
+    if (nuevo.fecha_alta && nuevo.fecha_baja && nuevo.fecha_baja < nuevo.fecha_alta) throw new ErrorDominio('FECHA_INVALIDA', 'la fecha de inactividad no puede ser anterior a la de alta');
+    if (d.recontratable !== undefined) {
+      if (d.recontratable !== null && typeof d.recontratable !== 'boolean') throw new ErrorDominio('DATOS_INVALIDOS', 'recontratable es sí, no o sin definir');
+      nuevo.recontratable = d.recontratable;
+    }
+    if (d.notas !== undefined) {
+      const n = String(d.notas).replace(/\r/g, '').trim();
+      if (n.length > 4000) throw new ErrorDominio('DATOS_INVALIDOS', 'las notas admiten hasta 4,000 caracteres');
+      nuevo.notas = n;
+    }
+    for (const [k, v] of Object.entries(d.calificaciones ?? {})) {
+      if (!(CRITERIOS_EXPEDIENTE as readonly string[]).includes(k)) throw new ErrorDominio('DATOS_INVALIDOS', `criterio desconocido: ${k}`);
+      if (v !== null && (!Number.isInteger(v) || (v as number) < 1 || (v as number) > 5)) throw new ErrorDominio('DATOS_INVALIDOS', 'las calificaciones van de 1 a 5');
+      nuevo.calificaciones[k as keyof Expediente['calificaciones']] = v as number | null;
+    }
+    const { actualizado_en: _omitido, ...payload } = nuevo;
+    void _omitido;
+    // Se guarda la foto completa del expediente en cada cambio (la última manda); no lleva `tienda`, por eso las cajas nunca la reciben.
+    const op = this.emitirUna('trabajadora.expediente', payload, `trabajadora.expediente:${uuid()}`, false)!;
+    return { ...nuevo, actualizado_en: op.ocurrio_en };
   }
 
   /**
@@ -1141,7 +1185,10 @@ export class Caja {
   }
   /** Inicio de sesión de un cajero (mismo control de claves equivocadas que el alta de artículos). Devuelve el nombre registrado. */
   iniciarSesionCajero(usuario: string, clave: string): string {
-    return this.verificarClaveCajero(usuario, clave).nombre;
+    const c = this.verificarClaveCajero(usuario, clave);
+    // Quien inicia sesión en esta tienda pasa a trabajar aquí: «vendió por» la muestra en esta tienda y deja de mostrarla en la otra.
+    if ((c.tienda ?? '') !== this.tienda) this.emitir('cajero.ubicacion', { cajero_id: c.id, tienda: this.tienda, caja: this.caja });
+    return c.nombre;
   }
   cajeroActivo(usuario: string): boolean {
     return this.idx.cajeros().some((c) => c.activo && nombreClave(c.nombre) === nombreClave(usuario));
@@ -2167,7 +2214,7 @@ export class Caja {
   // ── «Vendió por»: la vendedora que atendió la venta (sin clave) ──
   /** Quién puede figurar como vendedora: las Vendedoras-Cajeras y los supervisores activos. */
   vendedoras(): { id: string; alias: string; tipo: 'cajero' | 'supervisor' }[] {
-    return [...this.idx.cajeros().filter((c) => c.activo).map((c) => ({ id: c.id, alias: c.nombre, tipo: 'cajero' as const })), ...this.idx.supervisores().filter((s) => s.activo).map((s) => ({ id: s.id, alias: s.nombre, tipo: 'supervisor' as const }))]
+    return [...this.idx.cajeros().filter((c) => c.activo && (!c.tienda || c.tienda === this.tienda)).map((c) => ({ id: c.id, alias: c.nombre, tipo: 'cajero' as const })), ...this.idx.supervisores().filter((s) => s.activo).map((s) => ({ id: s.id, alias: s.nombre, tipo: 'supervisor' as const }))]
       .sort((a, b) => a.alias.localeCompare(b.alias, 'es'));
   }
   /** `null` = «Autocompra» (nadie ayudó a la clienta). */

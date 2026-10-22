@@ -46,7 +46,11 @@ export const hashClave = (sal: string, clave: string) => sha256(`${sal}:${clave}
 export const claveValida = (c: unknown): c is string => typeof c === 'string' && /^\d{4,8}$/.test(c);
 
 /** Cajero con clave propia: confirma operaciones a su nombre (p. ej. dar de alta un artículo en la caja). La clave se guarda con sal y hash, como la de los supervisores. */
-export interface Cajero { id: string; nombre: string; activo: boolean; sal: string; hash: string; perfil?: Perfil }
+export interface Cajero {
+  id: string; nombre: string; activo: boolean; sal: string; hash: string; perfil?: Perfil;
+  /** Tienda donde trabaja hoy («vendió por» solo la muestra ahí). Vacío o ausente = en todas. Cambia sola cuando inicia sesión en otra tienda (`cajero.ubicacion`). */
+  tienda?: string;
+}
 /**
  * Registro de la persona. El `nombre` del usuario (cajero, supervisor o almacenista) es su ALIAS: lo que se elige al iniciar sesión, sale en el ticket
  * y en los reportes. Aquí van los datos completos; `foto` es una imagen pequeña (data URL) tomada con la cámara de la PC.

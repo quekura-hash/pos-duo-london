@@ -360,8 +360,43 @@ export function administradoresDe(ops: Op[]): import('./supervisores.ts').Admini
 }
 export function cajerosDe(ops: Op[]): import('./supervisores.ts').Cajero[] {
   const m = new Map<string, import('./supervisores.ts').Cajero>();
-  for (const o of ops) if (o.tipo === 'cajero.guardado') m.set(o.payload.id, o.payload);
-  return [...m.values()];
+  const tienda = new Map<string, { tienda: string; en: string }>();
+  for (const o of ops) {
+    if (o.tipo === 'cajero.guardado') { m.set(o.payload.id, o.payload); if (typeof o.payload.tienda === 'string') tienda.set(o.payload.id, { tienda: o.payload.tienda, en: o.ocurrio_en }); }
+    else if (o.tipo === 'cajero.ubicacion' && typeof o.payload.tienda === 'string') { const p = tienda.get(o.payload.cajero_id); if (!p || p.en <= o.ocurrio_en) tienda.set(o.payload.cajero_id, { tienda: o.payload.tienda, en: o.ocurrio_en }); }
+  }
+  return [...m.values()].map((c) => { const t = tienda.get(c.id)?.tienda; return t === undefined ? c : { ...c, tienda: t }; });
+}
+
+/**
+ * Expediente PRIVADO de una trabajadora (solo Administración, y solo con la clave de un supervisor): fechas, recontratable, calificaciones y notas.
+ * Vive en operaciones `trabajadora.expediente` que no se reparten a las tiendas ni a las cajas; la última de cada trabajadora manda.
+ */
+export const CRITERIOS_EXPEDIENTE = ['puntualidad', 'presentacion', 'inasistencias', 'facilidad_palabra', 'vendedora', 'humildad'] as const;
+export type CriterioExpediente = (typeof CRITERIOS_EXPEDIENTE)[number];
+export interface Expediente {
+  cajero_id: string;
+  /** Día en que empezó a trabajar (lo captura el propietario; puede ser anterior al registro en el sistema). */
+  fecha_alta: string | null;
+  /** Día en que dejó de trabajar (inactividad). Se conserva el registro. */
+  fecha_baja: string | null;
+  recontratable: boolean | null;
+  notas: string;
+  /** 1 (muy mal) a 5 (excelente) en cada criterio; null = sin calificar. En «inasistencias» 5 = nunca falta. */
+  calificaciones: Record<CriterioExpediente, number | null>;
+  actualizado_en: string;
+  por: string;
+}
+export const expedienteVacio = (cajeroId: string): Expediente => ({ cajero_id: cajeroId, fecha_alta: null, fecha_baja: null, recontratable: null, notas: '', calificaciones: { puntualidad: null, presentacion: null, inasistencias: null, facilidad_palabra: null, vendedora: null, humildad: null }, actualizado_en: '', por: '' });
+export function expedientesDe(ops: Op[]): Map<string, Expediente> {
+  const m = new Map<string, Expediente>();
+  for (const o of ops) if (o.tipo === 'trabajadora.expediente') m.set(o.payload.cajero_id, { ...expedienteVacio(o.payload.cajero_id), ...o.payload, actualizado_en: o.ocurrio_en });
+  return m;
+}
+/** Cuándo se dio de alta en el sistema (primer registro de la trabajadora). */
+export function registradaEn(ops: Op[], cajeroId: string): string | null {
+  for (const o of ops) if (o.tipo === 'cajero.guardado' && o.payload.id === cajeroId) return o.ocurrio_en;
+  return null;
 }
 export function supervisoresDe(ops: Op[]): import('./supervisores.ts').Supervisor[] {
   const m = new Map<string, import('./supervisores.ts').Supervisor>();

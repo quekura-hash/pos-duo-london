@@ -46,6 +46,8 @@ export class Indice {
   private recompensasMap = new Map<string, ReglaRecompensa>();
   private supervisoresMap = new Map<string, Supervisor>();
   private cajerosMap = new Map<string, Cajero>();
+  /** Última vez que cada cajera quedó asignada a una tienda (por Administración o por iniciar sesión en ella): gana la más reciente. */
+  private tiendaDeCajero = new Map<string, { tienda: string; en: string }>();
   private cfgSesion: ConfigSesion = { ...CONFIG_SESION_INICIAL };
   private datosTienda = new Map<string, DatosTienda>();
 
@@ -56,7 +58,7 @@ export class Indice {
   private reiniciar() {
     this.seq = 0;
     this.cat = new Map(); this.porCodigo = new Map(); this.porAlterno = new Map(); this.porClave = new Map(); this.porItemNo = new Map(); this.texto = new Map();
-    this.stock = new Map(); this.enLimbo = new Set(); this.faltantesTienda = new Map(); this.marcas = new Map(); this.cubiertas = new Map(); this.perdidas = new Map(); this.tarjetas = new Map(); this.tipos = new Map(); this.permisos = new Map(); this.deptos = copiarBase(); this.promos = new Map(); this.recompensasMap = new Map(); this.supervisoresMap = new Map(); this.cajerosMap = new Map(); this.cfgSesion = { ...CONFIG_SESION_INICIAL }; this.datosTienda = new Map();
+    this.stock = new Map(); this.enLimbo = new Set(); this.faltantesTienda = new Map(); this.marcas = new Map(); this.cubiertas = new Map(); this.perdidas = new Map(); this.tarjetas = new Map(); this.tipos = new Map(); this.permisos = new Map(); this.deptos = copiarBase(); this.promos = new Map(); this.recompensasMap = new Map(); this.supervisoresMap = new Map(); this.cajerosMap = new Map(); this.tiendaDeCajero = new Map(); this.cfgSesion = { ...CONFIG_SESION_INICIAL }; this.datosTienda = new Map();
   }
 
   actualizar() {
@@ -95,7 +97,14 @@ export class Indice {
     if (o.tipo === 'config.negocio') { const x = this.datosTienda.get(p.tienda) ?? {}; for (const c of CAMPOS_TIENDA) if (typeof p[c] === 'string') x[c] = p[c]; this.datosTienda.set(p.tienda, x); }
     if (o.tipo === 'supervisor.guardado') this.supervisoresMap.set(p.id, p as Supervisor);
     if (o.tipo === 'config.sesion') this.cfgSesion = { caja_min: p.caja_min, admin_min: p.admin_min };
-    if (o.tipo === 'cajero.guardado') this.cajerosMap.set(p.id, p as Cajero);
+    if (o.tipo === 'cajero.guardado') {
+      this.cajerosMap.set(p.id, p as Cajero);
+      if (typeof p.tienda === 'string') this.tiendaDeCajero.set(p.id, { tienda: p.tienda, en: o.ocurrio_en });
+    }
+    if (o.tipo === 'cajero.ubicacion' && typeof p.tienda === 'string') {
+      const previa = this.tiendaDeCajero.get(p.cajero_id);
+      if (!previa || previa.en <= o.ocurrio_en) this.tiendaDeCajero.set(p.cajero_id, { tienda: p.tienda, en: o.ocurrio_en });
+    }
     if (o.tipo.startsWith('depto.')) {
       const cambio = aplicarOpDepto(this.deptos, o);
       if (cambio) for (const a of this.cat.values()) if (a.departamento === cambio.de) { a.departamento = cambio.a; this.texto.set(a.item_id, this.textoDe(a)); }
@@ -295,7 +304,7 @@ export class Indice {
   }
   cajeros(): Cajero[] {
     this.actualizar();
-    return [...this.cajerosMap.values()];
+    return [...this.cajerosMap.values()].map((c) => { const t = this.tiendaDeCajero.get(c.id)?.tienda; return t === undefined ? c : { ...c, tienda: t }; });
   }
   supervisores(): Supervisor[] {
     this.actualizar();

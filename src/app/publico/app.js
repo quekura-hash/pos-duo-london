@@ -57,6 +57,7 @@ const I = {
   camera: '<path d="M4 8h3l1.5-2h7L17 8h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13" r="3.5"/>',
   calc: '<rect x="5" y="3" width="14" height="18" rx="2"/><path d="M8 7h8M8 12h.01M12 12h.01M16 12h.01M8 16h.01M12 16h.01M16 16h.01"/>',
   user: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
+  lock: '<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
   calendar: '<rect x="3.5" y="5" width="17" height="15" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4"/>',
   cash: '<rect x="2.5" y="6" width="19" height="12" rx="2"/><circle cx="12" cy="12" r="2.6"/><path d="M6 12h.01M18 12h.01"/>',
   mixto: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M12 4v16M3 12h9"/>',
@@ -3163,6 +3164,72 @@ function tomarFoto() {
     }).catch((e) => { m.className = 'mensaje aviso'; m.textContent = `No se pudo usar la cámara (${e?.name === 'NotAllowedError' ? 'sin permiso' : 'no hay cámara'}). Elija un archivo.`; });
   });
 }
+const NOM_TIENDA_TRAB = { '': 'Sin asignar', DUO: 'DÚO', LON: 'London' };
+const CRITERIOS_EXP = [['puntualidad', 'Puntualidad'], ['presentacion', 'Presentación'], ['inasistencias', 'Inasistencias', '5 = nunca falta'], ['facilidad_palabra', 'Facilidad de palabra'], ['vendedora', 'Vendedora'], ['humildad', 'Humildad']];
+/**
+ * Expediente PRIVADO de una trabajadora (fecha de alta, inactividad, ¿recontratable?, calificaciones y notas). Está oculto aunque la sesión sea de administrador:
+ * se abre con la clave de un supervisor y se vuelve a cerrar solo (al salir de esta ventana o a los 3 minutos). Es un candado de pantalla, no un cifrado.
+ */
+function abrirExpediente(x, recargar) {
+  const d = dialogo('dlg-expediente');
+  d.setAttribute('aria-labelledby', 'exp-titulo');
+  const bloquear = () => api('/api/admin/expediente/bloquear', {}).catch(() => {});
+  const cerrar = () => { bloquear(); if (d.open) d.close(); };
+  d.addEventListener('close', () => { bloquear(); d.innerHTML = ''; }, { once: true }); // al salir se cierra el candado y no queda nada del expediente en la pantalla
+  const candado = (aviso) => {
+    d.innerHTML = `<h2 id="exp-titulo" style="margin-top:0">${ico('lock')} Expediente privado</h2>
+      <p class="nota" style="margin-top:0">${esc(x.nombre)} · Para ver o escribir su expediente teclee su <b>clave de supervisor</b>. Se cierra solo.</p>
+      <form id="form-exp-clave" autocomplete="off"><div class="campo"><label for="exp-clave">Clave de supervisor</label><input id="exp-clave" type="password" inputmode="numeric" autocomplete="off" placeholder="••••" style="width:100%;box-sizing:border-box;padding:10px;border:2px solid var(--borde);border-radius:10px;background:var(--superficie);font:inherit;font-size:20px"></div>
+        <div id="msg-exp" class="mensaje ${aviso ? 'aviso' : ''}" role="alert">${esc(aviso ?? '')}</div>
+        <div class="filas"><button class="btn" type="button" id="exp-cancelar">Cancelar</button><button class="btn btn-primario" type="submit" style="width:auto;flex:1">${ico('lock')}<span>Abrir expediente</span></button></div></form>`;
+    $('#exp-cancelar').addEventListener('click', cerrar);
+    $('#form-exp-clave').addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const m = $('#msg-exp');
+      try { await api('/api/admin/expediente/desbloquear', { clave: $('#exp-clave').value }); await formulario(); }
+      catch (e) { m.className = 'mensaje error'; m.textContent = e.message; $('#exp-clave').value = ''; }
+    });
+    $('#exp-clave').focus();
+  };
+  const formulario = async () => {
+    let j;
+    try { j = await api(`/api/admin/expediente?cajero_id=${encodeURIComponent(x.id)}`); }
+    catch (e) { if (/bloqueado/i.test(e.message)) return candado('El expediente se cerró: teclee la clave otra vez.'); throw e; }
+    const e = j.expediente;
+    const fReg = j.registrada_en ? fechaHora(j.registrada_en).slice(0, 10) : '—';
+    const estilo = 'padding:8px;border:2px solid var(--borde);border-radius:10px;background:var(--superficie);font:inherit';
+    d.innerHTML = `<h2 id="exp-titulo" style="margin-top:0">${ico('lock')} Expediente de ${esc(x.nombre)}</h2>
+      <p class="nota" style="margin-top:0">Privado: solo supervisores con clave. ${j.cajero.activo ? '<b>Activa</b>' : '<b>Inactiva</b> (el registro se conserva)'}.</p>
+      <form id="form-exp" autocomplete="off">
+        <div class="exp-fechas"><div class="campo"><label for="exp-alta">Fecha de alta (cuándo empezó a trabajar)</label><input id="exp-alta" type="date" value="${esc(e.fecha_alta ?? '')}" style="${estilo}"></div>
+          <div class="campo"><label>Registrada en el sistema</label><div id="exp-registro" style="padding:8px 0">${esc(fReg)}</div></div>
+          <div class="campo"><label for="exp-baja">Fecha de inactividad</label><input id="exp-baja" type="date" value="${esc(e.fecha_baja ?? '')}" style="${estilo}"></div></div>
+        <fieldset class="ru-opciones"><legend>¿Recontratable?</legend>
+          <label><input type="radio" name="exp-rec" value="si" ${e.recontratable === true ? 'checked' : ''}> Sí</label><label><input type="radio" name="exp-rec" value="no" ${e.recontratable === false ? 'checked' : ''}> No</label><label><input type="radio" name="exp-rec" value="" ${e.recontratable === null ? 'checked' : ''}> Sin definir</label></fieldset>
+        <fieldset class="ru-opciones exp-notas-fs"><legend>Calificaciones (1 a 5) <small id="exp-prom"></small></legend>
+          ${CRITERIOS_EXP.map(([k, t, ayuda]) => `<div class="exp-crit" data-crit="${k}"><span class="exp-crit-t">${esc(t)}${ayuda ? ` <small>(${esc(ayuda)})</small>` : ''}</span><span class="exp-crit-b" role="radiogroup" aria-label="${esc(t)}">${[1, 2, 3, 4, 5].map((n) => `<button type="button" class="exp-n ${e.calificaciones[k] === n ? 'on' : ''}" data-n="${n}" role="radio" aria-checked="${e.calificaciones[k] === n}">${n}</button>`).join('')}<button type="button" class="exp-n exp-sin ${e.calificaciones[k] === null ? 'on' : ''}" data-n="" role="radio" aria-checked="${e.calificaciones[k] === null}" title="Sin calificar">—</button></span></div>`).join('')}</fieldset>
+        <div class="campo"><label for="exp-notas">Anotaciones</label><textarea id="exp-notas" rows="5" maxlength="4000" placeholder="Ej.: Buena vendedora, faltaba mucho…" style="width:100%;box-sizing:border-box;${estilo};resize:vertical"></textarea></div>
+        <div id="msg-exp" class="mensaje" role="status" aria-live="polite"></div>
+        <div class="filas"><button class="btn" type="button" id="exp-cerrar">${ico('lock')}<span>Bloquear y cerrar</span></button><button class="btn btn-primario" type="submit" id="exp-guardar" style="width:auto;flex:1">${ico('check')}<span>Guardar expediente</span></button></div></form>`;
+    $('#exp-notas').value = e.notas ?? '';
+    const valores = () => Object.fromEntries(CRITERIOS_EXP.map(([k]) => { const on = d.querySelector(`[data-crit="${k}"] .exp-n.on`); return [k, on && on.dataset.n ? Number(on.dataset.n) : null]; }));
+    const promedio = () => { const v = Object.values(valores()).filter((n) => n !== null); $('#exp-prom').textContent = v.length ? `· promedio ${(Math.round((v.reduce((a, b) => a + b, 0) / v.length) * 10) / 10).toFixed(1)}` : ''; };
+    for (const b of d.querySelectorAll('.exp-n')) b.addEventListener('click', () => { for (const o of b.parentElement.querySelectorAll('.exp-n')) { o.classList.remove('on'); o.setAttribute('aria-checked', 'false'); } b.classList.add('on'); b.setAttribute('aria-checked', 'true'); promedio(); });
+    promedio();
+    $('#exp-cerrar').addEventListener('click', cerrar);
+    $('#form-exp').addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const m = $('#msg-exp'), rec = d.querySelector('input[name="exp-rec"]:checked').value;
+      try {
+        await api('/api/admin/expediente', { cajero_id: x.id, fecha_alta: $('#exp-alta').value || null, fecha_baja: $('#exp-baja').value || null, recontratable: rec === 'si' ? true : rec === 'no' ? false : null, notas: $('#exp-notas').value, calificaciones: valores() });
+        m.className = 'mensaje ok'; m.textContent = 'Expediente guardado.';
+        if (recargar) recargar();
+      } catch (er) { if (/bloqueado/i.test(er.message)) return candado('El expediente se cerró: teclee la clave otra vez.'); m.className = 'mensaje error'; m.textContent = er.message; }
+    });
+  };
+  candado();
+  d.showModal();
+}
 /** Edita los datos de una persona ya registrada (alias, nombres, apellidos, teléfono, dirección y foto). */
 function abrirEditarEmpleado(tipo, x, recargar) {
   const d = dialogo('dlg-empleado');
@@ -3171,18 +3238,21 @@ function abrirEditarEmpleado(tipo, x, recargar) {
     <form id="form-empleado" autocomplete="off">
       <div class="campo"><label for="ed-alias">Usuario (alias)</label><input id="ed-alias" class="texto" maxlength="40"></div>
       ${perfilCampos('ed')}
+      ${tipo === 'cajero' ? `<div class="campo"><label for="ed-tienda">Tienda donde trabaja</label><select id="ed-tienda" style="width:100%;padding:10px;border:2px solid var(--borde);border-radius:10px;background:var(--superficie)">${Object.entries(NOM_TIENDA_TRAB).map(([k, t]) => `<option value="${k}" ${(x.tienda ?? '') === k ? 'selected' : ''}>${t}${k === '' ? ' (aparece en las dos hasta que inicie sesión)' : ''}</option>`).join('')}</select><p class="nota" style="margin:4px 0 0">«Vendió por» solo la muestra en su tienda. Si inicia sesión en la otra tienda, pasa sola a esa.</p></div>
+      <button class="btn" type="button" id="emp-expediente" style="margin-bottom:8px">${ico('lock')}<span>Expediente privado</span></button>` : ''}
       <div id="msg-emp" class="mensaje" role="alert"></div>
       <div class="filas"><button class="btn" type="button" id="emp-cerrar">Cancelar</button><button class="btn btn-primario" type="submit" id="emp-guardar" style="width:auto;flex:1">${ico('check')}<span>Guardar datos</span></button></div></form>`;
   $('#ed-alias').value = x.nombre;
   const f = perfilEnlazar('ed', x.perfil ?? undefined);
   $('#emp-cerrar').addEventListener('click', () => d.close());
+  if ($('#emp-expediente')) $('#emp-expediente').addEventListener('click', () => { d.close(); abrirExpediente(x, recargar); });
   $('#form-empleado').addEventListener('submit', async (ev) => {
     ev.preventDefault();
     const m = $('#msg-emp');
     if (!$('#ed-alias').value.trim()) { m.className = 'mensaje error'; m.textContent = 'Escriba el usuario (alias).'; return; }
     if (!f.completo()) { m.className = 'mensaje error'; m.textContent = 'Escriba los nombres y los apellidos.'; return; }
     try {
-      await api(tipo === 'admin' ? '/api/admin/administradores' : '/api/admin/cajeros', { id: x.id, ...($('#ed-alias').value.trim() !== x.nombre ? { nombre: $('#ed-alias').value } : {}), perfil: f.leer() });
+      await api(tipo === 'admin' ? '/api/admin/administradores' : '/api/admin/cajeros', { id: x.id, ...($('#ed-alias').value.trim() !== x.nombre ? { nombre: $('#ed-alias').value } : {}), perfil: f.leer(), ...(tipo === 'cajero' ? { tienda: $('#ed-tienda').value } : {}) });
       d.close();
       await recargar();
     } catch (e) { m.className = 'mensaje error'; m.textContent = e.message; }
@@ -3210,11 +3280,12 @@ async function vistaCajeros() {
     <h2>Vendedoras-Cajeras</h2>
     <p class="nota">Cada Vendedora-Cajera tiene su propia clave (4 a 8 dígitos) para confirmar operaciones a su nombre, como dar de alta un artículo en la caja. El <b>usuario (alias)</b> es con el que entra a la caja y el que sale en tickets y reportes; los nombres, apellidos, teléfono, dirección y foto son su registro. La clave no se puede volver a ver: si se olvida, se cambia.</p>
     <div id="msg-cajeros" class="mensaje" role="status" aria-live="polite"></div>
-    <div class="tabla-cont"><table id="tabla-cajeros"><thead><tr><th>Usuario y datos</th><th>Estado</th><th>Acciones</th><th>Nueva clave</th></tr></thead><tbody>
-    ${cajeros.map((x) => `<tr data-cajero="${esc(x.id)}" class="fila-usuario" tabindex="0" title="Clic para editar los datos de ${esc(x.nombre)}"><td>${celdaPersona(x)}</td><td>${x.activo ? 'Activo' : 'Desactivado'}</td>
+    <div class="tabla-cont"><table id="tabla-cajeros"><thead><tr><th>Usuario y datos</th><th>Tienda</th><th>Estado</th><th>Acciones</th><th>Nueva clave</th></tr></thead><tbody>
+    ${cajeros.map((x) => `<tr data-cajero="${esc(x.id)}" class="fila-usuario" tabindex="0" title="Clic para editar los datos de ${esc(x.nombre)}"><td>${celdaPersona(x)}</td><td data-col="tienda">${esc(NOM_TIENDA_TRAB[x.tienda ?? ''] ?? x.tienda)}</td><td>${x.activo ? 'Activo' : 'Desactivado'}</td>
       <td class="filas" style="flex-wrap:nowrap"><button class="btn c-editar" type="button">${ico('pencil')}<span>Editar datos</span></button><button class="btn c-activo" type="button">${x.activo ? 'Desactivar' : 'Activar'}</button></td>
-      <td class="filas" style="flex-wrap:nowrap"><input type="password" inputmode="numeric" class="c-clave" placeholder="dejar vacío = no cambiar" aria-label="Nueva clave de ${esc(x.nombre)}" style="padding:4px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie)"><button class="btn c-guardar" type="button">${ico('check')}<span>Cambiar clave</span></button></td></tr>`).join('') || '<tr><td colspan="4" class="vacio">Aún no hay Vendedoras-Cajeras con clave: sin ella nadie puede dar de alta artículos en la caja.</td></tr>'}</tbody></table></div>
-    <form id="form-cajero" class="filas" style="margin-top:12px;align-items:flex-end"><div class="campo"><label for="caj-nombre">Usuario (alias)</label><input id="caj-nombre" class="texto" maxlength="40"></div>${perfilCampos('caj')}<div class="campo"><label for="caj-clave">Clave</label><input id="caj-clave" type="password" inputmode="numeric" autocomplete="off"></div>
+      <td class="filas" style="flex-wrap:nowrap"><input type="password" inputmode="numeric" class="c-clave" placeholder="dejar vacío = no cambiar" aria-label="Nueva clave de ${esc(x.nombre)}" style="padding:4px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie)"><button class="btn c-guardar" type="button">${ico('check')}<span>Cambiar clave</span></button></td></tr>`).join('') || '<tr><td colspan="5" class="vacio">Aún no hay Vendedoras-Cajeras con clave: sin ella nadie puede dar de alta artículos en la caja.</td></tr>'}</tbody></table></div>
+    <form id="form-cajero" class="filas" style="margin-top:12px;align-items:flex-end"><div class="campo"><label for="caj-nombre">Usuario (alias)</label><input id="caj-nombre" class="texto" maxlength="40"></div>${perfilCampos('caj')} <div class="campo"><label for="caj-clave">Clave</label><input id="caj-clave" type="password" inputmode="numeric" autocomplete="off"></div>
+      <div class="campo"><label for="caj-tienda">Tienda donde trabaja</label><select id="caj-tienda" style="padding:10px;border:2px solid var(--borde);border-radius:10px;background:var(--superficie)">${Object.entries(NOM_TIENDA_TRAB).map(([k, t]) => `<option value="${k}">${t}</option>`).join('')}</select></div>
       <button class="btn btn-primario" id="btn-caj" type="submit" style="width:auto">${ico('plus')}<span>Agregar Vendedora-Cajera</span></button></form>
     <section class="panel" id="panel-inactividad" style="margin-top:16px"><h2 style="margin-top:0">Cierre de sesión por inactividad</h2>
       <p class="nota" style="margin-top:0">Si nadie toca la pantalla durante estos minutos, la sesión se cierra y hay que volver a entrar. Un minuto antes aparece un aviso con «Seguir trabajando». La venta con artículos queda en «Venta en espera». <b>0 = nunca se cierra.</b></p>
@@ -3263,7 +3334,7 @@ async function vistaCajeros() {
     ev.preventDefault();
     if (!perfilCaj.completo()) return msgC('Escriba los nombres y los apellidos.');
     const nombreAlta = $('#caj-nombre').value.trim();
-    try { await api('/api/admin/cajeros', { nombre: $('#caj-nombre').value, clave: $('#caj-clave').value, perfil: perfilCaj.leer() }); await vistaCajeros(); msgC(`Vendedora-Cajera «${nombreAlta}» guardada: ya aparece en la lista. Las cajas la reciben al sincronizar.`, 'ok'); } catch (e) { msgC(e.message); }
+    try { await api('/api/admin/cajeros', { nombre: $('#caj-nombre').value, clave: $('#caj-clave').value, perfil: perfilCaj.leer(), tienda: $('#caj-tienda').value }); await vistaCajeros(); msgC(`Vendedora-Cajera «${nombreAlta}» guardada: ya aparece en la lista. Las cajas la reciben al sincronizar.`, 'ok'); } catch (e) { msgC(e.message); }
   });
   for (const tr of $('#tabla-cajeros').querySelectorAll('tr[data-cajero]')) {
     const id = tr.dataset.cajero;

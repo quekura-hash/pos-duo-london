@@ -3,7 +3,7 @@ import { after } from 'node:test';
 import { PGlite } from '@electric-sql/pglite';
 import type { ClienteCentral, FilaCentral } from '../../src/transporte/puente-central.ts';
 
-const MIGRACIONES = ['0001_central.sql', '0002_actualizaciones.sql', '0003_cajas.sql', '0004_publicador.sql', '0005_notificaciones.sql', '0007_reporte_contadora.sql', '0008_reporte_reintentos.sql'].map((n) => new URL(`../../supabase/migrations/${n}`, import.meta.url));
+const MIGRACIONES = ['0001_central.sql', '0002_actualizaciones.sql', '0003_cajas.sql', '0004_publicador.sql', '0005_notificaciones.sql', '0007_reporte_contadora.sql', '0008_reporte_reintentos.sql', '0009_trabajadoras.sql'].map((n) => new URL(`../../supabase/migrations/${n}`, import.meta.url));
 
 const abiertas: PGlite[] = [];
 // PGlite deja un temporizador interno por instancia: se cierran todas al terminar para que el proceso de pruebas salga.

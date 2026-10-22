@@ -274,3 +274,11 @@ tr.fila-fallo td { background: color-mix(in srgb, #ef4444 12%, transparent); }
 .ru-opciones { border: 1px solid var(--borde); border-radius: 10px; margin: 0 0 10px; padding: 8px 12px; } .ru-opciones label { display: flex; gap: 8px; align-items: center; padding: 6px 0; }
 
 #inv-sel-modo { flex: none; width: auto; height: auto; align-self: center; }
+
+/* Expediente privado de las trabajadoras */
+.exp-fechas { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 8px 14px; }
+.exp-crit { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 10px; padding: 6px 0; border-bottom: 1px solid var(--borde); }
+.exp-crit:last-child { border-bottom: 0; } .exp-crit-t { font-weight: 600; } .exp-crit-t small { font-weight: 400; color: var(--texto-2); }
+.exp-crit-b { display: inline-flex; gap: 6px; }
+.exp-n { min-width: 42px; height: 42px; border: 2px solid var(--borde); border-radius: 10px; background: var(--superficie); color: inherit; font: inherit; font-size: 17px; font-weight: 700; cursor: pointer; }
+.exp-n.on { background: var(--acento); border-color: var(--acento); color: #fff; } .exp-n.exp-sin.on { background: var(--texto-2); border-color: var(--texto-2); }

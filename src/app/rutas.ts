@@ -139,7 +139,7 @@ export async function atender(o: { cajero?: ServicioCaja; admin?: ServicioAdmin 
       case 'GET /api/admin/promociones': return ok(exigirAdmin().promociones());
       case 'POST /api/admin/promociones': return ok(exigirAdmin().guardarPromocion(b as any));
       case 'GET /api/admin/cajeros': return ok(exigirAdmin().cajeros());
-      case 'POST /api/admin/cajeros': return ok(exigirAdmin().guardarCajero({ id: b.id, nombre: b.nombre, clave: b.clave === undefined ? undefined : String(b.clave), activo: b.activo === undefined ? undefined : !!b.activo, perfil: b.perfil }));
+      case 'POST /api/admin/cajeros': return ok(exigirAdmin().guardarCajero({ id: b.id, nombre: b.nombre, clave: b.clave === undefined ? undefined : String(b.clave), activo: b.activo === undefined ? undefined : !!b.activo, perfil: b.perfil, tienda: b.tienda === undefined ? undefined : String(b.tienda) }));
       case 'GET /api/admin/supervisores': return ok(exigirAdmin().supervisores());
       case 'POST /api/admin/supervisores': return ok(exigirAdmin().guardarSupervisor({ id: b.id, nombre: b.nombre, clave: b.clave === undefined ? undefined : String(b.clave), activo: b.activo === undefined ? undefined : !!b.activo }));
       case 'GET /api/admin/almacen': return ok(exigirAdmin().almacen());
@@ -162,6 +162,10 @@ export async function atender(o: { cajero?: ServicioCaja; admin?: ServicioAdmin 
       }));
       case 'GET /api/admin/limbo/buscar': return ok(exigirAdmin().buscarLimbo(q.get('codigo') ?? ''));
       case 'POST /api/admin/limbo/revisar': return ok(exigirAdmin().revisarConteoLimbo(Array.isArray(b.filas) ? b.filas : []));
+      case 'POST /api/admin/expediente/desbloquear': return ok(exigirAdmin().desbloquearExpediente(String(b.clave ?? '')));
+      case 'POST /api/admin/expediente/bloquear': return ok(exigirAdmin().bloquearExpediente());
+      case 'GET /api/admin/expediente': return ok(exigirAdmin().expedienteDe(q.get('cajero_id') ?? ''));
+      case 'POST /api/admin/expediente': return ok(exigirAdmin().guardarExpediente({ cajero_id: String(b.cajero_id ?? ''), fecha_alta: b.fecha_alta, fecha_baja: b.fecha_baja, recontratable: b.recontratable, notas: b.notas, calificaciones: b.calificaciones }));
       case 'GET /api/admin/existencias': return ok(exigirAdmin().existenciasArticulo(q.get('item_id') ?? ''));
       case 'POST /api/admin/existencias': return ok(exigirAdmin().fijarExistencias({ ajuste_id: String(b.ajuste_id ?? ''), item_id: String(b.item_id ?? ''), cantidades: b.cantidades ?? {}, motivo: b.motivo, solo_revisar: !!b.solo_revisar }));
       case 'POST /api/admin/limbo/reubicar': return ok(exigirAdmin().reubicarLimbo({ movimiento_id: String(b.movimiento_id ?? ''), destino: String(b.destino ?? ''), cantidad: b.cantidad, items: b.items, filtro: typeof b.filtro === 'string' ? b.filtro : undefined, excluir: b.excluir, solo_revisar: !!b.solo_revisar }));
