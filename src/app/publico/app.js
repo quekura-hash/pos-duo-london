@@ -293,6 +293,15 @@ const MOTIVO_FOLIOS = {
 };
 const EVIDENCIAS_FOLIO = [['ticket_impreso', 'Último ticket impreso'], ['libreta', 'Libreta o bitácora de la caja'], ['reporte_hub', 'Reporte del hub o del central'], ['otra', 'Otra']];
 const folio6 = (n) => String(n).padStart(6, '0');
+// Lo que se teclea para buscar un ticket: el código impreso (D2-000003, D2000003) o el folio suelto (3, 000003).
+const LETRAS_TIENDA = { DUO: 'D', LON: 'L' };
+const letraTienda = (t) => LETRAS_TIENDA[t] ?? '';
+function interpretarFolioUI(texto) {
+  const t = String(texto).trim();
+  if (/^\d{1,9}$/.test(t)) return Number(t) > 0 ? { folio: Number(t) } : null;
+  const m = /^([A-Za-z])\s*(\d)\s*-?\s*(\d{1,9})$/.exec(t);
+  return m && Number(m[3]) > 0 ? { folio: Number(m[3]), caja: Number(m[2]), letra: m[1].toUpperCase() } : null;
+}
 async function vistaFolios() {
   const f = await api('/api/folios');
   const rangos = f.huecos.map((h) => (h.desde === h.hasta ? folio6(h.desde) : `${folio6(h.desde)} a ${folio6(h.hasta)}`));
@@ -1111,7 +1120,7 @@ async function abrirDetalleVenta(saleId, { acciones, ruta, alCambiar } = {}) {
   const v = j.detalle;
   const d = dialogo('dlg-detalle-venta');
   d.setAttribute('aria-labelledby', 'dv-titulo');
-  const folio = String(v.folio).padStart(6, '0');
+  const folio = v.codigo_ticket ?? String(v.folio).padStart(6, '0');
   const cli = (c) => (c ? `${esc(c.nombre)} · ${esc(c.telefono)}` : '—');
   const lineas = v.lineas.map((l) => `<tr><td data-label="Cant.">${l.qty}</td><td class="desc" data-label="Prenda">${esc(l.descripcion)}${l.marca ? ` · ${esc(l.marca)}` : ''}${l.estilo ? ` · ${esc(l.estilo)}` : ''}${l.item_no ? ` · #${esc(l.item_no)}` : ''}${l.devuelto ? ` <small>(${l.devuelto} ya devuelta${l.devuelto === 1 ? '' : 's'})</small>` : ''}</td><td class="num" data-label="Precio">${mxn(l.precio_unit)}</td><td class="num" data-label="Importe">${mxn(l.importe)}</td></tr>`).join('');
   const pagos = v.pagos.map((p) => `${esc(etiquetaMetodo(p.metodo))} ${mxn(p.monto)}`).join(' · ') || '—';
@@ -1149,13 +1158,27 @@ async function vistaVentas() {
   const fecha = S.fechaHistorial ?? hoy;
   const j = await api(`/api/ventas?fecha=${encodeURIComponent(fecha)}`);
   const folioBuscado = (S.folioHistorial ?? '').trim();
-  const filas = folioBuscado ? j.ventas.filter((r) => String(r.folio) === String(Number(folioBuscado))) : j.ventas;
+  // El folio se busca como lo imprime el ticket (D2-000003) o suelto (3). Si es de otra caja, se avisa en cuál se hizo.
+  const pf = folioBuscado ? interpretarFolioUI(folioBuscado) : null;
+  const mismaCaja = (r) => !pf || (r.folio === pf.folio && (pf.caja === undefined || (r.caja === pf.caja && (!pf.letra || pf.letra === letraTienda(r.tienda)))));
+  const filas = folioBuscado ? (pf ? j.ventas.filter(mismaCaja) : []) : j.ventas;
+  let avisoFolio = '';
+  if (folioBuscado && !pf) avisoFolio = 'El folio no es válido: escriba el número o el código del ticket (por ejemplo D2-000003).';
+  else if (pf) {
+    try {
+      const o = await api(`/api/ventas/buscar?folio=${encodeURIComponent(folioBuscado)}`);
+      const ajenas = o.resultados.filter((v) => !v.propia);
+      if (o.aviso) avisoFolio = o.aviso;
+      else if (ajenas.length) avisoFolio = `${ajenas.length === 1 ? 'Esa venta es' : 'Esas ventas son'} de la ${[...new Set(ajenas.map((v) => `Caja ${v.caja} (${v.codigo_ticket})`))].join(' y de la ')}. Realice la operación en ${ajenas.length === 1 ? 'esa caja' : 'esas cajas'}.`;
+    } catch { /* sin conexión con el hub: solo se ve esta caja */ }
+  }
   $('#vista').innerHTML = `<div class="titulo-vista">${ico('clock')}<h1>Historial de mi caja</h1></div><div id="mensaje-hist" class="mensaje" role="status" aria-live="polite"></div>
     <form id="form-historial" class="filtros panel" autocomplete="off"><label>Fecha <input type="date" id="hist-fecha" value="${esc(fecha)}"></label>
-      <label>Folio <input id="hist-folio" inputmode="numeric" value="${esc(folioBuscado)}" style="width:90px;padding:6px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie)"></label>
+      <label>Folio <input id="hist-folio" placeholder="D2-000003" value="${esc(folioBuscado)}" style="width:130px;padding:6px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie)"></label>
       <button class="btn btn-primario" type="submit" style="width:auto">${ico('search')}<span>Buscar</span></button></form>
+    ${avisoFolio ? `<div class="mensaje aviso" id="aviso-folio" role="status">${esc(avisoFolio)}</div>` : ''}
     <div class="panel"><p class="nota" style="margin-top:0">Toque una venta para ver el detalle: hora, cajera, prendas y pagos. Desde ahí se puede revertir o hacer un cambio.</p><div class="tabla-cont"><table id="tabla-ventas"><thead><tr><th>Folio</th><th>Fecha</th><th>Vendedora-Cajera</th><th>Venta por</th><th class="num">Total</th><th>Estado</th><th>Impresiones</th><th></th></tr></thead><tbody>
-    ${filas.length ? filas.map((r) => `<tr data-folio="${r.folio}" data-detalle="${r.sale_id}" tabindex="0" style="cursor:pointer"><td>${String(r.folio).padStart(6, '0')}</td><td>${esc(r.fecha_local)}</td><td>${esc(r.cajero)}</td><td data-col="vendio">${esc(r.vendedora || '—')}</td><td class="num">${mxn(r.total)}</td><td><span class="insignia ${r.estado}">${esc(r.estado)}</span></td><td>${r.impresiones}${r.ultima_impresion === 'error' ? ' (última falló)' : ''}</td><td><button class="btn" type="button" data-ver="${r.sale_id}">${ico('receipt')}<span>Ver ticket</span></button>${r.estado === 'confirmada' ? ` <button class="btn" type="button" data-cambio="${r.folio}" title="La clienta regresa piezas de esta venta y se lleva otras">${ico('undo')}<span>Aceptar cambio</span></button> <button class="btn btn-peligro" type="button" data-revertir="${r.sale_id}" title="Cancela la venta completa">${ico('trash')}<span>Revertir venta</span></button>` : ''}</td></tr>`).join('') : `<tr><td colspan="8" class="vacio">${folioBuscado ? 'No hay una venta con ese folio.' : fecha === hoy ? 'Sin ventas hoy en esta caja.' : 'Sin ventas ese día en esta caja.'}</td></tr>`}
+    ${filas.length ? filas.map((r) => `<tr data-folio="${r.folio}" data-detalle="${r.sale_id}" tabindex="0" style="cursor:pointer"><td>${esc(r.codigo_ticket ?? String(r.folio).padStart(6, '0'))}</td><td>${esc(r.fecha_local)}</td><td>${esc(r.cajero)}</td><td data-col="vendio">${esc(r.vendedora || '—')}</td><td class="num">${mxn(r.total)}</td><td><span class="insignia ${r.estado}">${esc(r.estado)}</span></td><td>${r.impresiones}${r.ultima_impresion === 'error' ? ' (última falló)' : ''}</td><td><button class="btn" type="button" data-ver="${r.sale_id}">${ico('receipt')}<span>Ver ticket</span></button>${r.estado === 'confirmada' ? ` <button class="btn" type="button" data-cambio="${r.folio}" title="La clienta regresa piezas de esta venta y se lleva otras">${ico('undo')}<span>Aceptar cambio</span></button> <button class="btn btn-peligro" type="button" data-revertir="${r.sale_id}" title="Cancela la venta completa">${ico('trash')}<span>Revertir venta</span></button>` : ''}</td></tr>`).join('') : `<tr><td colspan="8" class="vacio">${folioBuscado ? 'No hay una venta con ese folio.' : fecha === hoy ? 'Sin ventas hoy en esta caja.' : 'Sin ventas ese día en esta caja.'}</td></tr>`}
     </tbody></table></div></div>`;
   const recargar = async (r) => {
     await vistaVentas();
@@ -1163,7 +1186,7 @@ async function vistaVentas() {
     const m = $('#mensaje-hist');
     const fallas = [r.impresion, r.impresion_firma].filter((x) => x && !x.ok);
     m.className = fallas.length ? 'mensaje aviso' : 'mensaje ok';
-    m.textContent = `Venta ${String(r.venta.folio).padStart(6, '0')} revertida. ${fallas.length ? `La impresora falló: ${fallas[0].error}. La cancelación SÍ quedó guardada; reimprima el ticket cuando se pueda.` : 'Se imprimieron el ticket de VENTA CANCELADA de la clienta y el comprobante que ella firma.'}`;
+    m.textContent = `Venta ${r.venta.codigo_ticket ?? String(r.venta.folio).padStart(6, '0')} revertida. ${fallas.length ? `La impresora falló: ${fallas[0].error}. La cancelación SÍ quedó guardada; reimprima el ticket cuando se pueda.` : 'Se imprimieron el ticket de VENTA CANCELADA de la clienta y el comprobante que ella firma.'}`;
   };
   $('#form-historial').addEventListener('submit', async (ev) => { ev.preventDefault(); S.fechaHistorial = $('#hist-fecha').value || hoy; S.folioHistorial = $('#hist-folio').value; await recargar(); });
   const mostrarError = (e) => { const m = $('#mensaje-hist'); m.className = 'mensaje error'; m.textContent = e.message; };
@@ -1206,7 +1229,7 @@ async function vistaHistorialAdmin() {
     <form class="filtros panel" id="ha-filtros" autocomplete="off">
       <label>Desde <input type="date" id="ha-desde" value="${esc(H.desde)}"></label><label>Hasta <input type="date" id="ha-hasta" value="${esc(H.hasta)}"></label>
       <label>Caja <select id="ha-caja" style="padding:8px;border:2px solid var(--borde);border-radius:10px;background:var(--superficie)"><option value="">Todas</option>${cajas.map((c) => `<option value="${esc(c.tienda)}/${c.caja}" ${H.caja === `${c.tienda}/${c.caja}` ? 'selected' : ''}>${esc(c.tienda)} · Caja ${c.caja}</option>`).join('')}</select></label>
-      <label>Folio <input id="ha-folio" inputmode="numeric" value="${esc(H.folio)}" style="width:90px;padding:6px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie)"></label>
+      <label>Folio <input id="ha-folio" placeholder="D2-000003" value="${esc(H.folio)}" style="width:130px;padding:6px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie)"></label>
       <button class="btn btn-primario" type="submit" style="width:auto">${ico('search')}<span>Consultar</span></button>
       <div id="ha-msg" class="mensaje" role="status" aria-live="polite"></div></form>
     <div id="ha-resultado"></div>`;
@@ -1215,14 +1238,14 @@ async function vistaHistorialAdmin() {
     const m = $('#ha-msg'); m.className = 'mensaje'; m.textContent = '';
     const p = new URLSearchParams({ desde: H.desde, hasta: H.hasta });
     if (H.caja) p.set('cajas', H.caja);
-    if (H.folio) p.set('folio', String(Number(H.folio)));
+    if (H.folio) p.set('folio', H.folio);
     let j;
     try { j = await api(`/api/admin/ventas?${p}`); } catch (e) { m.className = 'mensaje error'; m.textContent = e.message; return; }
     if (j.truncado) { m.className = 'mensaje aviso'; m.textContent = `Hay ${j.total_filas} ventas; se muestran las 500 más recientes. Acote las fechas.`; }
     $('#ha-resultado').innerHTML = `<div class="panel"><p class="nota" style="margin-top:0">Toque una venta para ver el detalle y el ticket.</p><div class="tabla-cont"><table id="tabla-historial-admin" class="solo-escritorio"><thead><tr><th>Caja</th><th>Folio</th><th>Fecha</th><th>Hora</th><th>Vendedora-Cajera</th><th>Venta por</th><th>Pago</th><th class="num">Total</th><th>Estado</th></tr></thead><tbody>
-      ${j.ventas.length ? j.ventas.map((r) => `<tr data-detalle="${esc(r.sale_id)}" tabindex="0" style="cursor:pointer"><td>${esc(r.tienda)} · ${r.caja}</td><td>${String(r.folio).padStart(6, '0')}</td><td>${esc(r.fecha_local.split('-').reverse().join('/'))}</td><td>${esc(r.hora)}</td><td>${esc(r.cajero)}</td><td data-col="vendio">${esc(r.vendedora || '—')}</td><td>${esc(r.pago)}</td><td class="num">${mxn(r.total)}</td><td><span class="insignia ${esc(r.estado)}">${esc(r.estado)}</span></td></tr>`).join('') : '<tr><td colspan="9" class="vacio">No hay ventas con esos datos.</td></tr>'}
+      ${j.ventas.length ? j.ventas.map((r) => `<tr data-detalle="${esc(r.sale_id)}" tabindex="0" style="cursor:pointer"><td>${esc(r.tienda)} · ${r.caja}</td><td>${esc(r.codigo_ticket)}</td><td>${esc(r.fecha_local.split('-').reverse().join('/'))}</td><td>${esc(r.hora)}</td><td>${esc(r.cajero)}</td><td data-col="vendio">${esc(r.vendedora || '—')}</td><td>${esc(r.pago)}</td><td class="num">${mxn(r.total)}</td><td><span class="insignia ${esc(r.estado)}">${esc(r.estado)}</span></td></tr>`).join('') : '<tr><td colspan="9" class="vacio">No hay ventas con esos datos.</td></tr>'}
       </tbody></table>
-      <div class="lista-inv solo-movil" id="lista-historial-admin" role="list">${j.ventas.map((r) => `<button type="button" class="fila-inv" role="listitem" data-detalle="${esc(r.sale_id)}"><span class="fi-linea"><b class="fi-desc">${String(r.folio).padStart(6, '0')} · ${esc(r.hora)}</b><span class="fi-precio">${mxn(r.total)}</span></span><span class="fi-quien">${esc(r.tienda)} · Caja ${r.caja} · ${esc(r.vendedora || r.cajero)}</span><span class="fi-sub"><span>${esc(r.fecha_local.split('-').reverse().join('/'))}</span><span>${esc(r.pago)}</span><span class="insignia ${esc(r.estado)}">${esc(r.estado)}</span></span></button>`).join('') || '<p class="vacio">No hay ventas con esos datos.</p>'}</div></div></div>`;
+      <div class="lista-inv solo-movil" id="lista-historial-admin" role="list">${j.ventas.map((r) => `<button type="button" class="fila-inv" role="listitem" data-detalle="${esc(r.sale_id)}"><span class="fi-linea"><b class="fi-desc">${esc(r.codigo_ticket)} · ${esc(r.hora)}</b><span class="fi-precio">${mxn(r.total)}</span></span><span class="fi-quien">${esc(r.tienda)} · Caja ${r.caja} · ${esc(r.vendedora || r.cajero)}</span><span class="fi-sub"><span>${esc(r.fecha_local.split('-').reverse().join('/'))}</span><span>${esc(r.pago)}</span><span class="insignia ${esc(r.estado)}">${esc(r.estado)}</span></span></button>`).join('') || '<p class="vacio">No hay ventas con esos datos.</p>'}</div></div></div>`;
     for (const fila of $('#ha-resultado').querySelectorAll('[data-detalle]')) {
       const abrir = () => abrirDetalleVenta(fila.dataset.detalle, { acciones: false, ruta: `/api/admin/venta?sale_id=${encodeURIComponent(fila.dataset.detalle)}` }).catch((e) => { m.className = 'mensaje error'; m.textContent = e.message; });
       fila.addEventListener('click', abrir);
@@ -1784,7 +1807,7 @@ async function vistaDevolucion() {
         <label>Desde <input type="time" id="bv-desde" value="00:00"></label>
         <label>Hasta <input type="time" id="bv-hasta" value="23:59"></label>
         <label>Artículo (escanee) <input id="bv-codigo" class="texto" style="padding:6px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie)" spellcheck="false"></label>
-        <label>Folio <input id="bv-folio" inputmode="numeric" style="width:90px;padding:6px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie)"></label>
+        <label>Folio <input id="bv-folio" placeholder="D2-000003" style="width:130px;padding:6px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie)"></label>
         <button class="btn btn-primario" type="submit" style="width:auto">${ico('search')}<span>Buscar venta</span></button>
         <button class="btn" type="button" id="bv-volver">${ico('cart')}<span>Volver a la venta</span></button>
       </form>
@@ -1806,8 +1829,8 @@ async function buscarVentasDev() {
   if (folio) p.set('folio', folio);
   try {
     const r = await api(`/api/ventas/buscar?${p}`);
-    m.className = r.hub ? 'mensaje' : 'mensaje aviso';
-    m.textContent = r.hub ? (r.articulo ? `Historial de ventas de ${r.articulo.descripcion} ${r.articulo.marca}.` : '') : 'Sin conexión con el hub: solo se muestran las ventas de esta caja.';
+    m.className = r.hub && !r.aviso ? 'mensaje' : 'mensaje aviso';
+    m.textContent = r.aviso ? r.aviso : r.hub ? (r.articulo ? `Historial de ventas de ${r.articulo.descripcion} ${r.articulo.marca}.` : '') : 'Sin conexión con el hub: solo se muestran las ventas de esta caja.';
     $('#bv-resultados').innerHTML = r.resultados.length ? r.resultados.map((v) => ventaDevHtml(v)).join('') : '<div class="panel vacio" id="bv-vacio">No se encontró ninguna venta con esos datos.</div>';
     for (const f of $('#bv-resultados').querySelectorAll('form[data-sale]')) f.addEventListener('submit', (ev) => { ev.preventDefault(); aceptarCambio(f); });
   } catch (e) { m.className = 'mensaje error'; m.textContent = e.message; }

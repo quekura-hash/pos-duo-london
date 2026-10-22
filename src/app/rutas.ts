@@ -100,7 +100,7 @@ export async function atender(o: { cajero?: ServicioCaja; admin?: ServicioAdmin 
       case 'GET /api/tarjetas': return ok({ tarjetas: exigirCajero().tarjetasPropias() });
       case 'GET /api/ventas/buscar': {
         const c = exigirCajero();
-        return ok(c.buscarVentas({ fecha: q.get('fecha') || undefined, desde: q.get('desde') || undefined, hasta: q.get('hasta') || undefined, codigo: q.get('codigo') || undefined, folio: q.get('folio') ? Number(q.get('folio')) : undefined }));
+        return ok(c.buscarVentas({ fecha: q.get('fecha') || undefined, desde: q.get('desde') || undefined, hasta: q.get('hasta') || undefined, codigo: q.get('codigo') || undefined, folio: q.get('folio') || undefined }));
       }
       case 'POST /api/venta/devolver': return ok(await exigirCajero().devolver(b.sale_id, b.renglones ?? [], String(b.motivo ?? 'devolución'), b.autoriza));
       case 'POST /api/tarjeta/recargar': return ok(await exigirCajero().recargarTarjetaRegalo(String(b.codigo ?? ''), Number(b.monto), b.recibido === undefined ? undefined : Number(b.recibido), b.ref));
@@ -186,7 +186,7 @@ export async function atender(o: { cajero?: ServicioCaja; admin?: ServicioAdmin 
       }
       case 'GET /api/admin/ventas': {
         const A7 = exigirAdmin();
-        return ok(A7.historialVentas({ cajas: cajasParam(q.get('cajas')), desde: q.get('desde') || undefined, hasta: q.get('hasta') || undefined, folio: q.get('folio') ? Number(q.get('folio')) : undefined }));
+        return ok(A7.historialVentas({ cajas: cajasParam(q.get('cajas')), desde: q.get('desde') || undefined, hasta: q.get('hasta') || undefined, folio: q.get('folio') || undefined }));
       }
       case 'GET /api/admin/venta': return ok(exigirAdmin().detalleVenta(q.get('sale_id') ?? ''));
       case 'GET /api/admin/reporte-ventas': {

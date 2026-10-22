@@ -65,6 +65,19 @@ export function interpretarCodigoTicket(texto: string, negocios = NEGOCIOS): { t
   return tienda ? { tienda, caja: Number(m[2]), folio: Number(m[3]) } : null;
 }
 
+/**
+ * Lo que alguien teclea para buscar un ticket: el código impreso (D2-000003, D2000003) o solo el folio (3, 000003).
+ * Con el código se sabe de qué tienda y caja es; con el folio suelto no. null = no es un folio.
+ */
+export function interpretarFolio(texto: unknown, negocios = NEGOCIOS): { folio: number; tienda?: string; caja?: number } | null {
+  const t = String(texto ?? '').trim();
+  if (/^\d{1,9}$/.test(t)) return Number(t) > 0 ? { folio: Number(t) } : null;
+  const m = /^([A-Za-z])\s*(\d)\s*-?\s*(\d{1,9})$/.exec(t);
+  if (!m) return null;
+  const tienda = Object.keys(negocios).find((k) => negocios[k]!.letra === m[1]!.toUpperCase());
+  return tienda && Number(m[3]) > 0 ? { folio: Number(m[3]), tienda, caja: Number(m[2]) } : null;
+}
+
 export interface LineaTicket {
   item_no: string | null;
   codigo: string;

@@ -45,7 +45,7 @@ describe('[navegador real] Historial con detalle de venta y «Revertir venta»',
     // tocar el renglón abre el detalle
     await page.click(`#tabla-ventas tr[data-detalle="${v.sale_id}"] td:first-child`);
     await page.waitForSelector('#dlg-detalle-venta[open]');
-    assert.match((await page.textContent('#dv-titulo'))!, /Venta 000001/);
+    assert.match((await page.textContent('#dv-titulo'))!, /Venta D1-000001/);
     assert.match((await page.textContent('#dv-datos'))!, /Vendedora-Cajera\s*Lupe/);
     assert.match((await page.textContent('#dv-resumen'))!, /Caja 1[\s\S]*\d\d\/\d\d\/\d{4} \d\d:\d\d/);
     assert.match((await page.textContent('#dv-lineas'))!, /\$899\.00/);
@@ -115,7 +115,7 @@ describe('[navegador real] Historial con detalle de venta y «Revertir venta»',
     assert.match((await page.textContent(`#tabla-historial-admin tr[data-detalle="${v.sale_id}"]`))!, /DUO · 1[\s\S]*000001[\s\S]*Ana|Lupe|\$899\.00/);
     await page.click(`#tabla-historial-admin tr[data-detalle="${v.sale_id}"] td:first-child`);
     await page.waitForSelector('#dlg-detalle-venta[open]');
-    assert.match((await page.textContent('#dv-titulo'))!, /Venta 000001/);
+    assert.match((await page.textContent('#dv-titulo'))!, /Venta D1-000001/);
     assert.match((await page.textContent('#dv-lineas'))!, /\$899\.00/);
     assert.match((await page.textContent('#dv-ticket'))!, /Folio: 000001/);
     assert.equal(await page.locator('#dv-revertir').count(), 0, 'en Administración solo se consulta');

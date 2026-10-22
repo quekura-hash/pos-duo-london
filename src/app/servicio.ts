@@ -12,7 +12,7 @@ import { CRITERIOS_EXPEDIENTE, expedientesDe, expedienteVacio, registradaEn, CAM
 import { hojaAnalisis, hojaDetalleVentas, hojaResumenVentas, hojaDescuentos, hojaEntregas, hojaDolares, hojaInventario, leerInventario, PERFIL_CONFIRMADO, type Hoja } from '../inventario.ts';
 import { LOGOS_TICKET } from '../logos-ticket.ts';
 import { detalleDeVenta, validarDatosClienta, type DatosClienta } from '../detalle-venta.ts';
-import { aplicarDatosTienda, codigoTicket, construirTicket, construirTicketRegalo, formatoMXN, NEGOCIOS, renderTextoEscPos, renderTicketCancelacionTexto, renderTicketFirmaTexto, renderTicketDevolucionTexto, type ComprobanteClienta, renderTicketRetiroTexto, renderTicketEscPos, renderTicketTexto, type NegocioCfg } from '../ticket.ts';
+import { aplicarDatosTienda, codigoTicket, interpretarFolio, construirTicket, construirTicketRegalo, formatoMXN, NEGOCIOS, renderTextoEscPos, renderTicketCancelacionTexto, renderTicketFirmaTexto, renderTicketDevolucionTexto, type ComprobanteClienta, renderTicketRetiroTexto, renderTicketEscPos, renderTicketTexto, type NegocioCfg } from '../ticket.ts';
 import { promoDeRegla, type ReglaRecompensa } from '../recompensas.ts';
 import { hashClave, nombreClave, supervisorPorClave, type Perfil, type RolAdmin } from '../supervisores.ts';
 import { LIMBO, type Actor, type Articulo, type Linea, type Op, type Venta } from '../tipos.ts';
@@ -261,7 +261,7 @@ export class ServicioCaja {
   detalleVenta(saleId: string) {
     const d = detalleDeVenta(this.caja.opsDe('sale.confirmed', 'sale.cancelled', 'return.registered'), saleId);
     if (!d || d.tienda !== this.caja.tienda || d.caja !== this.caja.caja) throw new ErrorDominio('PROHIBIDO', 'solo se consultan ventas de la propia caja');
-    return { detalle: d, ticket_texto: this.ticketTexto(saleId) };
+    return { detalle: { ...d, codigo_ticket: codigoTicket(d.tienda, d.caja, d.folio) }, ticket_texto: this.ticketTexto(saleId) };
   }
   /** Quién puede autorizar una cancelación o una devolución (otro cajero o un supervisor) y si hace falta pedir la clave. */
   autorizadores() {
@@ -501,7 +501,18 @@ export class ServicioCaja {
    * Localiza ventas de la tienda por fecha y hora, artículo escaneado o folio. `fecha` es local (YYYY-MM-DD) y las horas HH:MM;
    * America/Hermosillo es UTC-7 sin horario de verano.
    */
-  buscarVentas(q: { fecha?: string; desde?: string; hasta?: string; item_id?: string; codigo?: string; folio?: number }) {
+  buscarVentas(q: { fecha?: string; desde?: string; hasta?: string; item_id?: string; codigo?: string; folio?: number | string }) {
+    // El folio se acepta como lo imprime el ticket (D2-000003) o suelto (3, 000003).
+    let folio: number | undefined, cajaBuscada: number | undefined;
+    if (q.folio !== undefined && q.folio !== null && String(q.folio).trim() !== '') {
+      const f = interpretarFolio(q.folio, this.negociosVivos());
+      if (!f) throw new ErrorDominio('DATOS_INVALIDOS', 'el folio no es válido: escriba el número o el código del ticket (por ejemplo D2-000003)');
+      if (f.tienda && f.tienda !== this.caja.tienda) {
+        const n = this.negociosVivos()[f.tienda]?.nombre ?? f.tienda;
+        return { hub: true, articulo: null, aviso: `Ese ticket es de ${n}, Caja ${f.caja}. Realice la operación en esa tienda y caja.`, resultados: [] as never[] };
+      }
+      folio = f.folio; cajaBuscada = f.caja;
+    }
     let item_id = q.item_id;
     if (!item_id && q.codigo) {
       const art = this.caja.buscarPorCodigo(q.codigo.trim());
@@ -512,10 +523,11 @@ export class ServicioCaja {
     const aUtc = (hhmm: string) => new Date(Date.parse(`${q.fecha}T${hhmm}:00Z`) + 7 * 3600_000).toISOString();
     const desde = q.fecha ? aUtc(q.desde || '00:00') : undefined;
     const hasta = q.fecha ? aUtc(q.hasta || '23:59').replace(':00.000Z', ':59.999Z') : undefined;
-    const r = this.caja.buscarVentas({ desde, hasta, item_id, folio: q.folio });
+    const r = this.caja.buscarVentas({ desde, hasta, item_id, folio });
+    if (cajaBuscada !== undefined) r.resultados = r.resultados.filter((v) => v.caja === cajaBuscada);
     const art = item_id ? this.caja.idx.articulo(item_id) : undefined;
     return {
-      hub: r.hub, articulo: art ? { descripcion: art.descripcion, marca: art.marca, item_no: art.item_no } : null,
+      hub: r.hub, aviso: null as string | null, articulo: art ? { descripcion: art.descripcion, marca: art.marca, item_no: art.item_no } : null,
       resultados: r.resultados.map((v) => ({
         sale_id: v.sale_id, caja: v.caja, folio: v.folio, propia: v.propia, codigo_ticket: codigoTicket(v.tienda, v.caja, v.folio, this.negociosVivos()),
         ocurrio_en: v.ocurrio_en, total: v.total ?? null,
@@ -648,7 +660,7 @@ export class ServicioCaja {
   /** Ventas de ESTA caja. El filtro por caja lo impone el permiso del actor, no la ausencia de datos. */
   ventasDelDia(fecha: string) {
     return ventasPorCaja(this.actor, this.caja.opsVentas(), { desde: fecha, hasta: fecha }).map((r) => ({
-      ...r, impresiones: this.caja.impresionesDe(r.sale_id).length,
+      ...r, codigo_ticket: codigoTicket(r.tienda, r.caja, r.folio, this.negociosVivos()), impresiones: this.caja.impresionesDe(r.sale_id).length,
       ultima_impresion: this.caja.impresionesDe(r.sale_id).at(-1)?.resultado ?? null,
     }));
   }
@@ -1416,9 +1428,13 @@ export class ServicioAdmin {
     return reporteConsolidado(this.actor, this.fuente(), f);
   }
   /** Historial de ventas de todas las tiendas y cajas (sin las históricas del POS anterior, que no traen prendas). Filtros: fechas, cajas, tiendas y folio. */
-  historialVentas(f: Filtro & { folio?: number } = {}) {
-    const { folio, ...filtro } = f;
-    const filas = this.reporte({ ...filtro, historicas: false }).filas.filter((r) => folio === undefined || r.folio === folio);
+  historialVentas(f: Filtro & { folio?: number | string } = {}) {
+    const { folio: texto, ...filtro } = f;
+    const buscado = texto === undefined || texto === '' ? null : interpretarFolio(texto);
+    if (texto !== undefined && texto !== '' && !buscado) throw new ErrorDominio('DATOS_INVALIDOS', 'el folio no es válido: escriba el número o el código del ticket (por ejemplo D2-000003)');
+    const filas = this.reporte({ ...filtro, historicas: false }).filas
+      .filter((r) => !buscado || (r.folio === buscado.folio && (!buscado.tienda || r.tienda === buscado.tienda) && (buscado.caja === undefined || r.caja === buscado.caja)))
+      .map((r) => ({ ...r, codigo_ticket: codigoTicket(r.tienda, r.caja, r.folio) }));
     const ordenadas = [...filas].sort((a, b) => `${b.fecha_local} ${b.hora}`.localeCompare(`${a.fecha_local} ${a.hora}`) || b.folio - a.folio);
     return { ventas: ordenadas.slice(0, 500), total_filas: ordenadas.length, truncado: ordenadas.length > 500 };
   }
@@ -1431,7 +1447,7 @@ export class ServicioAdmin {
     const negocios = Object.fromEntries(Object.entries(NEGOCIOS).map(([t, c]) => [t, aplicarDatosTienda(c, datos.get(t))])) as Record<string, NegocioCfg>;
     const v = ventas(ops).get(saleId)!;
     const cfg = negocios[v.tienda];
-    return { detalle: d, ticket_texto: cfg ? renderTicketTexto(construirTicket(v, cfg, 0, negocios)) : '' };
+    return { detalle: { ...d, codigo_ticket: codigoTicket(d.tienda, d.caja, d.folio) }, ticket_texto: cfg ? renderTicketTexto(construirTicket(v, cfg, 0, negocios)) : '' };
   }
   /** Ventas por vendedora con su nombre completo (el alias es lo que se ve en caja; aquí también nombres y apellidos). */
   reporteVendedoras(f: Filtro = {}) {

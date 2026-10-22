@@ -125,7 +125,7 @@ describe('[iPhone] Inventario: seleccionar y ubicar piezas de El Limbo', { timeo
     assert.match((await page.textContent('#lista-historial-admin .fila-inv'))!, /000006[\s\S]*Caja 2[\s\S]*Efectivo/);
     await page.tap('#lista-historial-admin .fila-inv');
     await page.waitForSelector('#dlg-detalle-venta[open]');
-    assert.match((await page.textContent('#dv-titulo'))!, /Venta 000006/);
+    assert.match((await page.textContent('#dv-titulo'))!, /Venta D2-000006/);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), true);
   });
   it('UM3 Existencias reales en el iPhone: cabe en la pantalla y guarda en el central real (Limbo 71 → 30, DÚO 41, almacén 0 → 0)', async (t) => {
