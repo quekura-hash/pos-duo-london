@@ -677,6 +677,50 @@ export class Central {
     return { ...op.payload, ocurrio_en: op.ocurrio_en, repetido: false };
   }
 
+  /**
+   * Da su ubicación real a piezas que hoy figuran en El Limbo: las pasa al **almacén** (desde ahí se sacan a piso con la entrega de siempre, que la tienda confirma
+   * al escanear) o las da de **baja** (ya no existen).
+   * `qty` omitida = todo lo que El Limbo tiene de ese artículo (los que no tienen existencia se omiten); con `qty` se mueve exactamente esa cantidad
+   * (El Limbo puede quedar en negativo: es el mismo criterio de las ventas sin existencia registrada). `movimiento_id` hace que reintentar no repita nada.
+   * Con `solo_revisar` no se guarda nada: solo devuelve lo que pasaría.
+   */
+  reubicarLimbo(d: { movimiento_id: string; destino: string; items: { item_id: string; qty?: number }[]; por: string; solo_revisar?: boolean }): ResultadoReubicacion {
+    const destino = String(d.destino ?? '');
+    if (!d.movimiento_id) throw new ErrorDominio('DATOS_REQUERIDOS', 'falta la referencia del movimiento');
+    if (destino !== 'almacen' && destino !== 'baja') throw new ErrorDominio('DESTINO_INVALIDO', `destino desconocido: ${destino}`);
+    const previo = this.repo.getOp(`limbo.reubicacion:${d.movimiento_id}`);
+    if (previo && !d.solo_revisar) return { ...(previo.payload as Omit<ResultadoReubicacion, 'repetido' | 'ocurrio_en'>), ocurrio_en: previo.ocurrio_en, repetido: true };
+    const ops = this.repo.ops();
+    const cat = catalogo(ops);
+    const saldos = stock(ops, LIMBO);
+    const lineas: ResultadoReubicacion['lineas'] = [];
+    const omitidos: ResultadoReubicacion['omitidos'] = [];
+    const vistos = new Set<string>();
+    for (const it of d.items) {
+      if (vistos.has(it.item_id)) continue;
+      vistos.add(it.item_id);
+      if (!cat.has(it.item_id)) { omitidos.push({ item_id: it.item_id, motivo: 'no existe en el catálogo' }); continue; }
+      const saldo = saldos.get(it.item_id) ?? 0;
+      if (it.qty !== undefined && (!Number.isInteger(it.qty) || it.qty <= 0)) throw new ErrorDominio('CANTIDAD_INVALIDA', 'la cantidad es un entero mayor que 0');
+      const qty = it.qty ?? saldo;
+      if (qty <= 0) { omitidos.push({ item_id: it.item_id, motivo: 'El Limbo no tiene piezas de este artículo' }); continue; }
+      lineas.push({ item_id: it.item_id, qty, limbo_antes: saldo });
+    }
+    const resumen = {
+      movimiento_id: d.movimiento_id, destino, por: d.por, lineas, omitidos,
+      articulos: lineas.length, piezas: lineas.reduce((a, l) => a + l.qty, 0), quedan_negativos: lineas.filter((l) => l.limbo_antes - l.qty < 0).length,
+    };
+    if (d.solo_revisar || !lineas.length) return { ...resumen, ocurrio_en: this.ctx.reloj.now(), repetido: false, aplicado: false };
+    const doc = `limbo_reubicacion:${d.movimiento_id}`;
+    const tipo = destino === 'almacen' ? 'limbo_a_almacen' : 'baja_limbo';
+    for (const l of lineas) {
+      this.emitirAdmin('inv.movement', { item_id: l.item_id, tienda: LIMBO, delta: -l.qty, tipo, doc }, `mov:reubL:${d.movimiento_id}:${l.item_id}`);
+      if (destino === 'almacen') this.emitirUna('alm.entrada', { entrada_id: `${d.movimiento_id}:${l.item_id}`, item_id: l.item_id, qty: l.qty, pedimento: null, lote_doc: doc, fuente: 'limbo', por: d.por }, `alm.entrada:${d.movimiento_id}:${l.item_id}`, false);
+    }
+    const op = this.emitirUna('limbo.reubicacion', resumen, `limbo.reubicacion:${d.movimiento_id}`, false)!;
+    return { ...resumen, ocurrio_en: op.ocurrio_en, repetido: false, aplicado: true };
+  }
+
   anclas(tienda: string, caja: number): Anclas {
     let ceiling: number | null = null;
     let hwm = 0;
@@ -694,6 +738,22 @@ export class Central {
 }
 
 // ───────────────────────────── Caja ─────────────────────────────
+
+export interface ResultadoReubicacion {
+  movimiento_id: string;
+  destino: string;
+  por: string;
+  lineas: { item_id: string; qty: number; limbo_antes: number }[];
+  omitidos: { item_id: string; motivo: string }[];
+  articulos: number;
+  piezas: number;
+  /** Artículos que quedarían (o quedaron) con El Limbo en negativo. */
+  quedan_negativos: number;
+  ocurrio_en: string;
+  repetido: boolean;
+  /** false = solo se revisó (o no había nada que mover). */
+  aplicado?: boolean;
+}
 
 export interface CambioEnCurso {
   sale_id: string;

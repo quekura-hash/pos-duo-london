@@ -262,3 +262,13 @@ tr.fila-fallo td { background: color-mix(in srgb, #ef4444 12%, transparent); }
 .calor td { min-width: 30px; height: 34px; text-align: center; font-size: 11px; border-radius: 4px; background: color-mix(in srgb, var(--acento) calc(var(--i) * 100%), var(--superficie-2)); color: var(--texto); }
 .calor td[data-v="0"] { background: var(--superficie-2); }
 .an-fila label[hidden] { display: none !important; }
+
+/* Selección de artículos del Inventario y ubicación real de las piezas de El Limbo */
+.barra-sel { position: sticky; bottom: 0; z-index: 5; margin: 8px 0; padding: 10px 12px; border: 2px solid var(--acento); border-radius: 12px; background: var(--superficie); box-shadow: 0 -4px 14px rgba(0,0,0,.12); }
+.barra-sel[hidden] { display: none; }
+.sel-resumen { font-size: 16px; margin-bottom: 8px; } .sel-resumen small { color: var(--texto-2); }
+.sel-botones, .sel-acciones { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; } .sel-acciones { margin-bottom: 0; }
+.sel-acciones .btn { flex: 1 1 140px; }
+#tabla-inv-lista td.chk, #tabla-inv-lista th.chk { width: 34px; text-align: center; }
+#tabla-inv-lista tbody tr.sel { background: var(--acento-suave); }
+.ru-opciones { border: 1px solid var(--borde); border-radius: 10px; margin: 0 0 10px; padding: 8px 12px; } .ru-opciones label { display: flex; gap: 8px; align-items: center; padding: 6px 0; }

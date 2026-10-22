@@ -679,7 +679,7 @@ export interface FuenteInventario {
 }
 
 type FiltroBusqueda = { campo: string; op: string; texto: string; valor: number };
-const CAMPOS_BUSQUEDA: Record<string, string> = { lote: 'lote', marca: 'marca', estilo: 'estilo', codigo: 'codigo', item: 'item', 'item#': 'item', desc: 'descripcion', descripcion: 'descripcion', depto: 'departamento', departamento: 'departamento', precio: 'precio' };
+const CAMPOS_BUSQUEDA: Record<string, string> = { lote: 'lote', marca: 'marca', estilo: 'estilo', codigo: 'codigo', item: 'item', 'item#': 'item', desc: 'descripcion', descripcion: 'descripcion', depto: 'departamento', departamento: 'departamento', precio: 'precio', limbo: 'limbo', almacen: 'almacen', alm: 'almacen' };
 /** Separa un texto de búsqueda (ya sin acentos y en minúsculas) en palabras sueltas y filtros por campo: `lote=202610`, `lote = 202610`, `marca:"la mar"`, `precio>=200`. */
 export function analizarBusqueda(texto: string): { palabras: string[]; filtros: FiltroBusqueda[] } {
   const compacto = texto.replace(/\s*(>=|<=|[=:<>])\s*/g, '$1');
@@ -690,7 +690,7 @@ export function analizarBusqueda(texto: string): { palabras: string[]; filtros: 
     if (campo) {
       const valor = (m[3] ?? m[4] ?? '').trim();
       if (!valor) continue; // «lote=» a medio escribir: no filtra todavía
-      if (campo === 'precio') { const n = Number(valor.replace(/[$,]/g, '')); if (Number.isFinite(n)) filtros.push({ campo, op: m[2] === ':' ? '=' : m[2]!, texto: '', valor: n }); continue; }
+      if (campo === 'precio' || campo === 'limbo' || campo === 'almacen') { const n = Number(valor.replace(/[$,]/g, '')); if (Number.isFinite(n)) filtros.push({ campo, op: m[2] === ':' ? '=' : m[2]!, texto: '', valor: n }); continue; }
       filtros.push({ campo, op: '=', texto: valor, valor: 0 });
     } else {
       const w = (m[5] ?? m[6] ?? m[0]).trim();
@@ -715,7 +715,7 @@ export class ServicioAdmin {
   readonly cajas: { tienda: string; caja: number }[];
   private inv?: FuenteInventario;
   private central?: { fijarTipoCambio(tasa: number, usuario: string, versionBase: number, confirmarVariacion?: boolean): import('../nodos.ts').ResultadoTipoCambio; asignarPermiso(usuario: string, permiso: string, valor: boolean, por: string): Op; guardarDepto(c: import('../departamentos.ts').CambioDepto, por: string): { ok: true; op: Op } | { ok: false; error: import('../departamentos.ts').ErrorDepto };
-    guardarDatosTienda: import('../nodos.ts').Central['guardarDatosTienda']; editarArticulo: import('../nodos.ts').Central['editarArticulo']; guardarPromocion: import('../nodos.ts').Central['guardarPromocion']; guardarRecompensa: import('../nodos.ts').Central['guardarRecompensa']; guardarSupervisor: import('../nodos.ts').Central['guardarSupervisor']; guardarCajero: import('../nodos.ts').Central['guardarCajero']; guardarAdmin: import('../nodos.ts').Central['guardarAdmin']; guardarConfigSesion: import('../nodos.ts').Central['guardarConfigSesion']; recordarSacarAPiso: import('../nodos.ts').Central['recordarSacarAPiso']; resolverFaltante: import('../nodos.ts').Central['resolverFaltante']; contarLimbo: import('../nodos.ts').Central['contarLimbo']; corregirEntrada: import('../nodos.ts').Central['corregirEntrada']; altaLote: import('../nodos.ts').Central['altaLote']; importarVentasHistoricas: import('../nodos.ts').Central['importarVentasHistoricas']; entregar: import('../nodos.ts').Central['entregar'] };
+    guardarDatosTienda: import('../nodos.ts').Central['guardarDatosTienda']; editarArticulo: import('../nodos.ts').Central['editarArticulo']; guardarPromocion: import('../nodos.ts').Central['guardarPromocion']; guardarRecompensa: import('../nodos.ts').Central['guardarRecompensa']; guardarSupervisor: import('../nodos.ts').Central['guardarSupervisor']; guardarCajero: import('../nodos.ts').Central['guardarCajero']; guardarAdmin: import('../nodos.ts').Central['guardarAdmin']; guardarConfigSesion: import('../nodos.ts').Central['guardarConfigSesion']; recordarSacarAPiso: import('../nodos.ts').Central['recordarSacarAPiso']; resolverFaltante: import('../nodos.ts').Central['resolverFaltante']; contarLimbo: import('../nodos.ts').Central['contarLimbo']; reubicarLimbo: import('../nodos.ts').Central['reubicarLimbo']; corregirEntrada: import('../nodos.ts').Central['corregirEntrada']; altaLote: import('../nodos.ts').Central['altaLote']; importarVentasHistoricas: import('../nodos.ts').Central['importarVentasHistoricas']; entregar: import('../nodos.ts').Central['entregar'] };
   constructor(o: { actor: Extract<Actor, { rol: 'admin' }>; fuente: () => Op[]; cajas: { tienda: string; caja: number }[]; inventario?: FuenteInventario; central?: ServicioAdmin['central']; reloj?: { now(): string } }) {
     this.central = o.central;
     this.actor = o.actor;
@@ -818,15 +818,28 @@ export class ServicioAdmin {
    * `orden`: nuevo (Item # mayor primero), viejo (por omisión, Item # menor primero), abc (descripción), marca, estilo, lote (más reciente primero), cara, barata.
    */
   buscarArticulos(texto: string, limite = 30, desde = 0, todos = false, orden = 'viejo') {
+    const h = this.hallarArticulos(texto, todos, orden);
+    return { articulos: h.hallados.slice(Math.max(0, desde), Math.max(0, desde) + limite).map((a) => this.vistaArticulo(a, h.almacen.get(a.item_id)?.existencia ?? 0)), total: h.hallados.length, tiendas: this.tiendas() };
+  }
+  /**
+   * Los artículos que cumplen la búsqueda del Inventario (palabras sueltas y filtros `campo=valor`). `Lote=0` (o `Lote=sin`) = los que no tienen lote; `Limbo>0`,
+   * `Almacén>0` y `Precio>=200` comparan números; en el resto, el campo contiene el texto.
+   */
+  private hallarArticulos(texto: string, todos: boolean, orden = 'viejo') {
     const sin = (x: string) => x.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
-    const vacio = { articulos: [] as ReturnType<ServicioAdmin['vistaArticulo']>[], total: 0 };
     const { palabras, filtros } = analizarBusqueda(sin(String(texto ?? '')));
-    if (!palabras.length && !filtros.length && !todos) return vacio;
+    const almacen = existenciaAlmacen(this.fuente());
+    if (!palabras.length && !filtros.length && !todos) return { hallados: [] as Articulo[], almacen };
     const ops = this.fuente();
     const num = (a: Articulo) => (a.item_no !== null && /^\d+$/.test(a.item_no) ? Number(a.item_no) : null);
     const campos: Record<string, (a: Articulo) => string> = { lote: (a) => a.lote, marca: (a) => a.marca, estilo: (a) => a.estilo, codigo: (a) => a.codigo, item: (a) => String(a.item_no ?? ''), descripcion: (a) => a.descripcion, departamento: (a) => a.departamento };
+    const numerico = (a: Articulo, campo: string) => (campo === 'precio' ? a.precio / 100 : campo === 'limbo' ? (this.inv ? this.inv.saldo(LIMBO, a.item_id) : 0) : (almacen.get(a.item_id)?.existencia ?? 0));
     const cumple = (a: Articulo) => filtros.every((f) => {
-      if (f.campo === 'precio') { const p = a.precio / 100; return f.op === '>' ? p > f.valor : f.op === '>=' ? p >= f.valor : f.op === '<' ? p < f.valor : f.op === '<=' ? p <= f.valor : Math.abs(p - f.valor) < 0.005; }
+      if (f.campo === 'precio' || f.campo === 'limbo' || f.campo === 'almacen') {
+        const p = numerico(a, f.campo);
+        return f.op === '>' ? p > f.valor : f.op === '>=' ? p >= f.valor : f.op === '<' ? p < f.valor : f.op === '<=' ? p <= f.valor : Math.abs(p - f.valor) < 0.005;
+      }
+      if (f.campo === 'lote' && (f.texto === '0' || f.texto === 'sin')) return !a.lote.trim() || a.lote.trim() === '0';
       return sin(campos[f.campo]!(a)).includes(f.texto);
     });
     const cmpTexto = (x: string, y: string) => sin(x).localeCompare(sin(y), 'es');
@@ -844,8 +857,28 @@ export class ServicioAdmin {
     const hallados = [...catalogo(ops).values()]
       .filter((a) => cumple(a) && (!palabras.length || palabras.every((w) => sin(`${a.codigo} ${a.item_no ?? ''} ${a.descripcion} ${a.marca} ${a.estilo} ${a.lote} ${a.departamento}`).includes(w))))
       .sort(comparar[orden] ?? porItem);
-    const ex = existenciaAlmacen(ops);
-    return { articulos: hallados.slice(Math.max(0, desde), Math.max(0, desde) + limite).map((a) => this.vistaArticulo(a, ex.get(a.item_id)?.existencia ?? 0)), total: hallados.length, tiendas: this.tiendas() };
+    return { hallados, almacen };
+  }
+  /**
+   * Ubicación real de piezas que figuran en El Limbo (Inventario → «Seleccionar»). Los artículos se indican uno por uno (`items`) o como «todo lo que
+   * muestra el buscador» (`filtro`) menos los que se quitaron de la selección (`excluir`). `destino`: «almacen» o «baja» (ya no existe).
+   * `cantidad` omitida = todas las piezas que El Limbo tiene de cada artículo. Con `solo_revisar` solo cuenta lo que pasaría.
+   */
+  reubicarLimbo(d: { movimiento_id: string; destino: string; cantidad?: number | null; items?: { item_id: string; qty?: number }[]; filtro?: string; excluir?: string[]; solo_revisar?: boolean }) {
+    if (!this.central) throw new ErrorDominio('SIN_CENTRAL', 'esta sesión no tiene acceso al servicio central');
+    const cantidad = d.cantidad === undefined || d.cantidad === null ? undefined : Number(d.cantidad);
+    if (cantidad !== undefined && (!Number.isInteger(cantidad) || cantidad <= 0)) throw new ErrorDominio('CANTIDAD_INVALIDA', 'la cantidad es un entero mayor que 0');
+    let items: { item_id: string; qty?: number }[];
+    if (Array.isArray(d.items) && d.items.length) items = d.items.map((i) => ({ item_id: String(i.item_id), qty: i.qty === undefined || i.qty === null ? cantidad : Number(i.qty) }));
+    else if (typeof d.filtro === 'string') {
+      const quitar = new Set((d.excluir ?? []).map(String));
+      items = this.hallarArticulos(d.filtro, true).hallados.filter((a) => !quitar.has(a.item_id)).map((a) => ({ item_id: a.item_id, qty: cantidad }));
+    } else throw new ErrorDominio('DATOS_REQUERIDOS', 'indique los artículos o el filtro de búsqueda');
+    if (!items.length) throw new ErrorDominio('DATOS_REQUERIDOS', 'no hay artículos seleccionados');
+    const r = this.central.reubicarLimbo({ movimiento_id: String(d.movimiento_id ?? ''), destino: String(d.destino ?? ''), items, por: this.actor.usuario, solo_revisar: !!d.solo_revisar });
+    // La respuesta no repite todos los renglones (pueden ser miles): solo el resumen y unos cuantos omitidos.
+    const { lineas, omitidos, ...resumen } = r;
+    return { ...resumen, omitidos_total: omitidos.length, omitidos: omitidos.slice(0, 20), seleccionados: items.length };
   }
   private vistaArticulo(a: Articulo, almacen?: number) {
     const existencias: Record<string, number> = {};
@@ -935,6 +968,7 @@ export class ServicioAdmin {
         case 'venta': evento = 'Venta'; detalle = `${pza(d.qty)} por ${formatoMXN(d.importe)} · ${t(d.tienda)} caja ${d.caja}, folio ${String(d.folio).padStart(6, '0')}`; break;
         case 'venta_cancelada': evento = 'Venta cancelada'; detalle = `${pza(d.qty)} · ${t(d.tienda)} caja ${d.caja}, folio ${String(d.folio).padStart(6, '0')}${d.motivo ? ` · ${d.motivo}` : ''}`; break;
         case 'devolucion': evento = 'Devolución'; detalle = `${pza(d.qty)} por ${formatoMXN(d.importe)} · ${t(d.tienda)} caja ${d.caja}, folio ${String(d.folio).padStart(6, '0')}${d.motivo ? ` · ${d.motivo}` : ''}`; break;
+        case 'limbo_ubicacion': evento = 'Ubicación real'; detalle = d.destino === 'baja' ? `${d.qty} pieza(s) dadas de baja de El Limbo (ya no existen)` : `${d.qty} pieza(s) pasaron de El Limbo al almacén`; break;
         case 'conteo': evento = 'Conteo físico'; detalle = `Ajuste de ${d.delta > 0 ? '+' : ''}${d.delta} en ${d.tienda === LIMBO ? 'El Limbo' : t(d.tienda)}`; break;
       }
       return { ocurrio_en: e.ocurrio_en, tipo: e.tipo, evento, detalle, por: e.por };

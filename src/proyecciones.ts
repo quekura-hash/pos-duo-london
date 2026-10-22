@@ -393,7 +393,7 @@ export type CampoEditable = (typeof CAMPOS_EDITABLES)[number];
 
 export interface EventoArticulo {
   ocurrio_en: string;
-  tipo: 'alta' | 'cambio' | 'almacen_correccion' | 'almacen_entrada' | 'almacen_entrega' | 'recepcion' | 'venta' | 'venta_cancelada' | 'devolucion' | 'conteo';
+  tipo: 'alta' | 'cambio' | 'almacen_correccion' | 'almacen_entrada' | 'almacen_entrega' | 'recepcion' | 'venta' | 'venta_cancelada' | 'devolucion' | 'conteo' | 'limbo_ubicacion';
   /** Magnitudes en crudo; el texto lo arma quien lo muestra. */
   datos: Record<string, unknown>;
   por: string;
@@ -443,6 +443,11 @@ export function historialArticulo(ops: Op[], itemId: string): EventoArticulo[] {
       case 'return.registered': {
         const ls = (p.lineas as { item_id: string; qty: number; importe: number }[]).filter((l) => l.item_id === itemId);
         if (ls.length) ev.push({ ocurrio_en: o.ocurrio_en, tipo: 'devolucion', datos: { qty: ls.reduce((a, l) => a + l.qty, 0), importe: ls.reduce((a, l) => a + l.importe, 0), tienda: p.tienda, caja: p.caja, folio: p.folio, motivo: p.motivo }, por: p.cajero ?? '' });
+        break;
+      }
+      case 'limbo.reubicacion': {
+        const l = (p.lineas as { item_id: string; qty: number }[]).find((x) => x.item_id === itemId);
+        if (l) ev.push({ ocurrio_en: o.ocurrio_en, tipo: 'limbo_ubicacion', datos: { qty: l.qty, destino: p.destino }, por: p.por ?? '' });
         break;
       }
       case 'inv.movement':

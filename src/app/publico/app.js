@@ -1393,7 +1393,7 @@ async function vistaInventario() {
   const j = await api('/api/admin/inventario');
   const r = j.resumen;
   const tiendas = Object.entries(r.por_tienda);
-  S.inv = { q: S.inv?.q ?? '', orden: S.inv?.orden ?? 'nuevo', pag: 0, por: 50, total: 0, tiendas: [], articulos: [] };
+  S.inv = { q: S.inv?.q ?? '', orden: S.inv?.orden ?? 'nuevo', pag: 0, por: 50, total: 0, tiendas: [], articulos: [], sel: S.inv?.sel ?? null };
   $('#vista').innerHTML = `
     <div class="titulo-vista">${ico('box')}<h1>Inventario</h1></div>
     <div class="panel">
@@ -1413,15 +1413,29 @@ async function vistaInventario() {
       <p class="nota">La existencia es la que conoce el central (lo ya sincronizado). Las cantidades de prueba están marcadas como tales en los movimientos.</p>
       <h2>Todos los artículos</h2>
       <div class="filas barra-busqueda-inv" style="align-items:center"><input id="inv-q" type="search" class="texto" placeholder="Buscar… (ej. Lote=202610)" value="${esc(S.inv.q)}" style="padding:6px 8px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie);min-width:320px" autocapitalize="none" autocorrect="off" spellcheck="false">
-        <label class="orden-inv" for="inv-orden"><span>Ordenar por</span><select id="inv-orden" style="padding:6px 8px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie)">${ORDENES_INV.map(([v, t]) => `<option value="${v}" ${S.inv.orden === v ? 'selected' : ''}>${t}</option>`).join('')}</select></label></div>
-      <p class="nota" id="inv-nota">Toque un artículo para editarlo, ver su historial o crearle una promoción. Para filtrar por un campo escriba, por ejemplo, <b>Lote=202610</b>, <b>Marca=levis</b>, <b>Estilo=123L</b>, <b>Depto=dama</b> o <b>Precio&gt;200</b>; se pueden combinar con palabras.</p>
+        <label class="orden-inv" for="inv-orden"><span>Ordenar por</span><select id="inv-orden" style="padding:6px 8px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie)">${ORDENES_INV.map(([v, t]) => `<option value="${v}" ${S.inv.orden === v ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
+        <button class="btn" id="inv-sel-modo" type="button" aria-pressed="false">${ico('check')}<span>Seleccionar</span></button></div>
+      <p class="nota" id="inv-nota">Toque un artículo para editarlo, ver su historial o crearle una promoción. Para filtrar por un campo escriba, por ejemplo, <b>Lote=202610</b>, <b>Lote=0</b> (sin lote), <b>Marca=levis</b>, <b>Estilo=123L</b>, <b>Depto=dama</b>, <b>Precio&gt;200</b> o <b>Limbo&gt;0</b> (con piezas en El Limbo); se pueden combinar con palabras. Con <b>Seleccionar</b> puede marcar varios artículos y darles su ubicación real.</p>
       <div id="inv-msg" class="mensaje" role="status" aria-live="polite"></div>
+      <div id="inv-sel" class="barra-sel" hidden></div>
       <div id="inv-res" class="tabla-cont"></div>
       <div class="filas" id="inv-pag" style="align-items:center;margin-top:8px"></div>
     </div>`;
   let tmp;
   $('#inv-orden').addEventListener('change', () => { S.inv.orden = $('#inv-orden').value; S.inv.pag = 0; cargarListaInventario(); });
-  $('#inv-q').addEventListener('input', () => { clearTimeout(tmp); tmp = setTimeout(() => { S.inv.q = $('#inv-q').value.trim(); S.inv.pag = 0; cargarListaInventario(); }, 250); });
+  $('#inv-q').addEventListener('input', () => {
+    clearTimeout(tmp);
+    tmp = setTimeout(() => {
+      S.inv.q = $('#inv-q').value.trim(); S.inv.pag = 0;
+      // «Todo lo del buscador» solo vale para la búsqueda en que se marcó: al cambiarla se empieza de nuevo (lo marcado uno por uno se conserva).
+      if (S.inv.sel && S.inv.sel.modo === 'filtro') { S.inv.sel = { modo: 'manual', ids: new Set(), filtro: null, excluir: new Set() }; pintarSel(); $('#inv-msg').className = 'mensaje aviso'; $('#inv-msg').textContent = 'Cambió la búsqueda: la selección de «todo lo del buscador» se quitó.'; }
+      cargarListaInventario();
+    }, 250);
+  });
+  $('#inv-sel-modo').addEventListener('click', () => {
+    S.inv.sel = S.inv.sel ? null : { modo: 'manual', ids: new Set(), filtro: null, excluir: new Set() };
+    cargarListaInventario();
+  });
   $('#btn-exportar').addEventListener('click', async () => {
     const e = $('#estado-exportar');
     e.textContent = 'Preparando el archivo…';
@@ -1429,24 +1443,131 @@ async function vistaInventario() {
   });
   await cargarListaInventario();
 }
+// ── Selección de artículos del Inventario (para darles su ubicación real) ──
+const selCantidad = () => { const s = S.inv.sel; return !s ? 0 : s.modo === 'filtro' ? Math.max(0, S.inv.total - s.excluir.size) : s.ids.size; };
+const estaSel = (id) => { const s = S.inv.sel; return !!s && (s.modo === 'filtro' ? !s.excluir.has(id) : s.ids.has(id)); };
+function alternarSel(id) {
+  const s = S.inv.sel;
+  const conj = s.modo === 'filtro' ? s.excluir : s.ids;
+  if (conj.has(id)) conj.delete(id); else conj.add(id);
+  pintarSel();
+}
+/** Marca o desmarca los renglones visibles y la barra de acciones. */
+function pintarSel() {
+  const I = S.inv, s = I.sel;
+  $('#inv-sel-modo').setAttribute('aria-pressed', String(!!s));
+  $('#inv-sel-modo').querySelector('span').textContent = s ? 'Salir de selección' : 'Seleccionar';
+  for (const el of $('#inv-res').querySelectorAll('[data-item]')) {
+    const on = estaSel(el.dataset.item);
+    el.classList.toggle('sel', !!s && on);
+    const c = el.querySelector('input[data-sel]'); if (c) c.checked = on;
+  }
+  const b = $('#inv-sel');
+  b.hidden = !s;
+  if (!s) { b.innerHTML = ''; return; }
+  const n = selCantidad();
+  b.innerHTML = `<div class="sel-resumen"><b id="sel-n">${n}</b> seleccionado${n === 1 ? '' : 's'}${s.modo === 'filtro' ? ` <small>(todo lo del buscador${s.excluir.size ? `, sin ${s.excluir.size}` : ''})</small>` : ''}</div>
+    <div class="sel-botones"><button class="btn" type="button" id="sel-todo" ${I.total ? '' : 'disabled'}>${ico('check')}<span>Seleccionar los ${I.total} del buscador</span></button>
+    <button class="btn" type="button" id="sel-nada" ${n ? '' : 'disabled'}>${ico('x')}<span>Quitar selección</span></button></div>
+    <div class="sel-acciones"><button class="btn btn-primario" type="button" id="sel-almacen" ${n ? '' : 'disabled'}>${ico('warehouse')}<span>Pasar a Almacén</span></button>
+    <button class="btn btn-peligro" type="button" id="sel-baja" ${n ? '' : 'disabled'}>${ico('trash')}<span>Ya no existe</span></button></div>`;
+  $('#sel-todo').addEventListener('click', () => { I.sel = { modo: 'filtro', ids: new Set(), filtro: I.q, excluir: new Set() }; pintarSel(); });
+  $('#sel-nada').addEventListener('click', () => { I.sel = { modo: 'manual', ids: new Set(), filtro: null, excluir: new Set() }; pintarSel(); });
+  $('#sel-almacen').addEventListener('click', () => abrirReubicar('almacen', baseSeleccion()));
+  $('#sel-baja').addEventListener('click', () => abrirReubicar('baja', baseSeleccion()));
+}
+const baseSeleccion = () => { const s = S.inv.sel; return s.modo === 'filtro' ? { filtro: s.filtro ?? '', excluir: [...s.excluir] } : { items: [...s.ids].map((item_id) => ({ item_id })) }; };
+
+/**
+ * Ubicación real de piezas de El Limbo: las pasa al almacén (desde ahí se sacan a piso con la entrega de siempre) o las da de baja (ya no existen).
+ * Primero revisa lo que pasaría (sin guardar) y solo guarda cuando se confirma. `base` = { items } o { filtro, excluir }; `titulo` solo para un artículo.
+ */
+async function abrirReubicar(destinoInicial, base, titulo) {
+  const d = dialogo('dlg-reubicar');
+  d.setAttribute('aria-labelledby', 'ru-titulo');
+  const id = (crypto.randomUUID && crypto.randomUUID()) || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  d.innerHTML = `<h2 id="ru-titulo" style="margin-top:0">${esc(titulo ?? 'Ubicación real de las piezas')}</h2>
+    <p class="nota" style="margin-top:0">Las piezas salen de El Limbo. Al almacén entran para sacarlas a piso con la entrega de siempre; «ya no existe» las quita sin dejarlas en ningún lado.</p>
+    <form id="form-reubicar" autocomplete="off">
+      <fieldset class="ru-opciones"><legend>¿A dónde van?</legend>
+        <label><input type="radio" name="ru-destino" value="almacen" ${destinoInicial === 'almacen' ? 'checked' : ''}> Al almacén</label>
+        <label><input type="radio" name="ru-destino" value="baja" ${destinoInicial === 'baja' ? 'checked' : ''}> Ya no existen (dar de baja)</label></fieldset>
+      <fieldset class="ru-opciones"><legend>¿Cuántas piezas de cada artículo?</legend>
+        <label><input type="radio" name="ru-cant" value="todo" checked> Todas las que tiene El Limbo</label>
+        <label><input type="radio" name="ru-cant" value="fija"> Una cantidad fija: <input id="ru-n" type="number" min="1" step="1" inputmode="numeric" value="1" style="width:70px;padding:6px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie)"></label></fieldset>
+      <div id="ru-resumen" class="mensaje" role="status" aria-live="polite">Revisando…</div>
+      <div id="ru-aviso" class="mensaje aviso" role="status" hidden></div>
+      <div class="filas"><button class="btn" type="button" id="ru-no">Cancelar</button><button class="btn btn-primario" type="submit" id="ru-ok" style="width:auto;flex:1" disabled>${ico('check')}<span>Aplicar</span></button></div>
+    </form>`;
+  const destino = () => d.querySelector('input[name="ru-destino"]:checked').value;
+  const cantidad = () => (d.querySelector('input[name="ru-cant"]:checked').value === 'fija' ? Number($('#ru-n').value) : null);
+  let ultimo = null, n = 0;
+  const cuerpo = (extra = {}) => ({ movimiento_id: id, destino: destino(), cantidad: cantidad(), ...base, ...extra });
+  const revisar = async () => {
+    const mio = ++n;
+    const ok = $('#ru-ok'), res = $('#ru-resumen'), av = $('#ru-aviso');
+    ok.disabled = true; av.hidden = true;
+    if (cantidad() !== null && (!Number.isInteger(cantidad()) || cantidad() < 1)) { res.className = 'mensaje error'; res.textContent = 'La cantidad debe ser un entero de 1 o más.'; return; }
+    try {
+      const r = await api('/api/admin/limbo/reubicar', cuerpo({ solo_revisar: true }));
+      if (mio !== n) return;
+      ultimo = r;
+      const baja = destino() === 'baja';
+      res.className = 'mensaje';
+      res.textContent = r.articulos ? `${r.articulos} artículo${r.articulos === 1 ? '' : 's'} · ${r.piezas} pieza${r.piezas === 1 ? '' : 's'} ${baja ? 'se darían de baja' : 'pasarían al almacén'}.${r.omitidos_total ? ` ${r.omitidos_total} no tienen piezas en El Limbo y se omiten.` : ''}` : 'Ninguno de los seleccionados tiene piezas en El Limbo.';
+      const avisos = [];
+      if (baja && r.articulos) avisos.push('Ya no se podrán vender como existencia de El Limbo. Confirme que de verdad ya no existen.');
+      if (r.quedan_negativos) avisos.push(`${r.quedan_negativos} artículo${r.quedan_negativos === 1 ? '' : 's'} quedarán con El Limbo en negativo (se mueven más piezas de las que El Limbo tenía registradas).`);
+      av.hidden = !avisos.length; av.textContent = avisos.join(' ');
+      ok.disabled = !r.articulos;
+      ok.querySelector('span').textContent = r.articulos ? (baja ? `Dar de baja ${r.piezas} pieza${r.piezas === 1 ? '' : 's'}` : `Pasar ${r.piezas} pieza${r.piezas === 1 ? '' : 's'} al almacén`) : 'Aplicar';
+      ok.classList.toggle('btn-peligro', baja); ok.classList.toggle('btn-primario', !baja);
+    } catch (e) { if (mio !== n) return; res.className = 'mensaje error'; res.textContent = e.message; }
+  };
+  for (const el of d.querySelectorAll('input[name="ru-destino"], input[name="ru-cant"]')) el.addEventListener('change', revisar);
+  $('#ru-n').addEventListener('input', () => { d.querySelector('input[name="ru-cant"][value="fija"]').checked = true; clearTimeout(abrirReubicar.t); abrirReubicar.t = setTimeout(revisar, 300); });
+  $('#ru-no').addEventListener('click', () => d.close());
+  $('#form-reubicar').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const ok = $('#ru-ok'), res = $('#ru-resumen');
+    ok.disabled = true;
+    try {
+      const r = await api('/api/admin/limbo/reubicar', cuerpo());
+      d.close();
+      const baja = r.destino === 'baja';
+      S.inv.sel = null;
+      await vistaInventario();
+      const m = $('#inv-msg'); m.className = 'mensaje ok';
+      m.textContent = `${r.articulos} artículo${r.articulos === 1 ? '' : 's'} (${r.piezas} pieza${r.piezas === 1 ? '' : 's'}) ${baja ? 'dados de baja de El Limbo' : 'pasaron de El Limbo al almacén'}.${r.repetido ? ' (Ya estaba aplicado.)' : ''}`;
+    } catch (e) { res.className = 'mensaje error'; res.textContent = e.message; ok.disabled = false; }
+  });
+  d.showModal();
+  await revisar();
+}
 async function cargarListaInventario() {
   const I = S.inv;
+  const mia = (I.carga = (I.carga ?? 0) + 1);
   const r = await api(`/api/admin/articulos?todos=1&limite=${I.por}&desde=${I.pag * I.por}&q=${encodeURIComponent(I.q)}&orden=${encodeURIComponent(I.orden)}`);
+  if (mia !== I.carga) return; // llegó otra búsqueda más reciente: esta respuesta ya no vale
   Object.assign(I, { total: r.total, tiendas: r.tiendas ?? [], articulos: r.articulos });
   const paginas = Math.max(1, Math.ceil(r.total / I.por));
-  $('#inv-res').innerHTML = `<table id="tabla-inv-lista" class="solo-escritorio"><thead><tr><th>Item #</th><th>Código</th><th>Descripción</th><th>Marca</th><th>Estilo</th><th>Lote</th><th>Departamento</th><th class="num">Precio</th>${I.tiendas.map((t) => `<th class="num">${esc(t)}</th>`).join('')}<th class="num">Almacén</th><th class="num">El Limbo</th></tr></thead><tbody>
-    ${r.articulos.map((a) => `<tr data-item="${esc(a.item_id)}" tabindex="0" style="cursor:pointer"><td>${esc(a.item_no ?? '')}</td><td>${esc(a.codigo)}</td><td>${esc(a.descripcion)}</td><td>${esc(a.marca)}</td><td>${esc(a.estilo)}</td><td>${esc(a.lote)}</td><td>${esc(a.departamento)}</td><td class="num">${mxn(a.precio)}</td>${I.tiendas.map((t) => `<td class="num">${a.existencias[t] ?? 0}</td>`).join('')}<td class="num">${a.almacen}</td><td class="num" data-col="limbo">${a.limbo}</td></tr>`).join('') || `<tr><td colspan="${10 + I.tiendas.length}" class="vacio">Ningún artículo coincide.</td></tr>`}</tbody></table>`;
+  $('#inv-res').innerHTML = `<table id="tabla-inv-lista" class="solo-escritorio"><thead><tr>${I.sel ? '<th class="chk"></th>' : ''}<th>Item #</th><th>Código</th><th>Descripción</th><th>Marca</th><th>Estilo</th><th>Lote</th><th>Departamento</th><th class="num">Precio</th>${I.tiendas.map((t) => `<th class="num">${esc(t)}</th>`).join('')}<th class="num">Almacén</th><th class="num">El Limbo</th></tr></thead><tbody>
+    ${r.articulos.map((a) => `<tr data-item="${esc(a.item_id)}" tabindex="0" style="cursor:pointer">${I.sel ? `<td class="chk"><input type="checkbox" data-sel="${esc(a.item_id)}" aria-label="Seleccionar ${esc(a.descripcion)}"></td>` : ''}<td>${esc(a.item_no ?? '')}</td><td>${esc(a.codigo)}</td><td>${esc(a.descripcion)}</td><td>${esc(a.marca)}</td><td>${esc(a.estilo)}</td><td>${esc(a.lote)}</td><td>${esc(a.departamento)}</td><td class="num">${mxn(a.precio)}</td>${I.tiendas.map((t) => `<td class="num">${a.existencias[t] ?? 0}</td>`).join('')}<td class="num">${a.almacen}</td><td class="num" data-col="limbo">${a.limbo}</td></tr>`).join('') || `<tr><td colspan="${11 + I.tiendas.length}" class="vacio">Ningún artículo coincide.</td></tr>`}</tbody></table>`;
   // En el teléfono la lista es de filas compactas (dos renglones por artículo), no tarjetas con todas las columnas.
   $('#inv-res').insertAdjacentHTML('beforeend', `<div class="lista-inv solo-movil" id="lista-inv" role="list">${r.articulos.map((a) => {
     const quien = [a.marca, a.estilo].filter(Boolean).map(esc).join(' · ');
     const ex = [...I.tiendas.map((t) => [t, a.existencias[t] ?? 0]), ['Alm', a.almacen], ['Limbo', a.limbo]].map(([t, n]) => `<span class="${n > 0 ? 'hay' : n < 0 ? 'neg' : ''}">${esc(t)} ${n}</span>`).join('');
-    return `<button type="button" class="fila-inv" role="listitem" data-item="${esc(a.item_id)}"><span class="fi-linea"><b class="fi-desc">${esc(a.descripcion) || '(sin descripción)'}</b><span class="fi-precio">${mxn(a.precio)}</span></span>${quien ? `<span class="fi-quien">${quien}</span>` : ''}<span class="fi-sub"><span>#${esc(a.item_no ?? '—')}</span><span>${esc(a.codigo) || 'sin código'}</span></span><span class="fi-ex">${ex}</span></button>`;
+    return `<button type="button" class="fila-inv" role="listitem" data-item="${esc(a.item_id)}">${I.sel ? '<span class="fi-chk" aria-hidden="true"></span>' : ''}<span class="fi-linea"><b class="fi-desc">${esc(a.descripcion) || '(sin descripción)'}</b><span class="fi-precio">${mxn(a.precio)}</span></span>${quien ? `<span class="fi-quien">${quien}</span>` : ''}<span class="fi-sub"><span>#${esc(a.item_no ?? '—')}</span><span>${esc(a.codigo) || 'sin código'}</span></span><span class="fi-ex">${ex}</span></button>`;
   }).join('') || '<p class="vacio">Sin resultados.</p>'}</div>`);
   for (const tr of $('#inv-res').querySelectorAll('[data-item]')) {
-    const abrir = () => abrirArticulo(I.articulos.find((x) => x.item_id === tr.dataset.item));
-    tr.addEventListener('click', abrir);
-    tr.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') abrir(); });
+    // En modo selección, tocar el renglón lo marca o desmarca; fuera de él abre el artículo.
+    const abrir = () => (I.sel ? alternarSel(tr.dataset.item) : abrirArticulo(I.articulos.find((x) => x.item_id === tr.dataset.item)));
+    tr.addEventListener('click', (ev) => { if (ev.target.matches('input[data-sel]')) return; abrir(); });
+    tr.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || (I.sel && ev.key === ' ')) { ev.preventDefault(); abrir(); } });
+    const c = tr.querySelector('input[data-sel]');
+    if (c) c.addEventListener('change', () => alternarSel(tr.dataset.item));
   }
+  pintarSel();
   const desde = r.total ? I.pag * I.por + 1 : 0, hasta = Math.min(r.total, (I.pag + 1) * I.por);
   $('#inv-pag').innerHTML = `<button class="btn" id="inv-ant" type="button" ${I.pag === 0 ? 'disabled' : ''}>${ico('chevron', 'ico-izq')}<span>Anterior</span></button><span id="inv-pag-info">Artículos ${desde}–${hasta} de ${r.total} · página ${I.pag + 1} de ${paginas}</span><button class="btn" id="inv-sig" type="button" ${I.pag + 1 >= paginas ? 'disabled' : ''}><span>Siguiente</span>${ico('chevron')}</button>`;
   $('#inv-ant').addEventListener('click', () => { I.pag--; cargarListaInventario(); });
@@ -1468,11 +1589,12 @@ async function abrirArticulo(a) {
       ${campo('art-precio', 'Precio de venta (MXN)', centavosAPesos(a.precio), `inputmode="decimal" ${S.sesion.rol_usuario === 'almacenista' ? 'readonly title="Solo un supervisor cambia precios"' : ''}`)}
       <p class="nota">${S.sesion.rol_usuario === 'almacenista' ? 'El precio solo lo cambia un supervisor. ' : ''}Un cambio de precio vale para las ventas siguientes; lo ya vendido conserva el suyo. Queda registrado en el historial.</p>
       <div id="msg-art" class="mensaje" role="status" aria-live="polite"></div>
-      <div class="filas"><button class="btn" type="button" id="art-cerrar">Cerrar</button><button class="btn" type="button" id="art-historial">${ico('clock')}<span>Historial</span></button>${S.sesion.rol_usuario === 'almacenista' ? '' : `<button class="btn" type="button" id="art-promo">${ico('percent')}<span>Crear promoción</span></button>`}<button class="btn btn-primario" type="submit" id="art-guardar" style="width:auto;flex:1">${ico('check')}<span>Guardar cambios</span></button></div>
+      <div class="filas"><button class="btn" type="button" id="art-cerrar">Cerrar</button><button class="btn" type="button" id="art-ubicar" title="Dar su ubicación real a las piezas que figuran en El Limbo">${ico('warehouse')}<span>Ubicar piezas</span></button><button class="btn" type="button" id="art-historial">${ico('clock')}<span>Historial</span></button>${S.sesion.rol_usuario === 'almacenista' ? '' : `<button class="btn" type="button" id="art-promo">${ico('percent')}<span>Crear promoción</span></button>`}<button class="btn btn-primario" type="submit" id="art-guardar" style="width:auto;flex:1">${ico('check')}<span>Guardar cambios</span></button></div>
     </form>
     <div id="art-hist" class="tabla-cont" hidden></div>`;
   $('#art-cerrar').addEventListener('click', () => d.close());
   if ($('#art-promo')) $('#art-promo').addEventListener('click', async () => { d.close(); S.hoyPromo = S.hoyPromo ?? new Date(Date.now() - 7 * 3600e3).toISOString().slice(0, 10); await abrirPromo(null, { item: a }); });
+  if ($('#art-ubicar')) $('#art-ubicar').addEventListener('click', () => { d.close(); abrirReubicar('almacen', { items: [{ item_id: a.item_id }] }, `Ubicar piezas · ${a.descripcion}`); });
   $('#art-historial').addEventListener('click', async () => {
     const h = $('#art-hist');
     if (!h.hidden) { h.hidden = true; return; }
