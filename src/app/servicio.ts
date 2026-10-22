@@ -54,6 +54,13 @@ export interface VistaCarrito {
  * Operación de venta de UNA caja. El servicio está atado a la caja y al actor de la sesión: no existe ninguna ruta para
  * leer ventas o cortes de otra caja. Los datos de usuario son SINTÉTICOS; no hay autenticación en esta etapa.
  */
+/** Cambio de mercancía ligado a una venta: la devolución registrada junto con ella y la venta de la que regresó la mercancía. */
+function cambioDeVenta(ops: Op[], v: Venta): { dev: Devolucion; origen: Venta } | undefined {
+  const dev = devoluciones(ops).find((d) => d.venta_cambio === v.sale_id);
+  const origen = dev ? ventas(ops).get(dev.sale_id) : undefined;
+  return dev && origen ? { dev, origen } : undefined;
+}
+
 export class ServicioCaja {
   readonly caja: Caja;
   readonly actor: ActorCajero;
@@ -237,24 +244,30 @@ export class ServicioCaja {
     };
     return { venta, ...(await this.imprimirComprobantes(comprobante)) };
   }
+  private async imprimirTexto(ref: string, texto: string, cajon: boolean): Promise<{ ok: boolean; error?: string }> {
+    try { await this.impresora.imprimir({ ref, texto, bytes: renderTextoEscPos(texto, { abrirCajon: cajon }) }); return { ok: true }; }
+    catch (e) { return { ok: false, error: e instanceof Error ? e.message : String(e) }; }
+  }
+  /** Solo el comprobante de control interno que firma la clienta (queda en la tienda). */
+  private async imprimirFirma(x: ComprobanteClienta) {
+    const firma = renderTicketFirmaTexto(x, this.negociosVivos()[x.venta.tienda]!, this.negociosVivos());
+    const impresion_firma = await this.imprimirTexto(`firma-${x.tipo}-${x.venta.folio}-${x.folio}`, firma, false);
+    return { ticket_firma: firma, impresion_firma };
+  }
   /** Imprime el ticket de la clienta y, aparte, el que ella firma. Una falla de impresión no deshace nada: lo registrado queda guardado. */
   private async imprimirComprobantes(x: ComprobanteClienta, ticketClienta?: string) {
     const cfg = this.negociosVivos()[x.venta.tienda]!;
     const texto = ticketClienta ?? renderTicketCancelacionTexto(x, cfg, this.negociosVivos());
-    const firma = renderTicketFirmaTexto(x, cfg, this.negociosVivos());
-    const ref = `${x.tipo}-${x.venta.folio}-${x.folio}`;
-    const imprimir = async (r: string, t: string, cajon: boolean) => {
-      try { await this.impresora.imprimir({ ref: r, texto: t, bytes: renderTextoEscPos(t, { abrirCajon: cajon }) }); return { ok: true } as { ok: boolean; error?: string }; }
-      catch (e) { return { ok: false, error: e instanceof Error ? e.message : String(e) } as { ok: boolean; error?: string }; }
-    };
-    const impresion = await imprimir(ref, texto, x.reembolsos.some((r) => r.metodo === 'efectivo'));
-    const impresion_firma = await imprimir(`firma-${ref}`, firma, false);
-    return { ticket_texto: texto, impresion, ticket_firma: firma, impresion_firma };
+    const impresion = await this.imprimirTexto(`${x.tipo}-${x.venta.folio}-${x.folio}`, texto, x.reembolsos.some((r) => r.metodo === 'efectivo'));
+    return { ticket_texto: texto, impresion, ...(await this.imprimirFirma(x)) };
   }
-  private comprobanteDeDevolucion(d: Devolucion, v: Venta, seLleva?: { descripcion: string; qty: number }[]): ComprobanteClienta {
+  private cambioDe(v: Venta) {
+    return cambioDeVenta(this.caja.opsDe('sale.confirmed', 'sale.cancelled', 'return.registered'), v);
+  }
+  private comprobanteDeDevolucion(d: Devolucion, v: Venta, seLleva?: { descripcion: string; qty: number; importe?: number }[], nuevoTotal?: number): ComprobanteClienta {
     return {
-      tipo: d.por_cambio ? 'cambio' : 'devolucion', tienda: d.tienda, caja: d.caja, folio: d.folio ?? 0, ocurrio_en: d.ocurrio_en, cajero: d.cajero, autorizado_por: d.autorizado_por ?? null,
-      clienta: d.clienta ?? null, motivo: d.por_cambio ? d.motivo_cambio ?? null : d.motivo, venta: v, lineas: d.lineas.map((l) => ({ linea_id: l.linea_id, qty: l.qty, importe: l.importe })), importe: d.importe, reembolsos: d.reembolsos, se_lleva: seLleva,
+      tipo: d.por_cambio && d.venta_cambio ? 'cambio' : 'devolucion', tienda: d.tienda, caja: d.caja, folio: d.folio ?? 0, ocurrio_en: d.ocurrio_en, cajero: d.cajero, autorizado_por: d.autorizado_por ?? null,
+      clienta: d.clienta ?? null, motivo: d.por_cambio ? d.motivo_cambio ?? null : d.motivo, venta: v, lineas: d.lineas.map((l) => ({ linea_id: l.linea_id, qty: l.qty, importe: l.importe })), importe: d.importe, reembolsos: d.reembolsos, se_lleva: seLleva, nuevo_total: nuevoTotal,
     };
   }
   /** Detalle de una venta de ESTA caja (hora, cajera, prendas, pagos, cambios y cancelación). */
@@ -412,7 +425,7 @@ export class ServicioCaja {
   private async imprimirVenta(saleId: string, tipo: 'original' | 'reimpresion', n: number) {
     const v = ventas(this.caja.opsVentas()).get(saleId)!;
     const cfg = this.negociosVivos()[v.tienda]!;
-    const ticket = construirTicket(v, cfg, n, this.negociosVivos());
+    const ticket = construirTicket(v, cfg, n, this.negociosVivos(), this.cambioDe(v));
     const texto = renderTicketTexto(ticket);
     // El cajón se abre con el cobro en efectivo original, no al reimprimir.
     const bytes = renderTicketEscPos(ticket, { abrirCajon: tipo === 'original', logo: LOGOS_TICKET[v.tienda] });
@@ -446,18 +459,16 @@ export class ServicioCaja {
   }
   private async finalizarCobro(venta: Venta, sinComprobanteDeCambio = false) {
     const yaImpreso = this.caja.impresionesDe(venta.sale_id).some((i) => i.resultado === 'ok');
+    const cambio = this.cambioDe(venta);
     const imp = yaImpreso
-      ? { ticket_texto: renderTicketTexto(construirTicket(venta, this.negociosVivos()[venta.tienda]!, 0, this.negociosVivos())), codigo_ticket: construirTicket(venta, this.negociosVivos()[venta.tienda]!, 0, this.negociosVivos()).codigo_ticket, impresion: { ok: true } }
+      ? { ticket_texto: renderTicketTexto(construirTicket(venta, this.negociosVivos()[venta.tienda]!, 0, this.negociosVivos(), cambio)), codigo_ticket: construirTicket(venta, this.negociosVivos()[venta.tienda]!, 0, this.negociosVivos()).codigo_ticket, impresion: { ok: true } }
       : await this.imprimirVenta(venta.sale_id, 'original', 0);
-    // Cambio con venta nueva: además del ticket de la venta, el ticket CAMBIO de la clienta y el que ella firma (solo la primera vez que se imprime la venta).
-    let comprobantes: { ticket_cambio: string; ticket_firma: string; impresion_cambio: { ok: boolean; error?: string }; impresion_firma: { ok: boolean; error?: string } } | null = null;
-    const op = sinComprobanteDeCambio || yaImpreso ? undefined : this.caja.opsDe('return.registered').find((o) => o.payload.venta_cambio === venta.sale_id);
-    if (op) {
-      const d = devoluciones([op])[0]!;
-      const origen = ventas(this.caja.opsVentas()).get(d.sale_id)!;
-      const texto = renderTicketDevolucionTexto(d, origen, this.negociosVivos()[origen.tienda]!, this.negociosVivos());
-      const r = await this.imprimirComprobantes(this.comprobanteDeDevolucion(d, origen, venta.lineas.map((l) => ({ descripcion: l.descripcion, qty: l.qty }))), texto);
-      comprobantes = { ticket_cambio: r.ticket_texto, ticket_firma: r.ticket_firma, impresion_cambio: r.impresion, impresion_firma: r.impresion_firma };
+    // Cambio con venta nueva: el ticket de la clienta ES el de la venta (muestra lo nuevo y lo recibido a cambio). Solo se agrega el de control interno para firma.
+    let comprobantes: { ticket_firma: string; impresion_firma: { ok: boolean; error?: string } } | null = null;
+    if (cambio && !sinComprobanteDeCambio && !yaImpreso) {
+      const c = this.comprobanteDeDevolucion(cambio.dev, cambio.origen, venta.lineas.map((l) => ({ descripcion: l.descripcion, qty: l.qty, importe: l.importe })), venta.total);
+      const r = await this.imprimirFirma(c);
+      comprobantes = { ticket_firma: r.ticket_firma, impresion_firma: r.impresion_firma };
     }
     return { venta, avisos: venta.avisos ?? [], ...imp, ...(comprobantes ?? {}), cambio: venta.pagos.find((p) => p.metodo === 'efectivo')?.cambio ?? venta.pagos.find((p) => p.metodo === 'efectivo_usd')?.cambio_mxn ?? 0 };
   }
@@ -606,11 +617,16 @@ export class ServicioCaja {
   async devolverEfectivoCambio(cartId: string, autoriza?: { nombre: string; clave: string }) {
     const { venta, devolucion: d } = this.caja.devolverEfectivoDeCambio(cartId, this.actor.usuario, autoriza);
     const origen = ventas(this.caja.opsVentas()).get(d.sale_id)!;
+    if (venta) {
+      // Con mercancía nueva es UN cambio: el ticket de la clienta es el de la venta (artículo nuevo, recibido a cambio y diferencia a devolver) más el de firma.
+      const cobro = await this.finalizarCobro(venta, true);
+      const firma = await this.imprimirFirma(this.comprobanteDeDevolucion(d, origen, venta.lineas.map((l) => ({ descripcion: l.descripcion, qty: l.qty, importe: l.importe })), venta.total));
+      return { devolucion: d, ticket_texto: cobro.ticket_texto, impresion: cobro.impresion, ticket_firma: firma.ticket_firma, impresion_firma: firma.impresion_firma, venta: cobro.venta, ticket_venta: cobro.ticket_texto, impresion_venta: cobro.impresion };
+    }
+    // Sin mercancía nueva es una devolución: comprobante para la clienta y copia de control para firma.
     const texto = renderTicketDevolucionTexto(d, origen, this.negociosVivos()[origen.tienda]!, this.negociosVivos());
-    const seLleva = venta ? venta.lineas.map((l) => ({ descripcion: l.descripcion, qty: l.qty })) : undefined;
-    const { impresion, ticket_firma, impresion_firma } = await this.imprimirComprobantes(this.comprobanteDeDevolucion(d, origen, seLleva), texto);
-    const cobro = venta ? await this.finalizarCobro(venta, true) : null;
-    return { devolucion: d, ticket_texto: texto, impresion, ticket_firma, impresion_firma, venta: cobro?.venta ?? null, ticket_venta: cobro?.ticket_texto ?? null, impresion_venta: cobro?.impresion ?? null };
+    const { impresion, ticket_firma, impresion_firma } = await this.imprimirComprobantes(this.comprobanteDeDevolucion(d, origen), texto);
+    return { devolucion: d, ticket_texto: texto, impresion, ticket_firma, impresion_firma, venta: null, ticket_venta: null, impresion_venta: null };
   }
   async devolver(saleId: string, renglones: { linea_id: string; qty: number }[], motivo: string, autoriza?: { nombre: string; clave: string }) {
     const d = this.caja.devolver({ sale_id: saleId, renglones, motivo, cajero: this.actor.usuario, autoriza });
@@ -654,7 +670,7 @@ export class ServicioCaja {
     const v = ventas(this.caja.opsVentas()).get(saleId);
     if (!v || v.tienda !== this.caja.tienda || v.caja !== this.caja.caja) throw new ErrorDominio('PROHIBIDO', 'solo se consultan tickets de la propia caja');
     const n = this.caja.impresionesDe(saleId).filter((i) => i.tipo === 'reimpresion').length;
-    return renderTicketTexto(construirTicket(v, this.negociosVivos()[v.tienda]!, n, this.negociosVivos()));
+    return renderTicketTexto(construirTicket(v, this.negociosVivos()[v.tienda]!, n, this.negociosVivos(), this.cambioDe(v)));
   }
 
   /** Ventas de ESTA caja. El filtro por caja lo impone el permiso del actor, no la ausencia de datos. */
@@ -1447,7 +1463,7 @@ export class ServicioAdmin {
     const negocios = Object.fromEntries(Object.entries(NEGOCIOS).map(([t, c]) => [t, aplicarDatosTienda(c, datos.get(t))])) as Record<string, NegocioCfg>;
     const v = ventas(ops).get(saleId)!;
     const cfg = negocios[v.tienda];
-    return { detalle: { ...d, codigo_ticket: codigoTicket(d.tienda, d.caja, d.folio) }, ticket_texto: cfg ? renderTicketTexto(construirTicket(v, cfg, 0, negocios)) : '' };
+    return { detalle: { ...d, codigo_ticket: codigoTicket(d.tienda, d.caja, d.folio) }, ticket_texto: cfg ? renderTicketTexto(construirTicket(v, cfg, 0, negocios, cambioDeVenta(ops, v))) : '' };
   }
   /** Ventas por vendedora con su nombre completo (el alias es lo que se ve en caja; aquí también nombres y apellidos). */
   reporteVendedoras(f: Filtro = {}) {

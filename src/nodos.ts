@@ -2466,6 +2466,12 @@ export class Caja {
     const pesosConUsd = suma(pagosUsdFisicos.map((p) => p.pesos_recibidos!));
     const cambioConUsd = suma(pagosUsdFisicos.map((p) => p.cambio_mxn!));
     const reembolsos = suma(devs.map((d) => d.importe));
+    // Cambios: lo recibido a cambio se aplica dentro de la venta nueva (no es dinero que sale); solo el saldo entregado en efectivo es un reembolso real.
+    const devsCambio = devs.filter((d) => d.por_cambio);
+    const reembolsadoEnCambios = suma(devsCambio.flatMap((d) => d.reembolsos.map((r) => r.monto)));
+    const recibidaPorCambio = suma(devsCambio.map((d) => d.importe)) - reembolsadoEnCambios;
+    const ventasDeCambio = new Set(devsCambio.map((d) => d.venta_cambio).filter(Boolean));
+    const diferenciasCobradas = suma(confirmadas.filter((v) => ventasDeCambio.has(v.sale_id)).flatMap((v) => v.pagos.filter((p) => p.metodo !== 'credito_cambio').map((p) => p.monto)));
     const enReembolsos = (metodo: string) => suma(devs.flatMap((d) => d.reembolsos.filter((r) => r.metodo === metodo).map((r) => r.monto)));
     const cancelacionesPosteriores = vs.filter((v) => v.estado === 'cancelada');
     const anuladas = ops.filter((o) => o.tipo === 'sale.voided' && propia(o.payload.tienda, o.payload.caja) && fechaLocal(o.ocurrio_en) === fecha);
@@ -2483,6 +2489,8 @@ export class Caja {
       ventas: suma(confirmadas.map((v) => v.total)), ventas_mercancia: ventasMercancia,
       tarjetas_regalo_vendidas: suma(deTarjeta.map((l) => l.importe)), tarjetas_regalo_vendidas_n: deTarjeta.length,
       devoluciones: reembolsos, devoluciones_en_efectivo: enReembolsos('efectivo'), devoluciones_a_tarjeta: enReembolsos('tarjeta'), devoluciones_a_tarjeta_regalo: enReembolsos('tarjeta_regalo'),
+      mercancia_recibida_por_cambio: recibidaPorCambio, devoluciones_con_reembolso: reembolsos - recibidaPorCambio,
+      diferencias_cobradas_en_cambios: diferenciasCobradas, diferencias_devueltas_en_cambios: reembolsadoEnCambios,
       folios_de_devolucion: devs.length,
       ventas_netas: ventasMercancia - reembolsos,
       cobros_efectivo: efectivoCobrado, cobros_tarjeta: tarjeta, cobros_tarjeta_regalo: regalo, fondo_inicial: mxn.fondo, entradas: mxn.entradas, retiros: mxn.retiros,

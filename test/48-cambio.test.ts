@@ -45,7 +45,7 @@ porAlmacen('Cambio: las piezas que regresa la clienta son crédito en negativo d
     assert.equal(c.cambio.saldo_favor, 89900, 'sin artículos nuevos todo el crédito está a favor de la clienta');
   });
 
-  it('CM2 cambio por un artículo más caro: el crédito se descuenta y la clienta paga la diferencia; el ticket muestra el crédito', async (t) => {
+  it('CM2 cambio por un artículo más caro: el crédito se descuenta y la clienta paga la diferencia; el ticket de la clienta muestra lo nuevo, lo recibido a cambio y el total a pagar', async (t) => {
     const { caja } = await preparar(t);
     const v = await vender(caja, '7501234567890'); // mascada $120
     const { cart } = await iniciar(caja, v);
@@ -56,11 +56,15 @@ porAlmacen('Cambio: las piezas que regresa la clienta son crédito en negativo d
     assert.equal(p.status, 200);
     assert.equal(p.json.venta.total, 45000, 'la venta es de la bolsa completa');
     assert.deepEqual(p.json.venta.pagos.map((x: any) => [x.metodo, x.monto]), [['credito_cambio', 12000], ['efectivo', 33000]]);
-    assert.match(p.json.ticket_texto, /Crédito por cambio \(folio 0000\d\d\)/);
+    const tk = p.json.ticket_texto as string;
+    assert.match(tk, /ARTÍCULO NUEVO:[\s\S]*BOLSA[\s\S]*SE RECIBIÓ A CAMBIO:[\s\S]*-\$120\.00[\s\S]*Venta original: D1-0000\d\d[\s\S]*TOTAL A PAGAR +\$330\.00[\s\S]*Efectivo MXN +\$330\.00[\s\S]*Recibido +\$400\.00[\s\S]*Cambio +\$70\.00/);
+    assert.doesNotMatch(tk, /[Cc]rédito/);
+    assert.equal(p.json.ticket_cambio, undefined, 'no hay un comprobante aparte de crédito');
     const c = (await corte(caja)).corte;
     assert.equal(c.devoluciones_en_efectivo, 0, 'no sale dinero');
     assert.equal(c.devoluciones, antes.devoluciones + 12000, 'el crédito cuenta como devolución de la mascada, sin salida de efectivo');
     assert.equal(c.ventas_netas, antes.ventas_netas + 33000, 'netas = lo realmente cobrado de más');
+    assert.deepEqual([c.mercancia_recibida_por_cambio, c.devoluciones_con_reembolso, c.diferencias_cobradas_en_cambios], [antes.mercancia_recibida_por_cambio + 12000, antes.devoluciones_con_reembolso, antes.diferencias_cobradas_en_cambios + 33000]);
     // la pieza regresada ya no se puede devolver otra vez
     const otra = await iniciar(caja, v);
     assert.equal(otra.r.json.error.codigo, 'DEVOLUCION_EXCEDE');

@@ -94,7 +94,21 @@ export interface LineaTicket {
   /** Venta o recarga de tarjeta de regalo: no lleva Item #, marca, estilo ni lote. */
   tarjeta_regalo?: boolean;
 }
+/** Cambio de mercancía: lo recibido a cambio se muestra DENTRO del ticket de la venta nueva (no hay un comprobante aparte de crédito). */
+export interface CambioTicket {
+  /** Código de la venta original (D2-000007). */
+  origen: string;
+  recibidas: { qty: number; descripcion: string; marca: string; estilo: string; item_no: string | null; codigo: string; precio_unit: number; importe: number }[];
+  /** Valor de lo recibido a cambio. */
+  recibido: number;
+  /** Diferencia final: total de lo nuevo − lo recibido. Positiva = la clienta paga; negativa = se le devuelve. */
+  neto: number;
+  /** Dinero que sale de la tienda por la diferencia a favor de la clienta (solo si se autorizó). */
+  reembolsos: Devolucion['reembolsos'];
+  autorizado_por?: string;
+}
 export interface Ticket {
+  cambio?: CambioTicket;
   /** Cupones de recompensa que se imprimen al final (cada uno con su QR). */
   recompensas?: import('./recompensas.ts').RecompensaEmitida[];
   /** Quién atendió la venta (no se imprime si fue «Autocompra» o no se registró). */
@@ -132,7 +146,7 @@ export function aplicarDatosTienda(base: NegocioCfg, d?: import('./proyecciones.
 /** Líneas del encabezado de la tienda (las vacías no salen). */
 export const encabezadoDe = (cfg: NegocioCfg): string[] => [cfg.direccion, cfg.ciudad, cfg.razon_social, cfg.rfc ? `RFC: ${cfg.rfc}` : ''].map((x) => (x ?? '').trim()).filter(Boolean);
 
-export function construirTicket(v: Venta, cfg: NegocioCfg = NEGOCIOS[v.tienda]!, reimpresion = 0, negocios = NEGOCIOS): Ticket {
+export function construirTicket(v: Venta, cfg: NegocioCfg = NEGOCIOS[v.tienda]!, reimpresion = 0, negocios = NEGOCIOS, cambio?: { dev: Devolucion; origen: Venta }): Ticket {
   const local = new Date(Date.parse(v.ocurrio_en) - 7 * 3600_000).toISOString();
   const [y, mo, d] = fechaLocal(v.ocurrio_en).split('-');
   return {
@@ -143,8 +157,20 @@ export function construirTicket(v: Venta, cfg: NegocioCfg = NEGOCIOS[v.tienda]!,
       qty: l.qty, precio_unit: l.precio_unit, descuento: l.descuento, importe: l.importe, descuentos: l.descuento_detalle?.map((d) => ({ tipo: d.tipo, nombre: d.nombre, monto: d.monto })), tarjeta_regalo: l.tarjeta_regalo ? true : undefined,
     })),
     total: v.total,
-    pagos: v.pagos.map((p) => ({ etiqueta: p.metodo === 'efectivo' ? 'Efectivo MXN' : p.metodo === 'efectivo_usd' ? 'Efectivo (dólares)' : p.metodo === 'tarjeta_regalo' ? 'Tarjeta de regalo' : p.metodo === 'credito_cambio' ? `Crédito por cambio (folio ${String(p.folio_origen ?? 0).padStart(6, '0')})` : 'Tarjeta', monto: p.monto, recibido: p.recibido, cambio: p.cambio, tarjeta: p.tarjeta, saldo_despues: p.saldo_despues, autorizacion: p.autorizacion, marca: p.marca, ultimos4: p.ultimos4, dolares: p.metodo === 'efectivo_usd' ? { usd: p.usd!, tasa: p.tasa!, version: p.tasa_version!, equivalente: p.equivalente!, pesos: p.pesos_recibidos!, cambio: p.cambio_mxn! } : undefined })),
+    ...(cambio ? { cambio: cambioDeTicket(v, cambio.dev, cambio.origen, negocios) } : {}),
+    pagos: v.pagos.filter((p) => !(cambio && p.metodo === 'credito_cambio')).map((p) => ({ etiqueta: p.metodo === 'efectivo' ? 'Efectivo MXN' : p.metodo === 'efectivo_usd' ? 'Efectivo (dólares)' : p.metodo === 'tarjeta_regalo' ? 'Tarjeta de regalo' : p.metodo === 'credito_cambio' ? `Mercancía recibida a cambio (folio ${String(p.folio_origen ?? 0).padStart(6, '0')})` : 'Tarjeta', monto: p.monto, recibido: p.recibido, cambio: p.cambio, tarjeta: p.tarjeta, saldo_despues: p.saldo_despues, autorizacion: p.autorizacion, marca: p.marca, ultimos4: p.ultimos4, dolares: p.metodo === 'efectivo_usd' ? { usd: p.usd!, tasa: p.tasa!, version: p.tasa_version!, equivalente: p.equivalente!, pesos: p.pesos_recibidos!, cambio: p.cambio_mxn! } : undefined })),
     encabezado: encabezadoDe(cfg), telefono: cfg.telefono ?? '', leyendas: cfg.leyendas, columnas: cfg.columnas, reimpresion,
+  };
+}
+
+function cambioDeTicket(v: Venta, dev: Devolucion, origen: Venta, negocios: Record<string, NegocioCfg>): CambioTicket {
+  return {
+    origen: codigoTicket(origen.tienda, origen.caja, origen.folio, negocios),
+    recibidas: dev.lineas.map((dl) => {
+      const l = origen.lineas.find((x) => x.linea_id === dl.linea_id)!;
+      return { qty: dl.qty, descripcion: l.descripcion, marca: l.marca, estilo: l.estilo, item_no: l.item_no, codigo: l.codigo, precio_unit: l.precio_unit, importe: dl.importe };
+    }),
+    recibido: dev.importe, neto: v.total - dev.importe, reembolsos: dev.reembolsos, ...(dev.autorizado_por ? { autorizado_por: dev.autorizado_por } : {}),
   };
 }
 
@@ -236,6 +262,7 @@ export function renderTicketTexto(t: Ticket): string {
   L.push(`Vendedora-Cajera: ${t.cajero}`.slice(0, c), ...(t.vendio ? [`Vendió: ${t.vendio}`.slice(0, c)] : []), `Fecha: ${t.fecha}  Hora: ${t.hora}`, `Folio: ${String(t.folio).padStart(6, '0')}`);
   if (t.reimpresion > 0) L.push(centrar(`*** REIMPRESIÓN ${t.reimpresion} ***`, c));
   L.push(regla);
+  if (t.cambio) L.push('ARTÍCULO NUEVO:');
   for (const l of t.lineas) {
     L.push(...renglonArticulo(l, c));
     L.push(...renglonIdentificacion(l, l.qty * l.precio_unit, c));
@@ -250,7 +277,18 @@ export function renderTicketTexto(t: Ticket): string {
       } else L.push(dos('Descuento', `-${formatoMXN(l.descuento)}`, c));
     }
   }
-  L.push(regla, dos('TOTAL', formatoMXN(t.total), c));
+  if (t.cambio) {
+    // Lo recibido a cambio baja el total de la operación en este mismo ticket; no es dinero ni un saldo a favor.
+    L.push(regla, 'SE RECIBIÓ A CAMBIO:');
+    for (const r of t.cambio.recibidas) {
+      L.push(...renglonArticulo({ ...r, tarjeta_regalo: false }, c));
+      L.push(...renglonIdentificacion({ ...r, tarjeta_regalo: false }, -r.importe, c, false));
+    }
+    L.push(`Venta original: ${t.cambio.origen}`, regla);
+    L.push(t.cambio.neto >= 0 ? dos('TOTAL A PAGAR', formatoMXN(t.cambio.neto), c) : dos('DIFERENCIA A DEVOLVER', formatoMXN(-t.cambio.neto), c));
+  } else L.push(regla, dos('TOTAL', formatoMXN(t.total), c));
+  for (const r of t.cambio?.reembolsos ?? []) L.push(dos(textoReembolso(r), formatoMXN(r.monto), c));
+  if (t.cambio?.autorizado_por && t.cambio.reembolsos.some((r) => r.metodo === 'efectivo')) L.push(...envolver(`Devolución de efectivo autorizada por ${t.cambio.autorizado_por}`, c));
   for (const p of t.pagos) {
     L.push(dos(p.etiqueta, formatoMXN(p.monto), c));
     if (p.tarjeta) L.push(dos(`  Tarjeta: ${p.tarjeta}`, p.saldo_despues !== undefined ? `Saldo ${formatoMXN(p.saldo_despues)}` : '', c));
@@ -352,7 +390,7 @@ export function renderTicketDevolucionTexto(d: Devolucion, v: Venta, cfg: Negoci
   const regla = '-'.repeat(c);
   const local = new Date(Date.parse(d.ocurrio_en) - 7 * 3600_000).toISOString();
   const [y, mo, dd] = fechaLocal(d.ocurrio_en).split('-');
-  const L: string[] = [centrar(cfg.nombre, c), ...encabezadoDe(cfg).flatMap((x) => envolver(x, c).map((y) => centrar(y, c))), centrar(`Tienda ${d.tienda} - Caja ${d.caja}`, c), centrar(d.por_cambio ? TITULO_COMPROBANTE.cambio : TITULO_COMPROBANTE.devolucion, c)];
+  const L: string[] = [centrar(cfg.nombre, c), ...encabezadoDe(cfg).flatMap((x) => envolver(x, c).map((y) => centrar(y, c))), centrar(`Tienda ${d.tienda} - Caja ${d.caja}`, c), centrar(d.por_cambio && d.venta_cambio ? TITULO_COMPROBANTE.cambio : TITULO_COMPROBANTE.devolucion, c)];
   L.push(`Vendedora-Cajera: ${d.cajero}`.slice(0, c), `Fecha: ${dd}/${mo}/${y}  Hora: ${local.slice(11, 16)}`, `Folio: ${String(d.folio ?? 0).padStart(6, '0')}`);
   L.push(`Venta original: ${codigoTicket(v.tienda, v.caja, v.folio, negocios)}`, regla);
   for (const dl of d.lineas) {
@@ -360,7 +398,7 @@ export function renderTicketDevolucionTexto(d: Devolucion, v: Venta, cfg: Negoci
     L.push(...renglonArticulo({ ...l, qty: dl.qty, tarjeta_regalo: !!l.tarjeta_regalo }, c));
     L.push(...renglonIdentificacion({ ...l, qty: dl.qty, tarjeta_regalo: !!l.tarjeta_regalo }, dl.importe, c, false));
   }
-  L.push(regla, dos(d.por_cambio ? 'CRÉDITO POR CAMBIO' : 'TOTAL DEVUELTO', formatoMXN(d.importe), c));
+  L.push(regla, dos('TOTAL DEVUELTO', formatoMXN(d.importe), c));
   for (const r of d.reembolsos) L.push(dos(r.metodo === 'efectivo' ? 'Reembolso en efectivo MXN' : r.metodo === 'tarjeta' ? 'Reverso a tarjeta bancaria' : `A tarjeta de regalo ${r.tarjeta}`, formatoMXN(r.monto), c));
   if (d.autorizado_por && d.reembolsos.some((r) => r.metodo === 'efectivo')) L.push(...envolver(`Devolución de efectivo autorizada por ${d.autorizado_por}`, c));
   L.push(regla, centrar(codigoTicket(d.tienda, d.caja, d.folio ?? 0, negocios), c));
@@ -386,7 +424,9 @@ export interface ComprobanteClienta {
   importe: number;
   reembolsos: { metodo: 'efectivo' | 'tarjeta' | 'tarjeta_regalo'; monto: number; tarjeta?: string }[];
   /** Cambio: lo que se lleva a cambio (de la venta nueva). */
-  se_lleva?: { descripcion: string; qty: number }[];
+  se_lleva?: { descripcion: string; qty: number; importe?: number }[];
+  /** Cambio: total de la mercancía nueva (para mostrar la diferencia en el comprobante de control). */
+  nuevo_total?: number;
 }
 const TITULO_COMPROBANTE = { cambio: 'SE HIZO CAMBIO', devolucion: 'RECIBÍ DEVOLUCIÓN', cancelacion: 'VENTA CANCELADA' } as const;
 const textoReembolso = (r: ComprobanteClienta['reembolsos'][number]) => (r.metodo === 'efectivo' ? 'Reembolso en efectivo MXN' : r.metodo === 'tarjeta' ? 'Reverso a tarjeta bancaria' : `A tarjeta de regalo ${r.tarjeta}`);
@@ -427,11 +467,15 @@ export function renderTicketFirmaTexto(x: ComprobanteClienta, cfg: NegocioCfg = 
   L.push(regla);
   const articulos = x.lineas.flatMap((dl) => {
     const l = x.venta.lineas.find((q) => q.linea_id === dl.linea_id)!;
-    return renglonArticulo({ ...l, qty: dl.qty, tarjeta_regalo: !!l.tarjeta_regalo }, c);
+    return [...renglonArticulo({ ...l, qty: dl.qty, tarjeta_regalo: !!l.tarjeta_regalo }, c), ...(x.tipo === 'cambio' ? [dos('', formatoMXN(dl.importe), c)] : [])];
   });
   if (x.tipo === 'cambio') {
     L.push(...envolver('Recibí cambio del artículo:', c), ...articulos);
-    if (x.se_lleva?.length) L.push('Me llevo a cambio:', ...x.se_lleva.flatMap((p) => envolverConSangria(`${p.qty} `, p.descripcion, c)));
+    if (x.se_lleva?.length) L.push('Me llevo a cambio:', ...x.se_lleva.flatMap((p) => [...envolverConSangria(`${p.qty} `, p.descripcion, c), ...(p.importe !== undefined ? [dos('', formatoMXN(p.importe), c)] : [])]));
+    if (x.nuevo_total !== undefined) {
+      const neto = x.nuevo_total - x.importe;
+      L.push(regla, dos('Mercancía nueva', formatoMXN(x.nuevo_total), c), dos('Mercancía recibida a cambio', formatoMXN(-x.importe), c), dos(neto >= 0 ? 'TOTAL A PAGAR' : 'DIFERENCIA A DEVOLVER', formatoMXN(Math.abs(neto)), c));
+    }
   } else {
     L.push(...envolver(`Recibí devolución por ${formatoMXN(x.importe)} de:`, c), ...articulos);
   }

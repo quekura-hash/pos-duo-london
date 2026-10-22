@@ -408,7 +408,7 @@ async function vistaVenta() {
         <dl>
           <dt>Importe</dt><dd id="brutas">$0.00</dd>
           <dt>Descuentos</dt><dd id="descuentos">$0.00</dd>
-          <dt id="dt-cambio" hidden>Crédito por cambio</dt><dd id="dd-cambio" hidden>$0.00</dd>
+          <dt id="dt-cambio" hidden>Mercancía recibida a cambio</dt><dd id="dd-cambio" hidden>$0.00</dd>
         </dl>
         <div id="saldo-favor" class="mensaje aviso" role="status" hidden><span id="saldo-favor-texto"></span><br><button type="button" id="btn-devolver-dinero" style="background:none;border:0;padding:4px 0 0;color:var(--texto-2);font-size:12px;text-decoration:underline;cursor:pointer;display:inline-flex;gap:4px;align-items:center">${ico('cash')}<span>No hay cambio posible, devolver dinero</span></button></div>
         <div id="promos-aplicadas" aria-live="polite"></div>
@@ -952,10 +952,12 @@ async function abrirTicketRegalo(saleId) {
 }
 
 // ── corte ──
+/** Importe de un desglose que los cortes cerrados antes de existir no traen: «No disponible», nunca $0. */
+const mxnODisp = (v) => (v === undefined || v === null ? 'No disponible' : mxn(v));
 const FILAS_CORTE = [
   ['tickets', 'Tickets', (v) => v], ['ventas_brutas', 'Mercancía antes de descuentos', mxn], ['descuentos', 'Descuentos', mxn], ['ventas_mercancia', 'Ventas de mercancía', mxn],
   ['tarjetas_regalo_vendidas', 'Tarjetas de regalo vendidas o recargadas (no son ventas de mercancía)', mxn], ['ventas', 'Total de tickets de venta', mxn],
-  ['devoluciones', 'Devoluciones', mxn], ['devoluciones_en_efectivo', 'Devoluciones en efectivo', mxn], ['devoluciones_a_tarjeta_regalo', 'Devoluciones a tarjeta de regalo', mxn], ['ventas_netas', 'Ventas netas de mercancía', mxn], ['cobros_efectivo', 'Cobros en efectivo (MXN)', mxn], ['cobros_efectivo_usd', 'Cobros en efectivo con dólares (MXN que liquidan)', mxn], ['devoluciones_a_tarjeta', 'Reversos a tarjeta bancaria (no sale efectivo)', mxn], ['cobros_tarjeta', 'Cobros con tarjeta bancaria', mxn], ['cobros_tarjeta_regalo', 'Cobros con tarjeta de regalo', mxn],
+  ['mercancia_recibida_por_cambio', 'Mercancía recibida a cambio (no es salida de dinero)', mxnODisp], ['devoluciones_con_reembolso', 'Devoluciones con reembolso real', mxnODisp], ['diferencias_cobradas_en_cambios', 'Diferencias cobradas en cambios (ya incluidas en los cobros)', mxnODisp], ['diferencias_devueltas_en_cambios', 'Diferencias devueltas en cambios (ya incluidas en los reembolsos)', mxnODisp], ['devoluciones_en_efectivo', 'Devoluciones en efectivo', mxn], ['devoluciones_a_tarjeta_regalo', 'Devoluciones a tarjeta de regalo', mxn], ['ventas_netas', 'Ventas netas de mercancía', mxn], ['cobros_efectivo', 'Cobros en efectivo (MXN)', mxn], ['cobros_efectivo_usd', 'Cobros en efectivo con dólares (MXN que liquidan)', mxn], ['devoluciones_a_tarjeta', 'Reversos a tarjeta bancaria (no sale efectivo)', mxn], ['cobros_tarjeta', 'Cobros con tarjeta bancaria', mxn], ['cobros_tarjeta_regalo', 'Cobros con tarjeta de regalo', mxn],
   ['fondo_inicial', 'Fondo inicial en pesos', mxn], ['entradas', 'Entradas en pesos', mxn], ['retiros', 'Retiros en pesos', mxn], ['pesos_recibidos_con_usd', 'Pesos recibidos junto con dólares', mxn], ['cambio_mxn_con_usd', 'Cambio entregado en pesos por cobros con dólares', mxn],
   ['efectivo_esperado', 'EFECTIVO MXN esperado en el cajón (pesos físicos)', mxn],
   ['fondo_inicial_usd', 'Fondo inicial en dólares', usd], ['usd_recibidos', 'Dólares recibidos en cobros', usd], ['entradas_usd', 'Entradas en dólares', usd], ['retiros_usd', 'Retiros en dólares', usd],
@@ -1037,7 +1039,7 @@ async function vistaCorte() {
 }
 
 // ── ventas de la caja ──
-const METODOS_PAGO = { efectivo: 'Efectivo', efectivo_usd: 'Dólares', tarjeta: 'Tarjeta', tarjeta_regalo: 'Tarjeta de regalo' };
+const METODOS_PAGO = { efectivo: 'Efectivo', efectivo_usd: 'Dólares', tarjeta: 'Tarjeta', tarjeta_regalo: 'Tarjeta de regalo', credito_cambio: 'Mercancía recibida a cambio' };
 const etiquetaMetodo = (m) => METODOS_PAGO[m] ?? m;
 
 /** Nombre, teléfono y motivo de la clienta: se piden al revertir una venta y al aceptar un cambio. */
@@ -1801,7 +1803,7 @@ async function vistaDevolucion() {
   const hoy = S.estado.fecha_local;
   $('#vista').innerHTML = `<div class="titulo-vista">${ico('undo')}<h1>Hacer cambio</h1></div>
     <section class="panel" aria-label="Buscar la venta">
-      <p class="nota" style="margin-top:0">Busque por fecha y hora, escaneando el artículo, o por folio. El cambio se hace <b>solo en la caja donde se vendió</b>; si la venta es de la otra caja se le indica cuál. Las piezas que regresa la clienta pasan a la venta en negativo, como crédito para lo que se lleve.</p>
+      <p class="nota" style="margin-top:0">Busque por fecha y hora, escaneando el artículo, o por folio. El cambio se hace <b>solo en la caja donde se vendió</b>; si la venta es de la otra caja se le indica cuál. Las piezas que regresa la clienta se descuentan en negativo de lo que se lleve, en la misma operación.</p>
       <form id="form-buscar-venta" class="filtros" autocomplete="off">
         <label>Fecha <input type="date" id="bv-fecha" value="${hoy}"></label>
         <label>Desde <input type="time" id="bv-desde" value="00:00"></label>
@@ -1850,7 +1852,7 @@ function ventaDevHtml(v) {
         return `<tr><td>${esc(l.descripcion)}${l.marca ? ` · ${esc(l.marca)}` : ''}${l.item_no ? ` · Item # ${esc(l.item_no)}` : ''}</td><td class="num">${l.qty}</td><td class="num">${l.devuelto ?? 0}</td><td class="num">${mxn(l.importe ?? 0)}</td>
         <td class="num">${l.tarjeta_regalo ? '<small>no se devuelve</small>' : `<input type="number" min="0" max="${max}" value="0" ${max === 0 ? 'disabled' : ''} data-linea="${esc(l.linea_id)}" style="width:64px;text-align:right;padding:4px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie)" aria-label="Piezas a devolver de ${esc(l.descripcion)}">`}</td></tr>`;
       }).join('')}</tbody></table></div>
-      <div class="filas" style="margin-top:10px;align-items:center"><span class="nota" style="flex:3;min-width:200px;margin:0">No devuelve dinero: lo regresado queda como crédito en la venta.</span>
+      <div class="filas" style="margin-top:10px;align-items:center"><span class="nota" style="flex:3;min-width:200px;margin:0">No devuelve dinero: lo recibido a cambio se descuenta en la misma operación.</span>
         <button class="btn btn-primario" type="submit" style="width:auto;flex:1">${ico('check')}<span>Aceptar cambio</span></button></div>
       <div class="mensaje" data-msg role="status"></div>
     </form></section>`;

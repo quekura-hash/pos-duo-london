@@ -88,11 +88,13 @@ porAlmacen('Historial: detalle de venta, «Revertir venta» y datos de la client
     const antes = impresos(caja).length;
     const p = await api(caja.url, '/api/venta/cobrar-efectivo', { cart, recibido: 40000 });
     assert.equal(p.status, 200);
-    assert.deepEqual([p.json.impresion_cambio.ok, p.json.impresion_firma.ok], [true, true]);
+    assert.equal(p.json.impresion_cambio, undefined, 'ya no hay un comprobante aparte de crédito');
+    assert.deepEqual([p.json.impresion.ok, p.json.impresion_firma.ok], [true, true]);
     const nuevos = impresos(caja).slice(antes).map((x) => x.texto);
-    assert.equal(nuevos.length, 3, 'ticket de la venta, ticket CAMBIO y comprobante de firma');
-    assert.match(nuevos[1]!, /SE HIZO CAMBIO[\s\S]*CRÉDITO POR CAMBIO/);
-    assert.match(nuevos[2]!, /SE HIZO CAMBIO[\s\S]*COPIA PARA LA TIENDA[\s\S]*Clienta: Ana López[\s\S]*Motivo: talla incorrecta[\s\S]*Recibí cambio del artículo:[\s\S]*Me llevo a cambio:[\s\S]*Nombre y firma de la clienta/);
+    assert.equal(nuevos.length, 2, 'solo dos tickets: el de la clienta (la venta con lo recibido a cambio) y el de control para firma');
+    assert.match(nuevos[0]!, /ARTÍCULO NUEVO:[\s\S]*SE RECIBIÓ A CAMBIO:[\s\S]*Venta original: D1-000001[\s\S]*TOTAL A PAGAR +\$330\.00/);
+    assert.doesNotMatch(nuevos.join('\n'), /[Cc]rédito/);
+    assert.match(nuevos[1]!, /SE HIZO CAMBIO[\s\S]*COPIA PARA LA TIENDA[\s\S]*Clienta: Ana López[\s\S]*Motivo: talla incorrecta[\s\S]*Recibí cambio del artículo:[\s\S]*Me llevo a cambio:[\s\S]*Nombre y firma de la clienta/);
     // el detalle de la venta original lista el cambio con la clienta y el motivo
     const d = (await api(caja.url, `/api/venta/detalle?sale_id=${v.sale_id}`)).json.detalle;
     assert.equal(d.devoluciones.length, 1);

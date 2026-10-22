@@ -46,7 +46,7 @@ export interface FilaVenta {
 export interface MontosPago { efectivo: number; tarjeta: number; dolares: number; tarjeta_regalo: number; otro: number; mixto: number }
 const sinMontos = (): MontosPago => ({ efectivo: 0, tarjeta: 0, dolares: 0, tarjeta_regalo: 0, otro: 0, mixto: 0 });
 
-const ETIQUETA_PAGO: Record<string, string> = { efectivo: 'Efectivo', tarjeta: 'Tarjeta', efectivo_usd: 'Dólares', tarjeta_regalo: 'Tarjeta de regalo', credito_cambio: 'Crédito de cambio', mixto: 'Mixto', sin_pago: 'Sin pago' };
+const ETIQUETA_PAGO: Record<string, string> = { efectivo: 'Efectivo', tarjeta: 'Tarjeta', efectivo_usd: 'Dólares', tarjeta_regalo: 'Tarjeta de regalo', credito_cambio: 'Mercancía recibida a cambio', mixto: 'Mixto', sin_pago: 'Sin pago' };
 /** Una sola forma de pago → su nombre; varias distintas → «Mixto». */
 export function etiquetaPago(metodos: string[]): string {
   const u = [...new Set(metodos)];
@@ -146,6 +146,11 @@ export interface FilaCorte {
     /** Equivalente CONTABLE en MXN con la tasa de cada operación: no es dinero físico del cajón. */
     equivalente_historico_mxn: number;
   };
+  /** Desglose de cambios y devoluciones. Los cortes cerrados antes de existir no lo traen: se muestra «no disponible», nunca $0. */
+  mercancia_recibida_por_cambio?: number;
+  devoluciones_con_reembolso?: number;
+  diferencias_cobradas_en_cambios?: number;
+  diferencias_devueltas_en_cambios?: number;
   ventas_anuladas_antes_de_cobro?: number;
   cancelaciones_posteriores_al_cobro?: number;
   billetes_usd_rechazados?: number;

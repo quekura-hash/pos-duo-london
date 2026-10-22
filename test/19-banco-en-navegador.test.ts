@@ -1443,7 +1443,8 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     await page.waitForSelector('#dlg-ticket[open] #ticket-texto');
     const tk = (await page.textContent('#ticket-texto'))!;
     assert.match(tk, /BOLSA/);
-    assert.match(tk, /Crédito por cambio \(folio 000001\)/);
+    assert.match(tk, /ARTÍCULO NUEVO:[\s\S]*SE RECIBIÓ A CAMBIO:[\s\S]*-\$120\.00[\s\S]*Venta original: D1-000001[\s\S]*TOTAL A PAGAR +\$330\.00/);
+    assert.doesNotMatch(tk, /[Cc]rédito/);
     assert.match(await page.textContent('#dlg-cambio') ?? '', /\$70\.00/);
     assert.deepEqual(errores.filter((e) => !/401|403|Failed to load resource/.test(e)), []);
   });

@@ -516,7 +516,7 @@ describe('[navegador real — Chromium con Playwright, UI sobre SQLite]', { time
     await page.click('#form-devolver-dinero button[type="submit"]');
     await page.waitForSelector('#dlg-ticket[open] #resumen-devolucion');
     assert.match((await page.textContent('#resumen-devolucion'))!, /Folio 000004.*efectivo entregado \$899\.00/);
-    assert.match((await page.textContent('#ticket-texto'))!, /CAMBIO[\s\S]*Venta original: D1-000001[\s\S]*CRÉDITO POR CAMBIO +\$899\.00[\s\S]*Reembolso en efectivo MXN +\$899\.00/);
+    assert.match((await page.textContent('#ticket-texto'))!, /DEVOLUCIÓN[\s\S]*Venta original: D1-000001[\s\S]*TOTAL DEVUELTO +\$899\.00[\s\S]*Reembolso en efectivo MXN +\$899\.00/);
     await page.click('#btn-nueva');
     await page.click('#nav button[data-vista="devolucion"]').catch(() => {});
     await page.click('#btn-devolucion');
