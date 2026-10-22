@@ -272,3 +272,5 @@ tr.fila-fallo td { background: color-mix(in srgb, #ef4444 12%, transparent); }
 #tabla-inv-lista td.chk, #tabla-inv-lista th.chk { width: 34px; text-align: center; }
 #tabla-inv-lista tbody tr.sel { background: var(--acento-suave); }
 .ru-opciones { border: 1px solid var(--borde); border-radius: 10px; margin: 0 0 10px; padding: 8px 12px; } .ru-opciones label { display: flex; gap: 8px; align-items: center; padding: 6px 0; }
+
+#inv-sel-modo { flex: none; width: auto; height: auto; align-self: center; }

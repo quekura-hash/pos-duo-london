@@ -50,6 +50,11 @@ describe('[iPhone] Inventario: seleccionar y ubicar piezas de El Limbo', { timeo
     await esperarTexto(page, '#inv-pag-info', /de 8\b/);
     assert.equal(await page.locator('#lista-inv .fila-inv').count(), 8, 'Lote=0 muestra los 8 sin lote');
 
+    // el botón Seleccionar es un botón normal (como «Exportar inventario a Excel»): mismo color y tamaño, no una caja gigante
+    const dims = await page.evaluate(() => { const q = (id: string) => document.querySelector(id) as HTMLElement; const b = q('#inv-sel-modo'), x = q('#btn-exportar'); const r = b.getBoundingClientRect(); return { alto: r.height, ancho: r.width, fondo: getComputedStyle(b).backgroundColor, fondoExportar: getComputedStyle(x).backgroundColor }; });
+    assert.ok(dims.alto >= 40 && dims.alto <= 60, `alto normal: ${JSON.stringify(dims)}`);
+    assert.ok(dims.ancho < 260, `no ocupa todo el ancho: ${JSON.stringify(dims)}`);
+    assert.equal(dims.fondo, dims.fondoExportar, 'mismo turquesa que Exportar inventario a Excel');
     await page.tap('#inv-sel-modo');
     await page.waitForSelector('#inv-sel:not([hidden])');
     await page.tap('#lista-inv .fila-inv[data-item="v1"]');

@@ -1415,7 +1415,7 @@ async function vistaInventario() {
       <h2>Todos los artículos</h2>
       <div class="filas barra-busqueda-inv" style="align-items:center"><input id="inv-q" type="search" class="texto" placeholder="Buscar… (ej. Lote=202610)" value="${esc(S.inv.q)}" style="padding:6px 8px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie);min-width:320px" autocapitalize="none" autocorrect="off" spellcheck="false">
         <label class="orden-inv" for="inv-orden"><span>Ordenar por</span><select id="inv-orden" style="padding:6px 8px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie)">${ORDENES_INV.map(([v, t]) => `<option value="${v}" ${S.inv.orden === v ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
-        <button class="btn" id="inv-sel-modo" type="button" aria-pressed="false">${ico('check')}<span>Seleccionar</span></button></div>
+        <button class="btn btn-primario" id="inv-sel-modo" type="button" aria-pressed="false" style="width:auto">${ico('check')}<span>Seleccionar</span></button></div>
       <p class="nota" id="inv-nota">Toque un artículo para editarlo, ver su historial o crearle una promoción. Para filtrar por un campo escriba, por ejemplo, <b>Lote=202610</b>, <b>Lote=0</b> (sin lote), <b>Marca=levis</b>, <b>Estilo=123L</b>, <b>Depto=dama</b>, <b>Precio&gt;200</b> o <b>Limbo&gt;0</b> (con piezas en El Limbo); se pueden combinar con palabras. Con <b>Seleccionar</b> puede marcar varios artículos y darles su ubicación real.</p>
       <div id="inv-msg" class="mensaje" role="status" aria-live="polite"></div>
       <div id="inv-sel" class="barra-sel" hidden></div>
