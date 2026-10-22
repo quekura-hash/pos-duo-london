@@ -394,7 +394,7 @@ async function vistaVenta() {
       </div>
       <aside class="panel resumen" aria-label="Resumen y cobro">
         <h2>Resumen de venta</h2>
-        <div class="campo" id="bloque-vendio" hidden style="margin:0 0 10px"><label for="vendio-por">Vendió por:</label><select id="vendio-por" style="width:100%;padding:10px;border:2px solid var(--borde);border-radius:10px;background:var(--superficie)"></select><div id="msg-vendio" class="nota" style="margin-top:4px"></div></div>
+        <div class="campo" id="bloque-vendio" hidden style="margin:0 0 10px"><label for="vendio-por">Venta por:</label><select id="vendio-por" style="width:100%;padding:10px;border:2px solid var(--borde);border-radius:10px;background:var(--superficie)"></select><div id="msg-vendio" class="nota" style="margin-top:4px"></div></div>
         <p class="nota" style="margin:0 0 10px"><span id="piezas">0</span> pieza(s)</p>
         <dl>
           <dt>Importe</dt><dd id="brutas">$0.00</dd>
@@ -589,7 +589,7 @@ function repartoRegalo() {
   return { aplicado, resto: total - aplicado, saldoDespues: saldo - aplicado };
 }
 
-/** «Vendió por»: con empleadas registradas se debe elegir quién atendió a la clienta («Autocompra» = nadie la ayudó, y es lo que queda por omisión). Sin clave. */
+/** «Venta por»: con empleadas registradas se debe elegir quién atendió a la clienta («Autocompra» = nadie la ayudó, y es lo que queda por omisión). Sin clave. */
 async function cargarVendedoras() {
   try { S.vendedoras = await api('/api/venta/vendedoras'); } catch { S.vendedoras = { vendedoras: [], pide: false }; }
   pintarVendedora();
@@ -1123,7 +1123,7 @@ async function abrirDetalleVenta(saleId, { acciones, ruta, alCambiar } = {}) {
     : '';
   d.innerHTML = `<h2 id="dv-titulo" style="margin:0 0 4px">Venta ${folio}</h2>
     <p id="dv-resumen" style="margin:0 0 8px"><span class="insignia ${esc(v.estado)}">${esc(v.estado)}</span> · ${esc(v.tienda)} · Caja ${v.caja} · <b>${esc(v.fecha_local.split('-').reverse().join('/'))} ${esc(v.hora)}</b></p>
-    <dl class="resumen" id="dv-datos" style="margin:0 0 8px"><dt>Vendedora-Cajera</dt><dd>${esc(v.cajero)}</dd><dt>Vendió por</dt><dd>${esc(v.vendedora || '—')}</dd><dt>Forma de pago</dt><dd>${pagos}</dd></dl>
+    <dl class="resumen" id="dv-datos" style="margin:0 0 8px"><dt>Vendedora-Cajera</dt><dd>${esc(v.cajero)}</dd><dt>Venta por</dt><dd>${esc(v.vendedora || '—')}</dd><dt>Forma de pago</dt><dd>${pagos}</dd></dl>
     ${canc}
     <div class="tabla-cont"><table id="dv-lineas"><thead><tr><th class="num">Cant.</th><th>Prenda</th><th class="num">Precio</th><th class="num">Importe</th></tr></thead><tbody>${lineas}</tbody><tfoot><tr><th colspan="3" style="text-align:right">Total</th><td class="num"><b>${mxn(v.total)}</b></td></tr></tfoot></table></div>
     ${devs}
@@ -1154,7 +1154,7 @@ async function vistaVentas() {
     <form id="form-historial" class="filtros panel" autocomplete="off"><label>Fecha <input type="date" id="hist-fecha" value="${esc(fecha)}"></label>
       <label>Folio <input id="hist-folio" inputmode="numeric" value="${esc(folioBuscado)}" style="width:90px;padding:6px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie)"></label>
       <button class="btn btn-primario" type="submit" style="width:auto">${ico('search')}<span>Buscar</span></button></form>
-    <div class="panel"><p class="nota" style="margin-top:0">Toque una venta para ver el detalle: hora, cajera, prendas y pagos. Desde ahí se puede revertir o hacer un cambio.</p><div class="tabla-cont"><table id="tabla-ventas"><thead><tr><th>Folio</th><th>Fecha</th><th>Vendedora-Cajera</th><th>Vendió por</th><th class="num">Total</th><th>Estado</th><th>Impresiones</th><th></th></tr></thead><tbody>
+    <div class="panel"><p class="nota" style="margin-top:0">Toque una venta para ver el detalle: hora, cajera, prendas y pagos. Desde ahí se puede revertir o hacer un cambio.</p><div class="tabla-cont"><table id="tabla-ventas"><thead><tr><th>Folio</th><th>Fecha</th><th>Vendedora-Cajera</th><th>Venta por</th><th class="num">Total</th><th>Estado</th><th>Impresiones</th><th></th></tr></thead><tbody>
     ${filas.length ? filas.map((r) => `<tr data-folio="${r.folio}" data-detalle="${r.sale_id}" tabindex="0" style="cursor:pointer"><td>${String(r.folio).padStart(6, '0')}</td><td>${esc(r.fecha_local)}</td><td>${esc(r.cajero)}</td><td data-col="vendio">${esc(r.vendedora || '—')}</td><td class="num">${mxn(r.total)}</td><td><span class="insignia ${r.estado}">${esc(r.estado)}</span></td><td>${r.impresiones}${r.ultima_impresion === 'error' ? ' (última falló)' : ''}</td><td><button class="btn" type="button" data-ver="${r.sale_id}">${ico('receipt')}<span>Ver ticket</span></button>${r.estado === 'confirmada' ? ` <button class="btn" type="button" data-cambio="${r.folio}" title="La clienta regresa piezas de esta venta y se lleva otras">${ico('undo')}<span>Aceptar cambio</span></button> <button class="btn btn-peligro" type="button" data-revertir="${r.sale_id}" title="Cancela la venta completa">${ico('trash')}<span>Revertir venta</span></button>` : ''}</td></tr>`).join('') : `<tr><td colspan="8" class="vacio">${folioBuscado ? 'No hay una venta con ese folio.' : fecha === hoy ? 'Sin ventas hoy en esta caja.' : 'Sin ventas ese día en esta caja.'}</td></tr>`}
     </tbody></table></div></div>`;
   const recargar = async (r) => {
@@ -1219,7 +1219,7 @@ async function vistaHistorialAdmin() {
     let j;
     try { j = await api(`/api/admin/ventas?${p}`); } catch (e) { m.className = 'mensaje error'; m.textContent = e.message; return; }
     if (j.truncado) { m.className = 'mensaje aviso'; m.textContent = `Hay ${j.total_filas} ventas; se muestran las 500 más recientes. Acote las fechas.`; }
-    $('#ha-resultado').innerHTML = `<div class="panel"><p class="nota" style="margin-top:0">Toque una venta para ver el detalle y el ticket.</p><div class="tabla-cont"><table id="tabla-historial-admin" class="solo-escritorio"><thead><tr><th>Caja</th><th>Folio</th><th>Fecha</th><th>Hora</th><th>Vendedora-Cajera</th><th>Vendió por</th><th>Pago</th><th class="num">Total</th><th>Estado</th></tr></thead><tbody>
+    $('#ha-resultado').innerHTML = `<div class="panel"><p class="nota" style="margin-top:0">Toque una venta para ver el detalle y el ticket.</p><div class="tabla-cont"><table id="tabla-historial-admin" class="solo-escritorio"><thead><tr><th>Caja</th><th>Folio</th><th>Fecha</th><th>Hora</th><th>Vendedora-Cajera</th><th>Venta por</th><th>Pago</th><th class="num">Total</th><th>Estado</th></tr></thead><tbody>
       ${j.ventas.length ? j.ventas.map((r) => `<tr data-detalle="${esc(r.sale_id)}" tabindex="0" style="cursor:pointer"><td>${esc(r.tienda)} · ${r.caja}</td><td>${String(r.folio).padStart(6, '0')}</td><td>${esc(r.fecha_local.split('-').reverse().join('/'))}</td><td>${esc(r.hora)}</td><td>${esc(r.cajero)}</td><td data-col="vendio">${esc(r.vendedora || '—')}</td><td>${esc(r.pago)}</td><td class="num">${mxn(r.total)}</td><td><span class="insignia ${esc(r.estado)}">${esc(r.estado)}</span></td></tr>`).join('') : '<tr><td colspan="9" class="vacio">No hay ventas con esos datos.</td></tr>'}
       </tbody></table>
       <div class="lista-inv solo-movil" id="lista-historial-admin" role="list">${j.ventas.map((r) => `<button type="button" class="fila-inv" role="listitem" data-detalle="${esc(r.sale_id)}"><span class="fi-linea"><b class="fi-desc">${String(r.folio).padStart(6, '0')} · ${esc(r.hora)}</b><span class="fi-precio">${mxn(r.total)}</span></span><span class="fi-quien">${esc(r.tienda)} · Caja ${r.caja} · ${esc(r.vendedora || r.cajero)}</span><span class="fi-sub"><span>${esc(r.fecha_local.split('-').reverse().join('/'))}</span><span>${esc(r.pago)}</span><span class="insignia ${esc(r.estado)}">${esc(r.estado)}</span></span></button>`).join('') || '<p class="vacio">No hay ventas con esos datos.</p>'}</div></div></div>`;
@@ -1376,7 +1376,7 @@ async function vistaReportes() {
       <p class="nota">Sin tarjetas de regalo vendidas ni recargadas: <b id="total-mercancia">${mxn(r.total_mercancia)}</b>. Lo cobrado con una tarjeta de regalo ya cuenta como venta de mercancía; la venta de la tarjeta no.</p></div>`;
     const { vendedoras } = await api('/api/admin/reporte-vendedoras', { cajas: sel, desde: $('#desde').value, hasta: $('#hasta').value });
     $('#resultado').insertAdjacentHTML('beforeend', `<div class="panel" style="margin-top:12px"><h2 style="margin-top:0">Ventas por vendedora</h2>
-      <p class="nota">Por quien atendió a la clienta («Vendió por»), no por quien cobró. Lo devuelto o cambiado se resta a quien vendió la pieza. «Autocompra» = nadie ayudó.</p>
+      <p class="nota">Por quien atendió a la clienta («Venta por»), no por quien cobró. Lo devuelto o cambiado se resta a quien vendió la pieza. «Autocompra» = nadie ayudó.</p>
       <div class="tabla-cont"><table id="tabla-vendedoras"><thead><tr><th>Vendedora</th><th class="num">Tickets</th><th class="num">Piezas</th><th class="num">Vendido</th><th class="num">Devuelto / cambiado</th><th class="num">Neto</th></tr></thead><tbody>
       ${vendedoras.map((v) => `<tr data-vendedora="${esc(v.clave)}"><td><b>${esc(v.alias)}</b>${v.nombre_completo ? `<br><small>${esc(v.nombre_completo)}</small>` : ''}</td><td class="num">${v.tickets}</td><td class="num">${v.piezas}</td><td class="num">${mxn(v.vendido)}</td><td class="num">${v.devuelto ? `-${mxn(v.devuelto)}` : mxn(0)}</td><td class="num"><b>${mxn(v.neto)}</b></td></tr>`).join('') || '<tr><td colspan="6" class="vacio">Sin ventas en el periodo.</td></tr>'}</tbody></table></div></div>`);
   });
@@ -3294,12 +3294,12 @@ function abrirExpediente(x, recargar) {
   candado();
   d.showModal();
 }
-/** «Eliminar» a una Vendedora-Cajera: pide la clave corta del supervisor. Desaparece de las listas, de «Vendió por» y de las cajas; sus ventas conservan su nombre. */
+/** «Eliminar» a una Vendedora-Cajera: pide la clave corta del supervisor. Desaparece de las listas, de «Venta por» y de las cajas; sus ventas conservan su nombre. */
 function abrirEliminarTrabajadora(x, aviso, recargar) {
   const d = dialogo('dlg-eliminar-trab');
   d.setAttribute('aria-labelledby', 'et-titulo');
   d.innerHTML = `<h2 id="et-titulo" style="margin-top:0">Eliminar a ${esc(x.nombre)}</h2>
-    <p style="margin-top:0">Se quita de la lista, de «Vendió por» y de las cajas, y ya no podrá iniciar sesión. Sus ventas anteriores conservan su nombre. <b>Si solo deja de trabajar por ahora, use «Desactivar»</b>: así se conserva su ficha para recontratarla.</p>
+    <p style="margin-top:0">Se quita de la lista, de «Venta por» y de las cajas, y ya no podrá iniciar sesión. Sus ventas anteriores conservan su nombre. <b>Si solo deja de trabajar por ahora, use «Desactivar»</b>: así se conserva su ficha para recontratarla.</p>
     <form id="form-eliminar-trab" autocomplete="off"><div class="campo"><label for="et-clave">Su clave corta</label><input id="et-clave" type="text" data-pin inputmode="numeric" autocomplete="off" maxlength="8" placeholder="••••" style="width:100%;box-sizing:border-box;padding:10px;border:2px solid var(--borde);border-radius:10px;background:var(--superficie);font:inherit;font-size:20px"></div>
       <div id="msg-et" class="mensaje" role="alert"></div>
       <div class="filas"><button class="btn" type="button" id="et-no">Cancelar</button><button class="btn btn-peligro" type="submit" style="width:auto;flex:1">${ico('trash')}<span>Eliminar a ${esc(x.nombre)}</span></button></div></form>`;
@@ -3321,7 +3321,7 @@ function abrirEditarEmpleado(tipo, x, recargar) {
     <form id="form-empleado" autocomplete="off">
       <div class="campo"><label for="ed-alias">Usuario (alias)</label><input id="ed-alias" class="texto" maxlength="40"></div>
       ${perfilCampos('ed')}
-      ${tipo === 'cajero' ? `<div class="campo"><label for="ed-tienda">Tienda donde trabaja</label><select id="ed-tienda" style="width:100%;padding:10px;border:2px solid var(--borde);border-radius:10px;background:var(--superficie)">${Object.entries(NOM_TIENDA_TRAB).map(([k, t]) => `<option value="${k}" ${(x.tienda ?? '') === k ? 'selected' : ''}>${t}${k === '' ? ' (aparece en las dos hasta que inicie sesión)' : ''}</option>`).join('')}</select><p class="nota" style="margin:4px 0 0">«Vendió por» solo la muestra en su tienda. Si inicia sesión en la otra tienda, pasa sola a esa.</p></div>
+      ${tipo === 'cajero' ? `<div class="campo"><label for="ed-tienda">Tienda donde trabaja</label><select id="ed-tienda" style="width:100%;padding:10px;border:2px solid var(--borde);border-radius:10px;background:var(--superficie)">${Object.entries(NOM_TIENDA_TRAB).map(([k, t]) => `<option value="${k}" ${(x.tienda ?? '') === k ? 'selected' : ''}>${t}${k === '' ? ' (aparece en las dos hasta que inicie sesión)' : ''}</option>`).join('')}</select><p class="nota" style="margin:4px 0 0">«Venta por» solo la muestra en su tienda. Si inicia sesión en la otra tienda, pasa sola a esa.</p></div>
       <button class="btn" type="button" id="emp-expediente" style="margin-bottom:8px">${ico('lock')}<span>Ficha</span></button>` : ''}
       <div id="msg-emp" class="mensaje" role="alert"></div>
       <div class="filas"><button class="btn" type="button" id="emp-cerrar">Cancelar</button><button class="btn btn-primario" type="submit" id="emp-guardar" style="width:auto;flex:1">${ico('check')}<span>Guardar datos</span></button></div></form>`;

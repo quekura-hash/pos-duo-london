@@ -1511,6 +1511,7 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     await page.fill('#scan', '0002026090782'); await page.press('#scan', 'Enter');
     await page.waitForSelector('#cuerpo tr[data-linea]');
     await page.fill('#recibido', '899');
+    assert.equal((await page.textContent('label[for="vendio-por"]'))!.trim(), 'Venta por:', 'el rótulo de la pantalla de venta');
     assert.equal(await page.inputValue('#vendio-por'), 'autocompra', 'por omisión la venta es Autocompra');
     assert.deepEqual(await page.$$eval('#vendio-por option', (o) => o.map((x) => x.textContent)), ['Autocompra', 'Edgardo (supervisor)', 'Lupe']);
     await page.waitForFunction(() => !(document.querySelector('#btn-cobrar') as HTMLButtonElement).disabled);

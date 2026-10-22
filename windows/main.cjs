@@ -96,7 +96,7 @@ function avisarEnPantalla(version) {
     if (document.getElementById('londuo-update')) return;
     const d = document.createElement('div'); d.id = 'londuo-update';
     d.style.cssText = 'position:fixed;right:16px;bottom:16px;z-index:99999;background:#0b3d62;color:#fff;padding:12px 16px;border-radius:12px;box-shadow:0 6px 24px rgba(0,0,0,.35);font:14px system-ui;max-width:340px';
-    d.innerHTML = '<b>Actualización lista (v${version})</b><br><span style="opacity:.85">Se instala al cerrar la app, o ahora si no hay una venta en curso.</span><div style="margin-top:8px;display:flex;gap:8px"><button id="lu-ahora" style="padding:6px 12px;border-radius:8px;border:0;font-weight:700;cursor:pointer">Instalar ahora</button><button id="lu-luego" style="padding:6px 12px;border-radius:8px;border:1px solid #fff8;background:transparent;color:#fff;cursor:pointer">Después</button></div>';
+    d.innerHTML = '<b>Actualización lista (v${version})</b><br><span style="opacity:.85">Se instala al cerrar la app, o ahora si no hay una venta en curso.</span><div style="margin-top:8px;display:flex;gap:8px"><button id="lu-ahora" style="padding:8px 16px;border-radius:8px;border:0;background:#2dd4bf;color:#06222c;font:700 14px system-ui;cursor:pointer">Instalar ahora</button><button id="lu-luego" style="padding:8px 16px;border-radius:8px;border:1px solid #fffc;background:transparent;color:#fff;font:600 14px system-ui;cursor:pointer">Después</button></div>';
     document.body.appendChild(d);
     document.getElementById('lu-luego').onclick = () => d.remove();
     document.getElementById('lu-ahora').onclick = () => { d.querySelector('b').textContent = 'Instalando…'; window.posHardware.instalarActualizacion(); };
