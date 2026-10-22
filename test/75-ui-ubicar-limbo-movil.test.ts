@@ -197,6 +197,8 @@ describe('[iPhone] Inventario: seleccionar y ubicar piezas de El Limbo', { timeo
     // primera vez: crear su clave corta (no la contraseña de Supabase)
     await page.fill('#exp-nueva', '2468'); await page.fill('#exp-nueva2', '2468');
     await page.tap('#form-exp-clave button[type=submit]');
+    await page.waitForSelector('#perfil-ficha');
+    await page.tap('#exp-editar');
     await page.waitForSelector('#form-exp');
     const dlg = await page.evaluate(() => { const r = document.querySelector('#dlg-expediente')!.getBoundingClientRect(); return { izq: r.left, der: r.right, ancho: window.innerWidth, desborda: document.documentElement.scrollWidth > window.innerWidth + 1 }; });
     assert.ok(dlg.izq >= -1 && dlg.der <= dlg.ancho + 1 && !dlg.desborda, `el expediente cabe de ancho: ${JSON.stringify(dlg)}`);
@@ -208,10 +210,15 @@ describe('[iPhone] Inventario: seleccionar y ubicar piezas de El Limbo', { timeo
     await page.fill('#exp-alta', '2025-03-10');
     await page.fill('#exp-notas', 'Buena vendedora.');
     await page.tap('#exp-guardar');
+    await page.waitForSelector('#perfil-ficha');
     await esperarTexto(page, '#msg-exp', /Ficha guardada/);
+    // el perfil compacto cabe en el iPhone sin desplazarse a lo ancho
+    const pf = await page.evaluate(() => { const r = document.querySelector('#dlg-expediente')!.getBoundingClientRect(); const av = document.querySelector('#perfil-ficha .pf-avatar')!.getBoundingClientRect(); return { izq: r.left, der: r.right, ancho: window.innerWidth, avatar: Math.round(av.width), desborda: document.documentElement.scrollWidth > window.innerWidth + 1 }; });
+    assert.ok(pf.izq >= -1 && pf.der <= pf.ancho + 1 && !pf.desborda, `el perfil cabe de ancho: ${JSON.stringify(pf)}`);
+    assert.ok(pf.avatar >= 60 && pf.avatar <= 100, `avatar de tamaño razonable: ${pf.avatar}`);
     const filas = (await db.query(`select tipo, tienda, payload->>'recontratable' as rec, payload->'calificaciones'->>'puntualidad' as p from pos.ops where tipo = 'trabajadora.expediente'`)).rows as { tipo: string; tienda: string | null; rec: string; p: string }[];
     assert.deepEqual(filas.map((f) => [f.tipo, f.tienda, f.rec, f.p]), [['trabajadora.expediente', null, 'true', '4']], 'el central real lo aceptó; no lleva tienda, por eso las cajas nunca lo reciben');
-    await page.tap('#exp-cerrar');
+    await page.tap('#exp-cerrar2');
     await page.waitForSelector('#dlg-expediente', { state: 'hidden' });
     assert.deepEqual(errores, []);
   });

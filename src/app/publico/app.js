@@ -3164,6 +3164,17 @@ function tomarFoto() {
     }).catch((e) => { m.className = 'mensaje aviso'; m.textContent = `No se pudo usar la cámara (${e?.name === 'NotAllowedError' ? 'sin permiso' : 'no hay cámara'}). Elija un archivo.`; });
   });
 }
+const iniciales = (nombre) => String(nombre).trim().split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join('') || '?';
+const fechaLocalJs = (iso) => new Date(Date.parse(iso) - 7 * 3600e3).toISOString().slice(0, 10);
+/** «1 año 3 meses», «7 meses» o «12 días» entre dos fechas AAAA-MM-DD. */
+function antiguedadTxt(desde, hasta) {
+  const [y1, m1, d1] = desde.split('-').map(Number), [y2, m2, d2] = hasta.split('-').map(Number);
+  let meses = (y2 - y1) * 12 + (m2 - m1) - (d2 < d1 ? 1 : 0);
+  if (meses < 0) return '';
+  if (meses < 1) { const dias = Math.max(0, Math.round((Date.parse(`${hasta}T00:00:00Z`) - Date.parse(`${desde}T00:00:00Z`)) / 86400e3)); return `${dias} día${dias === 1 ? '' : 's'}`; }
+  const a = Math.floor(meses / 12); meses %= 12;
+  return [a ? `${a} año${a === 1 ? '' : 's'}` : '', meses ? `${meses} mes${meses === 1 ? '' : 'es'}` : ''].filter(Boolean).join(' ');
+}
 const NOM_TIENDA_TRAB = { '': 'Sin asignar', DUO: 'DÚO', LON: 'London' };
 const CRITERIOS_EXP = [['puntualidad', 'Puntualidad'], ['presentacion', 'Presentación'], ['inasistencias', 'Inasistencias', '5 = nunca falta'], ['facilidad_palabra', 'Facilidad de palabra'], ['vendedora', 'Vendedora'], ['humildad', 'Humildad']];
 /**
@@ -3176,6 +3187,7 @@ function abrirExpediente(x, recargar) {
   const bloquear = () => api('/api/admin/expediente/bloquear', {}).catch(() => {});
   const cerrar = () => { bloquear(); if (d.open) d.close(); };
   d.addEventListener('close', () => { bloquear(); d.innerHTML = ''; }, { once: true }); // al salir se cierra el candado y no queda nada del expediente en la pantalla
+  let formulario = null; // lo que se abre después de teclear la clave (la ficha ya hecha)
   const campoClave = (id, rotulo) => `<div class="campo"><label for="${id}">${rotulo}</label><input id="${id}" type="text" data-pin inputmode="numeric" autocomplete="off" maxlength="8" placeholder="••••" style="width:100%;box-sizing:border-box;padding:10px;border:2px solid var(--borde);border-radius:10px;background:var(--superficie);font:inherit;font-size:20px"></div>`;
   const candado = async (aviso, modo) => {
     let tiene = true;
@@ -3205,10 +3217,47 @@ function abrirExpediente(x, recargar) {
     });
     (d.querySelector('input') ?? $('#exp-cancelar')).focus();
   };
-  const formulario = async () => {
-    let j;
-    try { j = await api(`/api/admin/expediente?cajero_id=${encodeURIComponent(x.id)}`); }
-    catch (e) { if (/bloqueado/i.test(e.message)) return candado('La ficha se cerró: teclee su clave otra vez.'); throw e; }
+  const cargar = async () => {
+    try { return await api(`/api/admin/expediente?cajero_id=${encodeURIComponent(x.id)}`); }
+    catch (e) { if (/bloqueado/i.test(e.message)) { candado('La ficha se cerró: teclee su clave otra vez.'); return null; } throw e; }
+  };
+  /** La ficha ya terminada: un perfil compacto con avatar, datos básicos, calificaciones y notas. «Editar ficha» abre el formulario. */
+  const ver = async (aviso) => {
+    const j = await cargar();
+    if (!j) return;
+    const e = j.expediente, pf = j.cajero.perfil ?? {};
+    const nombreCompleto = [pf.nombres, pf.apellidos].filter(Boolean).join(' ') || x.nombre;
+    const fmt = (f) => (f ? `${f.slice(8, 10)}/${f.slice(5, 7)}/${f.slice(0, 4)}` : '—');
+    const hoy = new Date(Date.now() - 7 * 3600e3).toISOString().slice(0, 10);
+    const antig = e.fecha_alta ? antiguedadTxt(e.fecha_alta, e.fecha_baja || hoy) : '';
+    const crit = CRITERIOS_EXP.map(([k, t]) => [t, e.calificaciones[k]]);
+    const califs = crit.filter(([, n]) => n !== null);
+    const prom = j.promedio;
+    const estrellas = (n) => [1, 2, 3, 4, 5].map((i) => `<span class="pf-estrella ${i <= Math.round(n) ? 'on' : ''}">★</span>`).join('');
+    const rec = e.recontratable === true ? ['si', 'Recontratable'] : e.recontratable === false ? ['no', 'No recontratable'] : ['nd', 'Recontratable: sin definir'];
+    const dato = (t, v) => `<div class="pf-dato"><span>${esc(t)}</span><b>${v}</b></div>`;
+    d.innerHTML = `<div id="perfil-ficha" class="perfil">
+      <button class="pf-candado btn" type="button" id="exp-cerrar" aria-label="Bloquear y cerrar" title="Bloquear y cerrar">${ico('lock')}</button>
+      <div class="pf-cab">
+        ${pf.foto ? `<img class="pf-avatar" src="${esc(pf.foto)}" alt="Foto de ${esc(nombreCompleto)}">` : `<div class="pf-avatar pf-iniciales" aria-hidden="true">${esc(iniciales(nombreCompleto))}</div>`}
+        <div class="pf-quien"><h2 id="exp-titulo" class="pf-nombre">${esc(nombreCompleto)}</h2><div class="pf-alias">@${esc(x.nombre)}</div>
+          <div class="pf-chips"><span class="pf-chip ${j.cajero.activo ? 'ok' : 'baja'}">${j.cajero.activo ? 'Activa' : 'Inactiva'}</span><span class="pf-chip">${esc(NOM_TIENDA_TRAB[j.cajero.tienda ?? ''] ?? j.cajero.tienda)}</span><span class="pf-chip rec-${rec[0]}">${rec[1]}</span></div></div>
+      </div>
+      ${aviso ? `<div class="mensaje ok" id="msg-exp" role="status">${esc(aviso)}</div>` : '<div id="msg-exp" class="mensaje" role="status"></div>'}
+      <section class="pf-bloque"><h3>Calificaciones</h3>
+        ${prom !== null ? `<div class="pf-prom"><b id="pf-prom-num">${prom.toFixed(1)}</b><div class="pf-estrellas" aria-label="Promedio ${prom.toFixed(1)} de 5">${estrellas(prom)}</div><small>${califs.length} de ${crit.length} calificadas</small></div>` : '<p class="nota" style="margin:0">Aún sin calificar.</p>'}
+        <div class="pf-crit">${crit.map(([t, n]) => `<div class="pf-crit-fila"><span>${esc(t)}</span><span class="pf-barra" aria-hidden="true">${[1, 2, 3, 4, 5].map((i) => `<i class="${n !== null && i <= n ? 'on' : ''}"></i>`).join('')}</span><b>${n === null ? '—' : n}</b></div>`).join('')}</div></section>
+      <section class="pf-bloque"><h3>Datos</h3><div class="pf-datos">
+        ${dato('Teléfono', esc(pf.telefono || '—'))}${dato('Dirección', esc(pf.direccion || '—'))}
+        ${dato('Fecha de alta', `${esc(fmt(e.fecha_alta))}${antig ? ` <small>· ${esc(antig)}</small>` : ''}`)}${dato('Registrada en el sistema', esc(j.registrada_en ? fmt(fechaLocalJs(j.registrada_en)) : '—'))}
+        ${e.fecha_baja ? dato('Inactiva desde', esc(fmt(e.fecha_baja))) : ''}</div></section>
+      <section class="pf-bloque"><h3>Anotaciones</h3>${e.notas ? `<p class="pf-notas">${esc(e.notas)}</p>` : '<p class="nota" style="margin:0">Sin anotaciones.</p>'}</section>
+      <div class="filas"><button class="btn" type="button" id="exp-cerrar2">${ico('lock')}<span>Bloquear y cerrar</span></button><button class="btn btn-primario" type="button" id="exp-editar" style="width:auto;flex:1">${ico('pencil')}<span>Editar ficha</span></button></div></div>`;
+    $('#exp-cerrar').addEventListener('click', cerrar);
+    $('#exp-cerrar2').addEventListener('click', cerrar);
+    $('#exp-editar').addEventListener('click', () => editar(j));
+  };
+  const editar = (j) => {
     const e = j.expediente;
     const fReg = j.registrada_en ? fechaHora(j.registrada_en).slice(0, 10) : '—';
     const estilo = 'padding:8px;border:2px solid var(--borde);border-radius:10px;background:var(--superficie);font:inherit';
@@ -3224,25 +3273,45 @@ function abrirExpediente(x, recargar) {
           ${CRITERIOS_EXP.map(([k, t, ayuda]) => `<div class="exp-crit" data-crit="${k}"><span class="exp-crit-t">${esc(t)}${ayuda ? ` <small>(${esc(ayuda)})</small>` : ''}</span><span class="exp-crit-b" role="radiogroup" aria-label="${esc(t)}">${[1, 2, 3, 4, 5].map((n) => `<button type="button" class="exp-n ${e.calificaciones[k] === n ? 'on' : ''}" data-n="${n}" role="radio" aria-checked="${e.calificaciones[k] === n}">${n}</button>`).join('')}<button type="button" class="exp-n exp-sin ${e.calificaciones[k] === null ? 'on' : ''}" data-n="" role="radio" aria-checked="${e.calificaciones[k] === null}" title="Sin calificar">—</button></span></div>`).join('')}</fieldset>
         <div class="campo"><label for="exp-notas">Anotaciones</label><textarea id="exp-notas" rows="5" maxlength="4000" placeholder="Ej.: Buena vendedora, faltaba mucho…" style="width:100%;box-sizing:border-box;${estilo};resize:vertical"></textarea></div>
         <div id="msg-exp" class="mensaje" role="status" aria-live="polite"></div>
-        <div class="filas"><button class="btn" type="button" id="exp-cerrar">${ico('lock')}<span>Bloquear y cerrar</span></button><button class="btn btn-primario" type="submit" id="exp-guardar" style="width:auto;flex:1">${ico('check')}<span>Guardar ficha</span></button></div></form>`;
+        <div class="filas"><button class="btn" type="button" id="exp-cancelar-edicion">Cancelar</button><button class="btn btn-primario" type="submit" id="exp-guardar" style="width:auto;flex:1">${ico('check')}<span>Guardar ficha</span></button></div></form>`;
     $('#exp-notas').value = e.notas ?? '';
     const valores = () => Object.fromEntries(CRITERIOS_EXP.map(([k]) => { const on = d.querySelector(`[data-crit="${k}"] .exp-n.on`); return [k, on && on.dataset.n ? Number(on.dataset.n) : null]; }));
     const promedio = () => { const v = Object.values(valores()).filter((n) => n !== null); $('#exp-prom').textContent = v.length ? `· promedio ${(Math.round((v.reduce((a, b) => a + b, 0) / v.length) * 10) / 10).toFixed(1)}` : ''; };
     for (const b of d.querySelectorAll('.exp-n')) b.addEventListener('click', () => { for (const o of b.parentElement.querySelectorAll('.exp-n')) { o.classList.remove('on'); o.setAttribute('aria-checked', 'false'); } b.classList.add('on'); b.setAttribute('aria-checked', 'true'); promedio(); });
     promedio();
-    $('#exp-cerrar').addEventListener('click', cerrar);
+    $('#exp-cancelar-edicion').addEventListener('click', () => ver());
     $('#form-exp').addEventListener('submit', async (ev) => {
       ev.preventDefault();
       const m = $('#msg-exp'), rec = d.querySelector('input[name="exp-rec"]:checked').value;
       try {
         await api('/api/admin/expediente', { cajero_id: x.id, fecha_alta: $('#exp-alta').value || null, fecha_baja: $('#exp-baja').value || null, recontratable: rec === 'si' ? true : rec === 'no' ? false : null, notas: $('#exp-notas').value, calificaciones: valores() });
-        m.className = 'mensaje ok'; m.textContent = 'Ficha guardada.';
         if (recargar) recargar();
+        await ver('Ficha guardada.');
       } catch (er) { if (/bloqueado/i.test(er.message)) return candado('La ficha se cerró: teclee su clave otra vez.'); m.className = 'mensaje error'; m.textContent = er.message; }
     });
   };
+  formulario = ver;
   candado();
   d.showModal();
+}
+/** «Eliminar» a una Vendedora-Cajera: pide la clave corta del supervisor. Desaparece de las listas, de «Vendió por» y de las cajas; sus ventas conservan su nombre. */
+function abrirEliminarTrabajadora(x, aviso, recargar) {
+  const d = dialogo('dlg-eliminar-trab');
+  d.setAttribute('aria-labelledby', 'et-titulo');
+  d.innerHTML = `<h2 id="et-titulo" style="margin-top:0">Eliminar a ${esc(x.nombre)}</h2>
+    <p style="margin-top:0">Se quita de la lista, de «Vendió por» y de las cajas, y ya no podrá iniciar sesión. Sus ventas anteriores conservan su nombre. <b>Si solo deja de trabajar por ahora, use «Desactivar»</b>: así se conserva su ficha para recontratarla.</p>
+    <form id="form-eliminar-trab" autocomplete="off"><div class="campo"><label for="et-clave">Su clave corta</label><input id="et-clave" type="text" data-pin inputmode="numeric" autocomplete="off" maxlength="8" placeholder="••••" style="width:100%;box-sizing:border-box;padding:10px;border:2px solid var(--borde);border-radius:10px;background:var(--superficie);font:inherit;font-size:20px"></div>
+      <div id="msg-et" class="mensaje" role="alert"></div>
+      <div class="filas"><button class="btn" type="button" id="et-no">Cancelar</button><button class="btn btn-peligro" type="submit" style="width:auto;flex:1">${ico('trash')}<span>Eliminar a ${esc(x.nombre)}</span></button></div></form>`;
+  $('#et-no').addEventListener('click', () => d.close());
+  $('#form-eliminar-trab').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const m = $('#msg-et');
+    try { await api('/api/admin/cajeros/eliminar', { id: x.id, clave: $('#et-clave').value }); d.close(); d.innerHTML = ''; await recargar(); aviso(`«${x.nombre}» eliminada.`, 'ok'); }
+    catch (e) { m.className = 'mensaje error'; m.textContent = e.message; $('#et-clave').value = ''; }
+  });
+  d.showModal();
+  $('#et-clave').focus();
 }
 /** Edita los datos de una persona ya registrada (alias, nombres, apellidos, teléfono, dirección y foto). */
 function abrirEditarEmpleado(tipo, x, recargar) {
@@ -3296,7 +3365,7 @@ async function vistaCajeros() {
     <div id="msg-cajeros" class="mensaje" role="status" aria-live="polite"></div>
     <div class="tabla-cont"><table id="tabla-cajeros"><thead><tr><th>Usuario y datos</th><th>Tienda</th><th>Estado</th><th>Acciones</th><th>Nueva clave</th></tr></thead><tbody>
     ${cajeros.map((x) => `<tr data-cajero="${esc(x.id)}" class="fila-usuario" tabindex="0" title="Clic para editar los datos de ${esc(x.nombre)}"><td>${celdaPersona(x)}</td><td data-col="tienda">${esc(NOM_TIENDA_TRAB[x.tienda ?? ''] ?? x.tienda)}</td><td>${x.activo ? 'Activo' : 'Desactivado'}</td>
-      <td class="filas" style="flex-wrap:nowrap"><button class="btn c-editar" type="button">${ico('pencil')}<span>Editar datos</span></button><button class="btn c-activo" type="button">${x.activo ? 'Desactivar' : 'Activar'}</button></td>
+      <td class="filas" style="flex-wrap:nowrap"><button class="btn c-editar" type="button">${ico('pencil')}<span>Editar datos</span></button><button class="btn c-activo" type="button">${x.activo ? 'Desactivar' : 'Activar'}</button><button class="btn btn-peligro c-eliminar" type="button" title="Quitarla por completo (pide su clave corta)">${ico('trash')}<span>Eliminar</span></button></td>
       <td class="filas" style="flex-wrap:nowrap"><input type="text" data-pin inputmode="numeric" class="c-clave" placeholder="dejar vacío = no cambiar" aria-label="Nueva clave de ${esc(x.nombre)}" style="padding:4px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie)"><button class="btn c-guardar" type="button">${ico('check')}<span>Cambiar clave</span></button></td></tr>`).join('') || '<tr><td colspan="5" class="vacio">Aún no hay Vendedoras-Cajeras con clave: sin ella nadie puede dar de alta artículos en la caja.</td></tr>'}</tbody></table></div>
     <form id="form-cajero" class="filas" style="margin-top:12px;align-items:flex-end"><div class="campo"><label for="caj-nombre">Usuario (alias)</label><input id="caj-nombre" class="texto" maxlength="40" autocomplete="off" name="alias-caj-nombre" data-lpignore="true"></div>${perfilCampos('caj')} <div class="campo"><label for="caj-clave">Clave</label><input id="caj-clave" type="text" data-pin inputmode="numeric" autocomplete="off"></div>
       <div class="campo"><label for="caj-tienda">Tienda donde trabaja</label><select id="caj-tienda" style="padding:10px;border:2px solid var(--borde);border-radius:10px;background:var(--superficie)">${Object.entries(NOM_TIENDA_TRAB).map(([k, t]) => `<option value="${k}">${t}</option>`).join('')}</select></div>
@@ -3363,6 +3432,7 @@ async function vistaCajeros() {
     tr.querySelector('.c-editar').addEventListener('click', editarC);
     tr.addEventListener('click', (ev) => { if (!ev.target.closest('input, button, a')) editarC(); });
     tr.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' && ev.target === tr) editarC(); });
+    tr.querySelector('.c-eliminar').addEventListener('click', (ev) => { ev.stopPropagation(); abrirEliminarTrabajadora(cajeros.find((c) => c.id === id), msgC, vistaCajeros); });
     tr.querySelector('.c-activo').addEventListener('click', async () => { try { await api('/api/admin/cajeros', { id, activo: !activo }); await vistaCajeros(); } catch (e) { msgC(e.message); } });
   }
 }

@@ -483,6 +483,17 @@ export class Central {
   }
 
   /**
+   * Elimina a una Vendedora-Cajera: desaparece de las listas, de «Vendió por» y de las cajas, y ya no puede iniciar sesión (su alias queda libre).
+   * Lo ya vendido conserva su nombre. La bitácora es solo de agregar: el registro anterior (y su ficha) sigue ahí, sin mostrarse.
+   */
+  eliminarCajero(id: string, por: string): { ok: true } | { ok: false; error: { codigo: 'NO_EXISTE'; mensaje: string } } {
+    const actual = cajerosDe(this.repo.ops()).find((c) => c.id === id);
+    if (!actual) return { ok: false, error: { codigo: 'NO_EXISTE', mensaje: 'la Vendedora-Cajera no existe' } };
+    this.emitirAdmin('cajero.guardado', { id, nombre: actual.nombre, activo: false, sal: actual.sal, hash: actual.hash, eliminado: true, por });
+    return { ok: true };
+  }
+
+  /**
    * Expediente PRIVADO de una trabajadora: fecha de alta (la captura el propietario), fecha de inactividad, ¿recontratable?, calificaciones de 1 a 5 y notas.
    * Lo no enviado se conserva; `null` o texto vacío lo borra. Solo vive en el central (no se reparte a tiendas ni cajas).
    */

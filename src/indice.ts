@@ -98,8 +98,11 @@ export class Indice {
     if (o.tipo === 'supervisor.guardado') this.supervisoresMap.set(p.id, p as Supervisor);
     if (o.tipo === 'config.sesion') this.cfgSesion = { caja_min: p.caja_min, admin_min: p.admin_min };
     if (o.tipo === 'cajero.guardado') {
-      this.cajerosMap.set(p.id, p as Cajero);
-      if (typeof p.tienda === 'string') this.tiendaDeCajero.set(p.id, { tienda: p.tienda, en: o.ocurrio_en });
+      if (p.eliminado) { this.cajerosMap.delete(p.id); this.tiendaDeCajero.delete(p.id); }
+      else {
+        this.cajerosMap.set(p.id, p as Cajero);
+        if (typeof p.tienda === 'string') this.tiendaDeCajero.set(p.id, { tienda: p.tienda, en: o.ocurrio_en });
+      }
     }
     if (o.tipo === 'cajero.ubicacion' && typeof p.tienda === 'string') {
       const previa = this.tiendaDeCajero.get(p.cajero_id);

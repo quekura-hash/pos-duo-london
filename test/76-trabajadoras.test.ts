@@ -166,4 +166,34 @@ porAlmacen('Trabajadoras: tienda donde trabajan, «vendió por» por tienda y ex
     assert.deepEqual(v.vendedoras.filter((x: any) => x.tipo === 'cajero').map((x: any) => x.alias).sort(), ['Ana', 'Cris']);
     assert.doesNotMatch(JSON.stringify(v), /fecha_alta|recontratable|notas/);
   });
+  it('TR7 eliminar a una trabajadora pide la clave corta; desaparece de la lista, de «vendió por» y de las cajas; su alias queda libre', async (t) => {
+    const { ctx, adm } = await preparar(t);
+    const ana = (await api(adm.url, '/api/admin/cajeros')).json.cajeros.find((c: any) => c.nombre === 'Ana');
+    assert.equal((await api(adm.url, '/api/admin/cajeros/eliminar', { id: ana.id, clave: '2468' })).json.error.codigo, 'SIN_CLAVE_CORTA');
+    await conClave(adm);
+    assert.equal((await api(adm.url, '/api/admin/cajeros/eliminar', { id: ana.id, clave: '0000' })).json.error.codigo, 'CLAVE_INVALIDA');
+    assert.equal((await api(adm.url, '/api/admin/cajeros/eliminar', { id: ana.id })).json.error.codigo, 'CLAVE_INVALIDA', 'sin clave no elimina');
+    assert.equal((await api(adm.url, '/api/admin/cajeros')).json.cajeros.length, 3, 'nada se eliminó con claves malas');
+    const r = await api(adm.url, '/api/admin/cajeros/eliminar', { id: ana.id, clave: '2468' });
+    assert.equal(r.status, 200);
+    assert.deepEqual(r.json.cajeros.map((c: any) => c.nombre).sort(), ['Bea', 'Cris']);
+    ctx.m.pump(); ctx.m.pump(); ctx.m.pump();
+    assert.deepEqual(alias(ctx, 'DUO'), ['Cris'], 'ya no sale en «vendió por»');
+    assert.throws(() => servicioDe(ctx, 'DUO', 1, 'Ana').svc.iniciarSesion('Ana', '1111'), /./, 'ya no puede iniciar sesión');
+    // eliminar otra vez o una que no existe
+    assert.equal((await api(adm.url, '/api/admin/cajeros/eliminar', { id: ana.id, clave: '2468' })).status >= 400, true);
+    // su alias queda libre y su ficha ya no se abre
+    await api(adm.url, '/api/admin/expediente/desbloquear', { clave: '2468' });
+    assert.equal((await api(adm.url, `/api/admin/expediente?cajero_id=${ana.id}`)).status >= 400, true);
+    assert.equal((await api(adm.url, '/api/admin/cajeros', { nombre: 'Ana', clave: '4444' })).status, 200);
+  });
+
+  it('TR8 el almacenista no puede eliminar usuarios', async (t) => {
+    const { adm } = await preparar(t);
+    await api(adm.url, '/api/admin/administradores', { nombre: 'Gabo', clave: 'clave-gabo', rol: 'almacenista' });
+    const ana = (await api(adm.url, '/api/admin/cajeros')).json.cajeros.find((c: any) => c.nombre === 'Ana');
+    await api(adm.url, '/api/logout', {});
+    await api(adm.url, '/api/login', { usuario: 'Gabo', clave: 'clave-gabo' });
+    assert.equal((await api(adm.url, '/api/admin/cajeros/eliminar', { id: ana.id, clave: '2468' })).status, 403);
+  });
 });

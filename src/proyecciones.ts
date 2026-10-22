@@ -362,7 +362,10 @@ export function cajerosDe(ops: Op[]): import('./supervisores.ts').Cajero[] {
   const m = new Map<string, import('./supervisores.ts').Cajero>();
   const tienda = new Map<string, { tienda: string; en: string }>();
   for (const o of ops) {
-    if (o.tipo === 'cajero.guardado') { m.set(o.payload.id, o.payload); if (typeof o.payload.tienda === 'string') tienda.set(o.payload.id, { tienda: o.payload.tienda, en: o.ocurrio_en }); }
+    if (o.tipo === 'cajero.guardado') {
+      if (o.payload.eliminado) { m.delete(o.payload.id); tienda.delete(o.payload.id); } // eliminada: ya no existe para nadie (la bitácora conserva lo que pasó)
+      else { m.set(o.payload.id, o.payload); if (typeof o.payload.tienda === 'string') tienda.set(o.payload.id, { tienda: o.payload.tienda, en: o.ocurrio_en }); }
+    }
     else if (o.tipo === 'cajero.ubicacion' && typeof o.payload.tienda === 'string') { const p = tienda.get(o.payload.cajero_id); if (!p || p.en <= o.ocurrio_en) tienda.set(o.payload.cajero_id, { tienda: o.payload.tienda, en: o.ocurrio_en }); }
   }
   return [...m.values()].map((c) => { const t = tienda.get(c.id)?.tienda; return t === undefined ? c : { ...c, tienda: t }; });

@@ -42,6 +42,7 @@ export async function atender(o: { cajero?: ServicioCaja; admin?: ServicioAdmin 
       case 'GET /api/admin/config-sesion': return ok({ config: exigirAdmin().configSesion() });
       case 'POST /api/admin/config-sesion': return ok({ config: exigirAdmin().guardarConfigSesion({ caja_min: Number(b.caja_min), admin_min: Number(b.admin_min) }) });
       case 'POST /api/logout': return ok(C ? C.cerrarSesion() : A ? A.cerrarSesion() : (() => { throw new ErrorDominio('PROHIBIDO', 'no hay sesión'); })());
+      case 'POST /api/admin/cajeros/eliminar': return ok(exigirAdmin().eliminarCajero({ id: String(b.id ?? ''), clave: String(b.clave ?? '') }));
       case 'GET /api/admin/administradores': return ok(exigirAdmin().administradores());
       case 'POST /api/admin/administradores': return ok(exigirAdmin().guardarAdmin({ id: b.id, nombre: b.nombre, clave: b.clave === undefined ? undefined : String(b.clave), activo: b.activo === undefined ? undefined : !!b.activo, rol: b.rol, clave_caja: b.clave_caja === undefined ? undefined : String(b.clave_caja), perfil: b.perfil }));
       case 'GET /api/sesion':
