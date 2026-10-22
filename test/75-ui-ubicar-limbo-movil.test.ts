@@ -184,7 +184,6 @@ describe('[iPhone] Inventario: seleccionar y ubicar piezas de El Limbo', { timeo
     await page.waitForSelector('#puerta', { state: 'hidden' });
     await page.waitForSelector('#nav button');
     const atender = (metodo: string, ruta: string, cuerpo?: unknown) => page.evaluate(async (d) => (await (window as unknown as { __POS_ATENDER__: (m: string, r: string, c?: unknown) => Promise<{ status: number; json: Record<string, unknown> }> }).__POS_ATENDER__(d.m, d.r, d.c)).status, { m: metodo, r: ruta, c: cuerpo });
-    assert.equal(await atender('POST', '/api/admin/supervisores', { nombre: 'Edgardo', clave: '2468' }), 200);
     assert.equal(await atender('POST', '/api/admin/cajeros', { nombre: 'Ana', clave: '1111', tienda: 'DUO', perfil: { nombres: 'Ana', apellidos: 'López' } }), 200);
     await page.click('#nav button[data-vista="configuracion"]');
     await page.click('#cfg-tab-cajeros');
@@ -195,7 +194,8 @@ describe('[iPhone] Inventario: seleccionar y ubicar piezas de El Limbo', { timeo
     await page.tap('#emp-expediente');
     await page.waitForSelector('#dlg-expediente[open] #form-exp-clave');
     assert.doesNotMatch((await page.textContent('#dlg-expediente'))!, /Puntualidad|Anotaciones/);
-    await page.fill('#exp-clave', '2468');
+    // primera vez: crear su clave corta (no la contraseña de Supabase)
+    await page.fill('#exp-nueva', '2468'); await page.fill('#exp-nueva2', '2468');
     await page.tap('#form-exp-clave button[type=submit]');
     await page.waitForSelector('#form-exp');
     const dlg = await page.evaluate(() => { const r = document.querySelector('#dlg-expediente')!.getBoundingClientRect(); return { izq: r.left, der: r.right, ancho: window.innerWidth, desborda: document.documentElement.scrollWidth > window.innerWidth + 1 }; });
@@ -208,7 +208,7 @@ describe('[iPhone] Inventario: seleccionar y ubicar piezas de El Limbo', { timeo
     await page.fill('#exp-alta', '2025-03-10');
     await page.fill('#exp-notas', 'Buena vendedora.');
     await page.tap('#exp-guardar');
-    await esperarTexto(page, '#msg-exp', /Expediente guardado/);
+    await esperarTexto(page, '#msg-exp', /Ficha guardada/);
     const filas = (await db.query(`select tipo, tienda, payload->>'recontratable' as rec, payload->'calificaciones'->>'puntualidad' as p from pos.ops where tipo = 'trabajadora.expediente'`)).rows as { tipo: string; tienda: string | null; rec: string; p: string }[];
     assert.deepEqual(filas.map((f) => [f.tipo, f.tienda, f.rec, f.p]), [['trabajadora.expediente', null, 'true', '4']], 'el central real lo aceptó; no lleva tienda, por eso las cajas nunca lo reciben');
     await page.tap('#exp-cerrar');

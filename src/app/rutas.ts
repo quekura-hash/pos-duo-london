@@ -162,6 +162,8 @@ export async function atender(o: { cajero?: ServicioCaja; admin?: ServicioAdmin 
       }));
       case 'GET /api/admin/limbo/buscar': return ok(exigirAdmin().buscarLimbo(q.get('codigo') ?? ''));
       case 'POST /api/admin/limbo/revisar': return ok(exigirAdmin().revisarConteoLimbo(Array.isArray(b.filas) ? b.filas : []));
+      case 'GET /api/admin/expediente/clave': return ok(exigirAdmin().estadoClaveFicha());
+      case 'POST /api/admin/expediente/clave': return ok(exigirAdmin().crearClaveFicha({ clave: String(b.clave ?? ''), actual: b.actual === undefined ? undefined : String(b.actual) }));
       case 'POST /api/admin/expediente/desbloquear': return ok(exigirAdmin().desbloquearExpediente(String(b.clave ?? '')));
       case 'POST /api/admin/expediente/bloquear': return ok(exigirAdmin().bloquearExpediente());
       case 'GET /api/admin/expediente': return ok(exigirAdmin().expedienteDe(q.get('cajero_id') ?? ''));

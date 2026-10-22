@@ -15,12 +15,11 @@ const esperarTexto = async (page: Page, selector: string, re: RegExp) => {
 };
 
 describe('[navegador real] Usuarios: tienda de cada trabajadora y expediente privado', { timeout: 240_000, skip: chromiumPath ? false : 'Chromium no encontrado (defina POS_CHROMIUM)' }, () => {
-  it('UT1 la tienda se elige al dar de alta y al editar; el expediente está oculto hasta teclear la clave de supervisor, se guarda y vuelve a cerrarse', async (t) => {
+  it('UT1 la tienda se elige al dar de alta y al editar; la ficha está oculta hasta teclear su clave corta, se guarda y vuelve a cerrarse', async (t) => {
     const browser = await chromium.launch({ executablePath: chromiumPath, args: ['--no-sandbox'] });
     const ctx = nuevoMundo(sqlite, politica());
     const adm = await appAdmin(ctx);
     t.after(async () => { await browser.close(); await adm.cerrar(); ctx.limpiar(); });
-    await api(adm.url, '/api/admin/supervisores', { nombre: 'Edgardo', clave: '2468' });
     await api(adm.url, '/api/admin/cajeros', { nombre: 'Ana', clave: '1111', perfil: { nombres: 'Ana', apellidos: 'López' } });
     const page = await (await browser.newContext({ viewport: { width: 1366, height: 820 }, locale: 'es-MX' })).newPage();
     const errores: string[] = [];
@@ -53,11 +52,16 @@ describe('[navegador real] Usuarios: tienda de cada trabajadora y expediente pri
     assert.doesNotMatch(await page.content(), /Recontratable|Puntualidad|Anotaciones/);
     await page.click('#emp-expediente');
     await page.waitForSelector('#dlg-expediente[open] #form-exp-clave');
+    assert.match((await page.textContent('#dlg-expediente'))!, /Ficha[\s\S]*cree <b>su clave corta|su clave corta[\s\S]*no es la contraseña de Supabase/i, 'la primera vez pide crear su clave corta');
     assert.doesNotMatch((await page.textContent('#dlg-expediente'))!, /Puntualidad|Anotaciones/, 'candado: sin la clave no se ve nada');
-    await page.fill('#exp-clave', '0000');
+    // validaciones al crearla
+    await page.fill('#exp-nueva', '12'); await page.fill('#exp-nueva2', '12');
     await page.click('#form-exp-clave button[type=submit]');
-    await esperarTexto(page, '#msg-exp', /no es correcta/);
-    await page.fill('#exp-clave', '2468');
+    await esperarTexto(page, '#msg-exp', /4 a 8 dígitos/);
+    await page.fill('#exp-nueva', '2468'); await page.fill('#exp-nueva2', '1111');
+    await page.click('#form-exp-clave button[type=submit]');
+    await esperarTexto(page, '#msg-exp', /no coinciden/);
+    await page.fill('#exp-nueva', '2468'); await page.fill('#exp-nueva2', '2468');
     await page.click('#form-exp-clave button[type=submit]');
     await page.waitForSelector('#form-exp');
     assert.match((await page.textContent('#exp-registro'))!, /\d\d\/\d\d\/\d{4}/, 'fecha de registro en el sistema');
@@ -69,7 +73,7 @@ describe('[navegador real] Usuarios: tienda de cada trabajadora y expediente pri
     assert.match((await page.textContent('#exp-prom'))!, /promedio 4\.0/);
     await page.fill('#exp-notas', 'Buena vendedora. Faltaba mucho.');
     await page.click('#exp-guardar');
-    await esperarTexto(page, '#msg-exp', /Expediente guardado/);
+    await esperarTexto(page, '#msg-exp', /Ficha guardada/);
     // se guardó tal cual
     const e = (await api(adm.url, '/api/admin/expediente?cajero_id=' + (await api(adm.url, '/api/admin/cajeros')).json.cajeros.find((c: any) => c.nombre === 'Ana').id)).json.expediente;
     assert.deepEqual([e.fecha_alta, e.recontratable, e.notas, e.calificaciones.inasistencias], ['2025-03-10', true, 'Buena vendedora. Faltaba mucho.', 2]);
@@ -79,6 +83,19 @@ describe('[navegador real] Usuarios: tienda de cada trabajadora y expediente pri
     const ana = (await api(adm.url, '/api/admin/cajeros')).json.cajeros.find((c: any) => c.nombre === 'Ana');
     assert.equal((await api(adm.url, `/api/admin/expediente?cajero_id=${ana.id}`)).json.error.codigo, 'EXPEDIENTE_BLOQUEADO');
     assert.doesNotMatch(await page.content(), /Faltaba mucho|Recontratable|Calificaciones/, 'nada del expediente queda en la pantalla');
+    // volver a abrirla pide la clave corta (ya no la de crear)
+    await page.click('#tabla-cajeros tr[data-cajero] .c-editar >> nth=0');
+    await page.waitForSelector('#dlg-empleado[open]');
+    assert.equal((await page.textContent('#emp-expediente'))!.trim(), 'Ficha', 'el botón se llama Ficha');
+    await page.click('#emp-expediente');
+    await page.waitForSelector('#exp-clave');
+    await page.fill('#exp-clave', '0000');
+    await page.click('#form-exp-clave button[type=submit]');
+    await esperarTexto(page, '#msg-exp', /no es correcta/);
+    await page.fill('#exp-clave', '2468');
+    await page.click('#form-exp-clave button[type=submit]');
+    await page.waitForSelector('#form-exp');
+    assert.equal(await page.inputValue('#exp-notas'), 'Buena vendedora. Faltaba mucho.');
     assert.deepEqual(errores.filter((x) => !/401|403|Failed to load resource/.test(x)), []);
   });
 });

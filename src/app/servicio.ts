@@ -1139,21 +1139,49 @@ export class ServicioAdmin {
     if (this.ahoraMs() > this.expedienteHasta) throw new ErrorDominio('EXPEDIENTE_BLOQUEADO', 'el expediente está bloqueado: teclee su clave de supervisor');
     this.expedienteHasta = this.ahoraMs() + 3 * 60_000;
   }
-  /** Abre el expediente 3 minutos (se renueva con cada uso). 5 claves equivocadas seguidas lo bloquean 5 minutos. */
-  desbloquearExpediente(clave: string) {
-    if (this.rol() !== 'supervisor') throw new ErrorDominio('PROHIBIDO', 'solo un supervisor ve el expediente');
+  /** El registro de «clave corta» de quien tiene la sesión (es su clave de supervisor: abre las fichas y autoriza en la caja). */
+  private claveCortaPropia() {
+    return supervisoresDe(this.fuente()).find((x) => nombreClave(x.nombre) === nombreClave(this.actor.usuario)) ?? null;
+  }
+  /** ¿Quien tiene la sesión ya tiene su clave corta? */
+  estadoClaveFicha() {
+    if (this.rol() !== 'supervisor') throw new ErrorDominio('PROHIBIDO', 'solo un supervisor ve las fichas');
+    const c = this.claveCortaPropia();
+    return { tiene: !!c && c.activo, usuario: this.actor.usuario };
+  }
+  /** Cinco claves cortas equivocadas seguidas bloquean los intentos 5 minutos. */
+  private verificarClaveCorta(clave: string) {
     const f = this.fallos.get('expediente') ?? { n: 0, hasta: 0 };
     const ahora = this.ahoraMs();
     if (f.hasta > ahora) throw new ErrorDominio('CLAVE_BLOQUEADA', `demasiados intentos con una clave equivocada: espere ${Math.ceil((f.hasta - ahora) / 60000)} minuto(s)`);
-    const sups = supervisoresDe(this.fuente());
-    if (!sups.some((x) => x.activo)) throw new ErrorDominio('SIN_CLAVE_SUPERVISOR', 'todavía no hay una clave de supervisor: cree una en Promociones › Supervisores');
-    if (!supervisorPorClave(sups, String(clave ?? ''))) {
+    const c = this.claveCortaPropia();
+    if (!c || !c.activo) throw new ErrorDominio('SIN_CLAVE_CORTA', 'todavía no tiene su clave corta: créela primero');
+    if (!supervisorPorClave([c], String(clave ?? ''))) {
       const n = f.n + 1;
       this.fallos.set('expediente', n >= 5 ? { n: 0, hasta: ahora + 5 * 60_000 } : { n, hasta: 0 });
-      throw new ErrorDominio('CLAVE_INVALIDA', 'la clave de supervisor no es correcta');
+      throw new ErrorDominio('CLAVE_INVALIDA', 'la clave no es correcta');
     }
     this.fallos.delete('expediente');
-    this.expedienteHasta = ahora + 3 * 60_000;
+  }
+  /**
+   * Crea o cambia la clave corta (4 a 8 dígitos) de quien tiene la sesión. Es solo suya y no es la contraseña de Supabase. Para cambiarla hay que teclear la
+   * actual. Crearla la primera vez no pide nada: conviene hacerlo uno mismo antes de prestar el teléfono.
+   */
+  crearClaveFicha(d: { clave: string; actual?: string }) {
+    if (this.rol() !== 'supervisor') throw new ErrorDominio('PROHIBIDO', 'solo un supervisor tiene clave corta');
+    if (!this.central) throw new ErrorDominio('SIN_CENTRAL', 'esta sesión no tiene acceso al servicio central');
+    const c = this.claveCortaPropia();
+    if (c && c.activo) this.verificarClaveCorta(String(d.actual ?? ''));
+    const r = this.central.guardarSupervisor(c ? { id: c.id, clave: String(d.clave ?? ''), activo: true } : { nombre: this.actor.usuario, clave: String(d.clave ?? '') }, this.actor.usuario);
+    if (!r.ok) throw new ErrorDominio('CLAVE_INVALIDA', r.error.codigo === 'CLAVE_REPETIDA' ? 'esa clave ya la usa otra persona: elija otra' : r.error.mensaje);
+    this.expedienteHasta = this.ahoraMs() + 3 * 60_000;
+    return { tiene: true, abierto: true };
+  }
+  /** Abre las fichas 3 minutos (se renueva con cada uso) con la clave corta de quien tiene la sesión. */
+  desbloquearExpediente(clave: string) {
+    if (this.rol() !== 'supervisor') throw new ErrorDominio('PROHIBIDO', 'solo un supervisor ve las fichas');
+    this.verificarClaveCorta(clave);
+    this.expedienteHasta = this.ahoraMs() + 3 * 60_000;
     return { abierto: true, minutos: 3 };
   }
   bloquearExpediente() {

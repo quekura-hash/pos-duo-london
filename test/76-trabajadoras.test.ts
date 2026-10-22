@@ -8,7 +8,7 @@ porAlmacen('Trabajadoras: tienda donde trabajan, «vendió por» por tienda y ex
     const ctx = nuevoMundo(alm, politica());
     t.after(ctx.limpiar);
     const adm = await appAdmin(ctx); t.after(() => adm.cerrar());
-    await api(adm.url, '/api/admin/administradores', { nombre: 'Edgardo', clave: 'clave-segura', clave_caja: '2468' });
+    await api(adm.url, '/api/admin/administradores', { nombre: 'Edgardo', clave: 'clave-segura' });
     await api(adm.url, '/api/admin/cajeros', { nombre: 'Ana', clave: '1111', tienda: 'DUO' });
     await api(adm.url, '/api/admin/cajeros', { nombre: 'Bea', clave: '2222', tienda: 'LON' });
     await api(adm.url, '/api/admin/cajeros', { nombre: 'Cris', clave: '3333' });
@@ -61,9 +61,14 @@ porAlmacen('Trabajadoras: tienda donde trabajan, «vendió por» por tienda y ex
     assert.equal(ctx.m.central.repo.ops().filter((o) => o.tipo === 'cajero.ubicacion').length, n);
   });
 
-  it('TR3 el expediente es privado: bloqueado aunque se sea supervisor, se abre con la clave de supervisor, se cierra solo y al cerrar sesión', async (t) => {
+  /** Crea la clave corta de quien tiene la sesión y deja la ficha cerrada. */
+  const conClave = async (adm: { url: string }, clave = '2468') => { assert.equal((await api(adm.url, '/api/admin/expediente/clave', { clave })).status, 200); await api(adm.url, '/api/admin/expediente/bloquear', {}); };
+
+  it('TR3 la ficha es privada: bloqueada aunque se sea supervisor, se abre con la clave corta propia, se cierra sola y al cerrar sesión', async (t) => {
     const { adm } = await preparar(t);
     const ana = (await api(adm.url, '/api/admin/cajeros')).json.cajeros.find((c: any) => c.nombre === 'Ana');
+    assert.equal((await api(adm.url, '/api/admin/expediente/desbloquear', { clave: '2468' })).json.error.codigo, 'SIN_CLAVE_CORTA', 'sin clave corta primero se crea');
+    await conClave(adm);
     assert.equal((await api(adm.url, `/api/admin/expediente?cajero_id=${ana.id}`)).json.error.codigo, 'EXPEDIENTE_BLOQUEADO');
     assert.equal((await api(adm.url, '/api/admin/expediente', { cajero_id: ana.id, notas: 'x' })).json.error.codigo, 'EXPEDIENTE_BLOQUEADO');
     assert.equal((await api(adm.url, '/api/admin/expediente/desbloquear', { clave: '0000' })).json.error.codigo, 'CLAVE_INVALIDA');
@@ -79,9 +84,29 @@ porAlmacen('Trabajadoras: tienda donde trabajan, «vendió por» por tienda y ex
     assert.equal((await api(adm.url, '/api/admin/expediente/desbloquear', { clave: '2468' })).json.error.codigo, 'CLAVE_BLOQUEADA');
   });
 
+  it('TR3b la clave corta: se crea una vez, es de 4 a 8 dígitos, cambiarla exige la actual y no depende de la contraseña de Supabase', async (t) => {
+    const { adm } = await preparar(t);
+    assert.deepEqual((await api(adm.url, '/api/admin/expediente/clave')).json.tiene, false);
+    assert.equal((await api(adm.url, '/api/admin/expediente/clave', { clave: '12' })).json.error.codigo, 'CLAVE_INVALIDA');
+    assert.equal((await api(adm.url, '/api/admin/expediente/clave', { clave: 'abcd' })).json.error.codigo, 'CLAVE_INVALIDA');
+    assert.equal((await api(adm.url, '/api/admin/expediente/clave', { clave: '2468' })).json.abierto, true, 'al crearla queda abierta');
+    assert.equal((await api(adm.url, '/api/admin/expediente/clave')).json.tiene, true);
+    // cambiarla exige la actual
+    assert.equal((await api(adm.url, '/api/admin/expediente/clave', { clave: '1357' })).json.error.codigo, 'CLAVE_INVALIDA');
+    assert.equal((await api(adm.url, '/api/admin/expediente/clave', { clave: '1357', actual: '0000' })).json.error.codigo, 'CLAVE_INVALIDA');
+    assert.equal((await api(adm.url, '/api/admin/expediente/clave', { clave: '1357', actual: '2468' })).status, 200);
+    await api(adm.url, '/api/admin/expediente/bloquear', {});
+    assert.equal((await api(adm.url, '/api/admin/expediente/desbloquear', { clave: '2468' })).json.error.codigo, 'CLAVE_INVALIDA', 'la anterior ya no sirve');
+    assert.equal((await api(adm.url, '/api/admin/expediente/desbloquear', { clave: '1357' })).status, 200);
+    // la clave corta también es la de supervisor de la caja: no se puede repetir la de otra persona
+    await api(adm.url, '/api/admin/supervisores', { nombre: 'Karina', clave: '9753' });
+    assert.equal((await api(adm.url, '/api/admin/expediente/clave', { clave: '9753', actual: '1357' })).json.error.codigo, 'CLAVE_INVALIDA');
+  });
+
   it('TR4 guardar el expediente: fechas, recontratable, calificaciones 1 a 5 y notas; validaciones; la baja se anota sola', async (t) => {
     const { ctx, adm } = await preparar(t);
     const ana = (await api(adm.url, '/api/admin/cajeros')).json.cajeros.find((c: any) => c.nombre === 'Ana');
+    await conClave(adm);
     await api(adm.url, '/api/admin/expediente/desbloquear', { clave: '2468' });
     const guardar = (d: object) => api(adm.url, '/api/admin/expediente', { cajero_id: ana.id, ...d });
     const r = await guardar({ fecha_alta: '2025-03-10', recontratable: true, notas: 'Buena vendedora.\nFaltaba mucho.', calificaciones: { puntualidad: 4, presentacion: 5, inasistencias: 2, facilidad_palabra: 5, vendedora: 5, humildad: 3 } });
@@ -127,6 +152,7 @@ porAlmacen('Trabajadoras: tienda donde trabajan, «vendió por» por tienda y ex
     await api(adm.url, '/api/login', { usuario: 'Gabo', clave: 'clave-gabo' });
     assert.equal((await api(adm.url, `/api/admin/expediente?cajero_id=${ana.id}`)).status, 403);
     assert.equal((await api(adm.url, '/api/admin/expediente/desbloquear', { clave: '2468' })).status, 403);
+    assert.equal((await api(adm.url, '/api/admin/expediente/clave', { clave: '2468' })).status, 403);
   });
 
   it('TR6 una caja no puede escribir expedientes ni ve el de nadie (la caja arma «vendió por» solo con lo público)', async (t) => {
