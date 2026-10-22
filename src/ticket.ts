@@ -264,10 +264,12 @@ const fechaCorta = (iso: string) => iso.split('-').reverse().join('/');
 /** Texto del cupón de recompensa impreso al final del ticket (el QR va aparte). */
 export function textoCupon(r: import('./recompensas.ts').RecompensaEmitida, t: Pick<Ticket, 'columnas' | 'negocio'>): string[] {
   const c = t.columnas;
-  const premio = r.pct !== undefined ? `${r.pct}% de descuento` : `${formatoMXN(r.monto!)} de descuento`;
+  const q = r.promo;
+  const premio = q ? (q.tipo === 'nxm' ? `Lleva ${q.lleva} y paga ${q.paga}` : q.tipo === 'paquete' ? `Lleva ${q.lleva} por ${formatoMXN(q.precio!)}` : `${formatoMXN(q.descuenta!)} de descuento por cada ${formatoMXN(q.cada!)} de compra`)
+    : r.pct !== undefined ? `${r.pct}% de descuento` : `${formatoMXN(r.monto!)} de descuento`;
   return [
     '='.repeat(c), centrar('¡TE GANASTE UN CUPÓN!', c), ...envolver(r.nombre, c).map((x) => centrar(x, c)),
-    ...envolver(`${premio} en tu próxima compra`, c).map((x) => centrar(x, c)),
+    ...envolver(`${premio}${q && q.tipo !== 'por_cada' ? ' (en la mercancía de la promoción)' : ''} en tu próxima compra`, c).map((x) => centrar(x, c)),
     ...(r.minimo > 0 ? [centrar(`Compra mínima: ${formatoMXN(r.minimo)}`, c)] : []),
     centrar(`Válido del ${fechaCorta(r.valido_desde)} al ${fechaCorta(r.valido_hasta)}`, c),
     ...envolver(`Solo en ${t.negocio}. Un solo uso, no acumulable con otras promociones.`, c).map((x) => centrar(x, c)),

@@ -13,7 +13,7 @@ import { hojaAnalisis, hojaDetalleVentas, hojaResumenVentas, hojaDescuentos, hoj
 import { LOGOS_TICKET } from '../logos-ticket.ts';
 import { detalleDeVenta, validarDatosClienta, type DatosClienta } from '../detalle-venta.ts';
 import { aplicarDatosTienda, codigoTicket, construirTicket, construirTicketRegalo, formatoMXN, NEGOCIOS, renderTextoEscPos, renderTicketCancelacionTexto, renderTicketFirmaTexto, renderTicketDevolucionTexto, type ComprobanteClienta, renderTicketRetiroTexto, renderTicketEscPos, renderTicketTexto, type NegocioCfg } from '../ticket.ts';
-import type { ReglaRecompensa } from '../recompensas.ts';
+import { promoDeRegla, type ReglaRecompensa } from '../recompensas.ts';
 import { hashClave, nombreClave, supervisorPorClave, type Perfil, type RolAdmin } from '../supervisores.ts';
 import { LIMBO, type Actor, type Articulo, type Linea, type Op, type Venta } from '../tipos.ts';
 import { fechaLocal } from '../util.ts';
@@ -1004,11 +1004,16 @@ export class ServicioAdmin {
     const hoy = fechaLocal(new Date().toISOString());
     const usos = new Map<string, number>();
     for (const v of ventas(ops).values()) if (v.estado === 'confirmada') for (const id of new Set(v.lineas.flatMap((l) => (l.descuento_detalle ?? []).filter((d) => d.tipo !== 'manual').map((d) => d.ref)))) usos.set(id, (usos.get(id) ?? 0) + 1);
-    const promos = promocionesDe(ops);
+    // Las reglas de la pantalla anterior «Recompensas» se ven aquí como promociones con regalo (al editarlas pasan a ser promociones).
+    const ids = new Set(promocionesDe(ops).map((p) => p.id));
+    const promos = [...promocionesDe(ops), ...recompensasDe(ops).filter((r) => !ids.has(r.id)).map(promoDeRegla)];
+    const regaladas = new Map<string, number>(), canjeadas = new Map<string, number>(), emitidas = new Map<string, string>();
+    for (const v of ventas(ops).values()) if (v.estado === 'confirmada') for (const e of v.recompensas ?? []) { regaladas.set(e.regla_id, (regaladas.get(e.regla_id) ?? 0) + 1); emitidas.set(e.codigo, e.regla_id); }
+    for (const v of ventas(ops).values()) if (v.estado === 'confirmada') for (const cod of new Set(v.lineas.flatMap((l) => (l.descuento_detalle ?? []).filter((d) => d.tipo === 'cupon').map((d) => d.ref)))) { const r = emitidas.get(cod); if (r) canjeadas.set(r, (canjeadas.get(r) ?? 0) + 1); }
     const cat = catalogo(ops);
     const articulos: Record<string, ReturnType<ServicioAdmin['vistaArticulo']>> = {};
     for (const p of promos) for (const id of p.alcance?.item_ids ?? []) { const a = cat.get(id); if (a) articulos[id] = this.vistaArticulo(a); }
-    return { hoy, tiendas: this.tiendasInfo(), articulos, promociones: promos.map((p) => ({ ...p, estado: estadoPromo(p, hoy), usos: usos.get(p.id) ?? 0 })) };
+    return { hoy, tiendas: this.tiendasInfo(), articulos, promociones: promos.map((p) => ({ ...p, estado: estadoPromo(p, hoy), usos: usos.get(p.id) ?? 0, ...(p.regalo ? { regaladas: regaladas.get(p.id) ?? 0, canjeadas: canjeadas.get(p.id) ?? 0 } : {}) })) };
   }
   /** Reglas de recompensa (cupones que se imprimen en el ticket), con cuántos cupones se han regalado y canjeado de cada una. */
   recompensas() {

@@ -1,7 +1,7 @@
 import type { BusquedaVentas, VentaLocalizada } from './consultas.ts';
 import { ErrorDominio } from './errores.ts';
-import { buscarRecompensa, esCodigoRecompensa, promoDeRecompensa, recompensasGanadas, validarRegla, type EstadoRecompensa, type ReglaRecompensa } from './recompensas.ts';
-import { calcularDescuentos, normCodigo, repartir, validarPromocion, type ErrorPromo, type Promocion, type ResultadoDescuentos } from './promociones.ts';
+import { buscarRecompensa, esCodigoRecompensa, promoDeRecompensa, recompensasGanadas, reglasVigentes, validarRegla, type EstadoRecompensa, type ReglaRecompensa } from './recompensas.ts';
+import { calcularDescuentos, esCanje, normCodigo, repartir, validarPromocion, type ErrorPromo, type Promocion, type ResultadoDescuentos } from './promociones.ts';
 import { mezclarPerfil, claveAdminValida, claveValida, hashClave, nombreClave, supervisorPorClave, type Cajero, type Perfil, type RolAdmin, type Supervisor } from './supervisores.ts';
 import { correccionesEntradas } from './almacen.ts';
 import { BILLETES_RETIRO_MXN, BILLETES_RETIRO_USD, efectivoDeVentaEnCaja, MINIMO_RETIRO, UMBRAL_AVISO_RETIRO, type RetiroRegistrado } from './retiros.ts';
@@ -418,7 +418,7 @@ export class Central {
   /** Alta o edición de una promoción o cupón (con `id` es edición). Se propaga a todas las cajas. */
   guardarPromocion(p: Promocion, por: string): { ok: true; promo: Promocion } | { ok: false; error: ErrorPromo } {
     const otras = promocionesDe(this.repo.ops());
-    if (p.id && !otras.some((o) => o.id === p.id)) return { ok: false, error: { codigo: 'NO_EXISTE', mensaje: 'la promoción no existe' } };
+    if (p.id && !otras.some((o) => o.id === p.id) && !recompensasDe(this.repo.ops()).some((o) => o.id === p.id)) return { ok: false, error: { codigo: 'NO_EXISTE', mensaje: 'la promoción no existe' } };
     const id = p.id || `promo-${uuid().slice(0, 8)}`;
     const r = validarPromocion({ ...p, id }, otras, this.ctx.tiendas);
     if (!r.ok) return r;
@@ -1331,7 +1331,7 @@ export class Caja {
     if (rc?.emitida) promos = [...promos, promoDeRecompensa(rc.emitida)];
     const usos = (codigo: string) => {
       if (rc?.emitida && rc.emitida.codigo === codigo) return rc.canjeada || rc.cancelada ? 1 : 0;
-      const p = promos.find((x) => x.tipo === 'cupon' && x.codigo === codigo);
+      const p = promos.find((x) => esCanje(x) && x.codigo === codigo);
       if (!p) return 0;
       let n = 0;
       for (const v of ventas(this.opsVentas()).values()) if (v.estado === 'confirmada' && v.lineas.some((l) => l.descuento_detalle?.some((d) => d.tipo === 'cupon' && d.ref === p.id))) n++;
@@ -1939,7 +1939,7 @@ export class Caja {
       const lineas = c.lineas.map((l) => (limbo.get(l.linea_id) ? { ...l, de_limbo: limbo.get(l.linea_id) } : l));
       // Recompensas: con lo que la clienta PAGA (mercancía, ya con descuentos y crédito de cambio) se gana el cupón impreso al final del ticket.
       const pagadoMerc = Math.max(0, c.lineas.filter((l) => !l.tarjeta_regalo).reduce((a, l) => a + l.importe, 0) - credito);
-      const recompensas = recompensasGanadas(this.idx.recompensas(), this.tienda, this.caja, folio, fechaLocal(this.ctx.reloj.now()), pagadoMerc);
+      const recompensas = recompensasGanadas(reglasVigentes(this.idx.recompensas(), this.idx.promociones()), this.tienda, this.caja, folio, fechaLocal(this.ctx.reloj.now()), pagadoMerc);
       const op = this.emitir('sale.confirmed', {
         sale_id: c.id, tienda: this.tienda, caja: this.caja, folio, cajero, lineas, total, pagos,
         ...(recompensas.length ? { recompensas } : {}),

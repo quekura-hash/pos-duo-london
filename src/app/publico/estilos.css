@@ -308,3 +308,4 @@ input[data-pin] { -webkit-text-security: disc; text-security: disc; }
 /* «Cerrar sesión» sobre el encabezado oscuro: antes quedaba blanco con texto claro (casi invisible) */
 .encabezado #btn-salir { background: transparent; border: 1px solid var(--marino-texto-2); color: var(--marino-texto); font-weight: 600; }
 .encabezado #btn-salir:hover { background: rgba(255, 255, 255, .14); border-color: var(--marino-texto); }
+[data-sinregalo][hidden], #pr-regalo-campos[hidden] { display: none !important; }

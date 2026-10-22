@@ -2892,6 +2892,11 @@ function alcanceTexto(a) {
   return [a.item_ids?.length ? `artículos: ${nombresArticulos(a.item_ids).join(', ')}` : '', a.departamentos?.length ? `departamentos: ${a.departamentos.join(', ')}` : '', a.palabras?.length ? `descripción con: ${a.palabras.join(', ')}` : ''].filter(Boolean).join(' · ');
 }
 function reglaTexto(p) {
+  if (!p.regalo) return reglaBase(p);
+  const v = p.regalo.vigencia;
+  return `Se imprime al final del ticket al pagar ${mxn(p.regalo.compra_minima)} o más; vale ${v.modo === 'dias' ? `${v.dias} días` : `del ${fechaPiso(v.inicio)} al ${fechaPiso(v.fin)}`}, un solo uso. Premio: ${reglaBase(p).replace(/^Código [^:]*: /, '')}`;
+}
+function reglaBase(p) {
   const acum = p.acumulable === false ? ' · una sola vez por compra' : ' · acumulable';
   if (p.tipo === 'nxm') return `Lleva ${p.lleva}, paga ${p.paga} (${alcanceTexto(p.alcance ?? {})})${acum}`;
   if (p.tipo === 'paquete') return `Lleva ${p.lleva} por ${mxn(p.precio)} (${alcanceTexto(p.alcance ?? {})})${acum}`;
@@ -2907,11 +2912,11 @@ async function vistaPromociones() {
   const [{ promociones, hoy, tiendas, articulos }, { supervisores }] = await Promise.all([api('/api/admin/promociones'), api('/api/admin/supervisores')]);
   S.promos = promociones; S.hoyPromo = hoy; S.tiendasInfo = tiendas; S.artInfo = { ...(S.artInfo ?? {}), ...articulos };
   $('#vista').innerHTML = `<div class="titulo-vista">${ico('percent')}<h1>Promociones y cupones</h1></div>
-    <section class="panel"><div class="filas" style="align-items:center"><button class="btn btn-primario" id="btn-nueva-promo" type="button" style="width:auto">${ico('plus')}<span>Nueva promoción o cupón</span></button><button class="btn" id="btn-recompensas" type="button" style="margin-left:auto" title="Cupones que se imprimen solos al final del ticket">${ico('gift')}<span>Recompensas en el ticket</span></button><button class="btn" id="btn-reporte-promos" type="button">${ico('chart')}<span>Reporte de promociones</span></button></div>
+    <section class="panel"><div class="filas" style="align-items:center"><button class="btn btn-primario" id="btn-nueva-promo" type="button" style="width:auto">${ico('plus')}<span>Nueva promoción o cupón</span></button><button class="btn" id="btn-reporte-promos" type="button">${ico('chart')}<span>Reporte de promociones</span></button></div>
       <p class="nota">Cada promoción o cupón vale solo en la tienda (o tiendas) que elija. Toda promoción lleva fecha de inicio y de término, o queda <b>sin fecha límite</b> hasta que Administración la desactive. En cada compra aplica <b>una sola</b> promoción o cupón: la que más descuento le da al cliente. Las promociones se aplican solas al cobrar; los cupones se capturan o se escanean en la caja. Para promocionar un artículo concreto, búsquelo al crear la promoción o use «Crear promoción» en Inventario.</p>
       <div id="msg-promo" class="mensaje" role="status" aria-live="polite"></div>
-      <div class="tabla-cont"><table id="tabla-promos"><thead><tr><th>Nombre</th><th>Tienda</th><th>Tipo</th><th>Regla</th><th>Vigencia</th><th>Estado</th><th class="num">Usos</th><th></th></tr></thead><tbody>
-      ${promociones.map((p) => `<tr data-promo="${esc(p.id)}" data-estado="${p.estado}"><td>${esc(p.nombre)}</td><td data-col="tiendas">${esc(tiendasTexto(p))}</td><td>${NOM_TIPO[p.tipo]}</td><td class="desc">${esc(reglaTexto(p))}</td><td>${esc(vigenciaTexto(p))}</td><td><span class="insignia ${p.estado === 'activa' ? '' : 'cancelada'}">${NOM_ESTADO_PROMO[p.estado]}</span></td><td class="num">${p.usos}</td>
+      <div class="tabla-cont"><table id="tabla-promos"><thead><tr><th>Nombre</th><th>Tienda</th><th>Tipo</th><th>Regla</th><th>Vigencia</th><th>Estado</th><th class="num">Usos <small>(regalados / canjeados)</small></th><th></th></tr></thead><tbody>
+      ${promociones.map((p) => `<tr data-promo="${esc(p.id)}" data-estado="${p.estado}"><td>${esc(p.nombre)}</td><td data-col="tiendas">${esc(tiendasTexto(p))}</td><td>${NOM_TIPO[p.tipo]}</td><td class="desc">${esc(reglaTexto(p))}</td><td>${esc(vigenciaTexto(p))}</td><td><span class="insignia ${p.estado === 'activa' ? '' : 'cancelada'}">${NOM_ESTADO_PROMO[p.estado]}</span></td><td class="num">${p.regalo ? `<span title="Regalados / canjeados">${p.regaladas ?? 0} / ${p.canjeadas ?? 0}</span>` : p.usos}</td>
         <td class="filas" style="flex-wrap:nowrap"><button class="btn p-editar" type="button">${ico('pencil')}<span>Editar</span></button><button class="btn p-activa" type="button">${p.activa ? 'Desactivar promoción' : 'Activar promoción'}</button>${p.tipo === 'cupon' ? `<button class="btn p-qr" type="button">${ico('download')}<span>Imagen QR</span></button>` : ''}</td></tr>`).join('') || '<tr><td colspan="8" class="vacio">Aún no hay promociones ni cupones.</td></tr>'}</tbody></table></div></section>
     <section class="panel" style="margin-top:12px"><h2 style="margin-top:0">Supervisores que autorizan descuentos</h2>
       <p class="nota">Solo un supervisor puede autorizar un descuento en la caja, tecleando su clave (4 a 8 dígitos). El descuento puede llegar hasta el 100 %. La clave no se puede volver a ver: si se olvida, se cambia.</p>
@@ -2923,7 +2928,6 @@ async function vistaPromociones() {
       <div id="msg-sup" class="mensaje" role="status" aria-live="polite"></div></section>`;
   $('#btn-nueva-promo').addEventListener('click', () => abrirPromo(null));
   $('#btn-reporte-promos').addEventListener('click', () => ir('descuentos'));
-  $('#btn-recompensas').addEventListener('click', abrirRecompensas);
   for (const tr of $('#tabla-promos').querySelectorAll('tr[data-promo]')) {
     const p = S.promos.find((x) => x.id === tr.dataset.promo);
     tr.querySelector('.p-editar').addEventListener('click', () => abrirPromo(p));
@@ -2993,22 +2997,35 @@ async function abrirPromo(p, preset) {
         <p class="nota">Escalones completos: por cada $1,000 de compra, $100 menos; con $2,500 son $200 menos. <b>Este tipo no necesita elegir artículos</b>: aplica a toda la compra.</p>
       </div>
       <div data-tipo="cupon">
-        <div class="filas"><div class="campo" style="flex:2"><label for="pr-codigo">Código</label><input id="pr-codigo" class="texto" value="${esc(q.codigo ?? '')}" placeholder="VERANO20"></div>
+        <div class="filas" data-sinregalo><div class="campo" style="flex:2"><label for="pr-codigo">Código</label><input id="pr-codigo" class="texto" value="${esc(q.codigo ?? '')}" placeholder="VERANO20"></div>
           <div class="campo" style="flex:1"><label>&nbsp;</label><button class="btn" type="button" id="pr-generar">Generar código</button></div></div>
         <div class="filas"><label><input type="radio" name="pr-cup-tipo" value="pct" ${esPct ? 'checked' : ''}> Porcentaje (%)</label><label><input type="radio" name="pr-cup-tipo" value="monto" ${esPct ? '' : 'checked'}> Monto fijo ($)</label></div>
         ${campo('pr-cup-valor', 'Valor del descuento', esPct ? (q.pct ?? 10) : centavosAPesos(q.monto), 'inputmode="decimal"')}
         ${campo('pr-minimo', 'Compra mínima ($, vacío = sin mínimo; el mínimo se cumple con esa cantidad o más)', q.minimo ? centavosAPesos(q.minimo) : '', 'inputmode="decimal"')}
-        ${campo('pr-usos', 'Usos máximos (vacío = sin límite; 1 = un solo uso)', q.usos_max ?? '', 'inputmode="numeric"')}
+        <div data-sinregalo>${campo('pr-usos', 'Usos máximos (vacío = sin límite; 1 = un solo uso)', q.usos_max ?? '', 'inputmode="numeric"')}</div>
         <p class="nota">Un cupón no necesita elegir artículos: descuenta sobre toda la compra.</p>
       </div>
       <div data-tipo="nxm paquete por_cada"><label style="margin-top:8px"><input type="checkbox" id="pr-acumulable" ${q.acumulable === false ? '' : 'checked'}> <b>Acumulable</b>: se repite por cada grupo completo (8 piezas de un paquete de 4 = 2 paquetes; $2,650 con «por cada $500, $50» = $250 de descuento). Sin marcar, aplica una sola vez por compra.</label></div>
       <p class="nota">En cada compra aplica una sola promoción o cupón (la que más descuento dé); no se combinan entre sí.</p>
+      <fieldset style="border:1px solid var(--borde);border-radius:8px"><legend>Regalo al final del ticket</legend>
+        <label><input type="checkbox" id="pr-regalo" ${q.regalo ? 'checked' : ''}> <b>Imprimir al final del ticket</b> (la promoción no se aplica sola: se regala con un QR para la próxima compra)</label>
+        <div id="pr-regalo-campos" ${q.regalo ? '' : 'hidden'}>
+          <div class="campo"><label for="rg-compra">Se gana si la clienta paga ($ o más)</label><input id="rg-compra" inputmode="decimal" class="texto" value="${q.regalo ? centavosAPesos(q.regalo.compra_minima) : '1000'}"></div>
+          <label style="margin-right:16px"><input type="radio" name="rg-vig" value="dias" ${q.regalo?.vigencia.modo === 'fechas' ? '' : 'checked'}> Vale <input id="rg-dias" type="number" min="1" max="365" style="width:70px" value="${q.regalo?.vigencia.modo === 'dias' ? q.regalo.vigencia.dias : 30}"> días desde el ticket</label>
+          <label><input type="radio" name="rg-vig" value="fechas" ${q.regalo?.vigencia.modo === 'fechas' ? 'checked' : ''}> Del <input id="rg-ini" type="date" value="${q.regalo?.vigencia.modo === 'fechas' ? q.regalo.vigencia.inicio : ''}"> al <input id="rg-fin" type="date" value="${q.regalo?.vigencia.modo === 'fechas' ? q.regalo.vigencia.fin : ''}"></label>
+          <p class="nota">Las fechas «Inicia» y «Termina» de arriba son el periodo en que se regala. El QR vale una sola vez y solo en la tienda que lo regaló; se canjea escaneándolo en la caja.</p></div></fieldset>
       <label style="margin-top:8px"><input type="checkbox" id="pr-activa" ${q.activa ? 'checked' : ''}> <span id="pr-activa-txt"></span></label>
       <div id="msg-pr" class="mensaje" role="status" aria-live="polite"></div>
       <div class="filas"><button class="btn" type="button" id="pr-cerrar">Cancelar</button><button class="btn btn-primario" type="submit" id="pr-guardar" style="width:auto;flex:1">${ico('check')}<span>Guardar</span></button></div>
     </form>`;
-  const mostrar = () => { const t = $('#pr-tipo').value; for (const b of d.querySelectorAll('[data-tipo]')) b.hidden = !b.dataset.tipo.split(' ').includes(t); };
+  const mostrar = () => {
+    const t = $('#pr-tipo').value;
+    for (const b of d.querySelectorAll('[data-tipo]')) b.hidden = !b.dataset.tipo.split(' ').includes(t);
+    $('#pr-regalo-campos').hidden = !$('#pr-regalo').checked;
+    for (const b of d.querySelectorAll('[data-sinregalo]')) b.hidden = $('#pr-regalo').checked || t !== 'cupon';
+  };
   mostrar();
+  $('#pr-regalo').addEventListener('change', mostrar);
   if (preset?.item && nueva) { $('#pr-tipo').value = 'nxm'; mostrar(); if (!$('#pr-nombre').value) $('#pr-nombre').value = `Promoción ${preset.item.descripcion}`; }
   $('#pr-tipo').addEventListener('change', mostrar);
   const rotuloActiva = () => { $('#pr-activa-txt').innerHTML = $('#pr-activa').checked ? '<b>Promoción activa</b>' : '<b>Promoción desactivada</b>'; };
@@ -3056,12 +3073,18 @@ async function abrirPromo(p, preset) {
       body.cada = parseMXN($('#pr-cada').value); body.descuenta = parseMXN($('#pr-descuenta').value);
       if (!body.cada || !body.descuenta) return err('Escriba los dos montos en pesos.');
     } else {
-      body.codigo = $('#pr-codigo').value;
+      if (!$('#pr-regalo').checked) body.codigo = $('#pr-codigo').value;
       const tipo = d.querySelector('input[name="pr-cup-tipo"]:checked').value;
       if (tipo === 'pct') body.pct = Number($('#pr-cup-valor').value); else { body.monto = parseMXN($('#pr-cup-valor').value); if (!body.monto) return err('Escriba el monto en pesos.'); }
       body.minimo = $('#pr-minimo').value.trim() ? parseMXN($('#pr-minimo').value) : 0;
       if (body.minimo === null) return err('La compra mínima no es válida.');
-      body.usos_max = $('#pr-usos').value.trim() ? Number($('#pr-usos').value) : null;
+      body.usos_max = $('#pr-usos').value.trim() && !$('#pr-regalo').checked ? Number($('#pr-usos').value) : null;
+    }
+    if ($('#pr-regalo').checked) {
+      const compra = parseMXN($('#rg-compra').value);
+      if (!compra) return err('Escriba el monto de compra para ganar el regalo.');
+      const dias = d.querySelector('input[name="rg-vig"]:checked').value === 'dias';
+      body.regalo = { compra_minima: compra, vigencia: dias ? { modo: 'dias', dias: Number($('#rg-dias').value) } : { modo: 'fechas', inicio: $('#rg-ini').value, fin: $('#rg-fin').value } };
     }
     try { await api('/api/admin/promociones', body); d.close(); if (S.vista === 'promociones') { await vistaPromociones(); const mm = $('#msg-promo'); mm.className = 'mensaje ok'; mm.textContent = 'Guardado.'; } else await ir('promociones'); }
     catch (e) { err(e.message); }
@@ -3460,70 +3483,6 @@ async function vistaTiendas() {
   }
 }
 
-
-// ── Recompensas: cupones que se imprimen solos al final del ticket (con QR de un solo uso) ──
-async function abrirRecompensas() {
-  const r = await api('/api/admin/recompensas');
-  const d = dialogo('dlg-recompensas');
-  d.setAttribute('aria-labelledby', 'rec-titulo');
-  const nomTienda = (t) => (r.tiendas.find((x) => x.tienda === t)?.nombre ?? t);
-  const premio = (x) => (x.cupon.pct !== undefined ? `${x.cupon.pct}% de descuento` : `${mxn(x.cupon.monto)} de descuento`);
-  const vig = (x) => (x.cupon.vigencia.modo === 'dias' ? `${x.cupon.vigencia.dias} días desde el ticket` : `${x.cupon.vigencia.inicio} a ${x.cupon.vigencia.fin}`);
-  d.style.maxWidth = 'min(900px, 96vw)'; d.style.width = '96vw';
-  d.innerHTML = `<h2 id="rec-titulo" style="margin-top:0">Recompensas en el ticket</h2>
-    <p class="nota">Cuando lo que la clienta <b>paga</b> (mercancía, ya con descuentos y crédito de cambio) alcanza el monto de la regla, el ticket imprime al final un <b>cupón con QR único</b>, con su fecha límite y compra mínima. Vale <b>solo en la tienda que lo emitió</b>, una sola vez, y compite con las demás promociones (aplica una por compra). Se regalan hasta 3 por ticket.</p>
-    <div id="msg-rec" class="mensaje" role="status" aria-live="polite"></div>
-    <div class="tabla-cont"><table id="tabla-recompensas"><thead><tr><th>Recompensa</th><th>Tiendas</th><th class="num">Se gana si paga</th><th>Cupón</th><th>Vigencia del cupón</th><th>Estado</th><th class="num">Regalados / canjeados</th><th></th></tr></thead><tbody>
-    ${r.recompensas.map((x) => `<tr data-rec="${esc(x.id)}"><td><b>${esc(x.nombre)}</b></td><td>${esc(x.tiendas.map(nomTienda).join(', '))}</td><td class="num">${mxn(x.compra_minima)}</td><td>${esc(premio(x))}${x.cupon.minimo ? `<br><small>compra mínima ${mxn(x.cupon.minimo)}</small>` : ''}</td><td>${esc(vig(x))}</td><td data-col="estado">${x.estado}</td><td class="num">${x.regaladas} / ${x.canjeadas}</td>
-      <td class="filas" style="flex-wrap:nowrap"><button class="btn rec-editar" type="button">${ico('pencil')}<span>Editar</span></button><button class="btn rec-activo" type="button">${x.activa ? 'Desactivar' : 'Activar'}</button></td></tr>`).join('') || '<tr><td colspan="8" class="vacio">Aún no hay recompensas.</td></tr>'}</tbody></table></div>
-    <div class="filas" style="margin-top:10px"><button class="btn" type="button" id="rec-cerrar">${ico('x')}<span>Cerrar</span></button><button class="btn btn-primario" type="button" id="rec-nueva" style="width:auto">${ico('plus')}<span>Nueva recompensa</span></button></div>
-    <form id="form-rec" hidden autocomplete="off" style="margin-top:12px;border-top:1px solid var(--borde);padding-top:10px"></form>`;
-  $('#rec-cerrar').addEventListener('click', () => d.close());
-  const msgR = (t, tipo = 'error') => { const m = $('#msg-rec'); m.className = `mensaje ${tipo}`; m.textContent = t; };
-  const recargar = async (texto) => { d.close(); await abrirRecompensas(); if (texto) { const m = $('#msg-rec'); m.className = 'mensaje ok'; m.textContent = texto; } };
-  const guardar = async (x) => { try { await api('/api/admin/recompensas', x); await recargar('Guardado. Las cajas lo reciben al sincronizar.'); } catch (e) { msgR(e.message); } };
-  const editor = (x) => {
-    const f = $('#form-rec');
-    const c = x?.cupon ?? { monto: 5000, minimo: 0, vigencia: { modo: 'dias', dias: 30 } };
-    const esPct = c.pct !== undefined;
-    f.hidden = false;
-    f.innerHTML = `<h3 style="margin-top:0">${x ? 'Editar recompensa' : 'Nueva recompensa'}</h3>
-      <div class="campo"><label for="rc-nombre">Nombre (sale impreso en el ticket)</label><input id="rc-nombre" class="texto" maxlength="40" value="${esc(x?.nombre ?? '')}" placeholder="Ej. Gana $50 en tu próxima compra"></div>
-      <fieldset style="border:1px solid var(--borde);border-radius:8px"><legend>Se regala y vale en la tienda</legend>${r.tiendas.map((t) => `<label style="display:inline-block;margin-right:16px"><input type="checkbox" class="rc-tienda" value="${esc(t.tienda)}" ${(x?.tiendas ?? []).includes(t.tienda) ? 'checked' : ''}> ${esc(t.nombre)}</label>`).join('')}</fieldset>
-      <div class="filas"><div class="campo"><label for="rc-compra">Se gana si la clienta paga ($ o más)</label><input id="rc-compra" inputmode="decimal" class="texto" value="${x ? centavosAPesos(x.compra_minima) : '1000'}"></div>
-        <div class="campo"><label for="rc-inicio">Se regala desde (opcional)</label><input id="rc-inicio" type="date" class="texto" value="${esc(x?.inicio ?? '')}"></div>
-        <div class="campo"><label for="rc-fin">Hasta (opcional)</label><input id="rc-fin" type="date" class="texto" value="${esc(x?.fin ?? '')}"></div></div>
-      <fieldset style="border:1px solid var(--borde);border-radius:8px"><legend>El cupón</legend>
-        <label style="margin-right:16px"><input type="radio" name="rc-premio" value="monto" ${esPct ? '' : 'checked'}> Monto fijo ($)</label><label><input type="radio" name="rc-premio" value="pct" ${esPct ? 'checked' : ''}> Porcentaje (%)</label>
-        <div class="filas"><div class="campo"><label for="rc-valor">Valor</label><input id="rc-valor" inputmode="decimal" class="texto" value="${esPct ? c.pct : centavosAPesos(c.monto ?? 5000)}"></div>
-          <div class="campo"><label for="rc-minimo">Compra mínima para usarlo ($; 0 = sin mínimo)</label><input id="rc-minimo" inputmode="decimal" class="texto" value="${centavosAPesos(c.minimo ?? 0)}"></div></div>
-        <label style="margin-right:16px"><input type="radio" name="rc-vig" value="dias" ${c.vigencia.modo === 'dias' ? 'checked' : ''}> Vale <input id="rc-dias" type="number" min="1" max="365" style="width:70px" value="${c.vigencia.modo === 'dias' ? c.vigencia.dias : 30}"> días desde el ticket</label>
-        <label><input type="radio" name="rc-vig" value="fechas" ${c.vigencia.modo === 'fechas' ? 'checked' : ''}> Del <input id="rc-uso-ini" type="date" value="${c.vigencia.modo === 'fechas' ? c.vigencia.inicio : ''}"> al <input id="rc-uso-fin" type="date" value="${c.vigencia.modo === 'fechas' ? c.vigencia.fin : ''}"></label></fieldset>
-      <label style="display:block;margin:8px 0"><input type="checkbox" id="rc-activa" ${x ? (x.activa ? 'checked' : '') : 'checked'}> Recompensa activa</label>
-      <div class="filas"><button class="btn" type="button" id="rc-cancelar">Cancelar</button><button class="btn btn-primario" type="submit" id="rc-guardar" style="width:auto;flex:1">${ico('check')}<span>Guardar recompensa</span></button></div>`;
-    $('#rc-cancelar').addEventListener('click', () => { f.hidden = true; });
-    f.onsubmit = async (ev) => {
-      ev.preventDefault();
-      const compra = parseMXN($('#rc-compra').value), minimo = parseMXN($('#rc-minimo').value || '0');
-      if (!compra) return msgR('Escriba el monto de compra para ganarlo.');
-      if (minimo === null) return msgR('La compra mínima para usar el cupón no es válida.');
-      const pct = f.querySelector('input[name="rc-premio"]:checked').value === 'pct';
-      const valor = pct ? Number($('#rc-valor').value) : parseMXN($('#rc-valor').value);
-      if (!valor) return msgR(pct ? 'Escriba el porcentaje (1 a 100).' : 'Escriba el monto del cupón.');
-      const porDias = f.querySelector('input[name="rc-vig"]:checked').value === 'dias';
-      await guardar({ ...(x ? { id: x.id } : {}), nombre: $('#rc-nombre').value, activa: $('#rc-activa').checked, tiendas: [...f.querySelectorAll('.rc-tienda:checked')].map((i) => i.value), inicio: $('#rc-inicio').value || null, fin: $('#rc-fin').value || null, compra_minima: compra,
-        cupon: { ...(pct ? { pct: valor } : { monto: valor }), minimo, vigencia: porDias ? { modo: 'dias', dias: Number($('#rc-dias').value) } : { modo: 'fechas', inicio: $('#rc-uso-ini').value, fin: $('#rc-uso-fin').value } } });
-    };
-    $('#rc-nombre').focus();
-  };
-  $('#rec-nueva').addEventListener('click', () => editor(null));
-  for (const tr of d.querySelectorAll('tr[data-rec]')) {
-    const x = r.recompensas.find((y) => y.id === tr.dataset.rec);
-    tr.querySelector('.rec-editar').addEventListener('click', () => editor(x));
-    tr.querySelector('.rec-activo').addEventListener('click', () => guardar({ id: x.id, nombre: x.nombre, activa: !x.activa, tiendas: x.tiendas, inicio: x.inicio, fin: x.fin, compra_minima: x.compra_minima, cupon: x.cupon }));
-  }
-  d.showModal();
-}
 
 // ── imagen del cupón con QR (para WhatsApp, redes o correo) ──
 function qrMatriz(texto) {

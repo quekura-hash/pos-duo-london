@@ -15,6 +15,8 @@ export interface ReglaRecompensa {
   fin: string | null;
   /** Lo que la clienta PAGA (mercancía, ya con descuentos y crédito de cambio) para ganarlo, en centavos. */
   compra_minima: number;
+  /** Regla creada como promoción con «imprimir al final del ticket»: lo que se canjea es la promoción completa (2x1, paquete…), no solo un % o monto. */
+  promo?: Promocion;
   cupon: {
     /** `monto`: $X de descuento; `pct`: X % de descuento. */
     monto?: number;
@@ -33,6 +35,8 @@ export interface RecompensaEmitida {
   nombre: string;
   monto?: number;
   pct?: number;
+  /** Copia de la promoción regalada (2x1, paquete, por cada $X…) cuando no es un cupón de % o monto. */
+  promo?: Promocion;
   minimo: number;
   valido_desde: string;
   valido_hasta: string;
@@ -86,7 +90,7 @@ export function recompensasGanadas(reglas: ReglaRecompensa[], tienda: string, ca
     const v = r.cupon.vigencia;
     return {
       codigo: codigoRecompensa(tienda, caja, folio, i + 1), regla_id: r.id, nombre: r.nombre,
-      ...(r.cupon.pct !== undefined ? { pct: r.cupon.pct } : { monto: r.cupon.monto }), minimo: r.cupon.minimo,
+      ...(r.promo ? { promo: r.promo } : r.cupon.pct !== undefined ? { pct: r.cupon.pct } : { monto: r.cupon.monto }), minimo: r.cupon.minimo,
       valido_desde: v.modo === 'fechas' ? v.inicio : hoy, valido_hasta: v.modo === 'fechas' ? v.fin : addDias(hoy, v.dias), tienda,
     };
   });
@@ -94,6 +98,7 @@ export function recompensasGanadas(reglas: ReglaRecompensa[], tienda: string, ca
 
 /** El cupón regalado, visto como un cupón normal (un solo uso, solo en la tienda emisora) para que lo calcule el motor de promociones. */
 export function promoDeRecompensa(e: RecompensaEmitida): Promocion {
+  if (e.promo) return { ...e.promo, id: e.codigo, nombre: e.nombre, activa: true, tiendas: [e.tienda], inicio: e.valido_desde, fin: e.valido_hasta, codigo: e.codigo, minimo: e.minimo, usos_max: 1, canje: true };
   return { id: e.codigo, tipo: 'cupon', nombre: e.nombre, activa: true, tiendas: [e.tienda], inicio: e.valido_desde, fin: e.valido_hasta, codigo: e.codigo, ...(e.pct !== undefined ? { pct: e.pct } : { monto: e.monto }), minimo: e.minimo, usos_max: 1 };
 }
 
@@ -109,3 +114,22 @@ export function buscarRecompensa(vs: Map<string, Venta>, codigo: string): Estado
   }
   return { emitida, canjeada, cancelada };
 }
+
+/** Promociones con «imprimir al final del ticket» vistas como reglas de recompensa (lo que el motor de ventas ya sabe regalar). */
+export function reglasDePromos(promos: Promocion[]): ReglaRecompensa[] {
+  return promos.filter((p) => p.regalo).map((p) => ({
+    id: p.id, nombre: p.nombre, activa: p.activa, tiendas: p.tiendas ?? [], inicio: p.inicio, fin: p.fin, compra_minima: p.regalo!.compra_minima,
+    ...(p.tipo === 'cupon' ? {} : { promo: (({ regalo: _r, ...resto }) => resto)(p) }),
+    cupon: { ...(p.tipo === 'cupon' ? (p.pct !== undefined ? { pct: p.pct } : { monto: p.monto }) : {}), minimo: p.tipo === 'cupon' ? (p.minimo ?? 0) : 0, vigencia: p.regalo!.vigencia },
+  }));
+}
+/** Una regla del formato anterior (pantalla «Recompensas») como promoción con regalo, para verla y editarla en Promociones. */
+export const promoDeRegla = (r: ReglaRecompensa): Promocion => ({
+  id: r.id, tipo: 'cupon', nombre: r.nombre, activa: r.activa, tiendas: r.tiendas, inicio: r.inicio, fin: r.fin,
+  ...(r.cupon.pct !== undefined ? { pct: r.cupon.pct } : { monto: r.cupon.monto }), minimo: r.cupon.minimo, regalo: { compra_minima: r.compra_minima, vigencia: r.cupon.vigencia },
+});
+/** Todas las reglas que rigen: las de Promociones y las del formato anterior que nadie ha reeditado ahí (misma id = manda la promoción). */
+export const reglasVigentes = (viejas: ReglaRecompensa[], promos: Promocion[]): ReglaRecompensa[] => {
+  const ids = new Set(promos.map((p) => p.id));
+  return [...viejas.filter((r) => !ids.has(r.id)), ...reglasDePromos(promos)];
+};

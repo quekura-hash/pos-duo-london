@@ -33,7 +33,23 @@ export interface Promocion {
   acumulable?: boolean;
   /** Veces que se puede canjear en total (null = sin límite). */
   usos_max?: number | null;
+  /**
+   * «Imprimir al final del ticket»: la promoción NO se aplica sola; es un regalo. Cuando lo que la clienta paga alcanza `compra_minima`
+   * el ticket imprime un código QR de un solo uso que activa esta promoción en una compra futura (solo en la tienda que lo regaló).
+   * Las fechas de inicio y término de la promoción son el periodo en que se regala.
+   */
+  regalo?: Regalo;
+  /** Uso interno: copia de una promoción regalada, ligada al código QR de un ticket (se canjea con ese código, una sola vez). */
+  canje?: boolean;
 }
+export interface Regalo {
+  /** Lo que la clienta PAGA (mercancía, ya con descuentos y crédito de cambio) para ganarlo, en centavos. */
+  compra_minima: number;
+  /** `dias`: vale N días a partir de la fecha del ticket; `fechas`: del `inicio` al `fin` indicados. */
+  vigencia: { modo: 'dias'; dias: number } | { modo: 'fechas'; inicio: string; fin: string };
+}
+/** Un código (cupón escrito/escaneado) activa estas promociones: los cupones y las copias regaladas en un ticket. */
+export const esCanje = (p: Promocion) => p.tipo === 'cupon' || !!p.canje;
 
 export const normCodigo = (s: unknown) => String(s ?? '').trim().toUpperCase().replace(/\s+/g, '');
 const sinAcentos = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
@@ -67,7 +83,21 @@ export function validarPromocion(p: Promocion, otras: Promocion[], tiendasValida
   const tiendas = [...new Set((p.tiendas ?? []).map((t) => String(t).trim()).filter(Boolean))];
   if (!tiendas.length) return mal('elija en qué tienda vale (DÚO, London o ambas)');
   if (tiendasValidas.length && tiendas.some((t) => !tiendasValidas.includes(t))) return mal('tienda desconocida');
-  const base: Promocion = { id: p.id, tipo: p.tipo, nombre, activa: !!p.activa, tiendas, inicio, fin, ...(p.tipo !== 'cupon' ? { acumulable: p.acumulable !== false } : {}) };
+  let regalo: Regalo | undefined;
+  if (p.regalo) {
+    if (nombre.length > 40) return mal('el nombre admite hasta 40 caracteres (sale impreso en el ticket)');
+    if (!entero(p.regalo.compra_minima, 1)) return mal('el monto de compra para ganarla debe ser mayor que 0');
+    const v = p.regalo.vigencia;
+    if (v?.modo === 'fechas') {
+      if (!fechaOk(v.inicio) || !fechaOk(v.fin)) return mal('las fechas de uso del cupón no son válidas');
+      if (v.fin < v.inicio) return mal('la fecha final de uso es anterior a la inicial');
+      regalo = { compra_minima: p.regalo.compra_minima, vigencia: { modo: 'fechas', inicio: v.inicio, fin: v.fin } };
+    } else if (v?.modo === 'dias') {
+      if (!entero(v.dias, 1) || v.dias > 365) return mal('los días de vigencia son un entero de 1 a 365');
+      regalo = { compra_minima: p.regalo.compra_minima, vigencia: { modo: 'dias', dias: v.dias } };
+    } else return mal('indique cuánto tiempo vale lo que se regala (días o fechas)');
+  }
+  const base: Promocion = { id: p.id, tipo: p.tipo, nombre, activa: !!p.activa, tiendas, inicio, fin, ...(p.tipo !== 'cupon' ? { acumulable: p.acumulable !== false } : {}), ...(regalo ? { regalo } : {}) };
   if (p.tipo === 'nxm' || p.tipo === 'paquete') {
     if (p.tipo === 'nxm' && (!entero(p.lleva, 2) || !entero(p.paga, 1) || p.paga! >= p.lleva!)) return mal('«lleva» debe ser 2 o más y «paga» un número menor que «lleva»');
     if (p.tipo === 'paquete' && (!entero(p.lleva, 2) || !entero(p.precio, 0))) return mal('el paquete lleva 2 piezas o más y un precio total en pesos');
@@ -84,18 +114,19 @@ export function validarPromocion(p: Promocion, otras: Promocion[], tiendasValida
     if (!entero(p.cada, 1) || !entero(p.descuenta, 1) || p.descuenta! >= p.cada!) return mal('el descuento debe ser mayor que 0 y menor que el monto de compra');
     return { ok: true, promo: { ...base, cada: p.cada, descuenta: p.descuenta } };
   }
-  const codigo = normCodigo(p.codigo);
-  if (!/^[A-Z0-9-]{3,24}$/.test(codigo)) return mal('el código del cupón lleva de 3 a 24 letras, números o guiones');
-  if (otras.some((o) => o.tipo === 'cupon' && o.id !== p.id && o.codigo === codigo)) return { ok: false, error: { codigo: 'CODIGO_REPETIDO', mensaje: `el código ${codigo} ya existe` } };
+  // Un cupón regalado en el ticket no lleva código propio: cada ticket imprime el suyo.
+  const codigo = regalo ? '' : normCodigo(p.codigo);
+  if (!regalo && !/^[A-Z0-9-]{3,24}$/.test(codigo)) return mal('el código del cupón lleva de 3 a 24 letras, números o guiones');
+  if (!regalo && otras.some((o) => o.tipo === 'cupon' && o.id !== p.id && o.codigo === codigo)) return { ok: false, error: { codigo: 'CODIGO_REPETIDO', mensaje: `el código ${codigo} ya existe` } };
   const tienePct = p.pct !== undefined && p.pct !== null, tieneMonto = p.monto !== undefined && p.monto !== null;
   if (tienePct === tieneMonto) return mal('el cupón es de un porcentaje o de un monto fijo, no ambos');
   if (tienePct && (!entero(p.pct, 1) || p.pct! > 100)) return mal('el porcentaje debe ser un entero de 1 a 100');
   if (tieneMonto && !entero(p.monto, 1)) return mal('el monto de descuento debe ser mayor que 0');
   const minimo = p.minimo ?? 0;
   if (!entero(minimo, 0)) return mal('la compra mínima no es válida');
-  const usos = p.usos_max ?? null;
+  const usos = regalo ? null : (p.usos_max ?? null);
   if (usos !== null && !entero(usos, 1)) return mal('los usos máximos deben ser un entero mayor que 0 (o vacío para sin límite)');
-  return { ok: true, promo: { ...base, codigo, ...(tienePct ? { pct: p.pct } : { monto: p.monto }), minimo, usos_max: usos } };
+  return { ok: true, promo: { ...base, ...(regalo ? {} : { codigo }), ...(tienePct ? { pct: p.pct } : { monto: p.monto }), minimo, usos_max: usos } };
 }
 
 /** Reparte `monto` entre `pesos` de forma proporcional, en centavos enteros (mayor residuo; empates al primero). */
@@ -172,7 +203,7 @@ export function calcularDescuentos(lineas: Linea[], promos: Promocion[], codigoC
   const candidatas: { p: Promocion; por: Reparto; total: number }[] = [];
   const total = (r: Reparto) => [...r.values()].reduce((a, b) => a + b, 0);
   for (const p of promos) {
-    if (p.tipo === 'cupon' || !vigente(p, hoy) || (tienda && !aplicaEnTienda(p, tienda))) continue;
+    if (esCanje(p) || p.regalo || !vigente(p, hoy) || (tienda && !aplicaEnTienda(p, tienda))) continue;
     const por = descuentoDe(p, merc, restante);
     if (total(por) > 0) candidatas.push({ p, por, total: total(por) });
   }
@@ -180,7 +211,7 @@ export function calcularDescuentos(lineas: Linea[], promos: Promocion[], codigoC
   let cupon: ResultadoDescuentos['cupon'] = null;
   if (codigoCupon) {
     const cod = normCodigo(codigoCupon);
-    const p = promos.find((x) => x.tipo === 'cupon' && x.codigo === cod);
+    const p = promos.find((x) => esCanje(x) && x.codigo === cod);
     const rechazo = (nombre: string, motivo: string) => ({ codigo: cod, nombre, monto: 0, aplicado: false, motivo });
     const elegible = merc.reduce((a, l) => a + restante(l), 0);
     if (!p) cupon = rechazo(cod, 'el cupón no existe');
@@ -201,11 +232,11 @@ export function calcularDescuentos(lineas: Linea[], promos: Promocion[], codigoC
   for (const c of candidatas) if (!mejor || c.total > mejor.total) mejor = c;
   const aplicadas: AplicadaPromo[] = [];
   if (mejor) {
-    for (const [l, m] of mejor.por) l.descuento_detalle!.push({ tipo: mejor.p.tipo === 'cupon' ? 'cupon' : 'promo', ref: mejor.p.id, nombre: mejor.p.nombre, monto: m });
-    if (mejor.p.tipo !== 'cupon') aplicadas.push({ promo_id: mejor.p.id, nombre: mejor.p.nombre, tipo: mejor.p.tipo, monto: mejor.total });
+    for (const [l, m] of mejor.por) l.descuento_detalle!.push({ tipo: esCanje(mejor.p) ? 'cupon' : 'promo', ref: mejor.p.id, nombre: mejor.p.nombre, monto: m });
+    if (!esCanje(mejor.p)) aplicadas.push({ promo_id: mejor.p.id, nombre: mejor.p.nombre, tipo: mejor.p.tipo, monto: mejor.total });
   }
   if (cupon && !cupon.motivo) {
-    if (mejor?.p.tipo === 'cupon') cupon = { ...cupon, monto: mejor.total, aplicado: true };
+    if (mejor && esCanje(mejor.p)) cupon = { ...cupon, monto: mejor.total, aplicado: true };
     else cupon = { ...cupon, monto: 0, aplicado: false, motivo: mejor ? `no se combina: se aplicó «${mejor.p.nombre}», que da más descuento en esta compra` : 'no hay importe al que aplicar el cupón' };
   }
   for (const l of out) {
