@@ -574,7 +574,6 @@ export function lineasTicketCorte(k: DatosCorte, cfg: NegocioCfg = NEGOCIOS[k.ti
   L.push(t(regla), b(dos('Efectivo de ventas esperado', dato(k.efectivo_ventas_esperado), c)));
   if (k.conteo_alcance === 'ventas' && k.conteo_mxn) L.push(b(dos('Efectivo de ventas contado', formatoMXN(k.conteo_mxn.contado), c)), b(dos('DIFERENCIA', dif(k.diferencia_mxn), c)));
   else L.push(t('Sin conteo de efectivo de ventas'));
-  if (typeof k.efectivo_cajon_esperado === 'number') L.push(t(dos('Efectivo total en el cajón (con fondo)', formatoMXN(k.efectivo_cajon_esperado), c)));
   const usdHubo = (k.usd?.cobros ?? 0) !== 0 || (k.efectivo_usd_esperado ?? 0) !== 0 || k.conteo_usd;
   if (usdHubo) {
     L.push(t(regla), b('CONCILIACIÓN DEL EFECTIVO EN DÓLARES'), t(dos('Esperado', formatoUSD(k.efectivo_usd_esperado ?? 0), c)));
