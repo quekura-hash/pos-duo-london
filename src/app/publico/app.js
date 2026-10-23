@@ -48,14 +48,12 @@ const I = {
   tag: '<path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"/><circle cx="7.5" cy="7.5" r=".5" fill="currentColor"/>',
   banknote: '<rect width="20" height="12" x="2" y="6" rx="2"/><circle cx="12" cy="12" r="2"/><path d="M6 12h.01M18 12h.01"/>',
   register: '<rect x="7" y="3" width="10" height="5" rx="1"/><path d="M12 8v3M4 11h16l1.5 5h-19z"/><rect x="2.5" y="16" width="19" height="5" rx="1"/><path d="M8 13.5h.01M12 13.5h.01M16 13.5h.01M10 18.5h4"/>',
-  gear: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9 7 7M17 17l2.1 2.1M19.1 4.9 17 7M7 17l-2.1 2.1"/>',
   barcode: '<path d="M4 5v14M7 5v14M11 5v14M14 5v14M18 5v14M20.5 5v14"/>',
   search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',
   pencil: '<path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16z"/><path d="m13.5 6.5 4 4"/>',
   trash: '<path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6"/>',
   undo: '<path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/>',
-  percent: '<path d="M19 5 5 19"/><circle cx="7" cy="7" r="2.3"/><circle cx="17" cy="17" r="2.3"/>',
   pause: '<path d="M9 5v14M15 5v14"/>',
   store: '<path d="M3 9l1.5-5h15L21 9"/><path d="M3 9a3 3 0 0 0 6 0 3 3 0 0 0 6 0 3 3 0 0 0 6 0"/><path d="M5 12v8h14v-8M10 20v-5h4v5"/>',
   caja: '<rect x="5" y="3" width="14" height="6" rx="1"/><path d="M3 21v-7a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v7zM8 16h.01M12 16h.01M16 16h.01"/>',
@@ -126,7 +124,7 @@ async function pintarEncabezado() {
   if (S.sesion.rol === 'admin') {
     h.innerHTML = `<div class="logos"><img class="logo" src="${logoDe('DUO')}" alt="DÚO New York"><img class="logo" src="${logoDe('LON')}" alt="London Love"></div>
       <div class="titulo">Administración</div>
-      <div class="datos">${window.__POS_NUBE__ ? `<span class="chip-top sincro-nube" data-chip="sync"><span id="estado-nube" class="estado-nube" role="status" aria-live="polite">Sin sesión</span><button class="btn-sync" type="button" id="btn-sync" title="Sincronizar ahora" aria-label="Sincronizar ahora">${ico('refresh')}</button></span>` : ''}<span class="chip-top" data-chip="usuario">${ico('user')}<span>Usuario: <b>${esc(S.sesion.usuario)}</b></span></span><span class="chip-top" data-chip="rol">${ico('gear')}<b>Administración${S.sesion.requiere_login && S.sesion.rol_usuario ? ` · ${S.sesion.rol_usuario === 'almacenista' ? 'Almacenista' : 'Supervisor'}` : ''}</b></span>
+      <div class="datos">${window.__POS_NUBE__ ? `<span class="chip-top sincro-nube" data-chip="sync"><span id="estado-nube" class="estado-nube" role="status" aria-live="polite">Sin sesión</span><button class="btn-sync" type="button" id="btn-sync" title="Sincronizar ahora" aria-label="Sincronizar ahora">${ico('refresh')}</button></span>` : ''}<span class="chip-top" data-chip="usuario">${ico('user')}<span>Usuario: <b>${esc(S.sesion.usuario)}</b></span></span><span class="chip-top" data-chip="rol">${ico('settings')}<b>Administración${S.sesion.requiere_login && S.sesion.rol_usuario ? ` · ${S.sesion.rol_usuario === 'almacenista' ? 'Almacenista' : 'Supervisor'}` : ''}</b></span>
       <span class="chip-top" data-chip="alcance">${ico('store')}<span>Una, varias o todas las cajas</span></span>${S.sesion.requiere_login ? `<button class="btn" type="button" id="btn-salir" title="Cerrar la sesión">${ico('x')}<span>Cerrar sesión</span></button>` : ''}</div>`;
     pie.innerHTML = `<span>Usuario: ${esc(S.sesion.usuario)}</span><span>Administración · consolida cajas y tiendas</span><span>Precios en MXN</span>`;
     await pintarTipoCambio();
@@ -170,7 +168,7 @@ const folioTexto = () => (S.ultimoFolio ? `Folio ${String(S.ultimoFolio).padStar
 // ── navegación ──
 const NAV = {
   venta: ['Venta', 'cart'], retiro: ['Retiro', 'cash'], ventas: ['Historial', 'clock'], corte: ['Cierre de caja', 'register'], extraordinarias: ['Operaciones extraordinarias', 'cash'],
-  tarjetas: ['Tarjetas de regalo', 'gift'], reportes: ['Reportes', 'chart'], cortes: ['Cortes', 'register'], dolares: ['Dólares recibidos', 'dollar'], descuentos: ['Descuentos', 'percent'], entregas: ['Entregas de almacén', 'warehouse'], inventario: ['Inventario', 'box'], departamentos: ['Departamentos', 'box'], almacen: ['Almacén', 'warehouse'], promociones: ['Promociones', 'tag'], tiendas: ['Tiendas', 'store'], configuracion: ['Configuración', 'settings'], administracion: ['Administración', 'gear'], volver_caja: ['Caja', 'caja'], tipo_cambio: ['Tipo de cambio', 'banknote'], avisos: ['Avisos', 'bell'], analisis: ['Análisis', 'trend'], historial: ['Historial de ventas', 'clock'],
+  tarjetas: ['Tarjetas de regalo', 'gift'], reportes: ['Reportes', 'chart'], cortes: ['Cortes', 'register'], dolares: ['Dólares recibidos', 'dollar'], descuentos: ['Descuentos', 'tag'], entregas: ['Entregas de almacén', 'warehouse'], inventario: ['Inventario', 'box'], departamentos: ['Departamentos', 'box'], almacen: ['Almacén', 'warehouse'], promociones: ['Promociones', 'tag'], tiendas: ['Tiendas', 'store'], configuracion: ['Configuración', 'settings'], administracion: ['Administración', 'settings'], volver_caja: ['Caja', 'caja'], tipo_cambio: ['Tipo de cambio', 'banknote'], avisos: ['Avisos', 'bell'], analisis: ['Análisis', 'trend'], historial: ['Historial de ventas', 'clock'],
 };
 // ── Calculadora básica: ventana flotante y movible, no modal. Sigue abierta mientras se usa el resto del POS ──
 const calc = { abierta: false, pos: null, acc: null, op: null, entrada: '0', nuevo: true };
@@ -2480,7 +2478,7 @@ async function vistaEntregas() {
 }
 async function vistaDescuentos() {
   const hoy = new Date(Date.now() - 7 * 3600e3).toISOString().slice(0, 10);
-  $('#vista').innerHTML = `<div class="titulo-vista">${ico('percent')}<h1>Reporte de promociones y descuentos</h1><button class="btn" id="btn-volver-promos" type="button" style="margin-left:auto">${ico('undo')}<span>Volver a promociones</span></button></div>
+  $('#vista').innerHTML = `<div class="titulo-vista">${ico('tag')}<h1>Reporte de promociones y descuentos</h1><button class="btn" id="btn-volver-promos" type="button" style="margin-left:auto">${ico('undo')}<span>Volver a promociones</span></button></div>
     <form class="filtros panel" id="filtros-desc"><label>Desde <input type="date" id="desc-desde" value="${hoy}"></label><label>Hasta <input type="date" id="desc-hasta" value="${hoy}"></label>
       <button class="btn btn-primario" type="submit" style="width:auto">${ico('search')}<span>Consultar</span></button>
       <button class="btn" type="button" id="btn-exportar-desc">${ico('download')}<span>Exportar a Excel</span></button><span id="estado-exportar-desc" role="status" aria-live="polite"></span></form>
