@@ -36,6 +36,7 @@ describe('[navegador real] Ventas a empleadas: caja y Administración', { timeou
     await page.fill('#scan', '7501234567890'); await page.press('#scan', 'Enter');
     await page.waitForFunction(() => document.querySelectorAll('#cuerpo tr[data-linea]').length === 2);
     assert.equal(await page.isDisabled('[data-forma="credito"]'), true, 'sin empleada no hay crédito');
+    assert.equal(await page.isVisible('#btn-uniforme'), false, 'sin empleada elegida no se ofrece «Marcar como uniforme»');
     // elegir a la empleada: clave equivocada y luego la buena
     await page.click('#btn-empleada');
     await page.waitForSelector('#dlg-empleada[open]');
@@ -46,6 +47,7 @@ describe('[navegador real] Ventas a empleadas: caja y Administración', { timeou
     await page.fill('#emp-clave', '8765');
     await page.click('#form-empleada button[type="submit"]');
     await page.waitForSelector('#bloque-empleada:not([hidden])');
+    assert.match((await page.textContent('#mensaje'))!, /15% ya se aplicó a toda la venta[\s\S]*Marcar como uniforme/);
     assert.match((await page.textContent('#bloque-empleada'))!, /Venta a empleada: Rosa[\s\S]*15%[\s\S]*Crédito disponible: \$1,000\.00/);
     // 899 + 120 = 1,019 − 15 % = 866.15
     await page.waitForFunction(() => document.querySelector('#total')!.textContent === '$866.15');

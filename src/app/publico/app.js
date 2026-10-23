@@ -2697,11 +2697,11 @@ async function alternarUniforme() {
 }
 async function abrirEmpleada() {
   if (!S.carrito.lineas.length) return msg('Agregue artículos a la venta antes de elegir a la empleada.', 'aviso');
-  const { empleadas, yo } = await api('/api/empleadas');
+  const { empleadas, yo, config } = await api('/api/empleadas');
   const d = dialogo('dlg-empleada');
   d.setAttribute('aria-labelledby', 'emp-titulo');
   d.innerHTML = `<h2 id="emp-titulo" style="margin-top:0">Venta a empleada</h2>
-    <p class="nota">La empleada confirma con <b>su propia clave</b>. El descuento se calcula solo y no se combina con promociones. Después puede marcar los uniformes de la tienda (descuento mayor) y pagar normal o a crédito.</p>
+    <p class="nota">La empleada confirma con <b>su propia clave</b>. El descuento de <b>${config.pct}%</b> se aplica <b>solo, a toda la mercancía de la venta</b>; no se combina con promociones. Para los uniformes de la tienda (<b>${config.pct_uniforme}%</b>), después seleccione el artículo en la lista y toque «Marcar como uniforme». Se paga normal o a crédito.</p>
     <form id="form-empleada" autocomplete="off">
       <div class="campo"><label for="emp-quien">Empleada</label><select id="emp-quien" style="width:100%;padding:10px;border:2px solid var(--borde);border-radius:10px;background:var(--superficie)">${empleadas.map((e) => `<option value="${esc(e.id)}" data-nombre="${esc(e.nombre)}">${esc(e.nombre)}</option>`).join('')}</select></div>
       <div class="campo"><label for="emp-clave">Clave de la empleada</label><input id="emp-clave" type="text" data-pin inputmode="numeric" autocomplete="off" placeholder="••••"></div>
@@ -2717,7 +2717,7 @@ async function abrirEmpleada() {
     const m = $('#msg-emp');
     try {
       const r = await api('/api/venta/empleada', { cart: S.cart, empleada_id: $('#emp-quien').value, clave: $('#emp-clave').value, ...(!$('#emp-sup-campo').hidden ? { clave_supervisor: $('#emp-sup').value } : {}) });
-      S.carrito = r.carrito; d.close(); pintarCarrito(); msg(`Venta a empleada: ${r.carrito.empleada.nombre}. Marque los uniformes (descuento mayor) y elija la forma de pago.`);
+      S.carrito = r.carrito; d.close(); pintarCarrito(); msg(`Venta a empleada: ${r.carrito.empleada.nombre}. El ${config.pct}% ya se aplicó a toda la venta. Si algún artículo es uniforme, selecciónelo en la lista y toque «Marcar como uniforme» (${config.pct_uniforme}%). Luego elija la forma de pago.`);
     } catch (e) { m.className = 'mensaje error'; m.textContent = e.message; }
   });
   d.showModal();
