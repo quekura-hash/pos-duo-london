@@ -78,6 +78,10 @@ table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nu
 th, td { padding: 7px 5px; text-align: left; border-bottom: 1px solid var(--borde); white-space: nowrap; }
 th { font-size: 11px; text-transform: uppercase; letter-spacing: .02em; color: var(--texto-2); background: var(--superficie-2); position: sticky; top: 0; }
 td.num, th.num { text-align: right; } td.desc { white-space: normal; min-width: 80px; }
+#tabla-promos td { white-space: normal; vertical-align: top; }
+#tabla-promos td.desc { min-width: 220px; max-width: 320px; font-size: .9em; }
+.acciones-promo { display: flex; flex-wrap: wrap; gap: 6px; width: 230px; }
+.acciones-promo .btn { flex: 1 1 100px; justify-content: center; padding: 6px 8px; font-size: .85em; }
 tbody tr { cursor: pointer; } tbody tr[aria-selected="true"] { background: var(--acento-suave); outline: 2px solid var(--acento); outline-offset: -2px; }
 .vacio { padding: 28px; text-align: center; color: var(--texto-2); }
 .qty { display: inline-flex; align-items: center; gap: 3px; } .qty button { width: 24px; height: 24px; padding: 0; line-height: 1; }
