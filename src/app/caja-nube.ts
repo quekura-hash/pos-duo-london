@@ -215,6 +215,16 @@ export function iniciarCajaNube(o: { cliente: ClienteCaja; almacen?: AlmacenCaja
       });
       // Con datos guardados la caja abre YA (aunque la red tarde o no conteste); sin ellos hay que esperar la primera descarga.
       const ok = guardada ? true : await sincronizar();
+      // Equipo sin datos propios (PC nueva, disco vacío) para una caja que ya vendió: la serie de folios sigue donde la dejó la anterior.
+      if (!guardada && ok) {
+        let maximo = 0;
+        for (const op of m.central.repo.ops()) {
+          if (op.tienda !== id.tienda || op.caja !== id.caja) continue;
+          if (op.tipo === 'sale.confirmed') maximo = Math.max(maximo, Number(op.payload.folio) || 0);
+          else if (op.tipo === 'folio.gap') maximo = Math.max(maximo, Number(op.payload.hasta) || 0);
+        }
+        caja.continuarFoliosDesde(maximo);
+      }
       if (guardada) void sincronizar();
       if (!ok && !guardada) { const e = error; m = null; puente = null; servicio = null; identidad = null; throw new Error(`No se pudo descargar el catálogo del central${e ? `: ${e}` : ''}. Revise la conexión e intente de nuevo.`); }
       temporizador = setInterval(() => { void sincronizar(); }, CADA_MS);

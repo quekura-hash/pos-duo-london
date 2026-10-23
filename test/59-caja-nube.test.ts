@@ -153,3 +153,23 @@ test('CN5 lo vendido queda guardado en el equipo ANTES de hablar con la red, y c
   assert.ok(ventas.length === 0 || ventas.length === 2);
   c4.detener(); void c2;
 });
+
+test('CN6 una PC nueva para una caja que ya había vendido continúa sus folios (no vuelve a empezar en 1)', async () => {
+  const { db, cuentas } = await escenario();
+  const vieja = iniciarCajaNube({ cliente: clienteDe(db, cuentas), impresora: new ImpresoraProbada(), almacen: almacenMemoria() });
+  await vieja.entrar('caja-duo-1@x.mx', 'buena');
+  await vieja.atender('POST', '/api/login', { usuario: 'Ana', clave: '1234' });
+  assert.equal((await venta(vieja)).venta.folio, 1);
+  assert.equal((await venta(vieja)).venta.folio, 2);
+  await vieja.sincronizar();
+  await vieja.sincronizar();
+  assert.equal(await contar(db, cuentas['edgardo@x.mx']!.id, 'sale.confirmed'), 2);
+  vieja.detener();
+  // PC nueva: sin nada guardado en el equipo (almacén vacío), con internet.
+  const nueva = iniciarCajaNube({ cliente: clienteDe(db, cuentas), impresora: new ImpresoraProbada(), almacen: almacenMemoria() });
+  await nueva.entrar('caja-duo-1@x.mx', 'buena');
+  await nueva.atender('POST', '/api/login', { usuario: 'Ana', clave: '1234' });
+  assert.equal((await venta(nueva)).venta.folio, 3, 'sigue después del último folio que el central ya conoce');
+  assert.equal((await venta(nueva)).venta.folio, 4);
+  nueva.detener();
+});

@@ -1035,6 +1035,17 @@ export class Caja {
   arrendamientoFolios(): boolean { return this.arrendamientoActivo(); }
   /** Lo que el hub o el central saben de esta serie (mayor folio recibido y techo concedido); null si no hay acceso. */
   anclasDeFolios(): { hwm: number; ceiling: number | null } | null { return this.enlace.anclasFolios(); }
+  /**
+   * Equipo nuevo para una caja que ya había vendido (otra PC, disco vacío): la serie continúa después del mayor folio que el central ya conoce de esta
+   * caja, para no repetir números. Solo sube el contador, nunca lo baja.
+   */
+  continuarFoliosDesde(maximo: number): boolean {
+    const st = this.estadoFolios();
+    if (st.estado !== 'activa' || !Number.isInteger(maximo) || maximo <= st.ultimo) return false;
+    this.repo.kvSet('folio:ultimo', maximo);
+    if (this.arrendamientoActivo()) this.repo.kvSet('folio:techo', maximo);
+    return true;
+  }
   /** Rangos de folios que quedaron sin comprobar tras una recuperación (documentados, nunca reutilizados). */
   huecosDeFolio(): { desde: number; hasta: number; motivo: string; ocurrio_en: string }[] {
     return this.opsDe('folio.gap').filter((o) => o.payload.tienda === this.tienda && o.payload.caja === this.caja).map((o) => ({ desde: o.payload.desde, hasta: o.payload.hasta, motivo: o.payload.motivo, ocurrio_en: o.ocurrio_en }));
