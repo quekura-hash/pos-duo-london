@@ -1200,7 +1200,7 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     await perfilMin(page, 'adm'); await page.click('#btn-adm');
     await page.waitForFunction(() => document.querySelectorAll('#tabla-admins tr[data-admin]').length === 1);
     await page.selectOption('#adm-rol', 'almacenista');
-    assert.equal(await page.locator('#adm-caja-campo').isHidden(), true, 'el almacenista no lleva clave de caja');
+    assert.equal(await page.locator('#adm-caja-campo').isHidden(), false, 'el almacenista también puede tener clave de caja (para cobrar, sin autorizar descuentos)');
     await page.fill('#adm-nombre', 'Gabo'); await page.fill('#adm-clave', 'clave-gabo');
     await perfilMin(page, 'adm'); await page.click('#btn-adm');
     await page.waitForFunction(() => document.querySelectorAll('#tabla-admins tr[data-admin]').length === 2);

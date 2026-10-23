@@ -88,7 +88,7 @@ export class ServicioCaja {
   // ── inicio de sesión ──
   /** La caja pide usuario y clave en cuanto hay al menos un cajero con clave registrado; mientras no haya ninguno trabaja como siempre. */
   requiereLogin(): boolean {
-    return this.caja.cajerosActivos().length > 0;
+    return this.caja.controlesConClave();
   }
   autenticada(): boolean {
     if (!this.requiereLogin()) return true;
@@ -1415,7 +1415,7 @@ export class ServicioAdmin {
     return this.cajeros();
   }
   supervisores() {
-    return { supervisores: supervisoresDe(this.fuente()).map(({ id, nombre, activo }) => ({ id, nombre, activo })) };
+    return { supervisores: supervisoresDe(this.fuente()).filter((s) => !s.solo_caja).map(({ id, nombre, activo }) => ({ id, nombre, activo })) };
   }
   guardarSupervisor(d: { id?: string; nombre?: string; clave?: string; activo?: boolean }) {
     if (!this.central) throw new ErrorDominio('SIN_CENTRAL', 'esta sesión no tiene acceso al servicio central');

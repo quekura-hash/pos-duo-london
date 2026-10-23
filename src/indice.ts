@@ -4,7 +4,7 @@ import { aplicarPermiso, aplicarTarjeta, type PerdidaDocumental, type TarjetaReg
 import type { Repo } from './repo.ts';
 import type { Promocion } from './promociones.ts';
 import type { ReglaRecompensa } from './recompensas.ts';
-import type { Cajero, Supervisor } from './supervisores.ts';
+import { nombreClave, type Cajero, type Supervisor } from './supervisores.ts';
 import { anioDeCodigo, claveDeEscaneo, clavesDeCatalogo } from './codigos.ts';
 import { LIMBO, type Articulo } from './tipos.ts';
 
@@ -307,11 +307,20 @@ export class Indice {
   }
   cajeros(): Cajero[] {
     this.actualizar();
-    return [...this.cajerosMap.values()].map((c) => { const t = this.tiendaDeCajero.get(c.id)?.tienda; return t === undefined ? c : { ...c, tienda: t }; });
+    // Los supervisores (y la almacenista que cobra) también inician sesión y cobran en la caja con su misma clave numérica.
+    const nombres = new Set([...this.cajerosMap.values()].map((c) => nombreClave(c.nombre)));
+    const comoCajero = [...this.supervisoresMap.values()].filter((s) => !nombres.has(nombreClave(s.nombre))).map(({ id, nombre, activo, sal, hash }): Cajero => ({ id, nombre, activo, sal, hash }));
+    return [...this.cajerosMap.values(), ...comoCajero].map((c) => { const t = this.tiendaDeCajero.get(c.id)?.tienda; return t === undefined ? c : { ...c, tienda: t }; });
   }
+  /** Solo las Vendedoras-Cajeras dadas de alta como tales (sin los supervisores que también cobran): con alguna activa la caja pide usuario y clave. */
+  cajerasRegistradas(): Cajero[] {
+    this.actualizar();
+    return [...this.cajerosMap.values()];
+  }
+  /** Quienes autorizan descuentos con su clave (sin la almacenista que solo cobra). */
   supervisores(): Supervisor[] {
     this.actualizar();
-    return [...this.supervisoresMap.values()];
+    return [...this.supervisoresMap.values()].filter((s) => !s.solo_caja);
   }
   departamentos(): Departamento[] {
     this.actualizar();

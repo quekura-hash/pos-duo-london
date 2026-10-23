@@ -500,7 +500,7 @@ export class Central {
     return { ok: true };
   }
   /** Alta o edición de un supervisor que autoriza descuentos con clave numérica. La clave se guarda con sal y hash. */
-  guardarSupervisor(d: { id?: string; id_nuevo?: string; nombre?: string; clave?: string; activo?: boolean }, por: string): { ok: true; supervisor: Omit<Supervisor, 'sal' | 'hash'> } | { ok: false; error: { codigo: 'DATOS_INVALIDOS' | 'CLAVE_REPETIDA' | 'NO_EXISTE'; mensaje: string } } {
+  guardarSupervisor(d: { id?: string; id_nuevo?: string; nombre?: string; clave?: string; activo?: boolean; solo_caja?: boolean }, por: string): { ok: true; supervisor: Omit<Supervisor, 'sal' | 'hash'> } | { ok: false; error: { codigo: 'DATOS_INVALIDOS' | 'CLAVE_REPETIDA' | 'NO_EXISTE'; mensaje: string } } {
     const lista = supervisoresDe(this.repo.ops());
     const actual = d.id ? lista.find((s) => s.id === d.id) : undefined;
     if (d.id && !actual) return { ok: false, error: { codigo: 'NO_EXISTE', mensaje: 'el supervisor no existe' } };
@@ -517,7 +517,8 @@ export class Central {
       if (otro && activo) return { ok: false, error: { codigo: 'CLAVE_REPETIDA', mensaje: 'esa clave ya la usa otro supervisor' } };
     }
     const id = actual?.id ?? d.id_nuevo ?? `sup-${uuid().slice(0, 8)}`;
-    this.emitirAdmin('supervisor.guardado', { id, nombre, activo, sal, hash, por });
+    const solo_caja = d.solo_caja ?? actual?.solo_caja;
+    this.emitirAdmin('supervisor.guardado', { id, nombre, activo, sal, hash, ...(solo_caja ? { solo_caja: true } : {}), por });
     return { ok: true, supervisor: { id, nombre, activo } };
   }
 
@@ -619,11 +620,12 @@ export class Central {
     const supervisoresActivos = lista.filter((c) => c.id !== actual?.id && c.activo && (c.rol ?? 'supervisor') === 'supervisor').length + (rol === 'supervisor' && activo ? 1 : 0);
     if (supervisoresActivos === 0) return { ok: false, error: { codigo: 'ULTIMO_SUPERVISOR', mensaje: 'debe quedar al menos un supervisor activo (es quien administra a los demás)' } };
     // Un supervisor también autoriza en la caja con una clave numérica: se registra (y se mantiene) como supervisor de caja con el mismo nombre.
-    if (rol === 'supervisor') {
+    // La almacenista que también cobra recibe la misma clave de caja, pero no autoriza descuentos (`solo_caja`).
+    {
       const enlazado = `sup-${id.slice(4)}`;
       const existe = supervisoresDe(ops).some((s) => s.id === enlazado);
       if (d.clave_caja || existe) {
-        const r = this.guardarSupervisor({ ...(existe ? { id: enlazado } : { id_nuevo: enlazado }), nombre, clave: d.clave_caja || undefined, activo }, por);
+        const r = this.guardarSupervisor({ ...(existe ? { id: enlazado } : { id_nuevo: enlazado }), nombre, clave: d.clave_caja || undefined, activo, solo_caja: rol === 'almacenista' }, por);
         if (!r.ok) return { ok: false, error: { codigo: 'DATOS_INVALIDOS', mensaje: r.error.mensaje } };
       }
     }
@@ -1229,7 +1231,7 @@ export class Caja {
   }
   /** Los controles con clave (retiros, cancelar una venta cobrada, devoluciones) se activan en cuanto hay cajeros registrados con clave. */
   controlesConClave(): boolean {
-    return this.idx.cajeros().some((c) => c.activo);
+    return this.idx.cajerasRegistradas().some((c) => c.activo);
   }
   /**
    * Autorización de OTRA persona: otro cajero activo o un supervisor activo (por su clave de caja) con su nombre y su clave. Quien hace la operación
@@ -1258,7 +1260,8 @@ export class Caja {
   /** Quién puede autorizar al cajero actual: los demás cajeros activos y los supervisores activos. */
   autorizadoresPosibles(usuarioActual: string, incluirPropio = false): { nombre: string; tipo: 'cajero' | 'supervisor' }[] {
     const otro = (n: string) => incluirPropio || nombreClave(n) !== nombreClave(usuarioActual);
-    return [...this.idx.cajeros().filter((c) => c.activo && otro(c.nombre)).map((c) => ({ nombre: c.nombre, tipo: 'cajero' as const })), ...this.idx.supervisores().filter((s) => s.activo && otro(s.nombre)).map((s) => ({ nombre: s.nombre, tipo: 'supervisor' as const }))];
+    const sups = new Set(this.idx.supervisores().map((s) => nombreClave(s.nombre)));
+    return [...this.idx.cajeros().filter((c) => c.activo && otro(c.nombre)).map((c) => ({ nombre: c.nombre, tipo: (sups.has(nombreClave(c.nombre)) ? 'supervisor' : 'cajero') as 'cajero' | 'supervisor' }))];
   }
   /** Minutos de inactividad que cierran la sesión de la caja (0 = nunca). */
   configSesion() {
@@ -2383,7 +2386,8 @@ export class Caja {
   // ── «Vendió por»: la vendedora que atendió la venta (sin clave) ──
   /** Quién puede figurar como vendedora: las Vendedoras-Cajeras y los supervisores activos. */
   vendedoras(): { id: string; alias: string; tipo: 'cajero' | 'supervisor' }[] {
-    return [...this.idx.cajeros().filter((c) => c.activo && (!c.tienda || c.tienda === this.tienda)).map((c) => ({ id: c.id, alias: c.nombre, tipo: 'cajero' as const })), ...this.idx.supervisores().filter((s) => s.activo).map((s) => ({ id: s.id, alias: s.nombre, tipo: 'supervisor' as const }))]
+    const sups = new Set(this.idx.supervisores().map((s) => nombreClave(s.nombre)));
+    return [...this.idx.cajeros().filter((c) => c.activo && (!c.tienda || c.tienda === this.tienda)).map((c) => ({ id: c.id, alias: c.nombre, tipo: (sups.has(nombreClave(c.nombre)) ? 'supervisor' : 'cajero') as 'cajero' | 'supervisor' }))]
       .sort((a, b) => a.alias.localeCompare(b.alias, 'es'));
   }
   /** `null` = «Autocompra» (nadie ayudó a la clienta). */
