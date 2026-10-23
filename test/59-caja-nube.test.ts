@@ -173,3 +173,22 @@ test('CN6 una PC nueva para una caja que ya había vendido continúa sus folios 
   assert.equal((await venta(nueva)).venta.folio, 4);
   nueva.detener();
 });
+
+test('CN7 si otro equipo de la misma caja ya usó un folio, esta PC salta después de él al sincronizar (no repite 4, 5…)', async () => {
+  const { db, cuentas } = await escenario();
+  const a = iniciarCajaNube({ cliente: clienteDe(db, cuentas), impresora: new ImpresoraProbada(), almacen: almacenMemoria() });
+  await a.entrar('caja-duo-1@x.mx', 'buena');
+  await a.atender('POST', '/api/login', { usuario: 'Ana', clave: '1234' });
+  assert.equal((await venta(a)).venta.folio, 1);
+  await a.sincronizar(); await a.sincronizar();
+  // otra PC de la misma caja (sin datos) toma el folio 2 y lo sube
+  const b = iniciarCajaNube({ cliente: clienteDe(db, cuentas), impresora: new ImpresoraProbada(), almacen: almacenMemoria() });
+  await b.entrar('caja-duo-1@x.mx', 'buena');
+  await b.atender('POST', '/api/login', { usuario: 'Ana', clave: '1234' });
+  assert.equal((await venta(b)).venta.folio, 2);
+  await b.sincronizar(); await b.sincronizar();
+  // la primera PC, al sincronizar, se entera y no repite el 2
+  await a.sincronizar(); await a.sincronizar();
+  assert.equal((await venta(a)).venta.folio, 3);
+  a.detener(); b.detener();
+});

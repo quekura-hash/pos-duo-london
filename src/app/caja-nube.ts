@@ -132,6 +132,21 @@ export function iniciarCajaNube(o: { cliente: ClienteCaja; almacen?: AlmacenCaja
     return guardando;
   }
 
+  /**
+   * Los folios de ESTA caja que el central ya conoce (de este u otro equipo) no se repiten: si el central tiene un folio mayor que el contador local,
+   * el contador salta después de él. Solo sube, nunca baja.
+   */
+  function alinearFolios() {
+    if (!m || !identidad) return;
+    let maximo = 0;
+    for (const op of m.central.repo.ops()) {
+      if (op.tienda !== identidad.tienda || op.caja !== identidad.caja) continue;
+      if (op.tipo === 'sale.confirmed') maximo = Math.max(maximo, Number(op.payload.folio) || 0);
+      else if (op.tipo === 'folio.gap') maximo = Math.max(maximo, Number(op.payload.hasta) || 0);
+    }
+    m.caja(identidad.tienda, identidad.caja).continuarFoliosDesde(maximo);
+  }
+
   /** Un ciclo completo: lo local sube al hub y a la réplica; la réplica se sincroniza con el central; lo nuevo del central baja al hub y a la caja. */
   function sincronizar(): Promise<boolean> {
     enCurso ??= (async () => {
@@ -148,7 +163,7 @@ export function iniciarCajaNube(o: { cliente: ClienteCaja; almacen?: AlmacenCaja
         m.pump();
         m.pump();
         error = r.ok ? null : (r.error ?? 'sin conexión');
-        if (r.ok) ultimaSync = ahora();
+        if (r.ok) { ultimaSync = ahora(); alinearFolios(); }
         return r.ok;
       } catch (e) {
         error = e instanceof Error ? e.message : String(e);
@@ -216,15 +231,7 @@ export function iniciarCajaNube(o: { cliente: ClienteCaja; almacen?: AlmacenCaja
       // Con datos guardados la caja abre YA (aunque la red tarde o no conteste); sin ellos hay que esperar la primera descarga.
       const ok = guardada ? true : await sincronizar();
       // Equipo sin datos propios (PC nueva, disco vacío) para una caja que ya vendió: la serie de folios sigue donde la dejó la anterior.
-      if (!guardada && ok) {
-        let maximo = 0;
-        for (const op of m.central.repo.ops()) {
-          if (op.tienda !== id.tienda || op.caja !== id.caja) continue;
-          if (op.tipo === 'sale.confirmed') maximo = Math.max(maximo, Number(op.payload.folio) || 0);
-          else if (op.tipo === 'folio.gap') maximo = Math.max(maximo, Number(op.payload.hasta) || 0);
-        }
-        caja.continuarFoliosDesde(maximo);
-      }
+      if (!guardada && ok) alinearFolios();
       if (guardada) void sincronizar();
       if (!ok && !guardada) { const e = error; m = null; puente = null; servicio = null; identidad = null; throw new Error(`No se pudo descargar el catálogo del central${e ? `: ${e}` : ''}. Revise la conexión e intente de nuevo.`); }
       temporizador = setInterval(() => { void sincronizar(); }, CADA_MS);
