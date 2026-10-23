@@ -322,3 +322,14 @@ input[data-pin] { -webkit-text-security: disc; text-security: disc; }
 .tabla-denom { width: 100%; border-collapse: collapse; }
 .tabla-denom th, .tabla-denom td { padding: 4px 8px; border-bottom: 1px solid var(--borde); text-align: left; }
 .tabla-denom .num { text-align: right; }
+
+/* Cierre: jerarquía de totales */
+.kpi-grande { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 16px; margin: 8px 0 12px; border-radius: 14px; background: var(--marino); color: var(--marino-texto); }
+.kpi-grande .kpi-rotulo { font-size: 14px; letter-spacing: .08em; font-weight: 700; color: var(--marino-texto-2); }
+.kpi-grande .kpi-valor { font-size: 40px; font-weight: 800; line-height: 1.1; }
+.kpi-grande .kpi-sub { font-size: 14px; color: var(--marino-texto-2); }
+.kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; }
+.kpi { display: flex; flex-direction: column; gap: 2px; padding: 12px; border: 1px solid var(--borde); border-radius: 12px; background: var(--superficie); }
+.kpi b { font-size: 22px; }
+.kpi .kpi-rotulo { font-size: 12px; font-weight: 700; color: var(--texto-2); letter-spacing: .04em; }
+#kpi-efectivo, #kpi-tarjeta { border-color: var(--acento); }

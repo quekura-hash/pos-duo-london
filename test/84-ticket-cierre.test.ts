@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { writeFileSync } from 'node:fs';
 import { it } from 'node:test';
-import { renderTicketCorteTexto, NEGOCIOS } from '../src/ticket.ts';
+import { renderTicketCorteEscPos, renderTicketCorteTexto, NEGOCIOS } from '../src/ticket.ts';
 import { api, appAdmin, appCajero } from './ayudas/app.ts';
 import { nuevoMundo, politica, porAlmacen } from './ayudas/comun.ts';
 
@@ -58,13 +58,22 @@ porAlmacen('Ticket de cierre de corte: 5 ventas (una con tarjeta), una devoluci�
     writeFileSync('/tmp/claude-0/ticket-cierre.txt', ticket);
     // cifras: efectivo 899+120+450+1,250 = 2,719 + 330 del cambio − 450 de la devolución = 2,599
     assert.equal(esperado, pesos(2599));
-    assert.match(ticket, /Tickets de venta +6/);
-    assert.match(ticket, /Tarjeta \/ banco +\$899\.00/);
-    assert.match(ticket, /Mercancía recibida a cambio +\$120\.00/);
-    assert.match(ticket, /Devoluciones con reembolso +\$450\.00/);
-    assert.match(ticket, /EFECTIVO DE VENTAS ESPERADO +\$2,599\.00/);
+    const iVenta = ticket.indexOf('VENTA TOTAL DEL DÍA'), iEfectivo = ticket.indexOf('TOTAL EN EFECTIVO'), iTarjeta = ticket.indexOf('TOTAL EN TARJETA'), iFondo = ticket.indexOf('FONDO\n'), iCambios = ticket.indexOf('CAMBIOS Y DEVOLUCIONES'), iNetas = ticket.indexOf('VENTAS NETAS'), iConc = ticket.indexOf('CONCILIACIÓN DEL EFECTIVO EN PESOS');
+    assert.ok(iVenta > 0 && iVenta < iEfectivo && iEfectivo < iTarjeta && iTarjeta < iFondo && iFondo < iCambios && iCambios < iNetas && iNetas < iConc, 'jerarquía: venta total, efectivo, tarjeta, fondo, cambios, netas, conciliación');
+    assert.match(ticket, /^ +DÚO New York\n +AV\. LIBERTAD[\s\S]*KARINA PALAFOX[\s\S]*RFC: PAVK[\s\S]*Tienda DUO - Caja 1\n +TELÉFONO 534-0607/, 'datos de la tienda como en el ticket de venta');
+    assert.match(ticket, /\$4,068\.00/);
+    assert.match(ticket, /TOTAL EN EFECTIVO +\$3,049\.00\n +Total en pesos +\$3,049\.00\n +Total en dólares +US\$0\.00/);
+    assert.match(ticket, /TOTAL EN TARJETA +\$899\.00/);
+    assert.match(ticket, /Fondo autorizado +\$5,000\.00\nFondo confirmado +\$5,000\.00\nFondo completo/);
+    assert.match(ticket, /Mercancía recibida a cambio +\$120\.00\nDiferencias cobradas en cambios +\$330\.00\nDevoluciones con reembolso +\$450\.00/);
+    assert.match(ticket, /VENTAS NETAS +\$3,498\.00/);
+    assert.match(ticket, /Efectivo de ventas esperado +\$2,599\.00/);
     assert.match(ticket, /DIFERENCIA +\+\$1\.00 SOBRANTE/);
-    assert.match(ticket, /Fondo confirmado +\$5,000\.00[\s\S]*Fondo completo/);
     assert.ok(ticket.split('\n').every((l) => l.length <= 48), 'cabe en 48 columnas');
+    // la impresora recibe negrita y doble tamaño en lo importante, y el logo no se imprime en el cierre
+    const bytes = renderTicketCorteEscPos(k, NEGOCIOS.DUO);
+    const tiene = (seq: number[]) => bytes.some((_, i) => seq.every((x, j) => bytes[i + j] === x));
+    assert.ok(tiene([0x1b, 0x45, 1]) && tiene([0x1d, 0x21, 0x11]), 'negrita y doble tamaño');
+    assert.equal(tiene([0x1d, 0x76, 0x30]), false, 'sin logo (GS v 0)');
   });
 });

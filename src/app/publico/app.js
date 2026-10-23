@@ -1019,7 +1019,9 @@ async function vistaCorte() {
     const clic = n <= maximo;
     return `<li><button type="button" class="paso-btn ${n === paso ? 'activo' : ''} ${ok ? 'hecho' : ''}" data-paso="${n}" ${clic ? '' : 'disabled'} aria-current="${n === paso ? 'step' : 'false'}"><span class="paso-num">${ok ? ico('check') : n}</span><span>${n}. ${t}</span></button></li>`;
   }).join('')}</ol>`;
-  const cab = `<div class="titulo-vista">${ico('chart')}<h1>Cierre de caja — Caja ${v.caja} (${esc(v.tienda)}) · ${esc(v.fecha)}</h1></div>${pasos}
+  const neg = j.negocio;
+  const datosTienda = neg ? `<div class="panel" id="cierre-tienda" style="text-align:center;margin-bottom:10px"><b style="font-size:18px">${esc(neg.nombre)}</b>${neg.encabezado.map((x) => `<br>${esc(x)}`).join('')}<br>Tienda ${esc(v.tienda)} · Caja ${v.caja}${neg.telefono ? ` · Tel. ${esc(neg.telefono)}` : ''}</div>` : '';
+  const cab = `${datosTienda}<div class="titulo-vista">${ico('chart')}<h1>Cierre de caja — Caja ${v.caja} (${esc(v.tienda)}) · ${esc(v.fecha)}</h1></div>${pasos}
     ${v.perdida_documental_abierta.length ? '<div class="mensaje error" data-alerta="perdida-corte">Este corte puede estar incompleto: hay una posible pérdida de ventas, pagos o folios de esta caja sin resolver.</div>' : ''}
     ${cerrado ? `<div class="mensaje ok" id="corte-cerrado">Corte cerrado${j.cerrado.cerrado_por ? ` por ${esc(j.cerrado.cerrado_por)}` : ''}${j.desactualizado ? '. Hay operaciones posteriores al cierre (no se reescribe el corte cerrado).' : '.'}</div>` : ''}`;
   let cuerpo = '';
@@ -1057,9 +1059,23 @@ async function vistaCorte() {
     const pend = est.faltan.length ? `<div class="mensaje aviso" id="cierre-pendiente">Para cerrar falta: ${est.faltan.map((f) => ({ fondo: 'confirmar el fondo', conteo_ventas: 'contar el efectivo de ventas', recontar_ventas: 'volver a contar los pesos (hubo movimientos)', conteo_usd: 'contar los dólares', recontar_usd: 'volver a contar los dólares (hubo movimientos)' }[f])).join(', ')}.</div>` : '';
     cuerpo = `<section class="panel" id="paso-cierre"><h2 style="margin-top:0">Paso 3: Revisar y cerrar</h2>
       <p class="nota">Revise el fondo, el efectivo contado y los movimientos del día antes de cerrar el corte.</p>${pend}
+      <div class="kpi-grande" id="kpi-venta-total"><span class="kpi-rotulo">VENTA TOTAL DEL DÍA</span><span class="kpi-valor" id="rc-venta-total">${mxn(v.ventas_mercancia)}</span><span class="kpi-sub">${v.tickets} ticket${v.tickets === 1 ? '' : 's'} de venta${v.descuentos ? ` · descuentos ${mxn(v.descuentos)}` : ''}</span></div>
+      <div class="kpi-grid">
+        <div class="kpi" id="kpi-efectivo"><span class="kpi-rotulo">TOTAL EN EFECTIVO</span><b id="rc-total-efectivo">${mxn(v.cobros_efectivo + v.cobros_efectivo_usd)}</b></div>
+        <div class="kpi" id="kpi-pesos"><span class="kpi-rotulo">Total en pesos</span><b id="rc-total-pesos">${mxn(v.cobros_efectivo)}</b></div>
+        <div class="kpi" id="kpi-dolares"><span class="kpi-rotulo">Total en dólares</span><b id="rc-total-dolares">${usd(v.usd_recibidos)}</b>${v.cobros_efectivo_usd ? `<small>${mxn(v.cobros_efectivo_usd)}</small>` : ''}</div>
+        <div class="kpi" id="kpi-tarjeta"><span class="kpi-rotulo">TOTAL EN TARJETA</span><b id="rc-total-tarjeta">${mxn(v.cobros_tarjeta)}</b></div>
+      </div>
+      <div class="panel" id="kpi-fondo" style="margin:10px 0"><h3 style="margin:0 0 6px">Fondo</h3>
+        <p style="margin:0">Fondo autorizado: <b id="rc-fondo-autorizado">${mxn(v.fondo_autorizado)}</b> · <b>Fondo confirmado: <span id="rc-fondo-confirmado">${v.fondo_confirmado === null ? '—' : `${mxn(v.fondo_confirmado)}${v.fondo_estado && v.fondo_estado !== 'completo' ? ` (${esc(v.fondo_estado)} de ${mxn(Math.abs(v.fondo_diferencia))}: ${esc(v.fondo_nota ?? '')})` : ' (completo)'}`}</span></b></p></div>
+      <div class="panel" id="bloque-cambios" style="margin:10px 0"><h3 style="margin:0 0 6px">Cambios y devoluciones</h3>
+        <table><tbody>
+          <tr><th scope="row">Mercancía recibida a cambio</th><td class="num" id="rc-recibida-cambio">${mxnODisp(v.mercancia_recibida_por_cambio)}</td></tr>
+          <tr><th scope="row">Diferencias cobradas en cambios</th><td class="num" id="rc-dif-cambios">${mxnODisp(v.diferencias_cobradas_en_cambios)}</td></tr>
+          <tr><th scope="row">Devoluciones con reembolso</th><td class="num" id="rc-devoluciones">${mxnODisp(v.devoluciones_con_reembolso)}</td></tr>
+          <tr><th scope="row" style="font-size:18px">VENTAS NETAS</th><td class="num" style="font-size:20px" id="rc-ventas-netas"><b>${mxn(v.ventas_netas)}</b></td></tr></tbody></table></div>
+      <h3 style="margin:14px 0 6px">Conciliación del efectivo</h3>
       <div class="tabla-cont"><table id="resumen-cierre"><tbody>
-        ${fila('rc-fondo-autorizado', 'Fondo autorizado', mxn(v.fondo_autorizado))}
-        ${fila('rc-fondo-confirmado', 'Fondo físico confirmado', v.fondo_confirmado === null ? '—' : `${mxn(v.fondo_confirmado)}${v.fondo_estado && v.fondo_estado !== 'completo' ? ` (${esc(v.fondo_estado)} de ${mxn(Math.abs(v.fondo_diferencia))}: ${esc(v.fondo_nota ?? '')})` : ' (completo)'}`)}
         ${fila('rc-contado-mxn', 'Efectivo MXN de ventas contado', v.conteo_mxn && v.conteo_alcance === 'ventas' ? mxn(v.conteo_mxn.contado) : '—')}
         ${fila('rc-contado-usd', 'Efectivo USD contado', v.conteo_usd ? usd(v.conteo_usd.contado) : (est.usd_requerido ? '—' : usd(0)))}
         ${fila('rc-esperado', 'Efectivo MXN esperado (movimientos reales de caja)', mxn(v.efectivo_ventas_esperado))}

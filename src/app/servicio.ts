@@ -12,7 +12,7 @@ import { CRITERIOS_EXPEDIENTE, expedientesDe, expedienteVacio, registradaEn, CAM
 import { hojaAnalisis, hojaDetalleVentas, hojaResumenVentas, hojaDescuentos, hojaEntregas, hojaDolares, hojaInventario, leerInventario, PERFIL_CONFIRMADO, type Hoja } from '../inventario.ts';
 import { LOGOS_TICKET } from '../logos-ticket.ts';
 import { detalleDeVenta, validarDatosClienta, type DatosClienta } from '../detalle-venta.ts';
-import { aplicarDatosTienda, codigoTicket, interpretarFolio, construirTicket, construirTicketRegalo, formatoMXN, NEGOCIOS, renderTextoEscPos, renderTicketCancelacionTexto, renderTicketFirmaTexto, renderTicketDevolucionTexto, type ComprobanteClienta, renderTicketRetiroTexto, renderTicketEscPos, renderTicketTexto, type NegocioCfg } from '../ticket.ts';
+import { aplicarDatosTienda, encabezadoDe, codigoTicket, interpretarFolio, construirTicket, construirTicketRegalo, formatoMXN, NEGOCIOS, renderTextoEscPos, renderTicketCancelacionTexto, renderTicketFirmaTexto, renderTicketDevolucionTexto, type ComprobanteClienta, renderTicketRetiroTexto, renderTicketEscPos, renderTicketTexto, type NegocioCfg } from '../ticket.ts';
 import { promoDeRegla, type ReglaRecompensa } from '../recompensas.ts';
 import { hashClave, nombreClave, supervisorPorClave, type Perfil, type RolAdmin } from '../supervisores.ts';
 import { LIMBO, type Actor, type Articulo, type Linea, type Op, type Venta } from '../tipos.ts';
@@ -712,6 +712,8 @@ export class ServicioCaja {
     return {
       vivo, cerrado, desactualizado: cerrado ? JSON.stringify(sinDatosDelCierre(cerrado)) !== JSON.stringify(vivo) : false,
       estado: this.caja.estadoCierre(fecha), pide_clave: this.caja.controlesConClave(),
+      // Datos de la tienda como en el ticket de venta (sin logo), para el encabezado del cierre.
+      negocio: (() => { const n = this.negociosVivos()[this.caja.tienda]!; return { nombre: n.nombre, encabezado: encabezadoDe(n), telefono: n.telefono ?? '' }; })(),
     };
   }
   /** Cierra el corte del día (flujo guiado): exige fondo confirmado y conteos al día, y la clave de la propia cajera. */

@@ -520,50 +520,83 @@ export function renderTicketRetiroTexto(r: RetiroRegistrado, cfg: NegocioCfg, re
 // ── ticket de cierre de corte ──
 /** Datos del corte que imprime el ticket (los de `Caja.corteEnVivo` / el corte guardado; lo que un corte viejo no trae sale «No disponible»). */
 export type DatosCorte = Record<string, any>;
-/** Ticket de cierre de caja: resumen del día, formas de pago, efectivo esperado contra contado (con la diferencia tal cual), fondo y firma. */
-export function renderTicketCorteTexto(k: DatosCorte, cfg: NegocioCfg = NEGOCIOS[k.tienda]!, opts: { reimpresion?: number } = {}): string {
+/** Un renglón del ticket de cierre: `negrita` y `grande` solo cambian cómo lo marca la impresora; el texto es el mismo. */
+export interface LineaCorte { texto: string; negrita?: boolean; grande?: boolean }
+/**
+ * Ticket de cierre de caja, por orden de importancia: encabezado de la tienda (sin logo), VENTA TOTAL DEL DÍA, totales por forma de pago
+ * (efectivo, pesos, dólares, tarjeta), fondo, cambios y devoluciones con las ventas netas, y al final la conciliación del efectivo.
+ */
+export function lineasTicketCorte(k: DatosCorte, cfg: NegocioCfg = NEGOCIOS[k.tienda]!, opts: { reimpresion?: number } = {}): LineaCorte[] {
   const c = cfg.columnas;
   const regla = '-'.repeat(c);
   const doble = '='.repeat(c);
   const dato = (v: unknown, f: (n: number) => string = formatoMXN) => (typeof v === 'number' ? f(v) : 'No disponible');
   const [y, mo, dd] = String(k.fecha).split('-');
   const dif = (v: number | null | undefined, f: (n: number) => string = formatoMXN) => (typeof v !== 'number' ? '—' : v === 0 ? `${f(0)} SIN DIFERENCIA` : `${v > 0 ? '+' : '-'}${f(Math.abs(v))} ${v > 0 ? 'SOBRANTE' : 'FALTANTE'}`);
-  const L: string[] = [centrar(cfg.nombre, c), centrar(`Tienda ${k.tienda} - Caja ${k.caja}`, c), '', centrar('*** CIERRE DE CAJA ***', c)];
-  if (opts.reimpresion) L.push(centrar(`REIMPRESIÓN ${opts.reimpresion}`, c));
-  L.push(`Fecha: ${dd}/${mo}/${y}`, ...(k.cerrado_por ? [`Cerró: ${k.cerrado_por}`.slice(0, c)] : []), `Folios: ${k.folio_inicial ? `${String(k.folio_inicial).padStart(6, '0')} al ${String(k.folio_final).padStart(6, '0')}` : 'sin movimientos'}`, doble);
-  L.push('VENTAS', dos('Tickets de venta', String(k.tickets), c), dos('Mercancía antes de descuentos', formatoMXN(k.ventas_brutas), c));
-  if (k.descuentos) L.push(dos('Descuentos', `-${formatoMXN(k.descuentos)}`, c));
-  L.push(dos('Ventas de mercancía', formatoMXN(k.ventas_mercancia), c));
-  if (k.tarjetas_regalo_vendidas) L.push(dos('Tarjetas de regalo vendidas', formatoMXN(k.tarjetas_regalo_vendidas), c));
-  L.push(regla, 'CAMBIOS Y DEVOLUCIONES');
-  L.push(dos('Mercancía recibida a cambio', dato(k.mercancia_recibida_por_cambio), c), dos('Diferencias cobradas en cambios', dato(k.diferencias_cobradas_en_cambios), c));
-  L.push(dos('Devoluciones con reembolso', dato(k.devoluciones_con_reembolso), c));
-  if (k.tickets_cancelados) L.push(dos(`Ventas canceladas (${k.tickets_cancelados})`, '', c));
-  L.push(dos('VENTAS NETAS', formatoMXN(k.ventas_netas), c), regla, 'FORMAS DE PAGO');
-  L.push(dos('Efectivo cobrado', formatoMXN(k.cobros_efectivo), c), dos('Tarjeta / banco', formatoMXN(k.cobros_tarjeta), c));
-  if (k.cobros_tarjeta_regalo) L.push(dos('Tarjeta de regalo', formatoMXN(k.cobros_tarjeta_regalo), c));
-  if (k.devoluciones_a_tarjeta) L.push(dos('Reembolsos a tarjeta / banco', `-${formatoMXN(k.devoluciones_a_tarjeta)}`, c));
-  L.push('(tarjeta y banco no son efectivo del cajón)', doble, 'EFECTIVO EN PESOS');
+  const t = (texto: string): LineaCorte => ({ texto });
+  const b = (texto: string): LineaCorte => ({ texto, negrita: true });
   const m = k.mxn ?? {};
-  L.push(dos('Cobros recibidos', formatoMXN(m.cobros ?? 0), c), dos('Cambio entregado', `-${formatoMXN(m.cambio ?? 0)}`, c));
-  L.push(dos('Devoluciones en efectivo', `-${formatoMXN(m.devoluciones ?? 0)}`, c));
-  if (m.cancelaciones) L.push(dos('Cancelaciones', `-${formatoMXN(m.cancelaciones)}`, c));
-  if (m.retiros) L.push(dos('Retiros', `-${formatoMXN(m.retiros)}`, c));
-  if (m.entradas) L.push(dos('Entradas extraordinarias', formatoMXN(m.entradas), c));
-  if (m.ajustes) L.push(dos('Ajustes de Administración', formatoMXN(m.ajustes), c));
-  L.push(regla, dos('EFECTIVO DE VENTAS ESPERADO', dato(k.efectivo_ventas_esperado), c));
-  if (k.conteo_alcance === 'ventas' && k.conteo_mxn) L.push(dos('EFECTIVO DE VENTAS CONTADO', formatoMXN(k.conteo_mxn.contado), c), dos('DIFERENCIA', dif(k.diferencia_mxn), c));
-  else L.push('Sin conteo de efectivo de ventas');
+  const pesosCobrados = typeof k.cobros_efectivo === 'number' ? k.cobros_efectivo : undefined;
+  const usdEquivalente = typeof k.cobros_efectivo_usd === 'number' ? k.cobros_efectivo_usd : 0;
+  const L: LineaCorte[] = [t(centrar(cfg.nombre, c)), ...encabezadoDe(cfg).flatMap((x) => envolver(x, c).map((z) => t(centrar(z, c)))), t(centrar(`Tienda ${k.tienda} - Caja ${k.caja}`, c))];
+  if (cfg.telefono) L.push(t(centrar(`TELÉFONO ${cfg.telefono}`, c)));
+  L.push(t(''), b(centrar('*** CIERRE DE CAJA ***', c)));
+  if (opts.reimpresion) L.push(t(centrar(`REIMPRESIÓN ${opts.reimpresion}`, c)));
+  L.push(t(`Fecha: ${dd}/${mo}/${y}`), ...(k.cerrado_por ? [t(`Cerró: ${k.cerrado_por}`.slice(0, c))] : []), t(`Folios: ${k.folio_inicial ? `${String(k.folio_inicial).padStart(6, '0')} al ${String(k.folio_final).padStart(6, '0')}` : 'sin movimientos'}`), t(doble));
+  // 1) LO MÁS IMPORTANTE: la venta total del día
+  L.push({ texto: centrar('VENTA TOTAL DEL DÍA', c), negrita: true }, { texto: centrar(formatoMXN(k.ventas_mercancia), c), negrita: true, grande: true });
+  L.push(t(dos(`${k.tickets} ticket${k.tickets === 1 ? '' : 's'} de venta`, k.descuentos ? `descuentos -${formatoMXN(k.descuentos)}` : '', c)));
+  if (k.tarjetas_regalo_vendidas) L.push(t(dos('Tarjetas de regalo (no son venta)', formatoMXN(k.tarjetas_regalo_vendidas), c)));
+  L.push(t(doble));
+  // 2) cómo se cobró
+  L.push(b(dos('TOTAL EN EFECTIVO', pesosCobrados === undefined ? 'No disponible' : formatoMXN(pesosCobrados + usdEquivalente), c)));
+  L.push(t(dos('  Total en pesos', dato(pesosCobrados), c)));
+  L.push(t(dos('  Total en dólares', usdEquivalente || k.usd_recibidos ? `${formatoUSD(k.usd_recibidos ?? 0)} (${formatoMXN(usdEquivalente)})` : formatoUSD(0), c)));
+  L.push(b(dos('TOTAL EN TARJETA', dato(k.cobros_tarjeta), c)));
+  if (k.cobros_tarjeta_regalo) L.push(t(dos('Total con tarjeta de regalo', formatoMXN(k.cobros_tarjeta_regalo), c)));
+  if (k.devoluciones_a_tarjeta) L.push(t(dos('Reembolsos a tarjeta / banco', `-${formatoMXN(k.devoluciones_a_tarjeta)}`, c)));
+  L.push(t(regla));
+  // 3) fondo
+  L.push(b('FONDO'), t(dos('Fondo autorizado', dato(k.fondo_autorizado), c)), b(dos('Fondo confirmado', dato(k.fondo_confirmado), c)));
+  if (k.fondo_estado && k.fondo_estado !== 'completo') L.push(...envolver(`${k.fondo_estado === 'faltante' ? 'FALTANTE' : 'SOBRANTE'} de ${formatoMXN(Math.abs(k.fondo_diferencia))}: ${k.fondo_nota ?? ''}`, c).map(t));
+  else if (k.fondo_estado === 'completo') L.push(t('Fondo completo'));
+  L.push(t(doble));
+  // 4) cambios y devoluciones, y las ventas netas
+  L.push(b('CAMBIOS Y DEVOLUCIONES'), t(dos('Mercancía recibida a cambio', dato(k.mercancia_recibida_por_cambio), c)), t(dos('Diferencias cobradas en cambios', dato(k.diferencias_cobradas_en_cambios), c)), t(dos('Devoluciones con reembolso', dato(k.devoluciones_con_reembolso), c)));
+  if (k.tickets_cancelados) L.push(t(dos('Ventas canceladas', String(k.tickets_cancelados), c)));
+  L.push(t(regla), b(dos('VENTAS NETAS', formatoMXN(k.ventas_netas), c)), t(doble));
+  // 5) conciliación del efectivo
+  L.push(b('CONCILIACIÓN DEL EFECTIVO EN PESOS'), t(dos('Cobros recibidos', formatoMXN(m.cobros ?? 0), c)), t(dos('Cambio entregado', `-${formatoMXN(m.cambio ?? 0)}`, c)), t(dos('Devoluciones en efectivo', `-${formatoMXN(m.devoluciones ?? 0)}`, c)));
+  if (m.cancelaciones) L.push(t(dos('Cancelaciones', `-${formatoMXN(m.cancelaciones)}`, c)));
+  if (m.retiros) L.push(t(dos('Retiros', `-${formatoMXN(m.retiros)}`, c)));
+  if (m.entradas) L.push(t(dos('Entradas extraordinarias', formatoMXN(m.entradas), c)));
+  if (m.ajustes) L.push(t(dos('Ajustes de Administración', formatoMXN(m.ajustes), c)));
+  L.push(t(regla), b(dos('Efectivo de ventas esperado', dato(k.efectivo_ventas_esperado), c)));
+  if (k.conteo_alcance === 'ventas' && k.conteo_mxn) L.push(b(dos('Efectivo de ventas contado', formatoMXN(k.conteo_mxn.contado), c)), b(dos('DIFERENCIA', dif(k.diferencia_mxn), c)));
+  else L.push(t('Sin conteo de efectivo de ventas'));
+  if (typeof k.efectivo_cajon_esperado === 'number') L.push(t(dos('Efectivo total en el cajón (con fondo)', formatoMXN(k.efectivo_cajon_esperado), c)));
   const usdHubo = (k.usd?.cobros ?? 0) !== 0 || (k.efectivo_usd_esperado ?? 0) !== 0 || k.conteo_usd;
   if (usdHubo) {
-    L.push(regla, 'EFECTIVO EN DÓLARES', dos('Esperado', formatoUSD(k.efectivo_usd_esperado ?? 0), c));
-    if (k.conteo_usd) L.push(dos('Contado', formatoUSD(k.conteo_usd.contado), c), dos('DIFERENCIA', dif(k.diferencia_usd, formatoUSD), c));
+    L.push(t(regla), b('CONCILIACIÓN DEL EFECTIVO EN DÓLARES'), t(dos('Esperado', formatoUSD(k.efectivo_usd_esperado ?? 0), c)));
+    if (k.conteo_usd) L.push(t(dos('Contado', formatoUSD(k.conteo_usd.contado), c)), b(dos('DIFERENCIA', dif(k.diferencia_usd, formatoUSD), c)));
   }
-  L.push(doble, 'FONDO FIJO', dos('Autorizado por Administración', dato(k.fondo_autorizado), c), dos('Fondo confirmado', dato(k.fondo_confirmado), c));
-  if (k.fondo_estado && k.fondo_estado !== 'completo') L.push(...envolver(`${k.fondo_estado === 'faltante' ? 'FALTANTE' : 'SOBRANTE'} de ${formatoMXN(Math.abs(k.fondo_diferencia))}: ${k.fondo_nota ?? ''}`, c));
-  else if (k.fondo_estado === 'completo') L.push('Fondo completo');
-  if (typeof k.efectivo_cajon_esperado === 'number') L.push(dos('Efectivo total en el cajón', formatoMXN(k.efectivo_cajon_esperado), c));
-  if (k.observaciones) L.push(regla, ...envolver(`Observaciones: ${k.observaciones}`, c));
-  L.push(regla, '', '', '_'.repeat(Math.min(c, 32)), 'Firma de la cajera', '', '_'.repeat(Math.min(c, 32)), 'Firma de quien revisa', regla);
-  return L.join('\n') + '\n';
+  if (k.observaciones) L.push(t(regla), ...envolver(`Observaciones: ${k.observaciones}`, c).map(t));
+  L.push(t(regla), t(''), t(''), t('_'.repeat(Math.min(c, 32))), t('Firma de la cajera'), t(''), t('_'.repeat(Math.min(c, 32))), t('Firma de quien revisa'), t(regla));
+  return L;
+}
+export function renderTicketCorteTexto(k: DatosCorte, cfg: NegocioCfg = NEGOCIOS[k.tienda]!, opts: { reimpresion?: number } = {}): string {
+  return lineasTicketCorte(k, cfg, opts).map((l) => l.texto).join('\n') + '\n';
+}
+/** ESC/POS del cierre: negrita (ESC E) y doble tamaño (GS !) en los renglones que lo piden. No validado con una impresora real. */
+export function renderTicketCorteEscPos(k: DatosCorte, cfg: NegocioCfg = NEGOCIOS[k.tienda]!, opts: { reimpresion?: number } = {}): Uint8Array {
+  const b: number[] = [0x1b, 0x40, 0x1b, 0x74, 19];
+  for (const l of lineasTicketCorte(k, cfg, opts)) {
+    if (l.negrita) b.push(0x1b, 0x45, 1);
+    if (l.grande) b.push(0x1b, 0x61, 1, 0x1d, 0x21, 0x11); // centrado y doble tamaño
+    b.push(...aCP858(l.grande ? l.texto.trim() : l.texto), 0x0a);
+    if (l.grande) b.push(0x1d, 0x21, 0x00, 0x1b, 0x61, 0);
+    if (l.negrita) b.push(0x1b, 0x45, 0);
+  }
+  b.push(0x0a, 0x0a, 0x1d, 0x56, 66, 0);
+  return Uint8Array.from(b);
 }
