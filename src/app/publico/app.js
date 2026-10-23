@@ -1517,10 +1517,41 @@ async function pintarPanelContadora(cajas) {
   }
 }
 
+
+// ── Resumen del día de todas las tiendas (el mismo que llega como aviso al teléfono a la hora elegida) ──
+async function pintarResumenDia(fecha) {
+  const cont = $('#resumen-dia');
+  let j;
+  try { j = await api(`/api/admin/resumen-dia?fecha=${encodeURIComponent(fecha)}`); }
+  catch (e) { cont.innerHTML = `<div class="mensaje error">No se pudo cargar el resumen del día: ${esc(e.message)}</div>`; return; }
+  S.resumenDiaFecha = j.fecha;
+  const t = j.total;
+  const f = (iso) => iso.split('-').reverse().join('/');
+  cont.innerHTML = `<div class="filas" style="align-items:center;justify-content:space-between"><h2 style="margin:0">${ico('store')} Resumen del día — todas las tiendas</h2>
+      <label>Día <input type="date" id="rd-fecha" value="${esc(j.fecha)}" max="${esc(j.hoy)}"></label></div>
+    <div class="kpi-grande" id="rd-venta-total"><span class="kpi-rotulo">VENTA TOTAL DEL DÍA · ${esc(f(j.fecha))}</span><span class="kpi-valor" id="rd-total">${mxn(t.venta_total)}</span><span class="kpi-sub">${t.tickets} ticket${t.tickets === 1 ? '' : 's'} de venta${t.canceladas ? ` · ${t.canceladas} cancelada${t.canceladas === 1 ? '' : 's'}` : ''}</span></div>
+    <div class="kpi-grid" id="rd-tiendas">${j.tiendas.map((x) => `<div class="kpi" data-tienda="${esc(x.tienda)}"><span class="kpi-rotulo">${esc(x.nombre).toUpperCase()}</span><b data-col="venta">${mxn(x.venta_total)}</b><small>${x.tickets} ticket${x.tickets === 1 ? '' : 's'} · netas ${mxn(x.ventas_netas)}</small><small>Efectivo ${mxn(x.efectivo)} · Tarjeta ${mxn(x.tarjeta)}</small><small>Cortes cerrados: ${x.cajas_con_corte} de ${x.cajas} cajas</small></div>`).join('')}</div>
+    <h3 style="margin:14px 0 6px">Cómo se cobró</h3>
+    <div class="kpi-grid">
+      <div class="kpi" style="border-color:var(--acento)"><span class="kpi-rotulo">TOTAL EN EFECTIVO</span><b id="rd-efectivo">${mxn(t.efectivo)}</b></div>
+      <div class="kpi"><span class="kpi-rotulo">Total en pesos</span><b id="rd-pesos">${mxn(t.pesos)}</b></div>
+      <div class="kpi"><span class="kpi-rotulo">Total en dólares</span><b id="rd-dolares">${mxn(t.dolares_mxn)}</b><small>equivalente en pesos</small></div>
+      <div class="kpi" style="border-color:var(--acento)"><span class="kpi-rotulo">TOTAL EN TARJETA</span><b id="rd-tarjeta">${mxn(t.tarjeta)}</b></div>
+    </div>
+    <div class="panel" style="margin:10px 0"><h3 style="margin:0 0 6px">Cambios y devoluciones</h3><table><tbody>
+      <tr><th scope="row">Mercancía recibida a cambio</th><td class="num" id="rd-cambio">${mxn(t.mercancia_recibida_por_cambio)}</td></tr>
+      <tr><th scope="row">Devoluciones con reembolso</th><td class="num" id="rd-devoluciones">${mxn(t.devoluciones_con_reembolso)}</td></tr>
+      <tr><th scope="row" style="font-size:18px">VENTAS NETAS</th><td class="num" style="font-size:20px" id="rd-netas"><b>${mxn(t.ventas_netas)}</b></td></tr></tbody></table></div>
+    <p class="nota">Este es el mismo resumen que llega como aviso al teléfono (menú Avisos, hora configurable). Las pruebas que aún no se hayan borrado también cuentan.</p>`;
+  $('#rd-fecha').addEventListener('change', (ev) => pintarResumenDia(ev.target.value || j.hoy));
+}
+
 async function vistaReportes() {
   const { cajas } = await api('/api/admin/cajas');
   const hoy = new Date(Date.now() - 7 * 3600e3).toISOString().slice(0, 10);
-  $('#vista').innerHTML = `<div class="titulo-vista">${ico('chart')}<h1>Reportes de ventas</h1></div><form class="filtros panel" id="filtros">
+  $('#vista').innerHTML = `<div class="titulo-vista">${ico('chart')}<h1>Reportes de ventas</h1></div>
+    <section class="panel" id="resumen-dia" aria-label="Resumen del día de las tiendas"></section>
+    <form class="filtros panel" id="filtros">
     <fieldset><legend>Cajas</legend><label><input type="checkbox" id="todas" checked> Todas</label>
       ${cajas.map((c) => `<label><input type="checkbox" class="caja" value="${c.tienda}/${c.caja}" checked> ${esc(c.tienda)} · Caja ${c.caja}</label>`).join('')}</fieldset>
     <label>Desde <input type="date" id="desde" value="${hoy}"></label><label>Hasta <input type="date" id="hasta" value="${hoy}"></label>
@@ -1532,6 +1563,7 @@ async function vistaReportes() {
     ${window.__POS_REPORTE__ && S.sesion.rol_usuario === 'supervisor' ? '<section class="panel" id="panel-contadora" aria-label="Envío mensual a la contadora"></section>' : ''}
     <div id="resultado"></div>`;
   if ($('#panel-contadora')) pintarPanelContadora(cajas);
+  await pintarResumenDia(S.resumenDiaFecha ?? hoy);
   const marcas = () => [...$('#filtros').querySelectorAll('.caja')];
   $('#todas').addEventListener('change', (e) => marcas().forEach((m) => (m.checked = e.target.checked)));
   marcas().forEach((m) => m.addEventListener('change', () => ($('#todas').checked = marcas().every((x) => x.checked))));

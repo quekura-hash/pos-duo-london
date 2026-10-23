@@ -1536,6 +1536,40 @@ export class ServicioAdmin {
     const ordenadas = [...filas].sort((a, b) => `${b.fecha_local} ${b.hora}`.localeCompare(`${a.fecha_local} ${a.hora}`) || b.folio - a.folio);
     return { ventas: ordenadas.slice(0, 500), total_filas: ordenadas.length, truncado: ordenadas.length > 500 };
   }
+  /**
+   * Resumen del día de TODAS las tiendas (el mismo que llega como aviso a las 9 p. m.): por tienda y en total, la venta total, cómo se cobró
+   * y las ventas netas (menos lo recibido a cambio y las devoluciones con reembolso, sin restar dos veces). Salen de las ventas guardadas.
+   */
+  resumenDia(fecha?: string) {
+    const ops = this.fuente();
+    const dia = fecha || fechaLocal(this.reloj.now());
+    const vs = [...ventas(ops).values()].filter((v) => fechaLocal(v.ocurrio_en) === dia);
+    const devs = devoluciones(ops).filter((d) => fechaLocal(d.ocurrio_en) === dia);
+    const suma = (xs: number[]) => xs.reduce((a, b) => a + b, 0);
+    const filaDe = (tienda: string | null) => {
+      const v = vs.filter((x) => tienda === null || x.tienda === tienda);
+      const conf = v.filter((x) => x.estado === 'confirmada');
+      const d = devs.filter((x) => tienda === null || x.tienda === tienda);
+      const lineas = conf.flatMap((x) => x.lineas);
+      const pagos = (m: string) => suma(conf.flatMap((x) => x.pagos.filter((p) => p.metodo === m).map((p) => p.monto)));
+      const ventaTotal = suma(lineas.filter((l) => !l.tarjeta_regalo).map((l) => l.importe));
+      const reembolsado = suma(d.flatMap((x) => x.reembolsos.map((r) => r.monto)));
+      const recibida = suma(d.filter((x) => x.por_cambio).map((x) => x.importe)) - suma(d.filter((x) => x.por_cambio).flatMap((x) => x.reembolsos.map((r) => r.monto)));
+      return {
+        tickets: conf.length, canceladas: v.length - conf.length, venta_total: ventaTotal, tarjetas_regalo: suma(lineas.filter((l) => l.tarjeta_regalo).map((l) => l.importe)),
+        efectivo: pagos('efectivo') + pagos('efectivo_usd'), pesos: pagos('efectivo'), dolares_mxn: pagos('efectivo_usd'), tarjeta: pagos('tarjeta'), tarjeta_regalo: pagos('tarjeta_regalo'),
+        mercancia_recibida_por_cambio: recibida, devoluciones_con_reembolso: suma(d.map((x) => x.importe)) - recibida, devuelto_a_tarjeta: suma(d.flatMap((x) => x.reembolsos.filter((r) => r.metodo === 'tarjeta').map((r) => r.monto))),
+        ventas_netas: ventaTotal - suma(d.map((x) => x.importe)), reembolsado,
+      };
+    };
+    const info = this.tiendasInfo();
+    const cortes = ops.filter((o) => o.tipo === 'corte.generado' && o.payload.fecha === dia);
+    return {
+      fecha: dia, hoy: fechaLocal(this.reloj.now()),
+      tiendas: info.map((t) => ({ tienda: t.tienda, nombre: t.nombre, ...filaDe(t.tienda), cajas_con_corte: cortes.filter((o) => o.payload.tienda === t.tienda).length, cajas: this.cajas.filter((c) => c.tienda === t.tienda).length })),
+      total: filaDe(null),
+    };
+  }
   /** Detalle de una venta de cualquier caja. Revertir y hacer cambios se hace en la caja donde se vendió. */
   detalleVenta(saleId: string) {
     const ops = this.fuente();

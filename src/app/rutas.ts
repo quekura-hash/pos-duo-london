@@ -129,6 +129,7 @@ export async function atender(o: { cajero?: ServicioCaja; admin?: ServicioAdmin 
       case 'POST /api/sincronizar': return ok({ conexion: await exigirCajero().sincronizar() });
       // ── administración ──
       case 'GET /api/admin/cajas': return ok({ cajas: exigirAdmin().cajas });
+      case 'GET /api/admin/resumen-dia': return ok(exigirAdmin().resumenDia(q.get('fecha') || undefined));
       case 'GET /api/admin/cajas/fondo': return ok(exigirAdmin().cajasFondo());
       case 'POST /api/admin/cajas/fondo': return ok(exigirAdmin().fijarFondoCaja({ tienda: b.tienda, caja: Number(b.caja), monto: Number(b.monto), motivo: b.motivo }));
       case 'POST /api/admin/cajas/ajuste': return ok(exigirAdmin().ajusteCaja({ tienda: b.tienda, caja: Number(b.caja), tipo: b.tipo, monto: Number(b.monto), motivo: b.motivo, ref: b.ref }));
