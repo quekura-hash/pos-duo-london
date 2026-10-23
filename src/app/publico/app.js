@@ -1313,6 +1313,18 @@ async function abrirDetalleVenta(saleId, { acciones, ruta, alCambiar } = {}) {
   const v = j.detalle;
   const d = dialogo('dlg-detalle-venta');
   d.setAttribute('aria-labelledby', 'dv-titulo');
+  if (v.historica) {
+    const h = v.historica;
+    const TIPO = { venta: 'Venta', cambio: 'Cambio sin diferencia', fee: 'Cargo por daño' };
+    d.innerHTML = `<h2 id="dv-titulo" style="margin:0 0 4px">Venta del POS anterior · folio ${esc(String(v.folio))}</h2>
+      <p id="dv-resumen" style="margin:0 0 8px"><span class="insignia">POS anterior</span> · ${esc(v.tienda)} · Caja ${v.caja} · <b>${esc(v.fecha_local.split('-').reverse().join('/'))}</b></p>
+      <dl class="resumen" id="dv-datos" style="margin:0 0 8px"><dt>Tipo de ticket</dt><dd>${esc(TIPO[h.tipo] ?? h.tipo)}</dd><dt>Total</dt><dd><b>${mxn(v.total)}</b></dd><dt>Piezas</dt><dd>${h.piezas}</dd><dt>Forma de pago</dt><dd>${esc(({ efectivo: 'Efectivo', tarjeta: 'Tarjeta', mixto: 'Mixto', sin_pago: 'Sin pago (cambio)' })[h.pago] ?? h.pago)}</dd></dl>
+      <div class="mensaje aviso" id="dv-historica">Esta venta se hizo con el POS anterior: aquí solo se conserva lo que traía el reporte (folio, fecha, total, piezas y forma de pago). No tiene prendas, vendedora ni ticket. Úsela para cotejar un cambio o una devolución; la operación se hace como una venta nueva.</div>
+      <div class="filas"><button class="btn" type="button" id="dv-cerrar">Cerrar</button></div>`;
+    $('#dv-cerrar').addEventListener('click', () => d.close());
+    if (!d.open) d.showModal();
+    return;
+  }
   const folio = v.codigo_ticket ?? String(v.folio).padStart(6, '0');
   const cli = (c) => (c ? `${esc(c.nombre)} · ${esc(c.telefono)}` : '—');
   const lineas = v.lineas.map((l) => `<tr><td data-label="Cant.">${l.qty}</td><td class="desc" data-label="Prenda">${esc(l.descripcion)}${l.marca ? ` · ${esc(l.marca)}` : ''}${l.estilo ? ` · ${esc(l.estilo)}` : ''}${l.item_no ? ` · #${esc(l.item_no)}` : ''}${l.devuelto ? ` <small>(${l.devuelto} ya devuelta${l.devuelto === 1 ? '' : 's'})</small>` : ''}</td><td class="num" data-label="Precio">${mxn(l.precio_unit)}</td><td class="num" data-label="Importe">${mxn(l.importe)}</td></tr>`).join('');
@@ -1417,28 +1429,30 @@ async function vistaVentas() {
 async function vistaHistorialAdmin() {
   const { cajas } = await api('/api/admin/cajas');
   const hoy = new Date(Date.now() - 7 * 3600e3).toISOString().slice(0, 10);
-  const H = (S.historialAdmin ??= { desde: hoy, hasta: hoy, caja: '', folio: '' });
+  const H = (S.historialAdmin ??= { desde: hoy, hasta: hoy, caja: '', folio: '', origen: '' });
   cuerpoVista().innerHTML = `<div class="titulo-vista">${ico('clock')}<h1>Historial de ventas</h1></div>
     <form class="filtros panel" id="ha-filtros" autocomplete="off">
       <label>Desde <input type="date" id="ha-desde" value="${esc(H.desde)}"></label><label>Hasta <input type="date" id="ha-hasta" value="${esc(H.hasta)}"></label>
-      <label>Caja <select id="ha-caja" style="padding:8px;border:2px solid var(--borde);border-radius:10px;background:var(--superficie)"><option value="">Todas</option>${cajas.map((c) => `<option value="${esc(c.tienda)}/${c.caja}" ${H.caja === `${c.tienda}/${c.caja}` ? 'selected' : ''}>${esc(c.tienda)} · Caja ${c.caja}</option>`).join('')}</select></label>
-      <label>Folio <input id="ha-folio" placeholder="D2-000003" value="${esc(H.folio)}" style="width:130px;padding:6px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie)"></label>
+      <label>Caja <select id="ha-caja" style="width:105px;padding:8px;border:2px solid var(--borde);border-radius:10px;background:var(--superficie)"><option value="">Todas</option>${cajas.map((c) => `<option value="${esc(c.tienda)}/${c.caja}" ${H.caja === `${c.tienda}/${c.caja}` ? 'selected' : ''}>${esc(c.tienda)} · Caja ${c.caja}</option>`).join('')}</select></label>
+      <label>Origen <select id="ha-origen" style="width:95px;padding:8px;border:2px solid var(--borde);border-radius:10px;background:var(--superficie)"><option value="">Todos</option><option value="nuevo" ${H.origen === 'nuevo' ? 'selected' : ''}>POS nuevo</option><option value="anterior" ${H.origen === 'anterior' ? 'selected' : ''}>POS anterior</option></select></label>
+      <label>Folio <input id="ha-folio" placeholder="D2-000003" value="${esc(H.folio)}" style="width:95px;padding:6px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie)"></label>
       <button class="btn btn-primario" type="submit" style="width:auto">${ico('search')}<span>Consultar</span></button>
       <div id="ha-msg" class="mensaje" role="status" aria-live="polite"></div></form>
     <div id="ha-resultado"></div>`;
   const consultar = async () => {
-    H.desde = $('#ha-desde').value; H.hasta = $('#ha-hasta').value; H.caja = $('#ha-caja').value; H.folio = $('#ha-folio').value.trim();
+    H.desde = $('#ha-desde').value; H.hasta = $('#ha-hasta').value; H.caja = $('#ha-caja').value; H.origen = $('#ha-origen').value; H.folio = $('#ha-folio').value.trim();
     const m = $('#ha-msg'); m.className = 'mensaje'; m.textContent = '';
     const p = new URLSearchParams({ desde: H.desde, hasta: H.hasta });
     if (H.caja) p.set('cajas', H.caja);
     if (H.folio) p.set('folio', H.folio);
+    if (H.origen) p.set('origen', H.origen);
     let j;
     try { j = await api(`/api/admin/ventas?${p}`); } catch (e) { m.className = 'mensaje error'; m.textContent = e.message; return; }
     if (j.truncado) { m.className = 'mensaje aviso'; m.textContent = `Hay ${j.total_filas} ventas; se muestran las 500 más recientes. Acote las fechas.`; }
     $('#ha-resultado').innerHTML = `<div class="panel"><p class="nota" style="margin-top:0">Toque una venta para ver el detalle y el ticket.</p><div class="tabla-cont"><table id="tabla-historial-admin" class="solo-escritorio"><thead><tr><th>Caja</th><th>Folio</th><th>Fecha</th><th>Hora</th><th>Vendedora-Cajera</th><th>Venta por</th><th>Pago</th><th class="num">Total</th><th>Estado</th></tr></thead><tbody>
-      ${j.ventas.length ? j.ventas.map((r) => `<tr data-detalle="${esc(r.sale_id)}" tabindex="0" style="cursor:pointer"><td>${esc(r.tienda)} · ${r.caja}</td><td>${esc(r.codigo_ticket)}</td><td>${esc(r.fecha_local.split('-').reverse().join('/'))}</td><td>${esc(r.hora)}</td><td>${esc(r.cajero)}</td><td data-col="vendio">${esc(r.vendedora || '—')}</td><td>${esc(r.pago)}</td><td class="num">${mxn(r.total)}</td><td><span class="insignia ${esc(r.estado)}">${esc(r.estado)}</span></td></tr>`).join('') : '<tr><td colspan="9" class="vacio">No hay ventas con esos datos.</td></tr>'}
+      ${j.ventas.length ? j.ventas.map((r) => `<tr data-detalle="${esc(r.sale_id)}" tabindex="0" style="cursor:pointer"><td>${esc(r.tienda)} · ${r.caja}</td><td>${r.historico ? `${esc(String(r.folio))} <span class="insignia" title="Venta importada del POS anterior: solo se conserva folio, fecha, total, piezas y forma de pago">POS anterior</span>` : esc(r.codigo_ticket)}</td><td>${esc(r.fecha_local.split('-').reverse().join('/'))}</td><td>${esc(r.hora || '—')}</td><td>${esc(r.cajero)}</td><td data-col="vendio">${esc(r.vendedora || '—')}</td><td>${esc(r.pago)}</td><td class="num">${mxn(r.total)}</td><td><span class="insignia ${esc(r.estado)}">${esc(r.estado)}</span></td></tr>`).join('') : '<tr><td colspan="9" class="vacio">No hay ventas con esos datos.</td></tr>'}
       </tbody></table>
-      <div class="lista-inv solo-movil" id="lista-historial-admin" role="list">${j.ventas.map((r) => `<button type="button" class="fila-inv" role="listitem" data-detalle="${esc(r.sale_id)}"><span class="fi-linea"><b class="fi-desc">${esc(r.codigo_ticket)} · ${esc(r.hora)}</b><span class="fi-precio">${mxn(r.total)}</span></span><span class="fi-quien">${esc(r.tienda)} · Caja ${r.caja} · ${esc(r.vendedora || r.cajero)}</span><span class="fi-sub"><span>${esc(r.fecha_local.split('-').reverse().join('/'))}</span><span>${esc(r.pago)}</span><span class="insignia ${esc(r.estado)}">${esc(r.estado)}</span></span></button>`).join('') || '<p class="vacio">No hay ventas con esos datos.</p>'}</div></div></div>`;
+      <div class="lista-inv solo-movil" id="lista-historial-admin" role="list">${j.ventas.map((r) => `<button type="button" class="fila-inv" role="listitem" data-detalle="${esc(r.sale_id)}"><span class="fi-linea"><b class="fi-desc">${r.historico ? `${esc(String(r.folio))} · POS anterior` : `${esc(r.codigo_ticket)} · ${esc(r.hora)}`}</b><span class="fi-precio">${mxn(r.total)}</span></span><span class="fi-quien">${esc(r.tienda)} · Caja ${r.caja} · ${esc(r.vendedora || r.cajero)}</span><span class="fi-sub"><span>${esc(r.fecha_local.split('-').reverse().join('/'))}</span><span>${esc(r.pago)}</span><span class="insignia ${esc(r.estado)}">${esc(r.estado)}</span></span></button>`).join('') || '<p class="vacio">No hay ventas con esos datos.</p>'}</div></div></div>`;
     for (const fila of $('#ha-resultado').querySelectorAll('[data-detalle]')) {
       const abrir = () => abrirDetalleVenta(fila.dataset.detalle, { acciones: false, ruta: `/api/admin/venta?sale_id=${encodeURIComponent(fila.dataset.detalle)}` }).catch((e) => { m.className = 'mensaje error'; m.textContent = e.message; });
       fila.addEventListener('click', abrir);

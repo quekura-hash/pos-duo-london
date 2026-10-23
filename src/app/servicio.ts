@@ -11,7 +11,7 @@ import { estadoPromo, type Promocion } from '../promociones.ts';
 import { cuentasEmpleadas, configEmpleadas, CRITERIOS_EXPEDIENTE, expedientesDe, expedienteVacio, registradaEn, CAMPOS_EDITABLES, catalogo, historialArticulo, nombresTienda, datosTiendas, departamentos as proyDepartamentos, devoluciones, type Devolucion, promocionesDe, recompensasDe, supervisoresDe, cajerosDe, administradoresDe, configSesionDe, permisos as proyPermisos, tarjetasRegalo, tiposDeCambio, tipoCambioVigente, ventas, type TipoCambio } from '../proyecciones.ts';
 import { hojaAnalisis, hojaDetalleVentas, hojaResumenVentas, hojaDescuentos, hojaEntregas, hojaDolares, hojaInventario, leerInventario, PERFIL_CONFIRMADO, type Hoja } from '../inventario.ts';
 import { LOGOS_TICKET } from '../logos-ticket.ts';
-import { detalleDeVenta, validarDatosClienta, type DatosClienta } from '../detalle-venta.ts';
+import { detalleHistorica, detalleDeVenta, validarDatosClienta, type DatosClienta } from '../detalle-venta.ts';
 import { aplicarDatosTienda, codigoTicket, interpretarFolio, construirTicket, construirTicketRegalo, formatoMXN, NEGOCIOS, renderTextoEscPos, renderTicketCancelacionTexto, renderTicketFirmaTexto, renderTicketDevolucionTexto, type ComprobanteClienta, renderTicketRetiroTexto, renderTicketEscPos, renderTicketCorteEscPos, renderTicketCorteTexto, renderTicketTexto, type NegocioCfg } from '../ticket.ts';
 import { promoDeRegla, type ReglaRecompensa } from '../recompensas.ts';
 import { hashClave, nombreClave, supervisorPorClave, type Perfil, type RolAdmin } from '../supervisores.ts';
@@ -1599,14 +1599,19 @@ export class ServicioAdmin {
   reporte(f: Filtro = {}) {
     return reporteConsolidado(this.actor, this.fuente(), f);
   }
-  /** Historial de ventas de todas las tiendas y cajas (sin las históricas del POS anterior, que no traen prendas). Filtros: fechas, cajas, tiendas y folio. */
-  historialVentas(f: Filtro & { folio?: number | string } = {}) {
-    const { folio: texto, ...filtro } = f;
+  /**
+   * Historial de ventas de todas las tiendas y cajas, con las importadas del POS anterior marcadas (`historico`; de ellas solo se conserva folio, fecha,
+   * total, piezas y forma de pago). Filtros: fechas, cajas, tiendas, folio y origen (`nuevo` / `anterior`). Un código de ticket (D2-000003) es del POS
+   * nuevo; un folio suelto busca en los dos.
+   */
+  historialVentas(f: Filtro & { folio?: number | string; origen?: string } = {}) {
+    const { folio: texto, origen, ...filtro } = f;
     const buscado = texto === undefined || texto === '' ? null : interpretarFolio(texto);
     if (texto !== undefined && texto !== '' && !buscado) throw new ErrorDominio('DATOS_INVALIDOS', 'el folio no es válido: escriba el número o el código del ticket (por ejemplo D2-000003)');
-    const filas = this.reporte({ ...filtro, historicas: false }).filas
-      .filter((r) => !buscado || (r.folio === buscado.folio && (!buscado.tienda || r.tienda === buscado.tienda) && (buscado.caja === undefined || r.caja === buscado.caja)))
-      .map((r) => ({ ...r, codigo_ticket: codigoTicket(r.tienda, r.caja, r.folio) }));
+    const filas = this.reporte({ ...filtro, historicas: origen !== 'nuevo' }).filas
+      .filter((r) => (origen === 'anterior' ? r.historico : true))
+      .filter((r) => !buscado || (r.folio === buscado.folio && (!buscado.tienda || (!r.historico && r.tienda === buscado.tienda)) && (buscado.caja === undefined || r.caja === buscado.caja)))
+      .map((r) => ({ ...r, codigo_ticket: r.historico ? null : codigoTicket(r.tienda, r.caja, r.folio) }));
     const ordenadas = [...filas].sort((a, b) => `${b.fecha_local} ${b.hora}`.localeCompare(`${a.fecha_local} ${a.hora}`) || b.folio - a.folio);
     return { ventas: ordenadas.slice(0, 500), total_filas: ordenadas.length, truncado: ordenadas.length > 500 };
   }
@@ -1648,7 +1653,11 @@ export class ServicioAdmin {
   detalleVenta(saleId: string) {
     const ops = this.fuente();
     const d = detalleDeVenta(ops, saleId);
-    if (!d) throw new ErrorDominio('NO_ENCONTRADO', 'no existe esa venta');
+    if (!d) {
+      const h = detalleHistorica(ops, saleId);
+      if (h) return { detalle: h, ticket_texto: '' };
+      throw new ErrorDominio('NO_ENCONTRADO', 'no existe esa venta');
+    }
     const datos = datosTiendas(ops);
     const negocios = Object.fromEntries(Object.entries(NEGOCIOS).map(([t, c]) => [t, aplicarDatosTienda(c, datos.get(t))])) as Record<string, NegocioCfg>;
     const v = ventas(ops).get(saleId)!;

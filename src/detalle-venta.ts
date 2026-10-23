@@ -30,6 +30,8 @@ export interface DetalleVenta {
   cancelable: boolean;
   /** ¿Quedan piezas por cambiar o devolver? */
   con_piezas_disponibles: boolean;
+  /** Solo en una venta importada del POS anterior: de ahí solo se conservan folio, fecha, total, piezas y forma de pago (sin prendas ni ticket). */
+  historica?: { tipo: 'venta' | 'cambio' | 'fee'; pago: string; pago_original: string; piezas: number; lote: string | null };
 }
 
 const hora = (iso: string) => new Date(Date.parse(iso) - 7 * 3600_000).toISOString().slice(11, 16);
@@ -57,6 +59,19 @@ export function detalleDeVenta(ops: Op[], saleId: string): DetalleVenta | null {
     })),
     cancelable: v.estado === 'confirmada' && !conTarjetaRegalo && devs.length === 0,
     con_piezas_disponibles: v.estado === 'confirmada' && lineas.some((l) => !l.tarjeta_regalo && l.qty - l.devuelto > 0),
+  };
+}
+
+/** Detalle de una venta importada del POS anterior (id `hist:…`): lo poco que se conserva, para cotejar un cambio o devolución. null si no existe. */
+export function detalleHistorica(ops: Op[], histId: string): DetalleVenta | null {
+  const o = ops.find((x) => x.tipo === 'venta.historica' && x.payload.hist_id === histId);
+  if (!o) return null;
+  const h = o.payload;
+  const pagos: Pago[] = h.pago === 'efectivo' || h.pago === 'tarjeta' ? [{ metodo: h.pago, monto: h.total }] : [];
+  return {
+    sale_id: h.hist_id, tienda: h.tienda_hist, caja: h.caja_hist, folio: h.folio, ocurrio_en: `${h.fecha}T00:00:00.000Z`, fecha_local: h.fecha, hora: '', cajero: '', vendedora: '', estado: 'confirmada', total: h.total,
+    lineas: [], pagos, cancelacion: null, devoluciones: [], cancelable: false, con_piezas_disponibles: false,
+    historica: { tipo: h.tipo_hist, pago: h.pago, pago_original: h.pago_original ?? '', piezas: h.piezas, lote: o.payload.lote_importacion ?? null },
   };
 }
 
