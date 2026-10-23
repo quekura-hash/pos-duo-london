@@ -12,7 +12,7 @@ import { CRITERIOS_EXPEDIENTE, expedientesDe, expedienteVacio, registradaEn, CAM
 import { hojaAnalisis, hojaDetalleVentas, hojaResumenVentas, hojaDescuentos, hojaEntregas, hojaDolares, hojaInventario, leerInventario, PERFIL_CONFIRMADO, type Hoja } from '../inventario.ts';
 import { LOGOS_TICKET } from '../logos-ticket.ts';
 import { detalleDeVenta, validarDatosClienta, type DatosClienta } from '../detalle-venta.ts';
-import { aplicarDatosTienda, codigoTicket, interpretarFolio, construirTicket, construirTicketRegalo, formatoMXN, NEGOCIOS, renderTextoEscPos, renderTicketCancelacionTexto, renderTicketFirmaTexto, renderTicketDevolucionTexto, type ComprobanteClienta, renderTicketRetiroTexto, renderTicketEscPos, renderTicketTexto, type NegocioCfg } from '../ticket.ts';
+import { aplicarDatosTienda, codigoTicket, interpretarFolio, construirTicket, construirTicketRegalo, formatoMXN, NEGOCIOS, renderTextoEscPos, renderTicketCancelacionTexto, renderTicketFirmaTexto, renderTicketDevolucionTexto, type ComprobanteClienta, renderTicketRetiroTexto, renderTicketEscPos, renderTicketCorteEscPos, renderTicketCorteTexto, renderTicketTexto, type NegocioCfg } from '../ticket.ts';
 import { promoDeRegla, type ReglaRecompensa } from '../recompensas.ts';
 import { hashClave, nombreClave, supervisorPorClave, type Perfil, type RolAdmin } from '../supervisores.ts';
 import { LIMBO, type Actor, type Articulo, type Linea, type Op, type Venta } from '../tipos.ts';
@@ -714,9 +714,34 @@ export class ServicioCaja {
       estado: this.caja.estadoCierre(fecha), pide_clave: this.caja.controlesConClave(),
     };
   }
-  /** Cierra el corte del día (flujo guiado): exige fondo confirmado y conteos al día, y la clave de la propia cajera. */
-  cerrarCorte(fecha: string, d: { clave?: string; observaciones?: string } = {}) {
-    return this.caja.cerrarCorteGuiado(fecha, { usuario: this.actor.usuario, clave: d.clave, observaciones: d.observaciones });
+  /**
+   * Cierra el corte del día (flujo guiado): exige fondo confirmado y conteos al día, y la clave de la propia cajera. Al cerrar por primera vez
+   * imprime el ticket de cierre; una falla de impresión no deshace el cierre (se reimprime con «Reimprimir cierre»). Cerrar otra vez no reimprime.
+   */
+  async cerrarCorte(fecha: string, d: { clave?: string; observaciones?: string } = {}) {
+    const yaCerrado = !!this.caja.repo.getOp(`corte:${this.caja.id}:${fecha}`);
+    const corte = this.caja.cerrarCorteGuiado(fecha, { usuario: this.actor.usuario, clave: d.clave, observaciones: d.observaciones });
+    if (yaCerrado) return { corte, ticket_texto: null as string | null, impresion: null as { ok: boolean; error?: string } | null };
+    return { corte, ...(await this.imprimirCierre(corte, 0)) };
+  }
+  /** Reimprime el ticket del cierre YA guardado (no recalcula nada) con la leyenda de reimpresión. */
+  async reimprimirCierre(fecha: string) {
+    const guardado = this.caja.repo.getOp(`corte:${this.caja.id}:${fecha}`);
+    if (!guardado) throw new ErrorDominio('CORTE_ABIERTO', 'el corte de ese día aún no está cerrado: no hay cierre que reimprimir');
+    const clave = `cierreimp:${this.caja.id}:${fecha}`;
+    const n = (this.caja.repo.kvGet<number>(clave) ?? 0) + 1;
+    const r = await this.imprimirCierre(guardado.payload, n);
+    this.caja.repo.kvSet(clave, n);
+    return { corte: guardado.payload, reimpresion: n, ...r };
+  }
+  private async imprimirCierre(corte: Record<string, unknown>, reimpresion: number) {
+    const cfg = this.negociosVivos()[this.caja.tienda]!;
+    const texto = renderTicketCorteTexto(corte, cfg, { reimpresion });
+    const ref = `cierre-${codigoTicket(this.caja.tienda, this.caja.caja, 0).slice(0, 2)}-${corte.fecha}${reimpresion ? `-r${reimpresion}` : ''}`;
+    let impresion: { ok: boolean; error?: string };
+    try { await this.impresora.imprimir({ ref, texto, bytes: renderTicketCorteEscPos(corte, cfg, { reimpresion }) }); impresion = { ok: true }; }
+    catch (e) { impresion = { ok: false, error: e instanceof Error ? e.message : String(e) }; }
+    return { ticket_texto: texto, impresion };
   }
   cortesPropios(filtro: Filtro = {}) {
     return cortesPorCaja(this.actor, this.caja.opsDe('corte.generado'), filtro);

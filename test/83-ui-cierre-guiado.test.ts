@@ -91,6 +91,9 @@ describe('[navegador real] Cierre de caja guiado por pasos', { timeout: 240_000,
     await page.waitForSelector('#corte-cerrado');
     assert.match((await page.textContent('#corte-cerrado'))!, /Corte cerrado por Lupe/);
     assert.equal(await page.locator('#btn-cerrar-corte').count(), 0);
+    assert.match((await page.textContent('#estado-impresion-cierre'))!, /ticket de cierre se envió a la impresora/);
+    await page.click('#btn-reimprimir-cierre');
+    await page.waitForFunction(() => /Reimpresión 1 enviada/.test(document.querySelector('#estado-impresion-cierre')!.textContent!));
     const cierre = (await api(caja.url, '/api/corte')).json.cerrado;
     assert.deepEqual([cierre.diferencia_mxn, cierre.observaciones, cierre.fondo_confirmado], [-4000, 'Faltante de $40 por pago de barrendero.', 500000]);
     assert.deepEqual(errores.filter((e) => !/401|403|Failed to load resource/.test(e)), []);

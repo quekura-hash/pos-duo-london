@@ -124,7 +124,8 @@ export async function atender(o: { cajero?: ServicioCaja; admin?: ServicioAdmin 
         if (cajas) c.cortesPropios({ cajas });
         return ok({ ...c.corte(q.get('fecha') ?? c.estado().fecha_local) });
       }
-      case 'POST /api/corte/cerrar': { const c = exigirCajero(); return ok({ corte: c.cerrarCorte(b.fecha ?? c.estado().fecha_local, { clave: b.clave, observaciones: b.observaciones }) }); }
+      case 'POST /api/corte/cerrar': { const c = exigirCajero(); return ok(await c.cerrarCorte(b.fecha ?? c.estado().fecha_local, { clave: b.clave, observaciones: b.observaciones })); }
+      case 'POST /api/corte/reimprimir': { const c = exigirCajero(); return ok(await c.reimprimirCierre(b.fecha ?? c.estado().fecha_local)); }
       case 'POST /api/sincronizar': return ok({ conexion: await exigirCajero().sincronizar() });
       // ── administración ──
       case 'GET /api/admin/cajas': return ok({ cajas: exigirAdmin().cajas });

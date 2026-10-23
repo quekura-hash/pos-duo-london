@@ -1021,7 +1021,9 @@ async function vistaCorte() {
   }).join('')}</ol>`;
   const cab = `<div class="titulo-vista">${ico('chart')}<h1>Cierre de caja — Caja ${v.caja} (${esc(v.tienda)}) · ${esc(v.fecha)}</h1></div>${pasos}
     ${v.perdida_documental_abierta.length ? '<div class="mensaje error" data-alerta="perdida-corte">Este corte puede estar incompleto: hay una posible pérdida de ventas, pagos o folios de esta caja sin resolver.</div>' : ''}
-    ${cerrado ? `<div class="mensaje ok" id="corte-cerrado">Corte cerrado${j.cerrado.cerrado_por ? ` por ${esc(j.cerrado.cerrado_por)}` : ''}${j.desactualizado ? '. Hay operaciones posteriores al cierre (no se reescribe el corte cerrado).' : '.'}</div>` : ''}`;
+    ${cerrado ? `<div class="mensaje ok" id="corte-cerrado">Corte cerrado${j.cerrado.cerrado_por ? ` por ${esc(j.cerrado.cerrado_por)}` : ''}${j.desactualizado ? '. Hay operaciones posteriores al cierre (no se reescribe el corte cerrado).' : '.'}</div>
+      <div id="estado-impresion-cierre" class="mensaje ${S.cierreImpresion && !S.cierreImpresion.ok ? 'error' : 'ok'}" role="status" aria-live="polite" ${S.cierreImpresion ? '' : 'hidden'}>${S.cierreImpresion ? (S.cierreImpresion.ok ? 'El ticket de cierre se envió a la impresora.' : `No se pudo imprimir el ticket de cierre: ${esc(S.cierreImpresion.error ?? '')}. El corte SÍ quedó cerrado; use «Reimprimir cierre».`) : ''}</div>
+      <div class="filas"><button class="btn" type="button" id="btn-reimprimir-cierre">${ico('printer')}<span>Reimprimir cierre</span></button></div>` : ''}`;
   let cuerpo = '';
   if (paso === 1) {
     const prev = v.fondo_denominaciones ?? v.fondo_referencia?.denominaciones ?? {};
@@ -1148,10 +1150,24 @@ async function vistaCorte() {
     $('#btn-volver-conteo')?.addEventListener('click', () => { S.cierrePaso = 2; vistaCorte(); });
     $('#btn-cerrar-corte')?.addEventListener('click', async () => {
       const m = $('#msg-cierre');
-      try { await api('/api/corte/cerrar', { clave: $('#cierre-clave')?.value ?? '', observaciones: $('#cierre-obs').value }); await vistaCorte(); }
-      catch (e) { m.className = 'mensaje error'; m.textContent = e.message; }
+      try {
+        const r = await api('/api/corte/cerrar', { clave: $('#cierre-clave')?.value ?? '', observaciones: $('#cierre-obs').value });
+        if (r.ticket_texto) void imprimirNavegador(r.ticket_texto, { logo: false });
+        S.cierreImpresion = r.impresion ?? null;
+        await vistaCorte();
+      } catch (e) { m.className = 'mensaje error'; m.textContent = e.message; }
     });
   }
+  $('#btn-reimprimir-cierre')?.addEventListener('click', async () => {
+    const m = $('#estado-impresion-cierre');
+    try {
+      const r = await api('/api/corte/reimprimir', {});
+      if (r.ticket_texto) void imprimirNavegador(r.ticket_texto, { logo: false });
+      S.cierreImpresion = r.impresion;
+      m.hidden = false; m.className = `mensaje ${r.impresion.ok ? 'ok' : 'error'}`;
+      m.textContent = r.impresion.ok ? `Reimpresión ${r.reimpresion} enviada a la impresora.` : `No se pudo imprimir: ${r.impresion.error}. Intente de nuevo.`;
+    } catch (e) { m.hidden = false; m.className = 'mensaje error'; m.textContent = e.message; }
+  });
 }
 
 // ── Operaciones extraordinarias de efectivo (fuera del cierre): entradas con clave de supervisor; los retiros tienen su módulo ──
