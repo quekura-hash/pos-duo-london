@@ -16,7 +16,7 @@ select
   count(*) filter (where o.tipo = 'sale.confirmed') as ventas_confirmadas,
   count(*) filter (where o.tipo = 'sale.cancelled') as ventas_canceladas,
   count(*) filter (where o.tipo = 'return.registered') as devoluciones,
-  count(*) filter (where o.tipo in ('corte.generado', 'cash.retiro', 'cash.conteo')) as cortes_y_retiros,
+  count(*) filter (where o.tipo in ('corte.generado', 'cash.retiro', 'cash.conteo', 'cash.fondo', 'cash.movement', 'cash.ajuste_admin')) as cortes_retiros_y_fondo,
   min(o.ocurrio_en) filter (where o.tipo = 'sale.confirmed') as primera_venta,
   max(o.ocurrio_en) filter (where o.tipo = 'sale.confirmed') as ultima_venta
 from pos.ops o, p
