@@ -8,7 +8,7 @@ import { ErrorDominio } from '../errores.ts';
 import type { Impresora } from '../impresion.ts';
 import { FONDO_AUTORIZADO_DEFECTO, type Caja } from '../nodos.ts';
 import { estadoPromo, type Promocion } from '../promociones.ts';
-import { CRITERIOS_EXPEDIENTE, expedientesDe, expedienteVacio, registradaEn, CAMPOS_EDITABLES, catalogo, historialArticulo, nombresTienda, datosTiendas, departamentos as proyDepartamentos, devoluciones, type Devolucion, promocionesDe, recompensasDe, supervisoresDe, cajerosDe, administradoresDe, configSesionDe, permisos as proyPermisos, tarjetasRegalo, tiposDeCambio, tipoCambioVigente, ventas, type TipoCambio } from '../proyecciones.ts';
+import { cuentasEmpleadas, configEmpleadas, CRITERIOS_EXPEDIENTE, expedientesDe, expedienteVacio, registradaEn, CAMPOS_EDITABLES, catalogo, historialArticulo, nombresTienda, datosTiendas, departamentos as proyDepartamentos, devoluciones, type Devolucion, promocionesDe, recompensasDe, supervisoresDe, cajerosDe, administradoresDe, configSesionDe, permisos as proyPermisos, tarjetasRegalo, tiposDeCambio, tipoCambioVigente, ventas, type TipoCambio } from '../proyecciones.ts';
 import { hojaAnalisis, hojaDetalleVentas, hojaResumenVentas, hojaDescuentos, hojaEntregas, hojaDolares, hojaInventario, leerInventario, PERFIL_CONFIRMADO, type Hoja } from '../inventario.ts';
 import { LOGOS_TICKET } from '../logos-ticket.ts';
 import { detalleDeVenta, validarDatosClienta, type DatosClienta } from '../detalle-venta.ts';
@@ -30,6 +30,8 @@ export interface Conexion {
 export type ActorCajero = Extract<Actor, { rol: 'cajero' }>;
 
 export interface VistaCarrito {
+  /** Venta a empleada: quién es, los porcentajes que se aplican y cuánto crédito le queda (para mostrar). */
+  empleada?: { id: string; nombre: string; pct: number; pct_uniforme: number; credito_disponible: number } | null;
   id: string;
   lineas: Linea[];
   piezas: number;
@@ -355,6 +357,7 @@ export class ServicioCaja {
         return { sale_id: c.cambio.sale_id, folio_origen: c.cambio.folio_origen, credito: c.cambio.credito, aplicado: Math.min(c.cambio.credito, bruto), saldo_favor: Math.max(0, c.cambio.credito - bruto), lineas: c.cambio.lineas };
       })() : null,
       vendedora: c.vendedora ?? null,
+      empleada: c.empleada ? { ...c.empleada, ...this.caja.configEmpleadas(), credito_disponible: this.caja.cuentaEmpleada(c.empleada.id).disponible } : null,
       promos: c.descuentos?.aplicadas ?? [], cupon: c.descuentos?.cupon ?? null,
       tasa: c.tasa ? { version: c.tasa.version, tasa: c.tasa.tasa, texto: formatoTasa(c.tasa.tasa), hay_nueva: (this.caja.tipoCambio()?.version ?? 0) > c.tasa.version } : null,
       existencias: Object.fromEntries(c.lineas.map((l) => { const e = this.caja.existenciaVerificada(l.item_id); return [l.item_id, { saldo: e.saldo, verificada: e.verificada, limbo: this.caja.saldoLimbo(l.item_id) }]; })),
@@ -368,6 +371,27 @@ export class ServicioCaja {
   quitarCupon(cartId: string) {
     this.caja.quitarCupon(cartId);
     return { carrito: this.vista(cartId) };
+  }
+  // ── ventas a empleadas ──
+  /** Empleadas a quienes se puede vender y los porcentajes de descuento vigentes. */
+  empleadas() {
+    return { empleadas: this.caja.empleadasActivas(), config: this.caja.configEmpleadas(), yo: this.actor.usuario };
+  }
+  asignarEmpleada(cartId: string, d: { empleada_id: string; clave: string; clave_supervisor?: string }) {
+    this.caja.asignarEmpleada(cartId, { empleada_id: d.empleada_id, clave: d.clave, claveSupervisor: d.clave_supervisor, usuario: this.actor.usuario });
+    return { carrito: this.vista(cartId) };
+  }
+  quitarEmpleada(cartId: string) {
+    this.caja.quitarEmpleada(cartId);
+    return { carrito: this.vista(cartId) };
+  }
+  marcarUniforme(cartId: string, lineaId: string, uniforme: boolean) {
+    this.caja.marcarUniforme(cartId, lineaId, uniforme);
+    return { carrito: this.vista(cartId) };
+  }
+  /** Cobra la venta a crédito de la empleada (no entra dinero): imprime el ticket con el cargo y la firma de ella. */
+  async cobrarCreditoEmpleada(cartId: string) {
+    return this.finalizarCobro(this.caja.cobrarConCreditoEmpleada(cartId, this.actor.usuario));
   }
   /** Descuento manual: lo autoriza un supervisor con su clave. */
   aplicarDescuento(cartId: string, d: { linea_id?: string | null; tipo: 'pct' | 'monto'; valor: number }, clave: string) {
@@ -796,7 +820,7 @@ export class ServicioAdmin {
   readonly cajas: { tienda: string; caja: number }[];
   private inv?: FuenteInventario;
   private central?: { fijarTipoCambio(tasa: number, usuario: string, versionBase: number, confirmarVariacion?: boolean): import('../nodos.ts').ResultadoTipoCambio; asignarPermiso(usuario: string, permiso: string, valor: boolean, por: string): Op; guardarDepto(c: import('../departamentos.ts').CambioDepto, por: string): { ok: true; op: Op } | { ok: false; error: import('../departamentos.ts').ErrorDepto };
-    guardarDatosTienda: import('../nodos.ts').Central['guardarDatosTienda']; editarArticulo: import('../nodos.ts').Central['editarArticulo']; guardarPromocion: import('../nodos.ts').Central['guardarPromocion']; guardarRecompensa: import('../nodos.ts').Central['guardarRecompensa']; fijarFondoCaja: import('../nodos.ts').Central['fijarFondoCaja']; registrarAjusteCaja: import('../nodos.ts').Central['registrarAjusteCaja']; guardarSupervisor: import('../nodos.ts').Central['guardarSupervisor']; guardarCajero: import('../nodos.ts').Central['guardarCajero']; guardarAdmin: import('../nodos.ts').Central['guardarAdmin']; guardarConfigSesion: import('../nodos.ts').Central['guardarConfigSesion']; recordarSacarAPiso: import('../nodos.ts').Central['recordarSacarAPiso']; resolverFaltante: import('../nodos.ts').Central['resolverFaltante']; contarLimbo: import('../nodos.ts').Central['contarLimbo']; reubicarLimbo: import('../nodos.ts').Central['reubicarLimbo']; fijarExistencias: import('../nodos.ts').Central['fijarExistencias']; guardarExpediente: import('../nodos.ts').Central['guardarExpediente']; eliminarCajero: import('../nodos.ts').Central['eliminarCajero']; corregirEntrada: import('../nodos.ts').Central['corregirEntrada']; altaLote: import('../nodos.ts').Central['altaLote']; importarVentasHistoricas: import('../nodos.ts').Central['importarVentasHistoricas']; entregar: import('../nodos.ts').Central['entregar'] };
+    guardarDatosTienda: import('../nodos.ts').Central['guardarDatosTienda']; editarArticulo: import('../nodos.ts').Central['editarArticulo']; guardarPromocion: import('../nodos.ts').Central['guardarPromocion']; guardarRecompensa: import('../nodos.ts').Central['guardarRecompensa']; fijarFondoCaja: import('../nodos.ts').Central['fijarFondoCaja']; fijarConfigEmpleadas: import('../nodos.ts').Central['fijarConfigEmpleadas']; fijarLimiteEmpleada: import('../nodos.ts').Central['fijarLimiteEmpleada']; registrarMovimientoEmpleada: import('../nodos.ts').Central['registrarMovimientoEmpleada']; registrarAjusteCaja: import('../nodos.ts').Central['registrarAjusteCaja']; guardarSupervisor: import('../nodos.ts').Central['guardarSupervisor']; guardarCajero: import('../nodos.ts').Central['guardarCajero']; guardarAdmin: import('../nodos.ts').Central['guardarAdmin']; guardarConfigSesion: import('../nodos.ts').Central['guardarConfigSesion']; recordarSacarAPiso: import('../nodos.ts').Central['recordarSacarAPiso']; resolverFaltante: import('../nodos.ts').Central['resolverFaltante']; contarLimbo: import('../nodos.ts').Central['contarLimbo']; reubicarLimbo: import('../nodos.ts').Central['reubicarLimbo']; fijarExistencias: import('../nodos.ts').Central['fijarExistencias']; guardarExpediente: import('../nodos.ts').Central['guardarExpediente']; eliminarCajero: import('../nodos.ts').Central['eliminarCajero']; corregirEntrada: import('../nodos.ts').Central['corregirEntrada']; altaLote: import('../nodos.ts').Central['altaLote']; importarVentasHistoricas: import('../nodos.ts').Central['importarVentasHistoricas']; entregar: import('../nodos.ts').Central['entregar'] };
   constructor(o: { actor: Extract<Actor, { rol: 'admin' }>; fuente: () => Op[]; cajas: { tienda: string; caja: number }[]; inventario?: FuenteInventario; central?: ServicioAdmin['central']; reloj?: { now(): string } }) {
     this.central = o.central;
     this.actor = o.actor;
@@ -1111,6 +1135,56 @@ export class ServicioAdmin {
     if (!g.ok) throw new ErrorDominio(g.error.codigo === 'NO_EXISTE' ? 'NO_ENCONTRADO' : 'RECOMPENSA_INVALIDA', g.error.mensaje, { motivo: g.error.codigo });
     return { ...this.recompensas(), guardada: g.regla };
   }
+  // ── empleadas: descuento, crédito y cuenta (solo Administración) ──
+  /** Empleadas con su límite, lo que deben y lo disponible, más los porcentajes de descuento. Las eliminadas con saldo siguen apareciendo hasta saldarse. */
+  empleadasCuentas() {
+    const ops = this.fuente();
+    const cuentas = cuentasEmpleadas(ops);
+    const nombres = new Map<string, { nombre: string; activo: boolean; tienda?: string }>();
+    for (const o of ops) if (o.tipo === 'cajero.guardado') nombres.set(o.payload.id, { nombre: o.payload.nombre, activo: !o.payload.eliminado && o.payload.activo !== false, tienda: o.payload.tienda });
+    const vivas = new Set(cajerosDe(ops).map((c) => c.id));
+    const filas = [...new Set([...vivas, ...[...cuentas.keys()]])].map((id) => {
+      const c = cuentas.get(id);
+      const n = nombres.get(id);
+      return { id, nombre: n?.nombre ?? id, activa: vivas.has(id) && (n?.activo ?? true), tienda: n?.tienda ?? null, limite: c?.limite ?? 0, cargos: c?.cargos ?? 0, devoluciones: c?.devoluciones ?? 0, abonos: c?.abonos ?? 0, ajustes: (c?.ajustes_cargo ?? 0) - (c?.ajustes_abono ?? 0), saldo: c?.saldo ?? 0, disponible: c?.disponible ?? 0 };
+    }).filter((f) => f.activa || f.saldo !== 0).sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
+    return { config: configEmpleadas(ops), empleadas: filas, total_por_cobrar: filas.reduce((a, f) => a + f.saldo, 0) };
+  }
+  empleadaMovimientos(id: string) {
+    const c = cuentasEmpleadas(this.fuente()).get(id);
+    return { id, movimientos: c?.movimientos ?? [], saldo: c?.saldo ?? 0 };
+  }
+  /** Para la nómina: por empleada, lo cargado a crédito (menos devoluciones) y lo abonado en el periodo, y su saldo actual. */
+  nominaEmpleadas(desde?: string, hasta?: string) {
+    const ops = this.fuente();
+    const hoy = fechaLocal(this.reloj.now());
+    const d = desde || hoy, h = hasta || hoy;
+    const nombres = new Map(this.empleadasCuentas().empleadas.map((e) => [e.id, e.nombre]));
+    const filas = [...cuentasEmpleadas(ops).values()].map((c) => {
+      const en = c.movimientos.filter((m) => m.fecha >= d && m.fecha <= h);
+      const suma = (t: string) => en.filter((m) => m.tipo === t).reduce((a, m) => a + m.monto, 0);
+      return { id: c.id, nombre: nombres.get(c.id) ?? c.id, cargos: suma('cargo') + suma('ajuste_cargo'), devoluciones: suma('devolucion') + suma('ajuste_abono'), abonos: suma('abono'), a_descontar: suma('cargo') + suma('ajuste_cargo') - suma('devolucion') - suma('ajuste_abono'), saldo: c.saldo };
+    }).filter((f) => f.cargos || f.devoluciones || f.abonos || f.saldo).sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
+    return { desde: d, hasta: h, filas, total: { cargos: filas.reduce((a, f) => a + f.cargos, 0), devoluciones: filas.reduce((a, f) => a + f.devoluciones, 0), abonos: filas.reduce((a, f) => a + f.abonos, 0), a_descontar: filas.reduce((a, f) => a + f.a_descontar, 0), saldo: filas.reduce((a, f) => a + f.saldo, 0) } };
+  }
+  fijarConfigEmpleadas(d: { pct: number; pct_uniforme: number }) {
+    if (!this.central) throw new ErrorDominio('SIN_CENTRAL', 'esta sesión no tiene acceso al servicio central');
+    const r = this.central.fijarConfigEmpleadas({ pct: Number(d.pct), pct_uniforme: Number(d.pct_uniforme) }, this.actor.usuario);
+    if (!r.ok) throw new ErrorDominio('DATOS_INVALIDOS', r.error.mensaje);
+    return this.empleadasCuentas();
+  }
+  fijarLimiteEmpleada(d: { empleada_id: string; limite: number; motivo: string }) {
+    if (!this.central) throw new ErrorDominio('SIN_CENTRAL', 'esta sesión no tiene acceso al servicio central');
+    const r = this.central.fijarLimiteEmpleada({ empleada_id: String(d.empleada_id ?? ''), limite: Number(d.limite), motivo: String(d.motivo ?? '') }, this.actor.usuario);
+    if (!r.ok) throw new ErrorDominio('DATOS_INVALIDOS', r.error.mensaje);
+    return this.empleadasCuentas();
+  }
+  movimientoEmpleada(d: { empleada_id: string; tipo: 'abono' | 'ajuste_cargo' | 'ajuste_abono'; monto: number; motivo: string; periodo?: string; ref: string }) {
+    if (!this.central) throw new ErrorDominio('SIN_CENTRAL', 'esta sesión no tiene acceso al servicio central');
+    const r = this.central.registrarMovimientoEmpleada({ empleada_id: String(d.empleada_id ?? ''), tipo: d.tipo, monto: Number(d.monto), motivo: String(d.motivo ?? ''), periodo: d.periodo, ref: String(d.ref ?? '') }, this.actor.usuario);
+    if (!r.ok) throw new ErrorDominio('DATOS_INVALIDOS', r.error.mensaje);
+    return this.empleadasCuentas();
+  }
   // ── fondo fijo y ajustes de efectivo por caja (solo Administración) ──
   /** Fondo autorizado de cada caja con su historial de cambios, el último fondo confirmado por la cajera y los ajustes administrativos. */
   cajasFondo() {
@@ -1220,7 +1294,7 @@ export class ServicioAdmin {
   rol(): RolAdmin { return this.rolUsuario ?? 'supervisor'; }
   /** Pantallas de Administración que ve cada rol (el almacenista solo trabaja Inventario y Almacén). */
   nav(): string[] {
-    return this.rol() === 'almacenista' ? ['inventario', 'almacen'] : ['inventario', 'almacen', 'promociones', 'tarjetas', 'reportes', 'historial', 'analisis', 'cortes', 'configuracion'];
+    return this.rol() === 'almacenista' ? ['inventario', 'almacen'] : ['inventario', 'almacen', 'promociones', 'tarjetas', 'reportes', 'historial', 'analisis', 'cortes', 'empleadas', 'configuracion'];
   }
   /** ¿El rol de la sesión puede llamar a esta ruta de Administración? El supervisor, todo; el almacenista, solo lo de Inventario y Almacén. */
   puede(metodo: string, ruta: string): boolean {
@@ -1557,7 +1631,7 @@ export class ServicioAdmin {
       const recibida = suma(d.filter((x) => x.por_cambio).map((x) => x.importe)) - suma(d.filter((x) => x.por_cambio).flatMap((x) => x.reembolsos.map((r) => r.monto)));
       return {
         tickets: conf.length, canceladas: v.length - conf.length, venta_total: ventaTotal, tarjetas_regalo: suma(lineas.filter((l) => l.tarjeta_regalo).map((l) => l.importe)),
-        efectivo: pagos('efectivo') + pagos('efectivo_usd'), pesos: pagos('efectivo'), dolares_mxn: pagos('efectivo_usd'), tarjeta: pagos('tarjeta'), tarjeta_regalo: pagos('tarjeta_regalo'),
+        efectivo: pagos('efectivo') + pagos('efectivo_usd'), pesos: pagos('efectivo'), dolares_mxn: pagos('efectivo_usd'), tarjeta: pagos('tarjeta'), tarjeta_regalo: pagos('tarjeta_regalo'), credito_empleadas: pagos('credito_empleada'),
         mercancia_recibida_por_cambio: recibida, devoluciones_con_reembolso: suma(d.map((x) => x.importe)) - recibida, devuelto_a_tarjeta: suma(d.flatMap((x) => x.reembolsos.filter((r) => r.metodo === 'tarjeta').map((r) => r.monto))),
         ventas_netas: ventaTotal - suma(d.map((x) => x.importe)), reembolsado,
       };

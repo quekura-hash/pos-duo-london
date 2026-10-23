@@ -4,7 +4,7 @@
 /** Almacén virtual del catálogo inicial: su existencia se descuenta directamente al vender en cualquier tienda o caja. */
 export const LIMBO = 'LIMBO';
 export const NOMBRE_LIMBO = 'El Limbo';
-export type Metodo = 'efectivo' | 'efectivo_usd' | 'tarjeta' | 'tarjeta_regalo' | 'credito_cambio';
+export type Metodo = 'efectivo' | 'efectivo_usd' | 'tarjeta' | 'tarjeta_regalo' | 'credito_cambio' | 'credito_empleada';
 
 export interface Op {
   op_id: string;
@@ -43,6 +43,9 @@ export interface Pago {
   cambio_mxn?: number;
   /** Solo `credito_cambio`: folio de la venta cuyas piezas regresó la clienta; su importe liquida parte de esta venta. */
   folio_origen?: number;
+  /** Solo `credito_empleada`: la empleada a cuya cuenta se carga la venta (no es dinero cobrado: se descuenta de su nómina). */
+  empleada_id?: string;
+  empleada?: string;
 }
 
 export interface Linea {
@@ -61,13 +64,15 @@ export interface Linea {
   descuento: number;
   importe: number;
   /** De dónde sale `descuento`: manual (autorizado por un supervisor), promoción o cupón. `descuento` es la suma. */
-  descuento_detalle?: { tipo: 'manual' | 'promo' | 'cupon'; ref: string; nombre: string; monto: number }[];
+  descuento_detalle?: { tipo: 'manual' | 'promo' | 'cupon' | 'empleada'; ref: string; nombre: string; monto: number }[];
   /** Vendida mientras su código estaba duplicado: la elección fue provisional y queda para revisión administrativa. */
   ambiguo?: { codigo: string; candidatos: string[] };
   /** Renglón de venta o recarga de una tarjeta de regalo: no es mercancía (sin inventario ni existencia). */
   tarjeta_regalo?: { codigo: string; tipo: 'alta' | 'recarga' };
   /** Precio o descripción editados SOLO en esta venta (el catálogo no cambia): el precio de lista, la descripción original y el supervisor que autorizó el cambio de precio. */
   editado?: { precio_lista: number; descripcion_original: string; autorizo?: string };
+  /** Venta a empleada: la cajera marcó este artículo como uniforme de la tienda (descuento mayor). */
+  uniforme?: boolean;
   /** Piezas de este renglón que salieron de El Limbo al vender (el resto salió de la existencia de la tienda). */
   de_limbo?: number;
 }
@@ -86,6 +91,8 @@ export interface Venta {
   /** Quién atendió la venta: `vendedora_id` null y `vendedora` «Autocompra» = nadie ayudó a la clienta. Ausentes en ventas anteriores. */
   vendedora_id?: string | null;
   vendedora?: string;
+  /** Venta a una empleada (descuento de empleada; puede pagarse a crédito de su cuenta). */
+  empleada?: { id: string; nombre: string };
   /** Cupones de recompensa regalados en este ticket (cada uno con su código único). */
   recompensas?: import('./recompensas.ts').RecompensaEmitida[];
   /** Avisos del arbitraje del hub al confirmar (p. ej. sobreventa). No forman parte de la operación persistida. */

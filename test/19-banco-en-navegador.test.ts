@@ -99,7 +99,7 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     await page.uncheck('#falla-hub');
     await page.selectOption('#sesion-prueba', 'admin');
     await page.waitForSelector('#tabla-inv-resumen'); // Administración abre en Inventario
-    assert.deepEqual(await page.$$eval('#nav button', (b) => b.map((x) => x.textContent)), ['Inventario', 'Almacén', 'Promociones', 'Tarjetas de regalo', 'Reportes', 'Historial de ventas', 'Análisis', 'Cortes', 'Configuración', 'Caja']);
+    assert.deepEqual(await page.$$eval('#nav button', (b) => b.map((x) => x.textContent)), ['Inventario', 'Almacén', 'Promociones', 'Tarjetas de regalo', 'Reportes', 'Historial de ventas', 'Análisis', 'Cortes', 'Empleadas', 'Configuración', 'Caja']);
     await page.click('#nav button[data-vista="reportes"]');
     await page.waitForSelector('#filtros');
     await page.click('#filtros button[type="submit"]');
@@ -1235,7 +1235,7 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     // el supervisor ve todo
     await page.fill('#lg-usuario', 'Edgardo'); await page.fill('#lg-clave', 'clave-segura'); await page.click('#lg-entrar');
     await page.waitForSelector('#nav button[data-vista="reportes"]');
-    assert.equal(await page.locator('#nav button[data-vista]').count(), 10, '9 pantallas más Caja');
+    assert.equal(await page.locator('#nav button[data-vista]').count(), 11, '10 pantallas más Caja');
     assert.match((await page.textContent('[data-chip="rol"]'))!, /Supervisor/);
     assert.deepEqual(errores.filter((e) => !/401|403|Failed to load resource/.test(e)), []);
   });
@@ -2036,7 +2036,7 @@ describe('[navegador real] Inventario real de DÚO en la página (solo con POS_I
     await page.click('#btn-nueva');
     await page.selectOption('#sesion-prueba', 'DUO/2');
     await page.waitForSelector('#formas');
-    assert.deepEqual(await page.$$eval('#formas button', (b) => b.map((x) => [x.textContent!.trim(), (x as HTMLButtonElement).disabled])), [['Efectivo', false], ['Tarjeta', true], ['Mixto', true], ['Tarjeta de regalo', true]]);
+    assert.deepEqual(await page.$$eval('#formas button', (b) => b.map((x) => [x.textContent!.trim(), (x as HTMLButtonElement).disabled])), [['Efectivo', false], ['Tarjeta', true], ['Mixto', true], ['Tarjeta de regalo', true], ['Crédito de empleada', true]]);
     assert.equal(await page.locator('#nav button[data-vista="tarjetas"]').count(), 0);
     assert.deepEqual(errores, []);
   });

@@ -12,7 +12,7 @@ import { TASA_SIN_VERIFICAR_OMISION, type Politicas } from './politicas.ts';
 import { Indice } from './indice.ts';
 import { localizarVentas } from './consultas.ts';
 import { CRITERIOS_EXPEDIENTE, expedientesDe, expedienteVacio, type Expediente } from './proyecciones.ts';
-import { CAMPOS_EDITABLES, CAMPOS_TIENDA, type CampoEditable, departamentos, promocionesDe, recompensasDe, supervisoresDe, cajerosDe, administradoresDe, efectivoDeVenta, movimientosCaja, tipoCambioVigente, catalogo, devoluciones, devueltoPorLinea, existenciaVerificada, intentos, perdidasDocumentales, stock, ventas, type Devolucion, type ExistenciaVerificada, type Intento, type PerdidaDocumental, type TarjetaRegalo, type TipoCambio } from './proyecciones.ts';
+import { type ConfigEmpleadas, type CuentaEmpleada, configEmpleadas, cuentasEmpleadas, CAMPOS_EDITABLES, CAMPOS_TIENDA, type CampoEditable, departamentos, promocionesDe, recompensasDe, supervisoresDe, cajerosDe, administradoresDe, efectivoDeVenta, movimientosCaja, tipoCambioVigente, catalogo, devoluciones, devueltoPorLinea, existenciaVerificada, intentos, perdidasDocumentales, stock, ventas, type Devolucion, type ExistenciaVerificada, type Intento, type PerdidaDocumental, type TarjetaRegalo, type TipoCambio } from './proyecciones.ts';
 import type { Repo } from './repo.ts';
 import { validarOpEntrante } from './reglas.ts';
 import { LIMBO, type Articulo, type CajaCfg, type Linea, type Op, type Pago, type Venta } from './tipos.ts';
@@ -100,7 +100,7 @@ const esMovimientoLimbo = (op: Op) => op.tipo === 'inv.movement' && op.payload.t
 const esAjusteAdmin = (op: Op) => (op.tipo === 'inv.movement' && op.payload.tipo === 'ajuste_admin') || (op.tipo === 'inv.conteo' && op.payload.admin === true);
 const BROADCAST_TIENDA = new Set(['cajero.ubicacion', 'alm.recibida', 'inv.movement', 'inv.conteo', 'inv.verificacion_pendiente', 'doc.perdida_posible', 'item.created', 'item.item_no_assigned', 'giftcard.emitida', 'giftcard.recarga', 'giftcard.uso', 'giftcard.reintegro']);
 // Lo que el central baja a hubs y cajas (catálogo y resoluciones administrativas).
-const CATALOGO = new Set(['cajero.ubicacion', 'item.created', 'item.item_no_assigned', 'item.codigo_corregido', 'doc.perdida_resuelta', 'giftcard.emitida', 'giftcard.recarga', 'giftcard.uso', 'giftcard.reintegro', 'config.tipo_cambio', 'permiso.asignado', 'depto.alta', 'depto.editado', 'alm.entrega', 'alm.faltante', 'promo.guardada', 'recompensa.guardada', 'supervisor.guardado', 'cajero.guardado', 'config.sesion', 'config.negocio', 'item.editado', 'caja.fondo_autorizado', 'cash.ajuste_admin']);
+const CATALOGO = new Set(['cajero.ubicacion', 'item.created', 'item.item_no_assigned', 'item.codigo_corregido', 'doc.perdida_resuelta', 'giftcard.emitida', 'giftcard.recarga', 'giftcard.uso', 'giftcard.reintegro', 'config.tipo_cambio', 'permiso.asignado', 'depto.alta', 'depto.editado', 'alm.entrega', 'alm.faltante', 'promo.guardada', 'recompensa.guardada', 'supervisor.guardado', 'cajero.guardado', 'config.sesion', 'config.negocio', 'item.editado', 'caja.fondo_autorizado', 'cash.ajuste_admin', 'empleadas.config', 'empleada.credito', 'empleada.movimiento']);
 /** Fondo fijo de cada caja mientras Administración no asigne otro (centavos). */
 export const FONDO_AUTORIZADO_DEFECTO = 500000;
 /** Monedas y billetes con los que se cuenta el fondo (en centavos): sin la moneda de 50 centavos. */
@@ -438,6 +438,33 @@ export class Central {
     if (!v.ok) return { ok: false, error: { codigo: 'DATOS_INVALIDOS', mensaje: v.mensaje } };
     this.emitirAdmin('recompensa.guardada', { ...v.regla, por });
     return { ok: true, regla: v.regla };
+  }
+  /** Porcentajes del descuento de empleada (solo Administración). */
+  fijarConfigEmpleadas(d: { pct: number; pct_uniforme: number }, por: string): { ok: true } | { ok: false; error: { codigo: 'DATOS_INVALIDOS'; mensaje: string } } {
+    const mal = (mensaje: string) => ({ ok: false as const, error: { codigo: 'DATOS_INVALIDOS' as const, mensaje } });
+    for (const [n, v] of [['el descuento de empleada', d.pct], ['el descuento de uniformes', d.pct_uniforme]] as const) if (!Number.isInteger(v) || v < 1 || v > 100) return mal(`${n} es un porcentaje entero de 1 a 100`);
+    this.emitirAdmin('empleadas.config', { pct: d.pct, pct_uniforme: d.pct_uniforme, por });
+    return { ok: true };
+  }
+  /** Límite de crédito de una empleada (0 = sin crédito). Solo Administración. */
+  fijarLimiteEmpleada(d: { empleada_id: string; limite: number; motivo: string }, por: string): { ok: true } | { ok: false; error: { codigo: 'DATOS_INVALIDOS'; mensaje: string } } {
+    const mal = (mensaje: string) => ({ ok: false as const, error: { codigo: 'DATOS_INVALIDOS' as const, mensaje } });
+    if (!cajerosDe(this.repo.ops()).some((c) => c.id === d.empleada_id)) return mal('esa empleada no existe');
+    if (!Number.isInteger(d.limite) || d.limite < 0) return mal('el límite es un importe en pesos (0 = sin crédito)');
+    if (String(d.motivo ?? '').trim().length < 3) return mal('escriba el motivo del cambio de límite');
+    this.emitirAdmin('empleada.credito', { empleada_id: d.empleada_id, limite: d.limite, motivo: String(d.motivo).trim(), por });
+    return { ok: true };
+  }
+  /** Abono de nómina o ajuste en la cuenta de una empleada (con motivo y referencia única: reintentar no lo duplica). Solo Administración. */
+  registrarMovimientoEmpleada(d: { empleada_id: string; tipo: 'abono' | 'ajuste_cargo' | 'ajuste_abono'; monto: number; motivo: string; periodo?: string; ref: string }, por: string): { ok: true } | { ok: false; error: { codigo: 'DATOS_INVALIDOS'; mensaje: string } } {
+    const mal = (mensaje: string) => ({ ok: false as const, error: { codigo: 'DATOS_INVALIDOS' as const, mensaje } });
+    if (!cajerosDe(this.repo.ops()).some((c) => c.id === d.empleada_id)) return mal('esa empleada no existe');
+    if (!['abono', 'ajuste_cargo', 'ajuste_abono'].includes(d.tipo)) return mal('indique si es un abono de nómina o un ajuste');
+    if (!Number.isInteger(d.monto) || d.monto <= 0) return mal('el monto es un importe en pesos mayor que 0');
+    if (String(d.motivo ?? '').trim().length < 3) return mal('escriba el motivo');
+    if (!d.ref) return mal('falta la referencia de la operación');
+    this.emitirAdmin('empleada.movimiento', { empleada_id: d.empleada_id, tipo: d.tipo, monto: d.monto, motivo: String(d.motivo).trim(), ...(d.periodo ? { periodo: String(d.periodo).trim().slice(0, 40) } : {}), por, ref: d.ref, fecha: fechaLocal(this.ctx.reloj.now()) }, `empleada-mov:${d.ref}`);
+    return { ok: true };
   }
   /** Solo Administración fija el fondo fijo autorizado de una caja (queda el historial de cambios con quién y por qué). */
   fijarFondoCaja(d: { tienda: string; caja: number; monto: number; motivo: string }, por: string): { ok: true } | { ok: false; error: { codigo: 'DATOS_INVALIDOS'; mensaje: string } } {
@@ -918,6 +945,8 @@ interface Carrito {
   descuentos?: { aplicadas: ResultadoDescuentos['aplicadas']; cupon: ResultadoDescuentos['cupon'] };
   /** Quién atendió a la clienta (`id` null = «Autocompra»: nadie la ayudó). Se elige en la venta, sin clave; queda en la venta y en los reportes. */
   vendedora?: { id: string | null; alias: string };
+  /** Venta a una empleada: descuento de empleada (15 %, o 30 % en uniformes) y, si quiere, cargo a su cuenta. Se confirma con la clave de la empleada. */
+  empleada?: { id: string; nombre: string };
   /** Cambio en curso: piezas que la clienta regresa de una venta anterior; su importe es un crédito que se descuenta de lo que se lleve en ESTA venta. */
   cambio?: CambioEnCurso;
   /** Venta en espera: el cliente se fue un momento y la caja atiende a otro. No reserva existencias; se recalcula al retomarla. */
@@ -1352,7 +1381,7 @@ export class Caja {
   private recalcular(c: Carrito): void {
     let promos = this.idx.promociones();
     const conDetalle = c.lineas.some((l) => l.descuento_detalle !== undefined);
-    if (!promos.length && !c.cupon && !conDetalle) { delete c.descuentos; return; }
+    if (!promos.length && !c.cupon && !conDetalle && !c.empleada) { delete c.descuentos; return; }
     const hoy = fechaLocal(this.ctx.reloj.now());
     // Un cupón de recompensa (RC-…) se arma con lo que se sabe de su emisión: vale una sola vez y solo en la tienda que lo regaló.
     const rc = c.cupon && esCodigoRecompensa(c.cupon) ? this.estadoRecompensa(c.cupon) : null;
@@ -1365,7 +1394,7 @@ export class Caja {
       for (const v of ventas(this.opsVentas()).values()) if (v.estado === 'confirmada' && v.lineas.some((l) => l.descuento_detalle?.some((d) => d.tipo === 'cupon' && d.ref === p.id))) n++;
       return n;
     };
-    const r = calcularDescuentos(c.lineas, promos, c.cupon ?? null, hoy, usos, this.tienda);
+    const r = calcularDescuentos(c.lineas, promos, c.cupon ?? null, hoy, usos, this.tienda, c.empleada ? this.configEmpleadas() : null);
     c.lineas = r.lineas;
     c.descuentos = { aplicadas: r.aplicadas, cupon: r.cupon };
   }
@@ -1584,6 +1613,78 @@ export class Caja {
     this.repo.kvSet(`cart:${cartId}`, c);
     return { supervisor: sup.nombre };
   }
+  // ── ventas a empleadas ──
+  /** Porcentajes del descuento de empleada (los fija Administración; sin cambio, 15 % y 30 % en uniformes). */
+  configEmpleadas(): ConfigEmpleadas {
+    return configEmpleadas(this.opsDe('empleadas.config'));
+  }
+  /** Cuenta de una empleada con lo que ESTA caja sabe (sus ventas y las del hub, más lo que Administración registró). La oficial es la de Administración. */
+  cuentaEmpleada(id: string): CuentaEmpleada {
+    const cuentas = cuentasEmpleadas(this.opsDe('sale.confirmed', 'sale.cancelled', 'return.registered', 'empleada.credito', 'empleada.movimiento'));
+    return cuentas.get(id) ?? { id, limite: 0, cargos: 0, devoluciones: 0, abonos: 0, ajustes_cargo: 0, ajustes_abono: 0, saldo: 0, disponible: 0, movimientos: [] };
+  }
+  /** Empleadas a quienes se puede vender (las Vendedoras-Cajeras activas). */
+  empleadasActivas(): { id: string; nombre: string }[] {
+    return this.idx.cajeros().filter((c) => c.activo).map((c) => ({ id: c.id, nombre: c.nombre })).sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
+  }
+  /**
+   * Marca la venta como venta a una empleada: ella confirma con SU clave. Una cajera no puede venderse a sí misma sin que un supervisor lo autorice
+   * con su clave. Desde ahí el descuento de empleada se calcula solo (compite con las promociones: aplica el que más le convenga).
+   */
+  asignarEmpleada(cartId: string, d: { empleada_id: string; clave: string; claveSupervisor?: string; usuario: string }): { id: string; nombre: string } {
+    const c = this.cartGet(cartId);
+    this.exigirAbierto(c);
+    this.exigirSinCobroPendiente(c);
+    const emp = this.empleadasActivas().find((e) => e.id === d.empleada_id);
+    if (!emp) throw new ErrorDominio('EMPLEADA_INEXISTENTE', 'esa empleada no está activa');
+    this.verificarClaveCajero(emp.nombre, String(d.clave ?? ''));
+    if (nombreClave(emp.nombre) === nombreClave(d.usuario) && !supervisorPorClave(this.idx.supervisores(), String(d.claveSupervisor ?? ''))) {
+      throw new ErrorDominio('AUTORIZACION_REQUERIDA', 'una cajera no puede venderse a sí misma: un supervisor debe autorizarlo con su clave');
+    }
+    c.empleada = { id: emp.id, nombre: emp.nombre };
+    this.recalcular(c);
+    this.repo.kvSet(`cart:${cartId}`, c);
+    return c.empleada;
+  }
+  quitarEmpleada(cartId: string): void {
+    const c = this.cartGet(cartId);
+    this.exigirAbierto(c);
+    this.exigirSinCobroPendiente(c);
+    delete c.empleada;
+    for (const l of c.lineas) delete l.uniforme;
+    this.recalcular(c);
+    this.repo.kvSet(`cart:${cartId}`, c);
+  }
+  /** La cajera marca (o desmarca) un artículo como uniforme de la tienda: lleva el descuento mayor. */
+  marcarUniforme(cartId: string, lineaId: string, uniforme: boolean): void {
+    const c = this.cartGet(cartId);
+    this.exigirAbierto(c);
+    this.exigirSinCobroPendiente(c);
+    if (!c.empleada) throw new ErrorDominio('SIN_EMPLEADA', 'primero elija a la empleada');
+    const l = c.lineas.find((x) => x.linea_id === lineaId && !x.tarjeta_regalo);
+    if (!l) throw new ErrorDominio('LINEA_INEXISTENTE', lineaId);
+    if (uniforme) l.uniforme = true; else delete l.uniforme;
+    this.recalcular(c);
+    this.repo.kvSet(`cart:${cartId}`, c);
+  }
+  /**
+   * Cobra la venta a crédito de la empleada: no entra dinero (se descuenta de su nómina); la venta cuenta como venta del día y baja el inventario.
+   * Respeta el límite de crédito que fijó Administración.
+   */
+  cobrarConCreditoEmpleada(cartId: string, cajero = 'cajero'): Venta {
+    const previa = this.repo.getOp(`sale:${cartId}`);
+    if (previa) return ventas([previa]).get(cartId)!;
+    const c = this.cartGet(cartId);
+    if (!c.empleada) throw new ErrorDominio('SIN_EMPLEADA', 'primero elija a la empleada');
+    this.exigirAbierto(c);
+    if (c.cambio) throw new ErrorDominio('PAGO_INVALIDO', 'una venta con cambio de mercancía no se carga a crédito de empleada');
+    const total = this.totalNeto(c);
+    if (total <= 0) throw new ErrorDominio('PAGO_INVALIDO', 'la venta no tiene importe que cargar a crédito');
+    const cuenta = this.cuentaEmpleada(c.empleada.id);
+    if (!(cuenta.limite > 0)) throw new ErrorDominio('SIN_CREDITO', `${c.empleada.nombre} no tiene crédito autorizado: Administración debe fijarle un límite`);
+    if (cuenta.saldo + total > cuenta.limite) throw new ErrorDominio('LIMITE_EXCEDIDO', `la compra pasa del crédito disponible de ${c.empleada.nombre} (${(cuenta.disponible / 100).toFixed(2)} pesos)`, { disponible: cuenta.disponible, total });
+    return this.cobrar(cartId, [{ metodo: 'credito_empleada', monto: total, empleada_id: c.empleada.id, empleada: c.empleada.nombre }], cajero);
+  }
   quitarDescuentoManual(cartId: string, lineaId?: string | null): void {
     const c = this.cartGet(cartId);
     this.exigirAbierto(c);
@@ -1651,7 +1752,7 @@ export class Caja {
   }
   private validarPagos(pagos: Pago[], total: number) {
     for (const p of pagos) {
-      if (!this.cfg.metodos.includes(p.metodo === 'efectivo_usd' ? 'efectivo' : p.metodo)) {
+      if (p.metodo !== 'credito_empleada' && !this.cfg.metodos.includes(p.metodo === 'efectivo_usd' ? 'efectivo' : p.metodo)) {
         throw new ErrorDominio('PAGO_NO_PERMITIDO', `la caja ${this.id} no admite ${p.metodo}`);
       }
       if (!Number.isInteger(p.monto) || p.monto <= 0) throw new ErrorDominio('PAGO_INVALIDO', 'monto inválido');
@@ -1971,6 +2072,7 @@ export class Caja {
       const op = this.emitir('sale.confirmed', {
         sale_id: c.id, tienda: this.tienda, caja: this.caja, folio, cajero, lineas, total, pagos,
         ...(recompensas.length ? { recompensas } : {}),
+        ...(c.empleada ? { empleada: c.empleada } : {}),
         ...(c.cambio ? { cambio_de: { sale_id: c.cambio.sale_id, folio: c.cambio.folio_origen } } : {}),
         ...(c.vendedora ? { vendedora_id: c.vendedora.id, vendedora: c.vendedora.alias } : {}),
       }, `sale:${c.id}`);
@@ -2147,12 +2249,12 @@ export class Caja {
 
   // ── reparto de un reembolso entre los métodos con que se pagó ──
   private repartirReembolso(venta: Venta, importe: number, previas: Devolucion['reembolsos'], devueltoAntes: number): Devolucion['reembolsos'] {
-    type Cubeta = { clave: string; metodo: 'efectivo' | 'tarjeta' | 'tarjeta_regalo'; tarjeta?: string; pagado: number; antes: number; monto: number };
+    type Cubeta = { clave: string; metodo: 'efectivo' | 'tarjeta' | 'tarjeta_regalo' | 'credito_empleada'; tarjeta?: string; pagado: number; antes: number; monto: number };
     const cubetas = new Map<string, Cubeta>();
-    const claveDe = (metodo: string, tarjeta?: string) => (metodo === 'tarjeta_regalo' ? `rg:${tarjeta}` : metodo === 'tarjeta' ? 'tarjeta' : 'efectivo');
+    const claveDe = (metodo: string, tarjeta?: string) => (metodo === 'tarjeta_regalo' ? `rg:${tarjeta}` : metodo === 'tarjeta' ? 'tarjeta' : metodo === 'credito_empleada' ? 'ce' : 'efectivo');
     for (const p of venta.pagos) {
       const clave = claveDe(p.metodo, p.tarjeta);
-      const c = cubetas.get(clave) ?? { clave, metodo: p.metodo === 'tarjeta_regalo' ? 'tarjeta_regalo' : p.metodo === 'tarjeta' ? 'tarjeta' : 'efectivo', tarjeta: p.tarjeta, pagado: 0, antes: 0, monto: 0 };
+      const c = cubetas.get(clave) ?? { clave, metodo: p.metodo === 'tarjeta_regalo' ? 'tarjeta_regalo' : p.metodo === 'tarjeta' ? 'tarjeta' : p.metodo === 'credito_empleada' ? 'credito_empleada' : 'efectivo', tarjeta: p.tarjeta, pagado: 0, antes: 0, monto: 0 };
       c.pagado += p.monto;
       cubetas.set(clave, c);
     }
@@ -2160,7 +2262,7 @@ export class Caja {
       const c = cubetas.get(claveDe(r.metodo, r.tarjeta));
       if (c) c.antes += r.monto;
     }
-    const orden = [...cubetas.values()].sort((a, b) => ['efectivo', 'tarjeta', 'tarjeta_regalo'].indexOf(a.metodo) - ['efectivo', 'tarjeta', 'tarjeta_regalo'].indexOf(b.metodo));
+    const orden = [...cubetas.values()].sort((a, b) => ['efectivo', 'tarjeta', 'tarjeta_regalo', 'credito_empleada'].indexOf(a.metodo) - ['efectivo', 'tarjeta', 'tarjeta_regalo', 'credito_empleada'].indexOf(b.metodo));
     const ultima = devueltoAntes + importe >= venta.total;
     for (const c of orden) {
       const resta = c.pagado - c.antes;
@@ -2529,6 +2631,7 @@ export class Caja {
     const efectivoCobrado = suma(confirmadas.flatMap((v) => v.pagos.filter((p) => p.metodo === 'efectivo').map((p) => p.monto)));
     const tarjeta = suma(confirmadas.flatMap((v) => v.pagos.filter((p) => p.metodo === 'tarjeta').map((p) => p.monto)));
     const regalo = suma(confirmadas.flatMap((v) => v.pagos.filter((p) => p.metodo === 'tarjeta_regalo').map((p) => p.monto)));
+    const creditoEmpleadas = suma(confirmadas.flatMap((v) => v.pagos.filter((p) => p.metodo === 'credito_empleada').map((p) => p.monto)));
     const pagosUsd = confirmadas.flatMap((v) => v.pagos.filter((p) => p.metodo === 'efectivo_usd'));
     const cobrosUsd = suma(pagosUsd.map((p) => p.monto));
     // Los dólares de una venta CANCELADA siguen físicamente en el cajón (el reembolso es en pesos): cuentan como recibidos.
@@ -2589,7 +2692,7 @@ export class Caja {
       diferencias_cobradas_en_cambios: diferenciasCobradas, diferencias_devueltas_en_cambios: reembolsadoEnCambios,
       folios_de_devolucion: devs.length,
       ventas_netas: ventasMercancia - reembolsos,
-      cobros_efectivo: efectivoCobrado, cobros_tarjeta: tarjeta, cobros_tarjeta_regalo: regalo, fondo_inicial: mxn.fondo, entradas: mxn.entradas, retiros: mxn.retiros,
+      cobros_efectivo: efectivoCobrado, cobros_tarjeta: tarjeta, cobros_tarjeta_regalo: regalo, ventas_a_credito_empleadas: creditoEmpleadas, fondo_inicial: mxn.fondo, entradas: mxn.entradas, retiros: mxn.retiros,
       // Pesos FÍSICOS en el cajón (libro MXN): cobros recibidos − cambio entregado + fondo + entradas − devoluciones − cancelaciones − retiros.
       efectivo_esperado: mxn.esperado,
       // Cierre guiado: efectivo de ventas esperado SIN el fondo, y el fondo fijo (autorizado, confirmado y composición). El fondo no es movimiento de efectivo.

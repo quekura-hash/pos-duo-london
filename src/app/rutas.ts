@@ -57,6 +57,11 @@ export async function atender(o: { cajero?: ServicioCaja; admin?: ServicioAdmin 
       case 'GET /api/venta/departamentos': return ok(exigirCajero().departamentosAlta());
       case 'POST /api/venta/nuevo-articulo': return ok(exigirCajero().nuevoArticulo(b.cart, { codigo: String(b.codigo ?? ''), marca: b.marca, descripcion: String(b.descripcion ?? ''), estilo: b.estilo, lote: b.lote, departamento: String(b.departamento ?? ''), precio: Number(b.precio) }, String(b.clave ?? '')));
       case 'POST /api/venta/agregar': return ok(exigirCajero().agregarArticulo(b.cart, b.item_id));
+      case 'GET /api/empleadas': return ok(exigirCajero().empleadas());
+      case 'POST /api/venta/empleada': return ok(exigirCajero().asignarEmpleada(b.cart, { empleada_id: String(b.empleada_id ?? ''), clave: String(b.clave ?? ''), clave_supervisor: b.clave_supervisor }));
+      case 'POST /api/venta/empleada/quitar': return ok(exigirCajero().quitarEmpleada(b.cart));
+      case 'POST /api/venta/uniforme': return ok(exigirCajero().marcarUniforme(b.cart, String(b.linea_id ?? ''), !!b.uniforme));
+      case 'POST /api/venta/cobrar-credito-empleada': return ok(await exigirCajero().cobrarCreditoEmpleada(b.cart));
       case 'POST /api/venta/cupon': return ok(exigirCajero().aplicarCupon(b.cart, String(b.codigo ?? '')));
       case 'POST /api/venta/cupon/quitar': return ok(exigirCajero().quitarCupon(b.cart));
       case 'POST /api/venta/descuento': return ok(exigirCajero().aplicarDescuento(b.cart, { linea_id: b.linea_id ?? null, tipo: b.tipo === 'monto' ? 'monto' : 'pct', valor: Number(b.valor) }, String(b.clave ?? '')));
@@ -130,6 +135,12 @@ export async function atender(o: { cajero?: ServicioCaja; admin?: ServicioAdmin 
       // ── administración ──
       case 'GET /api/admin/cajas': return ok({ cajas: exigirAdmin().cajas });
       case 'GET /api/admin/resumen-dia': return ok(exigirAdmin().resumenDia(q.get('fecha') || undefined));
+      case 'GET /api/admin/empleadas': return ok(exigirAdmin().empleadasCuentas());
+      case 'GET /api/admin/empleadas/movimientos': return ok(exigirAdmin().empleadaMovimientos(q.get('id') ?? ''));
+      case 'GET /api/admin/empleadas/nomina': return ok(exigirAdmin().nominaEmpleadas(q.get('desde') || undefined, q.get('hasta') || undefined));
+      case 'POST /api/admin/empleadas/config': return ok(exigirAdmin().fijarConfigEmpleadas({ pct: Number(b.pct), pct_uniforme: Number(b.pct_uniforme) }));
+      case 'POST /api/admin/empleadas/limite': return ok(exigirAdmin().fijarLimiteEmpleada({ empleada_id: b.empleada_id, limite: Number(b.limite), motivo: b.motivo }));
+      case 'POST /api/admin/empleadas/movimiento': return ok(exigirAdmin().movimientoEmpleada({ empleada_id: b.empleada_id, tipo: b.tipo, monto: Number(b.monto), motivo: b.motivo, periodo: b.periodo, ref: b.ref }));
       case 'GET /api/admin/cajas/fondo': return ok(exigirAdmin().cajasFondo());
       case 'POST /api/admin/cajas/fondo': return ok(exigirAdmin().fijarFondoCaja({ tienda: b.tienda, caja: Number(b.caja), monto: Number(b.monto), motivo: b.motivo }));
       case 'POST /api/admin/cajas/ajuste': return ok(exigirAdmin().ajusteCaja({ tienda: b.tienda, caja: Number(b.caja), tipo: b.tipo, monto: Number(b.monto), motivo: b.motivo, ref: b.ref }));

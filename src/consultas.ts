@@ -46,7 +46,7 @@ export interface FilaVenta {
 export interface MontosPago { efectivo: number; tarjeta: number; dolares: number; tarjeta_regalo: number; otro: number; mixto: number }
 const sinMontos = (): MontosPago => ({ efectivo: 0, tarjeta: 0, dolares: 0, tarjeta_regalo: 0, otro: 0, mixto: 0 });
 
-const ETIQUETA_PAGO: Record<string, string> = { efectivo: 'Efectivo', tarjeta: 'Tarjeta', efectivo_usd: 'Dólares', tarjeta_regalo: 'Tarjeta de regalo', credito_cambio: 'Mercancía recibida a cambio', mixto: 'Mixto', sin_pago: 'Sin pago' };
+const ETIQUETA_PAGO: Record<string, string> = { efectivo: 'Efectivo', tarjeta: 'Tarjeta', efectivo_usd: 'Dólares', tarjeta_regalo: 'Tarjeta de regalo', credito_cambio: 'Mercancía recibida a cambio', credito_empleada: 'Crédito de empleada', mixto: 'Mixto', sin_pago: 'Sin pago' };
 /** Una sola forma de pago → su nombre; varias distintas → «Mixto». */
 export function etiquetaPago(metodos: string[]): string {
   const u = [...new Set(metodos)];
@@ -275,7 +275,7 @@ export function dolaresPorCaja(actor: Actor, ops: Op[], f: Filtro = {}): Reporte
 // ── promociones y descuentos autorizados ──
 export interface FilaDescuento {
   tienda: string; caja: number; folio: number; sale_id: string; fecha_local: string; hora: string; cajero: string;
-  tipo: 'promo' | 'cupon' | 'manual';
+  tipo: 'promo' | 'cupon' | 'manual' | 'empleada';
   /** id de la promoción o cupón (o del supervisor, en un descuento manual). */
   ref: string;
   concepto: string;
@@ -291,7 +291,7 @@ export interface ReporteDescuentos {
   filas: FilaDescuento[];
   /** Totales SIN las ventas canceladas. */
   resumen: { tickets: number; monto: number; promo: { tickets: number; monto: number }; cupon: { tickets: number; monto: number }; manual: { tickets: number; monto: number } };
-  porPromocion: { tipo: 'promo' | 'cupon'; ref: string; concepto: string; tickets: number; monto: number }[];
+  porPromocion: { tipo: 'promo' | 'cupon' | 'empleada'; ref: string; concepto: string; tickets: number; monto: number }[];
   porSupervisor: { supervisor: string; descuentos: number; tickets: number; monto: number; mayor_pct_bp: number; al_100: number }[];
 }
 /**

@@ -77,6 +77,7 @@ export function ventas(ops: Op[]): Map<string, Venta> {
         ocurrio_en: o.ocurrio_en, lineas: p.lineas, total: p.total, pagos: p.pagos, estado: 'confirmada',
         ...(p.vendedora !== undefined ? { vendedora_id: p.vendedora_id ?? null, vendedora: p.vendedora } : {}),
         ...(p.recompensas?.length ? { recompensas: p.recompensas } : {}),
+        ...(p.empleada ? { empleada: p.empleada } : {}),
       });
     }
   }
@@ -100,7 +101,7 @@ export interface Devolucion {
   folio?: number;
   /** Cómo se regresó el dinero: a la tarjeta de regalo con que se pagó y, el resto, en efectivo. */
   /** `efectivo` = pesos que salen del cajón; `tarjeta` = reverso a la tarjeta bancaria original (no sale efectivo); `tarjeta_regalo` = saldo a la misma tarjeta. */
-  reembolsos: { metodo: 'efectivo' | 'tarjeta' | 'tarjeta_regalo'; monto: number; tarjeta?: string }[];
+  reembolsos: { metodo: 'efectivo' | 'tarjeta' | 'tarjeta_regalo' | 'credito_empleada'; monto: number; tarjeta?: string }[];
   ocurrio_en: string;
   motivo: string;
   cajero: string;
@@ -507,4 +508,85 @@ export function recompensasDe(ops: Op[]): import('./recompensas.ts').ReglaRecomp
   const m = new Map<string, import('./recompensas.ts').ReglaRecompensa>();
   for (const o of ops) if (o.tipo === 'recompensa.guardada') m.set(o.payload.id, o.payload);
   return [...m.values()];
+}
+
+// ── Empleadas: descuento de empleada y crédito (cuenta por cobrar que se descuenta de la nómina) ──
+export interface ConfigEmpleadas { pct: number; pct_uniforme: number }
+export const CONFIG_EMPLEADAS_INICIAL: ConfigEmpleadas = { pct: 15, pct_uniforme: 30 };
+/** Porcentajes del descuento de empleada (el último `empleadas.config` de Administración; sin registro, 15 % y 30 % en uniformes). */
+export function configEmpleadas(ops: Op[]): ConfigEmpleadas {
+  const o = ops.filter((x) => x.tipo === 'empleadas.config').at(-1);
+  return o ? { pct: o.payload.pct, pct_uniforme: o.payload.pct_uniforme } : CONFIG_EMPLEADAS_INICIAL;
+}
+export interface MovimientoEmpleada {
+  ocurrio_en: string;
+  fecha: string;
+  tipo: 'cargo' | 'devolucion' | 'abono' | 'ajuste_cargo' | 'ajuste_abono';
+  /** Siempre positivo: el tipo dice si suma o resta al saldo. */
+  monto: number;
+  detalle: string;
+  tienda?: string;
+  folio?: number;
+  sale_id?: string;
+  por?: string;
+  periodo?: string;
+}
+export interface CuentaEmpleada {
+  id: string;
+  limite: number;
+  cargos: number;
+  devoluciones: number;
+  abonos: number;
+  ajustes_cargo: number;
+  ajustes_abono: number;
+  /** Lo que la empleada debe: cargos + ajustes de cargo − devoluciones − abonos − ajustes de abono. */
+  saldo: number;
+  disponible: number;
+  movimientos: MovimientoEmpleada[];
+}
+/**
+ * Cuenta de cada empleada: los cargos salen de las ventas pagadas con «Crédito de empleada» (una venta cancelada ya no cuenta), las devoluciones de
+ * esas ventas bajan el saldo, y los abonos de nómina y ajustes los registra Administración. El crédito NO es dinero cobrado: no entra al corte.
+ */
+export function cuentasEmpleadas(ops: Op[]): Map<string, CuentaEmpleada> {
+  const m = new Map<string, CuentaEmpleada>();
+  const de = (id: string) => {
+    let c = m.get(id);
+    if (!c) { c = { id, limite: 0, cargos: 0, devoluciones: 0, abonos: 0, ajustes_cargo: 0, ajustes_abono: 0, saldo: 0, disponible: 0, movimientos: [] }; m.set(id, c); }
+    return c;
+  };
+  for (const o of ops) if (o.tipo === 'empleada.credito') de(o.payload.empleada_id).limite = o.payload.limite;
+  const vs = ventas(ops);
+  for (const v of vs.values()) {
+    if (v.estado !== 'confirmada') continue;
+    for (const p of v.pagos) {
+      if (p.metodo !== 'credito_empleada' || !p.empleada_id) continue;
+      const c = de(p.empleada_id);
+      c.cargos += p.monto;
+      c.movimientos.push({ ocurrio_en: v.ocurrio_en, fecha: fechaLocal(v.ocurrio_en), tipo: 'cargo', monto: p.monto, detalle: `Venta a crédito ${v.tienda}-${v.caja} folio ${String(v.folio).padStart(6, '0')}`, tienda: v.tienda, folio: v.folio, sale_id: v.sale_id });
+    }
+  }
+  for (const d of devoluciones(ops)) {
+    const v = vs.get(d.sale_id);
+    const pago = v?.pagos.find((p) => p.metodo === 'credito_empleada' && p.empleada_id);
+    if (!v || !pago || v.estado !== 'confirmada') continue;
+    const monto = d.reembolsos.filter((r) => r.metodo === 'credito_empleada').reduce((a, r) => a + r.monto, 0);
+    if (monto <= 0) continue;
+    const c = de(pago.empleada_id!);
+    c.devoluciones += monto;
+    c.movimientos.push({ ocurrio_en: d.ocurrio_en, fecha: fechaLocal(d.ocurrio_en), tipo: 'devolucion', monto, detalle: `Devolución de la venta folio ${String(v.folio).padStart(6, '0')}`, tienda: v.tienda, folio: v.folio, sale_id: v.sale_id });
+  }
+  for (const o of ops) {
+    if (o.tipo !== 'empleada.movimiento') continue;
+    const p = o.payload;
+    const c = de(p.empleada_id);
+    if (p.tipo === 'abono') c.abonos += p.monto; else if (p.tipo === 'ajuste_abono') c.ajustes_abono += p.monto; else c.ajustes_cargo += p.monto;
+    c.movimientos.push({ ocurrio_en: o.ocurrio_en, fecha: p.fecha, tipo: p.tipo, monto: p.monto, detalle: p.motivo, por: p.por, ...(p.periodo ? { periodo: p.periodo } : {}) });
+  }
+  for (const c of m.values()) {
+    c.saldo = c.cargos + c.ajustes_cargo - c.devoluciones - c.abonos - c.ajustes_abono;
+    c.disponible = Math.max(0, c.limite - c.saldo);
+    c.movimientos.sort((a, b) => b.ocurrio_en.localeCompare(a.ocurrio_en));
+  }
+  return m;
 }

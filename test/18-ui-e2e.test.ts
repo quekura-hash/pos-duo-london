@@ -204,7 +204,7 @@ describe('[navegador real — Chromium con Playwright, UI sobre SQLite]', { time
     const { page, errores } = await pagina(browser, adm.url);
     await page.waitForSelector('#tabla-inv-resumen'); // Administración abre en Inventario
     assert.equal(await page.getAttribute('#nav button[aria-current="page"]', 'data-vista'), 'inventario');
-    assert.deepEqual(await page.$$eval('#nav button', (b) => b.map((x) => x.textContent)), ['Inventario', 'Almacén', 'Promociones', 'Tarjetas de regalo', 'Reportes', 'Historial de ventas', 'Análisis', 'Cortes', 'Configuración']);
+    assert.deepEqual(await page.$$eval('#nav button', (b) => b.map((x) => x.textContent)), ['Inventario', 'Almacén', 'Promociones', 'Tarjetas de regalo', 'Reportes', 'Historial de ventas', 'Análisis', 'Cortes', 'Empleadas', 'Configuración']);
     await page.click('#nav button[data-vista="reportes"]');
     await page.waitForSelector('#filtros');
     await page.fill('#desde', '2026-10-01');
@@ -322,7 +322,7 @@ describe('[navegador real — Chromium con Playwright, UI sobre SQLite]', { time
       assert.deepEqual(sinIcono, [], 'todo botón visible lleva icono');
       assert.equal(await page.locator('#btn-editar-catalogo').count(), 0, 'Editar catálogo ya no existe en la venta');
         const formas = await page.$$eval('#formas button', (b) => b.map((x) => [x.textContent!.trim(), (x as HTMLButtonElement).disabled]));
-      assert.deepEqual(formas, [['Efectivo', false], ['Tarjeta', tienda !== 'DUO'], ['Mixto', tienda !== 'DUO'], ['Tarjeta de regalo', tienda !== 'DUO']]);
+      assert.deepEqual(formas, [['Efectivo', false], ['Tarjeta', tienda !== 'DUO'], ['Mixto', tienda !== 'DUO'], ['Tarjeta de regalo', tienda !== 'DUO'], ['Crédito de empleada', true]]);
       assert.deepEqual(errores, []);
     }
     const { page } = await pagina(browser, duo.url);

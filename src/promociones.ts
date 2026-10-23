@@ -196,7 +196,10 @@ function descuentoDe(p: Promocion, merc: Linea[], restante: (l: Linea) => number
  * las promociones se calculan sobre el precio de lista, sin pasar del importe de cada línea. Una promoción o cupón de una tienda
  * no aplica en la otra.
  */
-export function calcularDescuentos(lineas: Linea[], promos: Promocion[], codigoCupon: string | null, hoy: string, usosCupon: (codigo: string) => number = () => 0, tienda = ''): ResultadoDescuentos {
+/** Id del «descuento de empleada» entre las candidatas: compite con las promociones y cupones (aplica el que más le convenga, no se combinan). */
+export const ID_DESCUENTO_EMPLEADA = 'descuento-empleada';
+export interface ConfigEmpleada { pct: number; pct_uniforme: number }
+export function calcularDescuentos(lineas: Linea[], promos: Promocion[], codigoCupon: string | null, hoy: string, usosCupon: (codigo: string) => number = () => 0, tienda = '', empleada: ConfigEmpleada | null = null): ResultadoDescuentos {
   const out: Linea[] = lineas.map((l) => ({ ...l, descuento_detalle: esMercancia(l) ? manualDe(l).map((d) => ({ ...d })) : [] }));
   const merc = out.filter(esMercancia);
   const restante = (l: Linea) => l.qty * l.precio_unit - (l.descuento_detalle ?? []).reduce((a, d) => a + d.monto, 0);
@@ -206,6 +209,15 @@ export function calcularDescuentos(lineas: Linea[], promos: Promocion[], codigoC
     if (esCanje(p) || p.regalo || !vigente(p, hoy) || (tienda && !aplicaEnTienda(p, tienda))) continue;
     const por = descuentoDe(p, merc, restante);
     if (total(por) > 0) candidatas.push({ p, por, total: total(por) });
+  }
+  // venta a empleada: su descuento (15 %, o 30 % en uniformes) compite con las promociones y cupones
+  if (empleada) {
+    const por: Reparto = new Map();
+    for (const l of merc) {
+      const m = Math.floor((restante(l) * (l.uniforme ? empleada.pct_uniforme : empleada.pct) + 50) / 100);
+      if (m > 0) por.set(l, m);
+    }
+    if (total(por) > 0) candidatas.push({ p: { id: ID_DESCUENTO_EMPLEADA, tipo: 'cupon', nombre: 'Descuento de empleada', activa: true, inicio: null, fin: null, canje: true }, por, total: total(por) });
   }
   // cupón capturado: se revisa y compite con las promociones
   let cupon: ResultadoDescuentos['cupon'] = null;
@@ -232,11 +244,12 @@ export function calcularDescuentos(lineas: Linea[], promos: Promocion[], codigoC
   for (const c of candidatas) if (!mejor || c.total > mejor.total) mejor = c;
   const aplicadas: AplicadaPromo[] = [];
   if (mejor) {
-    for (const [l, m] of mejor.por) l.descuento_detalle!.push({ tipo: esCanje(mejor.p) ? 'cupon' : 'promo', ref: mejor.p.id, nombre: mejor.p.nombre, monto: m });
-    if (!esCanje(mejor.p)) aplicadas.push({ promo_id: mejor.p.id, nombre: mejor.p.nombre, tipo: mejor.p.tipo, monto: mejor.total });
+    const deEmpleada = mejor.p.id === ID_DESCUENTO_EMPLEADA;
+    for (const [l, m] of mejor.por) l.descuento_detalle!.push({ tipo: deEmpleada ? 'empleada' : esCanje(mejor.p) ? 'cupon' : 'promo', ref: mejor.p.id, nombre: deEmpleada ? `Descuento de empleada ${l.uniforme ? empleada!.pct_uniforme : empleada!.pct}%${l.uniforme ? ' (uniforme)' : ''}` : mejor.p.nombre, monto: m });
+    if (!esCanje(mejor.p) && !deEmpleada) aplicadas.push({ promo_id: mejor.p.id, nombre: mejor.p.nombre, tipo: mejor.p.tipo, monto: mejor.total });
   }
   if (cupon && !cupon.motivo) {
-    if (mejor && esCanje(mejor.p)) cupon = { ...cupon, monto: mejor.total, aplicado: true };
+    if (mejor && esCanje(mejor.p) && mejor.p.id !== ID_DESCUENTO_EMPLEADA) cupon = { ...cupon, monto: mejor.total, aplicado: true };
     else cupon = { ...cupon, monto: 0, aplicado: false, motivo: mejor ? `no se combina: se aplicó «${mejor.p.nombre}», que da más descuento en esta compra` : 'no hay importe al que aplicar el cupón' };
   }
   for (const l of out) {

@@ -168,7 +168,7 @@ const folioTexto = () => (S.ultimoFolio ? `Folio ${String(S.ultimoFolio).padStar
 // ── navegación ──
 const NAV = {
   venta: ['Venta', 'cart'], retiro: ['Retiro', 'cash'], ventas: ['Historial', 'clock'], corte: ['Cierre de caja', 'register'], extraordinarias: ['Operaciones extraordinarias', 'cash'],
-  tarjetas: ['Tarjetas de regalo', 'gift'], reportes: ['Reportes', 'chart'], cortes: ['Cortes', 'register'], dolares: ['Dólares recibidos', 'dollar'], descuentos: ['Descuentos', 'tag'], entregas: ['Entregas de almacén', 'warehouse'], inventario: ['Inventario', 'box'], departamentos: ['Departamentos', 'box'], almacen: ['Almacén', 'warehouse'], promociones: ['Promociones', 'tag'], tiendas: ['Tiendas', 'store'], configuracion: ['Configuración', 'settings'], administracion: ['Administración', 'settings'], volver_caja: ['Caja', 'caja'], tipo_cambio: ['Tipo de cambio', 'banknote'], avisos: ['Avisos', 'bell'], analisis: ['Análisis', 'trend'], historial: ['Historial de ventas', 'clock'],
+  tarjetas: ['Tarjetas de regalo', 'gift'], reportes: ['Reportes', 'chart'], cortes: ['Cortes', 'register'], empleadas: ['Empleadas', 'user'], dolares: ['Dólares recibidos', 'dollar'], descuentos: ['Descuentos', 'tag'], entregas: ['Entregas de almacén', 'warehouse'], inventario: ['Inventario', 'box'], departamentos: ['Departamentos', 'box'], almacen: ['Almacén', 'warehouse'], promociones: ['Promociones', 'tag'], tiendas: ['Tiendas', 'store'], configuracion: ['Configuración', 'settings'], administracion: ['Administración', 'settings'], volver_caja: ['Caja', 'caja'], tipo_cambio: ['Tipo de cambio', 'banknote'], avisos: ['Avisos', 'bell'], analisis: ['Análisis', 'trend'], historial: ['Historial de ventas', 'clock'],
 };
 // ── Calculadora básica: ventana flotante y movible, no modal. Sigue abierta mientras se usa el resto del POS ──
 const calc = { abierta: false, pos: null, acc: null, op: null, entrada: '0', nuevo: true };
@@ -284,7 +284,7 @@ async function ir(v) {
   if (v === 'corte') S.cierrePaso = undefined; // el cierre guiado arranca en el primer paso pendiente
   pintarNav();
   await pintarEncabezado();
-  await ({ folios: vistaFolios, venta: vistaVenta, retiro: vistaRetiro, corte: vistaCorte, extraordinarias: vistaExtraordinarias, ventas: vistaVentas, reportes: vistaReportes, inventario: vistaInventario, almacen: vistaAlmacen, promociones: vistaPromociones, configuracion: vistaConfiguracion, tiendas: vistaTiendas, departamentos: vistaDepartamentos, tarjetas: vistaTarjetas, devolucion: vistaDevolucion, dolares: vistaDolares, descuentos: vistaDescuentos, entregas: vistaEntregas, conteo_limbo: vistaConteoLimbo, tipo_cambio: vistaTipoCambio, cortes: vistaCortes, avisos: vistaAvisos, analisis: vistaAnalisis, historial: vistaHistorialAdmin })[v]();
+  await ({ folios: vistaFolios, venta: vistaVenta, retiro: vistaRetiro, corte: vistaCorte, extraordinarias: vistaExtraordinarias, ventas: vistaVentas, reportes: vistaReportes, inventario: vistaInventario, almacen: vistaAlmacen, promociones: vistaPromociones, configuracion: vistaConfiguracion, tiendas: vistaTiendas, departamentos: vistaDepartamentos, tarjetas: vistaTarjetas, devolucion: vistaDevolucion, dolares: vistaDolares, descuentos: vistaDescuentos, entregas: vistaEntregas, conteo_limbo: vistaConteoLimbo, tipo_cambio: vistaTipoCambio, cortes: vistaCortes, empleadas: vistaEmpleadas, avisos: vistaAvisos, analisis: vistaAnalisis, historial: vistaHistorialAdmin })[v]();
   if (v !== 'almacen') await avisosPisoInicial();
 }
 
@@ -397,17 +397,20 @@ async function vistaVenta() {
           <h2 id="detalle-titulo"></h2><div class="sub" id="detalle-sub"></div>
           <dl class="detalle" id="detalle"></dl>
           <div class="existencias"><span>Existencias:</span><span class="chips" id="existencias"></span>
-            <span class="acciones"><button class="btn btn-acento" id="btn-editar-venta" type="button" title="Cambiar el precio o la descripción de este artículo solo en esta venta">${ico('pencil')}<span>Editar en esta venta</span></button>
+            <span class="acciones"><button class="btn" id="btn-uniforme" type="button" hidden title="Uniforme de la tienda: lleva el descuento mayor de empleada">${ico('tag')}<span id="txt-uniforme">Marcar como uniforme</span></button>
+            <button class="btn btn-acento" id="btn-editar-venta" type="button" title="Cambiar el precio o la descripción de este artículo solo en esta venta">${ico('pencil')}<span>Editar en esta venta</span></button>
             <button class="btn btn-peligro" id="btn-quitar" type="button">${ico('trash')}<span>Quitar artículo</span></button></span></div>
         </section>
         <div class="acciones-inf" id="acciones-inf">
           <button class="btn" id="btn-buscar-ticket" type="button" title="Abre el historial de ventas de esta caja">${ico('search')}<span>Buscar ticket</span></button>
           <button class="btn" id="btn-devolucion" type="button" title="Buscar la venta y cambiar piezas (solo en la caja donde se vendió)">${ico('undo')}<span>Hacer Cambio</span></button><button class="btn" id="btn-descuento" type="button" title="Descuento autorizado por un supervisor con su clave">${ico('tag')}<span>Aplicar descuento</span></button><button class="btn" id="btn-cupon" type="button" title="Capturar o escanear un cupón de descuento">${ico('gift')}<span>Cupón</span></button><button class="btn" id="btn-espera" type="button" title="Guardar esta venta y atender a otro cliente, o retomar una venta guardada">${ico('pause')}<span id="txt-espera">Venta en espera</span></button><button class="btn" id="btn-abrir-caja" type="button" title="Abre el cajón de dinero sin hacer una venta (queda registrado)">${ico('cash')}<span>Abrir caja</span></button><button class="btn btn-peligro" id="btn-cancelar-venta" type="button" title="Cancelar la venta en curso (aún sin cobrar)">${ico('trash')}<span>Cancelar venta</span></button>
+        <button class="btn" id="btn-empleada" type="button" title="Venta a una empleada: descuento de empleada y, si quiere, crédito a su cuenta">${ico('user')}<span>Venta a empleada</span></button>
         </div>
       </div>
       <aside class="panel resumen" aria-label="Resumen y cobro">
         <h2>Resumen de venta</h2>
         <div class="campo" id="bloque-vendio" hidden style="margin:0 0 10px"><label for="vendio-por">Venta por:</label><select id="vendio-por" style="width:100%;padding:10px;border:2px solid var(--borde);border-radius:10px;background:var(--superficie)"></select><div id="msg-vendio" class="nota" style="margin-top:4px"></div></div>
+        <div id="bloque-empleada" class="mensaje ok" role="status" hidden style="margin:0 0 10px"></div>
         <p class="nota" style="margin:0 0 10px"><span id="piezas">0</span> pieza(s)</p>
         <dl>
           <dt>Importe</dt><dd id="brutas">$0.00</dd>
@@ -424,6 +427,7 @@ async function vistaVenta() {
           <button class="btn forma" type="button" data-forma="tarjeta" aria-pressed="false" ${metodos.includes('tarjeta') ? '' : 'disabled title="Esta caja no tiene terminal bancaria"'}>${ico('card', 'ico-lg')}<span>Tarjeta</span></button>
           <button class="btn forma" type="button" data-forma="mixto" aria-pressed="false" ${metodos.includes('tarjeta') ? '' : 'disabled title="Esta caja no tiene terminal bancaria"'}>${ico('mixto', 'ico-lg')}<span>Mixto</span></button>
           <button class="btn forma" type="button" data-forma="regalo" aria-pressed="false" ${metodos.includes('tarjeta_regalo') ? '' : `disabled title="Esta caja no maneja tarjetas de regalo"`}>${ico('gift', 'ico-lg')}<span>Tarjeta de regalo</span></button>
+          <button class="btn forma" type="button" data-forma="credito" aria-pressed="false" disabled title="Primero elija «Venta a empleada»">${ico('user', 'ico-lg')}<span>Crédito de empleada</span></button>
         </div>
         <div id="pago"></div>
         <button class="btn btn-primario" id="btn-cobrar" type="button" disabled><span id="txt-cobrar">COBRAR $0.00</span>${ico('chevron')}</button>
@@ -438,6 +442,8 @@ async function vistaVenta() {
   $('#scan').addEventListener('keydown', (ev) => { if (ev.key === 'Escape') { ev.preventDefault(); limpiarBusqueda(); } });
   $('#btn-regalo').addEventListener('click', () => { S.conRegalo = !S.conRegalo; $('#btn-regalo').setAttribute('aria-pressed', S.conRegalo ? 'true' : 'false'); msg(S.conRegalo ? 'Al cobrar se imprimirá también el ticket de regalo (sin precios).' : 'Sin ticket de regalo.', 'aviso'); });
   $('#btn-descuento').addEventListener('click', abrirDescuento);
+  $('#btn-empleada').addEventListener('click', abrirEmpleada);
+  $('#btn-uniforme').addEventListener('click', alternarUniforme);
   $('#btn-cupon').addEventListener('click', () => abrirCupon());
   $('#btn-espera').addEventListener('click', () => abrirEspera());
   $('#btn-cancelar-venta').addEventListener('click', abrirCancelarVenta);
@@ -460,7 +466,7 @@ async function vistaVenta() {
   $('#vendio-por').addEventListener('change', elegirVendedora);
   cargarVendedoras();
   $('#btn-devolver-dinero').addEventListener('click', abrirDevolverDinero);
-  for (const b of $('#formas').querySelectorAll('button[data-forma]:not(:disabled)')) b.addEventListener('click', () => elegirForma(b.dataset.forma));
+  for (const b of $('#formas').querySelectorAll('button[data-forma]')) b.addEventListener('click', () => elegirForma(b.dataset.forma));
   pintarPago();
   pintarCarrito();
   if (S.carrito.tasa) abrirUsd(); // el cobro ya había empezado a recibir dólares: conserva su tasa
@@ -475,7 +481,7 @@ function elegirForma(f) {
   for (const b of $('#formas').querySelectorAll('button[data-forma]')) b.setAttribute('aria-pressed', String(b.dataset.forma === f));
   pintarPago();
   recalcular();
-  $(f === 'regalo' ? '#codigo-regalo' : f === 'tarjeta' ? '#tj-aut' : f === 'mixto' ? '#tj-monto' : '#recibido').focus();
+  $(f === 'regalo' ? '#codigo-regalo' : f === 'tarjeta' ? '#tj-aut' : f === 'mixto' ? '#tj-monto' : f === 'credito' ? '#btn-cobrar' : '#recibido')?.focus();
 }
 
 /** Tarjeta con captura manual: se cobra en la terminal bancaria y aquí se teclea lo que dice el comprobante. */
@@ -554,6 +560,10 @@ function pintarPago() {
     p.innerHTML = htmlTarjeta(S.forma === 'mixto');
     for (const id of ['#tj-aut', '#tj-monto', '#tj-ult4', '#tj-marca']) $(id)?.addEventListener('input', recalcular);
     $('#tj-ult4').addEventListener('input', () => { $('#tj-ult4').value = $('#tj-ult4').value.replace(/\D/g, ''); });
+    return;
+  }
+  if (S.forma === 'credito') {
+    p.innerHTML = '<div id="info-credito" class="mensaje" role="status" aria-live="polite"></div>';
     return;
   }
   if (S.forma === 'regalo') {
@@ -679,8 +689,13 @@ function pintarCarrito() {
       pintarCarrito();
     });
   }
+  pintarEmpleada();
   const l = c.lineas.find((x) => x.linea_id === S.sel);
   $('#detalle-card').hidden = !l;
+  if ($('#btn-uniforme')) {
+    $('#btn-uniforme').hidden = !(l && c.empleada);
+    if (l && c.empleada) $('#txt-uniforme').textContent = l.uniforme ? `Quitar uniforme (vuelve al ${c.empleada.pct}%)` : `Marcar como uniforme (${c.empleada.pct_uniforme}%)`;
+  }
   if (l) {
     $('#detalle-titulo').textContent = [l.descripcion, l.marca].filter(Boolean).join(' · ');
     $('#detalle-sub').textContent = `Departamento: ${l.departamento}`;
@@ -729,6 +744,15 @@ function recalcular() {
     ok = hay && r.valido && /^[A-Za-z0-9]{4,12}$/.test($('#tj-aut').value.trim()) && (!$('#tj-ult4').value || /^\d{4}$/.test($('#tj-ult4').value));
     if ($('#linea-cambio')) $('#linea-cambio').classList.remove('falta');
     if ($('#lbl-cambio')) { $('#lbl-cambio').textContent = 'Cambio'; $('#cambio').textContent = mxn(0); }
+  } else if (S.forma === 'credito') {
+    const e = S.carrito.empleada;
+    const disp = e?.credito_disponible ?? 0;
+    ok = hay && !!e && total > 0 && total <= disp;
+    const info = $('#info-credito');
+    if (info) {
+      info.className = `mensaje ${ok ? 'ok' : 'aviso'}`;
+      info.innerHTML = !e ? 'Primero elija «Venta a empleada».' : total > disp ? `La compra (${mxn(total)}) pasa del crédito disponible de ${esc(e.nombre)} (${mxn(disp)}). Pague parte en efectivo o pida a Administración un límite mayor.` : `Se carga <b id="credito-monto">${mxn(total)}</b> a la cuenta de <b>${esc(e.nombre)}</b> y se le descuenta de su nómina. Crédito disponible: ${mxn(disp)}. No entra dinero a la caja.`;
+    }
   } else if (S.forma === 'regalo') {
     const t = S.tarjeta;
     const { aplicado, resto, saldoDespues } = repartoRegalo();
@@ -869,6 +893,8 @@ async function cobrar() {
     if (S.forma === 'tarjeta' || S.forma === 'mixto') {
       const t = repartoTarjeta();
       r = await api('/api/venta/cobrar-tarjeta', { cart: S.cart, ...(S.forma === 'mixto' ? { importe: t.importe } : {}), autorizacion: $('#tj-aut').value.trim(), marca: $('#tj-marca').value, ultimos4: $('#tj-ult4').value });
+    } else if (S.forma === 'credito') {
+      r = await api('/api/venta/cobrar-credito-empleada', { cart: S.cart });
     } else if (S.forma === 'regalo') {
       const { resto } = repartoRegalo();
       const c = calcEfectivo(resto);
@@ -960,7 +986,7 @@ async function abrirTicketRegalo(saleId) {
 const mxnODisp = (v) => (v === undefined || v === null ? 'No disponible' : mxn(v));
 const FILAS_CORTE = [
   ['tickets', 'Tickets', (v) => v], ['ventas_brutas', 'Mercancía antes de descuentos', mxn], ['descuentos', 'Descuentos', mxn], ['ventas_mercancia', 'Ventas de mercancía', mxn],
-  ['tarjetas_regalo_vendidas', 'Tarjetas de regalo vendidas o recargadas (no son ventas de mercancía)', mxn], ['ventas', 'Total de tickets de venta', mxn],
+  ['tarjetas_regalo_vendidas', 'Tarjetas de regalo vendidas o recargadas (no son ventas de mercancía)', mxn], ['ventas_a_credito_empleadas', 'Ventas a crédito de empleadas (se descuentan de nómina; no es cobro ni efectivo)', mxnODisp], ['ventas', 'Total de tickets de venta', mxn],
   ['mercancia_recibida_por_cambio', 'Mercancía recibida a cambio (no es salida de dinero)', mxnODisp], ['devoluciones_con_reembolso', 'Devoluciones con reembolso real', mxnODisp], ['diferencias_cobradas_en_cambios', 'Diferencias cobradas en cambios (ya incluidas en los cobros)', mxnODisp], ['diferencias_devueltas_en_cambios', 'Diferencias devueltas en cambios (ya incluidas en los reembolsos)', mxnODisp], ['devoluciones_en_efectivo', 'Devoluciones en efectivo', mxn], ['devoluciones_a_tarjeta_regalo', 'Devoluciones a tarjeta de regalo', mxn], ['ventas_netas', 'Ventas netas de mercancía', mxn], ['cobros_efectivo', 'Cobros en efectivo (MXN)', mxn], ['cobros_efectivo_usd', 'Cobros en efectivo con dólares (MXN que liquidan)', mxn], ['devoluciones_a_tarjeta', 'Reversos a tarjeta bancaria (no sale efectivo)', mxn], ['cobros_tarjeta', 'Cobros con tarjeta bancaria', mxn], ['cobros_tarjeta_regalo', 'Cobros con tarjeta de regalo', mxn],
   ['fondo_inicial', 'Fondo inicial en pesos', mxn], ['entradas', 'Entradas en pesos', mxn], ['retiros', 'Retiros en pesos', mxn], ['pesos_recibidos_con_usd', 'Pesos recibidos junto con dólares', mxn], ['cambio_mxn_con_usd', 'Cambio entregado en pesos por cobros con dólares', mxn],
   ['efectivo_esperado', 'EFECTIVO MXN de ventas esperado (pesos físicos, sin el fondo)', mxn],
@@ -1068,6 +1094,7 @@ async function vistaCorte() {
         <div class="kpi" id="kpi-pesos"><span class="kpi-rotulo">Total en pesos</span><b id="rc-total-pesos">${mxn(v.cobros_efectivo)}</b></div>
         <div class="kpi" id="kpi-dolares"><span class="kpi-rotulo">Total en dólares</span><b id="rc-total-dolares">${usd(v.usd_recibidos)}</b>${v.cobros_efectivo_usd ? `<small>${mxn(v.cobros_efectivo_usd)}</small>` : ''}</div>
         <div class="kpi" id="kpi-tarjeta"><span class="kpi-rotulo">TOTAL EN TARJETA</span><b id="rc-total-tarjeta">${mxn(v.cobros_tarjeta)}</b></div>
+        ${v.ventas_a_credito_empleadas ? `<div class="kpi" id="kpi-credito-empleadas"><span class="kpi-rotulo">Crédito de empleadas</span><b id="rc-credito-empleadas">${mxn(v.ventas_a_credito_empleadas)}</b><small>no es cobro</small></div>` : ''}
       </div>
       <div class="panel" id="kpi-fondo" style="margin:10px 0"><h3 style="margin:0 0 6px">Fondo</h3>
         <p style="margin:0">Fondo autorizado: <b id="rc-fondo-autorizado">${mxn(v.fondo_autorizado)}</b> · <b>Fondo confirmado: <span id="rc-fondo-confirmado">${v.fondo_confirmado === null ? '—' : `${mxn(v.fondo_confirmado)}${v.fondo_estado && v.fondo_estado !== 'completo' ? ` (${esc(v.fondo_estado)} de ${mxn(Math.abs(v.fondo_diferencia))}: ${esc(v.fondo_nota ?? '')})` : ' (completo)'}`}</span></b></p></div>
@@ -1540,6 +1567,7 @@ async function pintarResumenDia(fecha) {
       <div class="kpi"><span class="kpi-rotulo">Total en pesos</span><b id="rd-pesos">${mxn(t.pesos)}</b></div>
       <div class="kpi"><span class="kpi-rotulo">Total en dólares</span><b id="rd-dolares">${mxn(t.dolares_mxn)}</b><small>equivalente en pesos</small></div>
       <div class="kpi" style="border-color:var(--acento)"><span class="kpi-rotulo">TOTAL EN TARJETA</span><b id="rd-tarjeta">${mxn(t.tarjeta)}</b></div>
+      ${t.credito_empleadas ? `<div class="kpi"><span class="kpi-rotulo">Crédito de empleadas</span><b id="rd-credito">${mxn(t.credito_empleadas)}</b><small>se descuenta de nómina; no es cobro</small></div>` : ''}
     </div>
     <div class="panel" style="margin:10px 0"><h3 style="margin:0 0 6px">Cambios y devoluciones</h3><table><tbody>
       <tr><th scope="row">Mercancía recibida a cambio</th><td class="num" id="rd-cambio">${mxn(t.mercancia_recibida_por_cambio)}</td></tr>
@@ -2245,7 +2273,7 @@ async function vistaDolares() {
 
 // ── Reporte de promociones y descuentos autorizados por supervisor ──
 const pctBp = (bp) => `${(bp / 100).toFixed(2).replace(/\.00$/, '')} %`;
-const NOM_TIPO_DESC = { promo: 'Promoción', cupon: 'Cupón', manual: 'Manual (supervisor)' };
+const NOM_TIPO_DESC = { promo: 'Promoción', cupon: 'Cupón', manual: 'Manual (supervisor)', empleada: 'Descuento de empleada' };
 // ── retiro de efectivo ──
 /** Ventana flotante (no modal: no bloquea el escaneo ni el cobro) cuando el efectivo de venta de la caja llega al umbral. «Más tarde» la oculta 15 minutos. */
 async function revisarAvisoRetiro() {
@@ -2624,6 +2652,61 @@ function abrirEditarLinea() {
   d.showModal();
   $('#el-desc').focus();
 }
+// ── Venta a empleada: descuento de empleada (15 %, o 30 % en uniformes) y crédito a su cuenta ──
+function pintarEmpleada() {
+  const e = S.carrito.empleada;
+  const b = $('#bloque-empleada');
+  if (b) {
+    b.hidden = !e;
+    if (e) b.innerHTML = `<b>Venta a empleada: ${esc(e.nombre)}</b><br><small>Descuento ${e.pct}% (uniformes ${e.pct_uniforme}%) · no se combina con promociones: aplica el que más le conviene. Crédito disponible: <b id="credito-disponible">${mxn(e.credito_disponible)}</b></small><br><button class="btn" type="button" id="btn-quitar-empleada">${ico('x')}<span>Quitar empleada</span></button>`;
+    $('#btn-quitar-empleada')?.addEventListener('click', quitarEmpleada);
+  }
+  const f = $('#formas')?.querySelector('button[data-forma="credito"]');
+  if (f) {
+    f.disabled = !e;
+    f.title = e ? 'Se carga a la cuenta de la empleada y se le descuenta de la nómina' : 'Primero elija «Venta a empleada»';
+  }
+  if (!e && S.forma === 'credito') elegirForma('efectivo');
+}
+async function quitarEmpleada() {
+  try { const r = await api('/api/venta/empleada/quitar', { cart: S.cart }); S.carrito = r.carrito; pintarCarrito(); msg('Se quitó el descuento de empleada.'); }
+  catch (e) { msg(e.message, 'error'); }
+}
+async function alternarUniforme() {
+  const l = S.carrito.lineas.find((x) => x.linea_id === S.sel);
+  if (!l) return;
+  try { const r = await api('/api/venta/uniforme', { cart: S.cart, linea_id: l.linea_id, uniforme: !l.uniforme }); S.carrito = r.carrito; pintarCarrito(); }
+  catch (e) { msg(e.message, 'error'); }
+}
+async function abrirEmpleada() {
+  if (!S.carrito.lineas.length) return msg('Agregue artículos a la venta antes de elegir a la empleada.', 'aviso');
+  const { empleadas, yo } = await api('/api/empleadas');
+  const d = dialogo('dlg-empleada');
+  d.setAttribute('aria-labelledby', 'emp-titulo');
+  d.innerHTML = `<h2 id="emp-titulo" style="margin-top:0">Venta a empleada</h2>
+    <p class="nota">La empleada confirma con <b>su propia clave</b>. El descuento se calcula solo y no se combina con promociones. Después puede marcar los uniformes de la tienda (descuento mayor) y pagar normal o a crédito.</p>
+    <form id="form-empleada" autocomplete="off">
+      <div class="campo"><label for="emp-quien">Empleada</label><select id="emp-quien" style="width:100%;padding:10px;border:2px solid var(--borde);border-radius:10px;background:var(--superficie)">${empleadas.map((e) => `<option value="${esc(e.id)}" data-nombre="${esc(e.nombre)}">${esc(e.nombre)}</option>`).join('')}</select></div>
+      <div class="campo"><label for="emp-clave">Clave de la empleada</label><input id="emp-clave" type="text" data-pin inputmode="numeric" autocomplete="off" placeholder="••••"></div>
+      <div class="campo" id="emp-sup-campo" hidden><label for="emp-sup">Clave de un supervisor (una cajera no se vende a sí misma sin autorización)</label><input id="emp-sup" type="text" data-pin inputmode="numeric" autocomplete="off" placeholder="••••"></div>
+      <div id="msg-emp" class="mensaje" role="status" aria-live="polite"></div>
+      <div class="filas"><button class="btn" type="button" id="emp-cerrar">Cancelar</button><button class="btn btn-primario" type="submit" style="width:auto;flex:1">${ico('check')}<span>Aplicar descuento de empleada</span></button></div>
+    </form>`;
+  const sup = () => { $('#emp-sup-campo').hidden = $('#emp-quien').selectedOptions[0]?.dataset.nombre.toLowerCase() !== String(yo).toLowerCase(); };
+  $('#emp-quien').addEventListener('change', sup); sup();
+  $('#emp-cerrar').addEventListener('click', () => d.close());
+  $('#form-empleada').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const m = $('#msg-emp');
+    try {
+      const r = await api('/api/venta/empleada', { cart: S.cart, empleada_id: $('#emp-quien').value, clave: $('#emp-clave').value, ...(!$('#emp-sup-campo').hidden ? { clave_supervisor: $('#emp-sup').value } : {}) });
+      S.carrito = r.carrito; d.close(); pintarCarrito(); msg(`Venta a empleada: ${r.carrito.empleada.nombre}. Marque los uniformes (descuento mayor) y elija la forma de pago.`);
+    } catch (e) { m.className = 'mensaje error'; m.textContent = e.message; }
+  });
+  d.showModal();
+  $('#emp-clave').focus();
+}
+
 function abrirDescuento() {
   if (!S.carrito.lineas.length) return msg('Agregue artículos a la venta antes de aplicar un descuento.', 'aviso');
   const d = dialogo('dlg-descuento');
@@ -3326,6 +3409,74 @@ async function vistaConfiguracion(tab) {
   await ({ tiendas: vistaTiendas, departamentos: vistaDepartamentos, tipo_cambio: vistaTipoCambio, cajas: vistaCajasFondo, cajeros: vistaCajeros })[tab]();
 }
 
+
+// ── Empleadas (Administración): porcentajes de descuento, límite de crédito, cuenta, abonos de nómina y reporte para la nómina ──
+async function vistaEmpleadas() {
+  const j = await api('/api/admin/empleadas');
+  const hoy = new Date(Date.now() - 7 * 3600e3).toISOString().slice(0, 10);
+  $('#vista').innerHTML = `<div class="titulo-vista">${ico('user')}<h1>Empleadas: descuento y crédito</h1></div>
+    <section class="panel"><h2 style="margin-top:0">Descuento de empleada</h2>
+      <p class="nota">Se aplica solo en una «Venta a empleada» (la empleada confirma con su clave). No se combina con promociones ni cupones: gana el que más le convenga. En la caja se marcan los uniformes de la tienda.</p>
+      <form id="form-emp-config" class="filas" style="align-items:end" autocomplete="off">
+        <div class="campo" style="margin:0"><label for="ec-pct">Mercancía regular (%)</label><input id="ec-pct" type="number" min="1" max="100" value="${j.config.pct}" style="width:90px"></div>
+        <div class="campo" style="margin:0"><label for="ec-uni">Uniformes (%)</label><input id="ec-uni" type="number" min="1" max="100" value="${j.config.pct_uniforme}" style="width:90px"></div>
+        <button class="btn btn-primario" type="submit" style="width:auto">${ico('check')}<span>Guardar porcentajes</span></button></form>
+      <div id="msg-emp-admin" class="mensaje" role="status" aria-live="polite"></div></section>
+    <section class="panel" style="margin-top:12px"><h2 style="margin-top:0">Cuentas de crédito</h2>
+      <p class="nota">El crédito no es dinero cobrado: la venta cuenta en la venta del día y baja el inventario, pero no entra al corte ni al efectivo. Aquí queda lo que cada empleada debe; los abonos se registran cuando se le descuenta de la nómina. <b>Total por cobrar: <span id="emp-total">${mxn(j.total_por_cobrar)}</span></b></p>
+      <div class="tabla-cont"><table id="tabla-empleadas"><thead><tr><th>Empleada</th><th class="num">Límite</th><th class="num">Cargos</th><th class="num">Devoluciones</th><th class="num">Abonos</th><th class="num">Ajustes</th><th class="num">Debe</th><th class="num">Disponible</th><th></th></tr></thead><tbody>
+      ${j.empleadas.map((e) => `<tr data-emp="${esc(e.id)}"><td>${esc(e.nombre)}${e.activa ? '' : ' <small>(ya no trabaja)</small>'}</td><td class="num" data-col="limite">${mxn(e.limite)}</td><td class="num" data-col="cargos">${mxn(e.cargos)}</td><td class="num">${mxn(e.devoluciones)}</td><td class="num" data-col="abonos">${mxn(e.abonos)}</td><td class="num">${mxn(e.ajustes)}</td><td class="num" data-col="saldo"><b>${mxn(e.saldo)}</b></td><td class="num" data-col="disponible">${mxn(e.disponible)}</td>
+        <td class="filas" style="flex-wrap:nowrap"><button class="btn em-limite" type="button">${ico('pencil')}<span>Límite</span></button><button class="btn em-abono" type="button">${ico('cash')}<span>Abono de nómina</span></button><button class="btn em-ajuste" type="button">${ico('plus')}<span>Ajuste</span></button><button class="btn em-mov" type="button">${ico('clock')}<span>Movimientos</span></button></td></tr>`).join('') || '<tr><td colspan="9" class="vacio">Aún no hay empleadas dadas de alta en Configuración › Usuarios.</td></tr>'}</tbody></table></div>
+      <form id="form-emp" hidden autocomplete="off" style="margin-top:12px;border-top:1px solid var(--borde);padding-top:10px"></form>
+      <div id="emp-movimientos"></div></section>
+    <section class="panel" style="margin-top:12px"><h2 style="margin-top:0">Para la nómina</h2>
+      <form id="form-nomina" class="filas" style="align-items:end" autocomplete="off"><label>Desde <input type="date" id="nom-desde" value="${hoy}"></label><label>Hasta <input type="date" id="nom-hasta" value="${hoy}"></label>
+        <button class="btn btn-primario" type="submit" style="width:auto">${ico('search')}<span>Consultar</span></button></form>
+      <div id="emp-nomina"></div></section>`;
+  const msg = (t, tipo = 'error') => { const m = $('#msg-emp-admin'); m.className = `mensaje ${tipo}`; m.textContent = t; };
+  $('#form-emp-config').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    try { await api('/api/admin/empleadas/config', { pct: Number($('#ec-pct').value), pct_uniforme: Number($('#ec-uni').value) }); msg('Porcentajes guardados. Las cajas los reciben al sincronizar.', 'ok'); }
+    catch (e) { msg(e.message); }
+  });
+  const abrir = (e, tipo) => {
+    const f = $('#form-emp'); f.hidden = false;
+    const enviar = (ruta, cuerpo, ok) => async (ev) => { ev.preventDefault(); try { await api(ruta, cuerpo()); await vistaEmpleadas(); const m = $('#msg-emp-admin'); m.className = 'mensaje ok'; m.textContent = ok; } catch (er) { msg(er.message); } };
+    const botones = (rotulo) => `<div class="filas"><button class="btn" type="button" id="ef-cancelar">Cancelar</button><button class="btn btn-primario" type="submit" style="width:auto;flex:1">${ico('check')}<span>${rotulo}</span></button></div>`;
+    const ref = nuevaRef();
+    if (tipo === 'limite') {
+      f.innerHTML = `<h3 style="margin-top:0">Límite de crédito de ${esc(e.nombre)}</h3><div class="campo"><label for="ef-monto">Límite ($; 0 = sin crédito)</label><input id="ef-monto" class="texto" inputmode="decimal" value="${centavosAPesos(e.limite)}"></div><div class="campo"><label for="ef-motivo">Motivo</label><input id="ef-motivo" class="texto" maxlength="120"></div>${botones('Guardar límite')}`;
+      f.onsubmit = enviar('/api/admin/empleadas/limite', () => ({ empleada_id: e.id, limite: parseMXN($('#ef-monto').value || '0'), motivo: $('#ef-motivo').value }), 'Límite guardado.');
+    } else {
+      const abono = tipo === 'abono';
+      f.innerHTML = `<h3 style="margin-top:0">${abono ? 'Abono de nómina' : 'Ajuste'} de ${esc(e.nombre)}</h3>
+        ${abono ? '' : '<div class="campo"><label for="ef-tipo">Tipo de ajuste</label><select id="ef-tipo" style="width:100%;padding:8px;border:1px solid var(--borde);border-radius:8px;background:var(--superficie)"><option value="ajuste_cargo">Cargo (suma a lo que debe)</option><option value="ajuste_abono">Descuento a favor (resta a lo que debe)</option></select></div>'}
+        <div class="campo"><label for="ef-monto">Monto ($)</label><input id="ef-monto" class="texto" inputmode="decimal"></div>
+        ${abono ? '<div class="campo"><label for="ef-periodo">Periodo de nómina (opcional)</label><input id="ef-periodo" class="texto" maxlength="40" placeholder="Ej. octubre, 1ª quincena"></div>' : ''}
+        <div class="campo"><label for="ef-motivo">${abono ? 'Nota' : 'Motivo'}</label><input id="ef-motivo" class="texto" maxlength="120" value="${abono ? 'Descuento de nómina' : ''}"></div>${botones('Registrar')}`;
+      f.onsubmit = enviar('/api/admin/empleadas/movimiento', () => ({ empleada_id: e.id, tipo: abono ? 'abono' : $('#ef-tipo').value, monto: parseMXN($('#ef-monto').value), motivo: $('#ef-motivo').value, ...(abono ? { periodo: $('#ef-periodo').value } : {}), ref }), 'Movimiento registrado.');
+    }
+    $('#ef-cancelar').addEventListener('click', () => { f.hidden = true; });
+    $('#ef-monto').focus();
+  };
+  for (const tr of $('#tabla-empleadas').querySelectorAll('tr[data-emp]')) {
+    const e = j.empleadas.find((x) => x.id === tr.dataset.emp);
+    tr.querySelector('.em-limite').addEventListener('click', () => abrir(e, 'limite'));
+    tr.querySelector('.em-abono').addEventListener('click', () => abrir(e, 'abono'));
+    tr.querySelector('.em-ajuste').addEventListener('click', () => abrir(e, 'ajuste'));
+    tr.querySelector('.em-mov').addEventListener('click', async () => {
+      const r = await api(`/api/admin/empleadas/movimientos?id=${encodeURIComponent(e.id)}`);
+      const NOM = { cargo: 'Venta a crédito', devolucion: 'Devolución', abono: 'Abono de nómina', ajuste_cargo: 'Ajuste (cargo)', ajuste_abono: 'Ajuste (a favor)' };
+      $('#emp-movimientos').innerHTML = `<h3>Movimientos de ${esc(e.nombre)}</h3><div class="tabla-cont"><table id="tabla-emp-mov"><thead><tr><th>Fecha</th><th>Movimiento</th><th>Detalle</th><th class="num">Monto</th></tr></thead><tbody>${r.movimientos.map((m) => `<tr><td>${esc(m.fecha.split('-').reverse().join('/'))}</td><td>${NOM[m.tipo]}</td><td>${esc(m.detalle)}${m.periodo ? ` · ${esc(m.periodo)}` : ''}${m.por ? ` · ${esc(m.por)}` : ''}</td><td class="num">${['cargo', 'ajuste_cargo'].includes(m.tipo) ? '' : '-'}${mxn(m.monto)}</td></tr>`).join('') || '<tr><td colspan="4" class="vacio">Sin movimientos.</td></tr>'}</tbody></table></div>`;
+    });
+  }
+  const nomina = async () => {
+    const r = await api(`/api/admin/empleadas/nomina?desde=${$('#nom-desde').value}&hasta=${$('#nom-hasta').value}`);
+    $('#emp-nomina').innerHTML = `<div class="tabla-cont"><table id="tabla-nomina"><thead><tr><th>Empleada</th><th class="num">Cargos del periodo</th><th class="num">Devoluciones</th><th class="num">Abonos</th><th class="num">A descontar</th><th class="num">Debe (saldo)</th></tr></thead><tbody>${r.filas.map((f) => `<tr data-emp="${esc(f.id)}"><td>${esc(f.nombre)}</td><td class="num">${mxn(f.cargos)}</td><td class="num">${mxn(f.devoluciones)}</td><td class="num">${mxn(f.abonos)}</td><td class="num"><b>${mxn(f.a_descontar)}</b></td><td class="num">${mxn(f.saldo)}</td></tr>`).join('') || '<tr><td colspan="6" class="vacio">Sin movimientos en el periodo.</td></tr>'}</tbody><tfoot><tr><th>Total</th><td class="num">${mxn(r.total.cargos)}</td><td class="num">${mxn(r.total.devoluciones)}</td><td class="num">${mxn(r.total.abonos)}</td><td class="num" id="nom-total"><b>${mxn(r.total.a_descontar)}</b></td><td class="num">${mxn(r.total.saldo)}</td></tr></tfoot></table></div>`;
+  };
+  $('#form-nomina').addEventListener('submit', (ev) => { ev.preventDefault(); nomina(); });
+  await nomina();
+}
 
 // ── Configuración › Cajas: fondo fijo autorizado por caja y entregas o ajustes de efectivo (solo Administración) ──
 async function vistaCajasFondo() {
