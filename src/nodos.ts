@@ -2594,8 +2594,6 @@ export class Caja {
       efectivo_esperado: mxn.esperado,
       // Cierre guiado: efectivo de ventas esperado SIN el fondo, y el fondo fijo (autorizado, confirmado y composición). El fondo no es movimiento de efectivo.
       efectivo_ventas_esperado: mxn.esperado - mxn.fondo, ajustes_admin: mxn.ajustes,
-      // Lo que debe haber en el cajón al final: efectivo de ventas esperado + el fondo fijo (el confirmado; sin confirmar, el autorizado).
-      efectivo_cajon_esperado: mxn.esperado - mxn.fondo + (fondoDia ? fondoDia.total : this.fondoAutorizado()),
       fondo_autorizado: this.fondoAutorizado(),
       fondo_confirmado: fondoDia ? fondoDia.total : null, fondo_estado: fondoDia ? fondoDia.estado : null, fondo_diferencia: fondoDia ? fondoDia.diferencia : null,
       fondo_nota: fondoDia ? fondoDia.nota : null, fondo_denominaciones: fondoDia ? fondoDia.denominaciones : null, fondo_referencia: refFondo,

@@ -73,7 +73,6 @@ porAlmacen('Cambio de mercancía: exactamente dos tickets, sin comprobante de cr
     assert.equal(c.devoluciones_en_efectivo, pesos(1000));
     assert.equal(c.mxn.cobros - c.mxn.cambio - c.mxn.devoluciones, pesos(7399), 'movimiento neto del efectivo');
     assert.equal(c.efectivo_esperado, pesos(7399), 'el fondo no es movimiento de efectivo');
-    assert.equal(c.efectivo_cajon_esperado, pesos(12399), 'con el fondo fijo de $5,000 en el cajón');
     // cierre guiado: se cuenta el fondo ($5,000) y, aparte, el efectivo de ventas ($7,399) → sin diferencia
     assert.equal((await api(caja.url, '/api/cierre/fondo', { denominaciones: { '100000': 5 } })).status, 200);
     const conteo = await api(caja.url, '/api/efectivo/conteo', { moneda: 'MXN', denominaciones: { '100000': 7, '20000': 1, '10000': 1, '5000': 1, '2000': 2, '500': 1, '200': 2 }, alcance: 'ventas' });
