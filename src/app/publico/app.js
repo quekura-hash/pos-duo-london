@@ -387,6 +387,7 @@ async function vistaVenta() {
             <button class="btn" id="btn-limpiar-busqueda" type="button" title="Borra el texto y los resultados de la búsqueda (la venta no se toca). Atajo: Esc">${ico('x')}<span>Limpiar búsqueda</span></button>
             <button class="btn btn-acento" id="btn-nuevo-articulo" type="button" title="Dar de alta un artículo que no está en el catálogo (pide su clave)">${ico('plus')}<span>Nuevo artículo</span></button>
           </div>
+          <div class="vendio-fila" id="bloque-vendio" hidden><label for="vendio-por">Venta por:</label><select id="vendio-por"></select><span id="msg-vendio" class="nota"></span></div>
           <div id="mensaje" class="mensaje" role="status" aria-live="polite"></div>
           <div id="resultados"></div>
           <div class="tabla-cont"><table id="tabla-venta"><caption class="sr-only">Artículos de la venta en curso</caption>
@@ -408,10 +409,8 @@ async function vistaVenta() {
         </div>
       </div>
       <aside class="panel resumen" aria-label="Resumen y cobro">
-        <h2>Resumen de venta</h2>
-        <div class="campo" id="bloque-vendio" hidden style="margin:0 0 10px"><label for="vendio-por">Venta por:</label><select id="vendio-por" style="width:100%;padding:10px;border:2px solid var(--borde);border-radius:10px;background:var(--superficie)"></select><div id="msg-vendio" class="nota" style="margin-top:4px"></div></div>
+        <h2>Resumen de venta<span class="piezas-txt"><span id="piezas">0</span> pieza(s)</span></h2>
         <div id="bloque-empleada" class="mensaje ok" role="status" hidden style="margin:0 0 10px"></div>
-        <p class="nota" style="margin:0 0 10px"><span id="piezas">0</span> pieza(s)</p>
         <dl>
           <dt>Importe</dt><dd id="brutas">$0.00</dd>
           <dt>Descuentos</dt><dd id="descuentos">$0.00</dd>
@@ -421,7 +420,6 @@ async function vistaVenta() {
         <div id="promos-aplicadas" aria-live="polite"></div>
         <div class="total"><span>TOTAL</span><b id="total">$0.00</b></div>
         <div class="mxn">MXN</div>
-        <strong>Forma de pago</strong>
         <div class="formas" id="formas" role="group" aria-label="Forma de pago">
           <button class="btn forma" type="button" data-forma="efectivo" aria-pressed="true">${ico('cash', 'ico-lg')}<span>Efectivo</span></button>
           <button class="btn forma" type="button" data-forma="tarjeta" aria-pressed="false" ${metodos.includes('tarjeta') ? '' : 'disabled title="Esta caja no tiene terminal bancaria"'}>${ico('card', 'ico-lg')}<span>Tarjeta</span></button>
@@ -504,15 +502,15 @@ function repartoTarjeta() {
 
 /** Efectivo: pesos y, si se pide, dólares. El cajero solo captura lo recibido; el POS calcula equivalente, faltante y cambio en MXN. */
 function htmlEfectivo(etiquetaPesos) {
-  return `<div class="campo"><label for="recibido" id="lbl-recibido">${etiquetaPesos}</label>
+  return `<div class="efectivo-campos"><div class="campo"><label for="recibido" id="lbl-recibido">${etiquetaPesos}</label>
       <input id="recibido" inputmode="decimal" autocomplete="off" placeholder="0.00"></div>
-    <button class="btn" id="btn-usd" type="button" style="width:100%;margin-bottom:8px">${ico('dollar')}<span>Agregar dólares USD</span></button>
+    <div class="campo" id="campo-usd" hidden><label for="usd">Dólares recibidos (USD)</label><input id="usd" inputmode="decimal" autocomplete="off" placeholder="0.00"></div></div>
+    <button class="btn btn-chico" id="btn-usd" type="button">${ico('dollar')}<span>Agregar dólares USD</span></button>
     <div id="bloque-usd" hidden>
-      <div class="campo"><label for="usd">Dólares recibidos (USD)</label><input id="usd" inputmode="decimal" autocomplete="off" placeholder="0.00"></div>
       <div id="msg-usd" class="mensaje error" role="alert"></div>
       <div class="saldo-tarjeta" id="info-tasa" role="status" aria-live="polite"></div>
       <div id="aviso-sin-verificar" class="mensaje aviso" role="status" hidden></div>
-      <button class="btn" id="btn-tasa-nueva" type="button" hidden style="width:100%;margin-bottom:8px">${ico('refresh')}<span>Usar la tasa vigente</span></button>
+      <button class="btn btn-chico" id="btn-tasa-nueva" type="button" hidden>${ico('refresh')}<span>Usar la tasa vigente</span></button>
       <div id="aviso-cambio" class="mensaje aviso" role="status" hidden></div>
       <dl class="calc-usd"><dt>Equivalente de los USD</dt><dd id="usd-equivalente">$0.00</dd><dt>Total recibido equivalente</dt><dd id="total-recibido">$0.00</dd></dl>
     </div>
@@ -529,6 +527,7 @@ async function abrirUsd(renovar = false) {
     S.tasa = await api('/api/venta/tasa', { cart: S.cart, renovar });
     S.usdAbierto = true;
     $('#bloque-usd').hidden = false;
+    $('#campo-usd').hidden = false;
     $('#lbl-recibido').textContent = S.forma === 'regalo' ? 'Pesos recibidos para el resto (MXN)' : 'Pesos recibidos (MXN)';
     $('#btn-usd').innerHTML = `${ico('x')}<span>Quitar dólares USD</span>`;
     pintarInfoTasa();
@@ -539,6 +538,7 @@ async function abrirUsd(renovar = false) {
 function cerrarUsd() {
   S.usdAbierto = false;
   $('#bloque-usd').hidden = true;
+  $('#campo-usd').hidden = true;
   $('#usd').value = '';
   $('#lbl-recibido').textContent = S.forma === 'regalo' ? 'Efectivo recibido para el resto (MXN)' : 'Efectivo recibido (MXN)';
   $('#btn-usd').innerHTML = `${ico('dollar')}<span>Agregar dólares USD</span>`;
@@ -577,7 +577,7 @@ function pintarPago() {
     $('#codigo-regalo').addEventListener('input', () => { S.tarjeta = null; $('#info-regalo').hidden = true; recalcular(); });
   } else {
     p.innerHTML = `${htmlEfectivo('Efectivo recibido (MXN)')}
-      <button class="btn" id="btn-exacto" type="button" style="width:100%;margin-bottom:10px" disabled>${ico('check')}<span>Cliente paga exacto</span></button>`;
+      <button class="btn btn-chico" id="btn-exacto" type="button" disabled>${ico('check')}<span>Cliente paga exacto</span></button>`;
     $('#btn-exacto').addEventListener('click', () => {
       const eq = S.usdAbierto ? calcEfectivo(S.carrito.total).equivalente : 0;
       $('#recibido').value = (Math.max(0, S.carrito.total - eq) / 100).toFixed(2);
