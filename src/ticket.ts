@@ -581,7 +581,7 @@ export function lineasTicketCorte(k: DatosCorte, cfg: NegocioCfg = NEGOCIOS[k.ti
     if (k.conteo_usd) L.push(t(dos('Contado', formatoUSD(k.conteo_usd.contado), c)), b(dos('DIFERENCIA', dif(k.diferencia_usd, formatoUSD), c)));
   }
   if (k.observaciones) L.push(t(regla), ...envolver(`Observaciones: ${k.observaciones}`, c).map(t));
-  L.push(t(regla), t(''), t(''), t('_'.repeat(Math.min(c, 32))), t('Firma de la cajera'), t(''), t('_'.repeat(Math.min(c, 32))), t('Firma de quien revisa'), t(regla));
+  L.push(t(regla), t(''), t(''), t('_'.repeat(Math.min(c, 32))), t('Firma de la cajera'), t(regla));
   return L;
 }
 export function renderTicketCorteTexto(k: DatosCorte, cfg: NegocioCfg = NEGOCIOS[k.tienda]!, opts: { reimpresion?: number } = {}): string {

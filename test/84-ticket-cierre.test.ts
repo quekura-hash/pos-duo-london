@@ -69,6 +69,8 @@ porAlmacen('Ticket de cierre de corte: 5 ventas (una con tarjeta), una devoluciÃ
     assert.match(ticket, /VENTAS NETAS +\$3,498\.00/);
     assert.match(ticket, /Efectivo de ventas esperado +\$2,599\.00/);
     assert.match(ticket, /DIFERENCIA +\+\$1\.00 SOBRANTE/);
+    assert.match(ticket, /Firma de la cajera/);
+    assert.doesNotMatch(ticket, /quien revisa/, 'solo firma la cajera');
     assert.ok(ticket.split('\n').every((l) => l.length <= 48), 'cabe en 48 columnas');
     // la impresora recibe negrita y doble tamaÃ±o en lo importante, y el logo no se imprime en el cierre
     const bytes = renderTicketCorteEscPos(k, NEGOCIOS.DUO);

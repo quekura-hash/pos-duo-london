@@ -1019,9 +1019,7 @@ async function vistaCorte() {
     const clic = n <= maximo;
     return `<li><button type="button" class="paso-btn ${n === paso ? 'activo' : ''} ${ok ? 'hecho' : ''}" data-paso="${n}" ${clic ? '' : 'disabled'} aria-current="${n === paso ? 'step' : 'false'}"><span class="paso-num">${ok ? ico('check') : n}</span><span>${n}. ${t}</span></button></li>`;
   }).join('')}</ol>`;
-  const neg = j.negocio;
-  const datosTienda = neg ? `<div class="panel" id="cierre-tienda" style="text-align:center;margin-bottom:10px"><b style="font-size:18px">${esc(neg.nombre)}</b>${neg.encabezado.map((x) => `<br>${esc(x)}`).join('')}<br>Tienda ${esc(v.tienda)} · Caja ${v.caja}${neg.telefono ? ` · Tel. ${esc(neg.telefono)}` : ''}</div>` : '';
-  const cab = `${datosTienda}<div class="titulo-vista">${ico('chart')}<h1>Cierre de caja — Caja ${v.caja} (${esc(v.tienda)}) · ${esc(v.fecha)}</h1></div>${pasos}
+  const cab = `<div class="titulo-vista">${ico('chart')}<h1>Cierre de caja — Caja ${v.caja} (${esc(v.tienda)}) · ${esc(v.fecha)}</h1></div>${pasos}
     ${v.perdida_documental_abierta.length ? '<div class="mensaje error" data-alerta="perdida-corte">Este corte puede estar incompleto: hay una posible pérdida de ventas, pagos o folios de esta caja sin resolver.</div>' : ''}
     ${cerrado ? `<div class="mensaje ok" id="corte-cerrado">Corte cerrado${j.cerrado.cerrado_por ? ` por ${esc(j.cerrado.cerrado_por)}` : ''}${j.desactualizado ? '. Hay operaciones posteriores al cierre (no se reescribe el corte cerrado).' : '.'}</div>` : ''}`;
   let cuerpo = '';
