@@ -1444,8 +1444,10 @@ export class Caja {
   ventasEnEspera() {
     return this.carritosAbiertos().map((id) => this.cartGet(id)).filter((c) => c.espera).map((c) => ({
       cart_id: c.id, desde: c.espera!.desde, nota: c.espera!.nota, por: c.espera!.por,
-      piezas: c.lineas.reduce((a, l) => a + l.qty, 0), total: c.lineas.reduce((a, l) => a + l.importe, 0),
-      articulos: c.lineas.slice(0, 3).map((l) => ({ qty: l.qty, descripcion: l.descripcion })),
+      // Un cambio en curso cuenta con lo que regresa la clienta (piezas en negativo y su importe a favor).
+      piezas: c.lineas.reduce((a, l) => a + l.qty, 0) - (c.cambio?.renglones.reduce((a, r) => a + r.qty, 0) ?? 0), total: c.lineas.reduce((a, l) => a + l.importe, 0) - (c.cambio?.credito ?? 0),
+      articulos: [...(c.cambio ? [{ qty: -c.cambio.renglones.reduce((a, r) => a + r.qty, 0), descripcion: `cambio del folio ${String(c.cambio.folio_origen).padStart(6, '0')}` }] : []), ...c.lineas.map((l) => ({ qty: l.qty, descripcion: l.descripcion }))].slice(0, 3),
+      ...(c.cambio ? { cambio_de_folio: c.cambio.folio_origen } : {}),
     }));
   }
   /** Pone la venta en espera (queda guardada, también tras un reinicio). Exige que tenga artículos y que no haya un cobro a medias. */
@@ -1454,12 +1456,12 @@ export class Caja {
     this.exigirAbierto(c);
     this.exigirSinCobroPendiente(c);
     if (c.espera) return;
-    if (c.lineas.length === 0) throw new ErrorDominio('CARRITO_VACIO', 'una venta sin artículos no se pone en espera');
+    if (c.lineas.length === 0 && !c.cambio) throw new ErrorDominio('CARRITO_VACIO', 'una venta sin artículos no se pone en espera');
     this.repo.tx(() => {
       delete c.tasa; // el tipo de cambio se vuelve a fijar al retomar el cobro
       c.espera = { desde: this.ctx.reloj.now(), nota: nota.trim().slice(0, 80), por };
       this.repo.kvSet(`cart:${cartId}`, c);
-      this.emitir('cart.en_espera', { cart_id: cartId, tienda: this.tienda, caja: this.caja, nota: c.espera.nota, piezas: c.lineas.reduce((a, l) => a + l.qty, 0), total: c.lineas.reduce((a, l) => a + l.importe, 0), por });
+      this.emitir('cart.en_espera', { cart_id: cartId, tienda: this.tienda, caja: this.caja, nota: c.espera.nota, piezas: c.lineas.reduce((a, l) => a + l.qty, 0), total: c.lineas.reduce((a, l) => a + l.importe, 0), ...(c.cambio ? { cambio_de: { sale_id: c.cambio.sale_id, folio: c.cambio.folio_origen } } : {}), por });
     });
   }
   /** Retoma una venta en espera: pasa a ser la venta en pantalla (la última de la lista). */
@@ -1477,7 +1479,7 @@ export class Caja {
   /** Descarta sin registro una venta abierta vacía (sin artículos ni dinero): no es una anulación. */
   descartarVacio(cartId: string) {
     const c = this.cartGet(cartId);
-    if (c.estado === 'abierto' && !c.espera && c.lineas.length === 0 && !c.intent_id) this.repo.kvSet(`cart:${cartId}`, { ...c, estado: 'descartado' });
+    if (c.estado === 'abierto' && !c.espera && c.lineas.length === 0 && !c.cambio && !c.intent_id) this.repo.kvSet(`cart:${cartId}`, { ...c, estado: 'descartado' });
   }
   private carritoIds(): string[] {
     return this.repo.kvGet<string[]>('carts') ?? [];

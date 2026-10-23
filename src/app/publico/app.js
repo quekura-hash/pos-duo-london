@@ -2786,7 +2786,7 @@ async function abrirEspera() {
   const lista = await actualizarEspera();
   const d = dialogo('dlg-espera');
   d.setAttribute('aria-labelledby', 'esp-titulo');
-  const tieneArt = (S.carrito?.lineas?.length ?? 0) > 0;
+  const tieneArt = (S.carrito?.lineas?.length ?? 0) > 0 || !!S.carrito?.cambio; // un cambio ya aceptado (prenda que regresa) también se puede guardar
   const filas = lista.map((v) => `<tr data-cart="${esc(v.cart_id)}"><td>${esc(hora(v.desde))}</td><td>${esc(v.nota || '—')}<div class="nota">${v.articulos.map((a) => `${a.qty} ${esc(a.descripcion)}`).join(', ')}${v.piezas > v.articulos.reduce((n, a) => n + a.qty, 0) ? '…' : ''}</div></td><td class="num">${v.piezas}</td><td class="num">${mxn(v.total)}</td><td><button class="btn btn-primario esp-retomar" type="button">Retomar</button> <button class="btn esp-descartar" type="button">Descartar</button></td></tr>`).join('');
   d.innerHTML = `<h2 id="esp-titulo" style="margin-top:0">Venta en espera</h2>
     <div class="campo"><label for="esp-nota">Nota (nombre del cliente o referencia)</label><input id="esp-nota" class="texto" maxlength="80" placeholder="Opcional" ${tieneArt ? '' : 'disabled'}></div>

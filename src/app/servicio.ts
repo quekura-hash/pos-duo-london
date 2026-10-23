@@ -122,7 +122,7 @@ export class ServicioCaja {
   cerrarSesion(porInactividad = false) {
     if (this.autenticado) {
       for (const id of this.caja.carritosActivos()) {
-        try { if (this.caja.carrito(id).lineas.length) this.caja.ponerEnEspera(id, `Sesión de ${this.actor.usuario} ${porInactividad ? 'cerrada por inactividad' : 'cerrada'}`, this.actor.usuario); } catch { /* cobro con tarjeta pendiente: se queda como está */ }
+        try { const cr = this.caja.carrito(id); if (cr.lineas.length || cr.cambio) this.caja.ponerEnEspera(id, `Sesión de ${this.actor.usuario} ${porInactividad ? 'cerrada por inactividad' : 'cerrada'}`, this.actor.usuario); } catch { /* cobro con tarjeta pendiente: se queda como está */ }
       }
     }
     this.autenticado = false;
@@ -329,7 +329,7 @@ export class ServicioCaja {
     if (cartActual && cartActual !== cartEspera) {
       const actual = this.caja.carrito(cartActual);
       if (actual.estado === 'abierto' && !actual.espera) {
-        if (actual.lineas.length) this.caja.ponerEnEspera(cartActual, '', this.actor.usuario);
+        if (actual.lineas.length || actual.cambio) this.caja.ponerEnEspera(cartActual, '', this.actor.usuario);
         else this.caja.descartarVacio(cartActual);
       }
     }
