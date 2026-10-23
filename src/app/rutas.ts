@@ -110,6 +110,7 @@ export async function atender(o: { cajero?: ServicioCaja; admin?: ServicioAdmin 
         const c = exigirCajero();
         return ok(c.buscarVentas({ fecha: q.get('fecha') || undefined, desde: q.get('desde') || undefined, hasta: q.get('hasta') || undefined, codigo: q.get('codigo') || undefined, folio: q.get('folio') || undefined }));
       }
+      case 'GET /api/ventas/anteriores': return ok(exigirCajero().ventasAnteriores(q.get('folio') ?? ''));
       case 'POST /api/venta/devolver': return ok(await exigirCajero().devolver(b.sale_id, b.renglones ?? [], String(b.motivo ?? 'devolución'), b.autoriza));
       case 'POST /api/tarjeta/recargar': return ok(await exigirCajero().recargarTarjetaRegalo(String(b.codigo ?? ''), Number(b.monto), b.recibido === undefined ? undefined : Number(b.recibido), b.ref));
       case 'POST /api/venta/ticket-regalo': return ok(await exigirCajero().ticketRegalo(b.sale_id));

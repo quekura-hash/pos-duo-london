@@ -591,6 +591,12 @@ export class ServicioCaja {
       })),
     };
   }
+  /** Ventas del POS anterior (últimos 2 meses) con ese folio, solo para consultar y cotejar una devolución o cambio. */
+  ventasAnteriores(folio: number | string) {
+    const f = interpretarFolio(folio, this.negociosVivos());
+    if (!f) return { ventas: [] as never[] };
+    return { ventas: this.caja.ventasAnteriores(f.folio) };
+  }
   /** «Abrir caja»: manda el pulso al cajón por la impresora sin hacer una venta. Siempre queda registrado (quién, cuándo, motivo y si salió). */
   async abrirCajon(motivo?: string, clave?: string) {
     // Con Vendedoras-Cajeras registradas pide la clave de la propia persona (5 fallos = 5 minutos de bloqueo, como en un retiro).

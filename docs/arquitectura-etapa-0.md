@@ -851,3 +851,7 @@ La app de Windows (v0.2.0) abre ahora la **Caja conectada al central** (`dist/ca
 - **Reporte para la nómina** (Administración › Empleadas): por empleada, lo cargado y abonado en un periodo y su saldo.
 - Migración `0011_empleadas.sql` (clasificación de los tipos nuevos en el central): preparada, **no ejecutada**.
 - Limitación conocida: el límite se revisa en la caja con lo que ella conoce (sus ventas, las del hub y lo que Administración registró); la cuenta oficial es la de Administración.
+
+## 68. Ventas del POS anterior: Administración y consulta en cajas
+- El Historial de Administración mezcla las ventas importadas (`venta.historica`) con las nuevas, marcadas «POS anterior»; filtro de origen; detalle simple (solo folio, fecha, total, piezas y pago).
+- Las cajas no reciben el historial completo. Al importar, lo de los últimos 60 días (`DIAS_CONSULTA_HISTORICA`) se copia además como `venta.consulta` (migración 0012), y la caja lo muestra, solo para consultar, al buscar un folio en su Historial. No participa en reportes ni cortes.

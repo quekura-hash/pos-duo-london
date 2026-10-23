@@ -100,7 +100,9 @@ const esMovimientoLimbo = (op: Op) => op.tipo === 'inv.movement' && op.payload.t
 const esAjusteAdmin = (op: Op) => (op.tipo === 'inv.movement' && op.payload.tipo === 'ajuste_admin') || (op.tipo === 'inv.conteo' && op.payload.admin === true);
 const BROADCAST_TIENDA = new Set(['cajero.ubicacion', 'alm.recibida', 'inv.movement', 'inv.conteo', 'inv.verificacion_pendiente', 'doc.perdida_posible', 'item.created', 'item.item_no_assigned', 'giftcard.emitida', 'giftcard.recarga', 'giftcard.uso', 'giftcard.reintegro']);
 // Lo que el central baja a hubs y cajas (catálogo y resoluciones administrativas).
-const CATALOGO = new Set(['cajero.ubicacion', 'item.created', 'item.item_no_assigned', 'item.codigo_corregido', 'doc.perdida_resuelta', 'giftcard.emitida', 'giftcard.recarga', 'giftcard.uso', 'giftcard.reintegro', 'config.tipo_cambio', 'permiso.asignado', 'depto.alta', 'depto.editado', 'alm.entrega', 'alm.faltante', 'promo.guardada', 'recompensa.guardada', 'supervisor.guardado', 'cajero.guardado', 'config.sesion', 'config.negocio', 'item.editado', 'caja.fondo_autorizado', 'cash.ajuste_admin', 'empleadas.config', 'empleada.credito', 'empleada.movimiento']);
+const CATALOGO = new Set(['cajero.ubicacion', 'item.created', 'item.item_no_assigned', 'item.codigo_corregido', 'doc.perdida_resuelta', 'giftcard.emitida', 'giftcard.recarga', 'giftcard.uso', 'giftcard.reintegro', 'config.tipo_cambio', 'permiso.asignado', 'depto.alta', 'depto.editado', 'alm.entrega', 'alm.faltante', 'promo.guardada', 'recompensa.guardada', 'supervisor.guardado', 'cajero.guardado', 'config.sesion', 'config.negocio', 'item.editado', 'caja.fondo_autorizado', 'cash.ajuste_admin', 'empleadas.config', 'empleada.credito', 'empleada.movimiento', 'venta.consulta']);
+/** Días de ventas del POS anterior que las cajas conservan para consulta. */
+export const DIAS_CONSULTA_HISTORICA = 60;
 /** Fondo fijo de cada caja mientras Administración no asigne otro (centavos). */
 export const FONDO_AUTORIZADO_DEFECTO = 500000;
 /** Monedas y billetes con los que se cuenta el fondo (en centavos): sin la moneda de 50 centavos. */
@@ -683,7 +685,15 @@ export class Central {
    */
   importarVentasHistoricas(d: { tienda: string; caja: number; lote: string; por: string; filas: VentaHistorica[] }): { nuevas: number; existentes: number } {
     let nuevas = 0;
-    for (const f of d.filas) if (this.emitirUna('venta.historica', payloadVentaHistorica(f, d), idVentaHistorica(d.tienda, d.caja, f.folio), false)) nuevas++;
+    const limite = new Date(Date.parse(this.ctx.reloj.now()) - DIAS_CONSULTA_HISTORICA * 86400_000).toISOString().slice(0, 10);
+    for (const f of d.filas) {
+      if (this.emitirUna('venta.historica', payloadVentaHistorica(f, d), idVentaHistorica(d.tienda, d.caja, f.folio), false)) nuevas++;
+      // Solo lo reciente baja a las cajas (para consultar un ticket si la clienta lo pide); el resto se consulta en Administración.
+      if (f.fecha >= limite) {
+        const id = `consulta:${idVentaHistorica(d.tienda, d.caja, f.folio)}`;
+        if (!this.repo.tieneOp(id)) this.emitirAdmin('venta.consulta', payloadVentaHistorica(f, d), id);
+      }
+    }
     return { nuevas, existentes: d.filas.length - nuevas };
   }
 
@@ -2223,6 +2233,15 @@ export class Caja {
     }
     this.emitir('card.intent_resuelto', { intent_id: intentId, resultado: r.resultado }, `cardres:${intentId}:${r.resultado}`);
     return null;
+  }
+
+  /** Ventas del POS anterior de esta tienda que la caja conserva para consultar (últimos `DIAS_CONSULTA_HISTORICA` días), por folio. */
+  ventasAnteriores(folio: number): { hist_id: string; folio: number; caja_hist: number; fecha: string; tipo_hist: string; piezas: number; total: number; pago: string }[] {
+    const limite = new Date(Date.parse(this.ctx.reloj.now()) - DIAS_CONSULTA_HISTORICA * 86400_000).toISOString().slice(0, 10);
+    return this.opsDe('venta.consulta')
+      .map((o) => o.payload)
+      .filter((p) => p.tienda_hist === this.tienda && p.folio === folio && p.fecha >= limite)
+      .map((p) => ({ hist_id: p.hist_id, folio: p.folio, caja_hist: p.caja_hist, fecha: p.fecha, tipo_hist: p.tipo_hist, piezas: p.piezas, total: p.total, pago: p.pago }));
   }
 
   // ── localizar ventas (devoluciones: solo se devuelve en la caja donde se vendió) ──

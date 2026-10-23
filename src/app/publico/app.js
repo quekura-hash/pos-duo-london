@@ -1368,6 +1368,7 @@ async function vistaVentas() {
   const mismaCaja = (r) => !pf || (r.folio === pf.folio && (pf.caja === undefined || (r.caja === pf.caja && (!pf.letra || pf.letra === letraTienda(r.tienda)))));
   const filas = folioBuscado ? (pf ? j.ventas.filter(mismaCaja) : []) : j.ventas;
   let avisoFolio = '';
+  let anteriores = [];
   if (folioBuscado && !pf) avisoFolio = 'El folio no es válido: escriba el número o el código del ticket (por ejemplo D2-000003).';
   else if (pf) {
     try {
@@ -1377,11 +1378,13 @@ async function vistaVentas() {
       else if (ajenas.length) avisoFolio = `${ajenas.length === 1 ? 'Esa venta es' : 'Esas ventas son'} de la ${[...new Set(ajenas.map((v) => `Caja ${v.caja} (${v.codigo_ticket})`))].join(' y de la ')}. Realice la operación en ${ajenas.length === 1 ? 'esa caja' : 'esas cajas'}.`;
     } catch { /* sin conexión con el hub: solo se ve esta caja */ }
   }
+  if (pf && pf.caja === undefined) { try { anteriores = (await api(`/api/ventas/anteriores?folio=${encodeURIComponent(folioBuscado)}`)).ventas; } catch { /* sin datos del POS anterior */ } }
   $('#vista').innerHTML = `<div class="titulo-vista">${ico('clock')}<h1>Historial de mi caja</h1></div><div id="mensaje-hist" class="mensaje" role="status" aria-live="polite"></div>
     <form id="form-historial" class="filtros panel" autocomplete="off"><label>Fecha <input type="date" id="hist-fecha" value="${esc(fecha)}"></label>
       <label>Folio <input id="hist-folio" placeholder="D2-000003" value="${esc(folioBuscado)}" style="width:130px;padding:6px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie)"></label>
       <button class="btn btn-primario" type="submit" style="width:auto">${ico('search')}<span>Buscar</span></button></form>
     ${avisoFolio ? `<div class="mensaje aviso" id="aviso-folio" role="status">${esc(avisoFolio)}</div>` : ''}
+    ${anteriores.map((a) => `<div class="mensaje aviso" data-pos-anterior="${esc(a.hist_id)}"><b>POS anterior</b> · folio ${a.folio} (Caja ${a.caja_hist}) · ${esc(a.fecha)} · ${a.tipo_hist === 'cambio' ? 'cambio' : a.tipo_hist === 'fee' ? 'cargo' : 'venta'} · ${a.piezas} pza. · ${mxn(a.total)} · ${({ efectivo: 'Efectivo', tarjeta: 'Tarjeta', mixto: 'Mixto', sin_pago: 'Sin pago' })[a.pago] ?? esc(a.pago)}. Solo consulta: no se puede revertir ni cambiar desde aquí.</div>`).join('')}
     <div class="panel"><p class="nota" style="margin-top:0">Toque una venta para ver el detalle: hora, cajera, prendas y pagos. Desde ahí se puede revertir o hacer un cambio.</p><div class="tabla-cont"><table id="tabla-ventas"><thead><tr><th>Folio</th><th>Fecha</th><th>Vendedora-Cajera</th><th>Venta por</th><th class="num">Total</th><th>Estado</th><th>Impresiones</th><th></th></tr></thead><tbody>
     ${filas.length ? filas.map((r) => `<tr data-folio="${r.folio}" data-detalle="${r.sale_id}" tabindex="0" style="cursor:pointer"><td>${esc(r.codigo_ticket ?? String(r.folio).padStart(6, '0'))}</td><td>${esc(r.fecha_local)}</td><td>${esc(r.cajero)}</td><td data-col="vendio">${esc(r.vendedora || '—')}</td><td class="num">${mxn(r.total)}</td><td><span class="insignia ${r.estado}">${esc(r.estado)}</span></td><td>${r.impresiones}${r.ultima_impresion === 'error' ? ' (última falló)' : ''}</td><td><button class="btn" type="button" data-ver="${r.sale_id}">${ico('receipt')}<span>Ver ticket</span></button>${r.estado === 'confirmada' ? ` <button class="btn" type="button" data-cambio="${r.folio}" title="La clienta regresa piezas de esta venta y se lleva otras">${ico('undo')}<span>Aceptar cambio</span></button> <button class="btn btn-peligro" type="button" data-revertir="${r.sale_id}" title="Cancela la venta completa">${ico('trash')}<span>Revertir venta</span></button>` : ''}</td></tr>`).join('') : `<tr><td colspan="8" class="vacio">${folioBuscado ? 'No hay una venta con ese folio.' : fecha === hoy ? 'Sin ventas hoy en esta caja.' : 'Sin ventas ese día en esta caja.'}</td></tr>`}
     </tbody></table></div></div>`;
