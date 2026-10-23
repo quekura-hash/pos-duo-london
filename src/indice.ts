@@ -92,7 +92,7 @@ export class Indice {
     const p = o.payload;
     if (o.tipo.startsWith('giftcard.')) aplicarTarjeta(this.tarjetas, o);
     if (o.tipo === 'permiso.asignado') aplicarPermiso(this.permisos, o);
-    if (o.tipo === 'promo.guardada') this.promos.set(p.id, p as Promocion);
+    if (o.tipo === 'promo.guardada') { if (p.eliminada) { this.promos.delete(p.id); this.recompensasMap.delete(p.id); } else this.promos.set(p.id, p as Promocion); }
     if (o.tipo === 'recompensa.guardada') this.recompensasMap.set(p.id, p as ReglaRecompensa);
     if (o.tipo === 'config.negocio') { const x = this.datosTienda.get(p.tienda) ?? {}; for (const c of CAMPOS_TIENDA) if (typeof p[c] === 'string') x[c] = p[c]; this.datosTienda.set(p.tienda, x); }
     if (o.tipo === 'supervisor.guardado') this.supervisoresMap.set(p.id, p as Supervisor);

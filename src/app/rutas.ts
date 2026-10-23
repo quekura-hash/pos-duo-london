@@ -158,6 +158,7 @@ export async function atender(o: { cajero?: ServicioCaja; admin?: ServicioAdmin 
       case 'GET /api/admin/recompensas': return ok(exigirAdmin().recompensas());
       case 'POST /api/admin/recompensas': return ok(exigirAdmin().guardarRecompensa(b as any));
       case 'GET /api/admin/promociones': return ok(exigirAdmin().promociones());
+      case 'POST /api/admin/promociones/eliminar': return ok(exigirAdmin().eliminarPromocion(String(b.id ?? '')));
       case 'POST /api/admin/promociones': return ok(exigirAdmin().guardarPromocion(b as any));
       case 'GET /api/admin/cajeros': return ok(exigirAdmin().cajeros());
       case 'POST /api/admin/cajeros': return ok(exigirAdmin().guardarCajero({ id: b.id, nombre: b.nombre, clave: b.clave === undefined ? undefined : String(b.clave), activo: b.activo === undefined ? undefined : !!b.activo, perfil: b.perfil, tienda: b.tienda === undefined ? undefined : String(b.tienda) }));

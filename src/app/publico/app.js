@@ -3238,7 +3238,7 @@ async function vistaPromociones() {
       <div id="msg-promo" class="mensaje" role="status" aria-live="polite"></div>
       <div class="tabla-cont"><table id="tabla-promos"><thead><tr><th>Nombre</th><th>Tienda</th><th>Tipo</th><th>Regla</th><th>Vigencia</th><th>Estado</th><th class="num">Usos <small>(regalados / canjeados)</small></th><th></th></tr></thead><tbody>
       ${promociones.map((p) => `<tr data-promo="${esc(p.id)}" data-estado="${p.estado}"><td>${esc(p.nombre)}</td><td data-col="tiendas">${esc(tiendasTexto(p))}</td><td>${NOM_TIPO[p.tipo]}</td><td class="desc">${esc(reglaTexto(p))}</td><td>${esc(vigenciaTexto(p))}</td><td><span class="insignia ${p.estado === 'activa' ? '' : 'cancelada'}">${NOM_ESTADO_PROMO[p.estado]}</span></td><td class="num">${p.regalo ? `<span title="Regalados / canjeados">${p.regaladas ?? 0} / ${p.canjeadas ?? 0}</span>` : p.usos}</td>
-        <td class="filas" style="flex-wrap:nowrap"><button class="btn p-editar" type="button">${ico('pencil')}<span>Editar</span></button><button class="btn p-activa" type="button">${p.activa ? 'Desactivar promoción' : 'Activar promoción'}</button>${p.tipo === 'cupon' ? `<button class="btn p-qr" type="button">${ico('download')}<span>Imagen QR</span></button>` : ''}</td></tr>`).join('') || '<tr><td colspan="8" class="vacio">Aún no hay promociones ni cupones.</td></tr>'}</tbody></table></div></section>
+        <td class="filas" style="flex-wrap:nowrap"><button class="btn p-editar" type="button">${ico('pencil')}<span>Editar</span></button><button class="btn p-activa" type="button">${p.activa ? 'Desactivar promoción' : 'Activar promoción'}</button><button class="btn btn-peligro p-eliminar" type="button">${ico('trash')}<span>Eliminar</span></button>${p.tipo === 'cupon' ? `<button class="btn p-qr" type="button">${ico('download')}<span>Imagen QR</span></button>` : ''}</td></tr>`).join('') || '<tr><td colspan="8" class="vacio">Aún no hay promociones ni cupones.</td></tr>'}</tbody></table></div></section>
     <section class="panel" style="margin-top:12px"><h2 style="margin-top:0">Supervisores que autorizan descuentos</h2>
       <p class="nota">Solo un supervisor puede autorizar un descuento en la caja, tecleando su clave (4 a 8 dígitos). El descuento puede llegar hasta el 100 %. La clave no se puede volver a ver: si se olvida, se cambia.</p>
       <div class="tabla-cont"><table id="tabla-supervisores"><thead><tr><th>Nombre</th><th>Estado</th><th>Nueva clave</th><th></th></tr></thead><tbody>
@@ -3254,6 +3254,11 @@ async function vistaPromociones() {
     tr.querySelector('.p-editar').addEventListener('click', () => abrirPromo(p));
     tr.querySelector('.p-activa').addEventListener('click', async () => {
       try { await api('/api/admin/promociones', { ...p, activa: !p.activa }); await vistaPromociones(); }
+      catch (e) { const m = $('#msg-promo'); m.className = 'mensaje error'; m.textContent = e.message; }
+    });
+    tr.querySelector('.p-eliminar').addEventListener('click', async () => {
+      if (!window.confirm(`¿Eliminar la promoción «${p.nombre}»? Dejará de aplicarse en las cajas. Las ventas ya hechas no cambian.`)) return;
+      try { await api('/api/admin/promociones/eliminar', { id: p.id }); await vistaPromociones(); const m = $('#msg-promo'); m.className = 'mensaje ok'; m.textContent = 'Promoción eliminada.'; }
       catch (e) { const m = $('#msg-promo'); m.className = 'mensaje error'; m.textContent = e.message; }
     });
     const q = tr.querySelector('.p-qr'); if (q) q.addEventListener('click', () => abrirImagenCupon(p));

@@ -431,6 +431,13 @@ export class Central {
     this.emitirAdmin('promo.guardada', { ...r.promo, por });
     return r;
   }
+  /** Elimina una promoción o cupón (también una regla del formato anterior). Las ventas ya hechas conservan el descuento que llevaron. */
+  eliminarPromocion(id: string, por: string): { ok: true } | { ok: false; error: { codigo: 'NO_EXISTE'; mensaje: string } } {
+    const ops = this.repo.ops();
+    if (!promocionesDe(ops).some((o) => o.id === id) && !recompensasDe(ops).some((o) => o.id === id)) return { ok: false, error: { codigo: 'NO_EXISTE', mensaje: 'la promoción no existe' } };
+    this.emitirAdmin('promo.guardada', { id, eliminada: true, por }, `promo.eliminada:${id}:${uuid().slice(0, 8)}`);
+    return { ok: true };
+  }
   /** Alta o edición de una regla de recompensa (cupón regalado en el ticket). Se propaga a todas las cajas. */
   guardarRecompensa(r: ReglaRecompensa, por: string): { ok: true; regla: ReglaRecompensa } | { ok: false; error: { codigo: 'DATOS_INVALIDOS' | 'NO_EXISTE'; mensaje: string } } {
     const otras = recompensasDe(this.repo.ops());

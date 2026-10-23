@@ -346,7 +346,7 @@ export function departamentos(ops: Op[]): Departamento[] {
 /** Promociones y cupones: el último `promo.guardada` de cada id. */
 export function promocionesDe(ops: Op[]): import('./promociones.ts').Promocion[] {
   const m = new Map<string, import('./promociones.ts').Promocion>();
-  for (const o of ops) if (o.tipo === 'promo.guardada') m.set(o.payload.id, o.payload);
+  for (const o of ops) if (o.tipo === 'promo.guardada') { if (o.payload.eliminada) m.delete(o.payload.id); else m.set(o.payload.id, o.payload); }
   return [...m.values()];
 }
 /** Minutos de inactividad tras los que se cierra la sesión (0 = nunca). El último registro manda. Sin registro: caja 10 y Administración 15. */
@@ -506,7 +506,10 @@ export function historialArticulo(ops: Op[], itemId: string): EventoArticulo[] {
 
 export function recompensasDe(ops: Op[]): import('./recompensas.ts').ReglaRecompensa[] {
   const m = new Map<string, import('./recompensas.ts').ReglaRecompensa>();
-  for (const o of ops) if (o.tipo === 'recompensa.guardada') m.set(o.payload.id, o.payload);
+  for (const o of ops) {
+    if (o.tipo === 'recompensa.guardada') m.set(o.payload.id, o.payload);
+    else if (o.tipo === 'promo.guardada' && o.payload.eliminada) m.delete(o.payload.id); // una regla del formato anterior también se elimina desde Promociones
+  }
   return [...m.values()];
 }
 
