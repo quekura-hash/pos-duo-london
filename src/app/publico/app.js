@@ -43,6 +43,11 @@ const I = {
   warehouse: '<path d="M3 10 12 4l9 6v10H3z"/><path d="M8 20v-6h8v6M8 17h8"/>',
   bell: '<path d="M6 17V11a6 6 0 0 1 12 0v6l1.5 2h-15z"/><path d="M10 21h4"/>',
   upload: '<path d="M12 16V5m0 0-4 4m4-4 4 4M5 20h14"/>',
+  // Iconos de Lucide (settings, tag, banknote) y una caja registradora dibujada en el mismo estilo (Lucide no trae una).
+  settings: '<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>',
+  tag: '<path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"/><circle cx="7.5" cy="7.5" r=".5" fill="currentColor"/>',
+  banknote: '<rect width="20" height="12" x="2" y="6" rx="2"/><circle cx="12" cy="12" r="2"/><path d="M6 12h.01M18 12h.01"/>',
+  register: '<rect x="7" y="3" width="10" height="5" rx="1"/><path d="M12 8v3M4 11h16l1.5 5h-19z"/><rect x="2.5" y="16" width="19" height="5" rx="1"/><path d="M8 13.5h.01M12 13.5h.01M16 13.5h.01M10 18.5h4"/>',
   gear: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9 7 7M17 17l2.1 2.1M19.1 4.9 17 7M7 17l-2.1 2.1"/>',
   barcode: '<path d="M4 5v14M7 5v14M11 5v14M14 5v14M18 5v14M20.5 5v14"/>',
   search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
@@ -164,8 +169,8 @@ const folioTexto = () => (S.ultimoFolio ? `Folio ${String(S.ultimoFolio).padStar
 
 // ── navegación ──
 const NAV = {
-  venta: ['Venta', 'cart'], retiro: ['Retiro', 'cash'], ventas: ['Historial', 'clock'], corte: ['Cierre de caja', 'chart'], extraordinarias: ['Operaciones extraordinarias', 'cash'],
-  tarjetas: ['Tarjetas de regalo', 'gift'], reportes: ['Reportes', 'chart'], cortes: ['Cortes', 'cash'], dolares: ['Dólares recibidos', 'dollar'], descuentos: ['Descuentos', 'percent'], entregas: ['Entregas de almacén', 'warehouse'], inventario: ['Inventario', 'box'], departamentos: ['Departamentos', 'box'], almacen: ['Almacén', 'warehouse'], promociones: ['Promociones', 'percent'], tiendas: ['Tiendas', 'store'], configuracion: ['Configuración', 'gear'], administracion: ['Administración', 'gear'], volver_caja: ['Caja', 'caja'], tipo_cambio: ['Tipo de cambio', 'refresh'], avisos: ['Avisos', 'bell'], analisis: ['Análisis', 'trend'], historial: ['Historial de ventas', 'clock'],
+  venta: ['Venta', 'cart'], retiro: ['Retiro', 'cash'], ventas: ['Historial', 'clock'], corte: ['Cierre de caja', 'register'], extraordinarias: ['Operaciones extraordinarias', 'cash'],
+  tarjetas: ['Tarjetas de regalo', 'gift'], reportes: ['Reportes', 'chart'], cortes: ['Cortes', 'register'], dolares: ['Dólares recibidos', 'dollar'], descuentos: ['Descuentos', 'percent'], entregas: ['Entregas de almacén', 'warehouse'], inventario: ['Inventario', 'box'], departamentos: ['Departamentos', 'box'], almacen: ['Almacén', 'warehouse'], promociones: ['Promociones', 'tag'], tiendas: ['Tiendas', 'store'], configuracion: ['Configuración', 'settings'], administracion: ['Administración', 'gear'], volver_caja: ['Caja', 'caja'], tipo_cambio: ['Tipo de cambio', 'banknote'], avisos: ['Avisos', 'bell'], analisis: ['Análisis', 'trend'], historial: ['Historial de ventas', 'clock'],
 };
 // ── Calculadora básica: ventana flotante y movible, no modal. Sigue abierta mientras se usa el resto del POS ──
 const calc = { abierta: false, pos: null, acc: null, op: null, entrada: '0', nuevo: true };
@@ -1019,7 +1024,7 @@ async function vistaCorte() {
     const clic = n <= maximo;
     return `<li><button type="button" class="paso-btn ${n === paso ? 'activo' : ''} ${ok ? 'hecho' : ''}" data-paso="${n}" ${clic ? '' : 'disabled'} aria-current="${n === paso ? 'step' : 'false'}"><span class="paso-num">${ok ? ico('check') : n}</span><span>${n}. ${t}</span></button></li>`;
   }).join('')}</ol>`;
-  const cab = `<div class="titulo-vista">${ico('chart')}<h1>Cierre de caja — Caja ${v.caja} (${esc(v.tienda)}) · ${esc(v.fecha)}</h1></div>${pasos}
+  const cab = `<div class="titulo-vista">${ico('register')}<h1>Cierre de caja — Caja ${v.caja} (${esc(v.tienda)}) · ${esc(v.fecha)}</h1></div>${pasos}
     ${v.perdida_documental_abierta.length ? '<div class="mensaje error" data-alerta="perdida-corte">Este corte puede estar incompleto: hay una posible pérdida de ventas, pagos o folios de esta caja sin resolver.</div>' : ''}
     ${cerrado ? `<div class="mensaje ok" id="corte-cerrado">Corte cerrado${j.cerrado.cerrado_por ? ` por ${esc(j.cerrado.cerrado_por)}` : ''}${j.desactualizado ? '. Hay operaciones posteriores al cierre (no se reescribe el corte cerrado).' : '.'}</div>
       <div id="estado-impresion-cierre" class="mensaje ${S.cierreImpresion && !S.cierreImpresion.ok ? 'error' : 'ok'}" role="status" aria-live="polite" ${S.cierreImpresion ? '' : 'hidden'}>${S.cierreImpresion ? (S.cierreImpresion.ok ? 'El ticket de cierre se envió a la impresora.' : `No se pudo imprimir el ticket de cierre: ${esc(S.cierreImpresion.error ?? '')}. El corte SÍ quedó cerrado; use «Reimprimir cierre».`) : ''}</div>
@@ -2179,7 +2184,7 @@ function abrirEditarTc() {
 // ── Administración: cortes consolidados con pesos y dólares en columnas separadas ──
 async function vistaCortes() {
   const hoy = new Date(Date.now() - 7 * 3600e3).toISOString().slice(0, 10);
-  $('#vista').innerHTML = `<div class="titulo-vista">${ico('cash')}<h1>Cortes de caja</h1><button class="btn" id="btn-ir-dolares" type="button" style="margin-left:auto">${ico('dollar')}<span>Dólares recibidos</span></button></div>
+  $('#vista').innerHTML = `<div class="titulo-vista">${ico('register')}<h1>Cortes de caja</h1><button class="btn" id="btn-ir-dolares" type="button" style="margin-left:auto">${ico('dollar')}<span>Dólares recibidos</span></button></div>
     <form class="filtros panel" id="filtros-cortes"><label>Desde <input type="date" id="cor-desde" value="${hoy}"></label><label>Hasta <input type="date" id="cor-hasta" value="${hoy}"></label>
       <button class="btn btn-primario" type="submit" style="width:auto">${ico('search')}<span>Consultar</span></button></form>
     <div id="resultado-cortes"></div>`;
@@ -3129,7 +3134,7 @@ const vigenciaTexto = (p) => (p.inicio || p.fin ? `${p.inicio ? `Desde el ${fech
 async function vistaPromociones() {
   const [{ promociones, hoy, tiendas, articulos }, { supervisores }] = await Promise.all([api('/api/admin/promociones'), api('/api/admin/supervisores')]);
   S.promos = promociones; S.hoyPromo = hoy; S.tiendasInfo = tiendas; S.artInfo = { ...(S.artInfo ?? {}), ...articulos };
-  $('#vista').innerHTML = `<div class="titulo-vista">${ico('percent')}<h1>Promociones y cupones</h1></div>
+  $('#vista').innerHTML = `<div class="titulo-vista">${ico('tag')}<h1>Promociones y cupones</h1></div>
     <section class="panel"><div class="filas" style="align-items:center"><button class="btn btn-primario" id="btn-nueva-promo" type="button" style="width:auto">${ico('plus')}<span>Nueva promoción o cupón</span></button><button class="btn" id="btn-reporte-promos" type="button">${ico('chart')}<span>Reporte de promociones</span></button></div>
       <p class="nota">Cada promoción o cupón vale solo en la tienda (o tiendas) que elija. Toda promoción lleva fecha de inicio y de término, o queda <b>sin fecha límite</b> hasta que Administración la desactive. En cada compra aplica <b>una sola</b> promoción o cupón: la que más descuento le da al cliente. Las promociones se aplican solas al cobrar; los cupones se capturan o se escanean en la caja. Para promocionar un artículo concreto, búsquelo al crear la promoción o use «Crear promoción» en Inventario.</p>
       <div id="msg-promo" class="mensaje" role="status" aria-live="polite"></div>
@@ -3312,11 +3317,11 @@ async function abrirPromo(p, preset) {
 
 // ── Configuración: Tiendas, Departamentos y Tipo de cambio en una sola entrada ──
 const cuerpoVista = () => $('#config-cuerpo') ?? $('#vista');
-const TABS_CONFIG = [['tiendas', 'Tiendas', 'store'], ['departamentos', 'Departamentos', 'box'], ['tipo_cambio', 'Tipo de cambio', 'refresh'], ['cajas', 'Cajas', 'cash'], ['cajeros', 'Usuarios', 'user']];
+const TABS_CONFIG = [['tiendas', 'Tiendas', 'store'], ['departamentos', 'Departamentos', 'box'], ['tipo_cambio', 'Tipo de cambio', 'banknote'], ['cajas', 'Cajas', 'cash'], ['cajeros', 'Usuarios', 'user']];
 async function vistaConfiguracion(tab) {
   tab = tab ?? S.configTab ?? 'tiendas';
   S.configTab = tab;
-  $('#vista').innerHTML = `<div class="titulo-vista">${ico('gear')}<h1>Configuración</h1></div>
+  $('#vista').innerHTML = `<div class="titulo-vista">${ico('settings')}<h1>Configuración</h1></div>
     <div class="filas" role="tablist" aria-label="Configuración" style="margin-bottom:12px">${TABS_CONFIG.map(([id, rotulo, icono]) => `<button class="btn" type="button" role="tab" id="cfg-tab-${id}" data-tab="${id}" aria-selected="${id === tab}" style="${id === tab ? 'background:var(--acento);color:var(--acento-texto);border-color:var(--acento)' : ''}">${ico(icono)}<span>${rotulo}</span></button>`).join('')}</div>
     <div id="config-cuerpo" role="tabpanel"></div>`;
   for (const b of $('#vista').querySelectorAll('[role="tab"]')) b.addEventListener('click', () => vistaConfiguracion(b.dataset.tab));
@@ -4014,7 +4019,7 @@ function pintarAnalisis(el, j, metrica) {
 async function vistaTipoCambio() {
   const j = await api('/api/admin/tipo-cambio');
   const v = j.vigente;
-  cuerpoVista().innerHTML = `<div class="titulo-vista">${ico('refresh')}<h1>Tipo de cambio del dólar</h1></div>
+  cuerpoVista().innerHTML = `<div class="titulo-vista">${ico('banknote')}<h1>Tipo de cambio del dólar</h1></div>
     <div class="cuadricula">
       <section class="panel"><h2 style="margin-top:0">Vigente</h2>
         <p id="tc-vigente" style="font-size:22px;margin:0">${v ? `<b>$${esc(v.texto)}</b> MXN por USD` : 'Sin definir'}</p>
