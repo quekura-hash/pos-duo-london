@@ -58,4 +58,66 @@ describe('[navegador real] Personal: una sola lista de perfiles y sus pestañas'
     assert.equal(await page.locator('#form-sup').count(), 0);
     assert.deepEqual(errores, []);
   });
+  it('PE2 alta única según el rol, inactivos al final en orden alfabético, buscador y eliminar (con cuentas protegidas)', async (t) => {
+    const browser = await chromium.launch({ executablePath: chromiumPath, args: ['--no-sandbox'] });
+    const ctx = nuevoMundo(sqlite, politica());
+    const adm = await appAdmin(ctx);
+    t.after(async () => { await browser.close(); await adm.cerrar(); ctx.limpiar(); });
+    const crear = (b: object) => api(adm.url, '/api/admin/administradores', b);
+    assert.equal((await crear({ nombre: 'Edgardo', clave: 'clave-segura', clave_caja: '2468', perfil: { nombres: 'Edgardo', apellidos: 'Morales' } })).status, 200);
+    assert.equal((await crear({ nombre: 'Karina', clave: 'clave-karina', clave_caja: '1212', perfil: { nombres: 'Karina', apellidos: 'Palafox Ruiz' } })).status, 200);
+    assert.equal((await crear({ nombre: 'Mario', clave: 'clave-mario', rol: 'almacenista', clave_caja: '9753' })).status, 200);
+    assert.equal((await api(adm.url, '/api/admin/cajeros', { nombre: 'Lupe', clave: '4321' })).status, 200);
+    const ana = (await api(adm.url, '/api/admin/cajeros', { nombre: 'Ana', clave: '5555' })).json.cajeros.find((c: any) => c.nombre === 'Ana');
+    await api(adm.url, '/api/admin/cajeros', { id: ana.id, activo: false });
+    assert.equal((await api(adm.url, '/api/admin/supervisores', { nombre: 'Rosa', clave: '1111' })).status, 200);
+    // las cuentas protegidas no se eliminan (ni por la API)
+    const lista = (await api(adm.url, '/api/admin/administradores')).json.administradores;
+    assert.deepEqual(lista.map((a: any) => [a.nombre, a.protegido]).sort(), [['Edgardo', true], ['Karina', true], ['Mario', false]]);
+    const prot = await api(adm.url, '/api/admin/administradores/eliminar', { id: lista.find((a: any) => a.nombre === 'Karina').id, clave: '2468' });
+    assert.equal(prot.status >= 400, true);
+    assert.match(prot.json.error.mensaje, /protegida/);
+    const page = await (await browser.newContext({ viewport: { width: 1366, height: 800 } })).newPage();
+    const errores: string[] = [];
+    page.on('pageerror', (e) => errores.push(String(e)));
+    await page.goto(adm.url);
+    await page.waitForSelector('#nav');
+    await page.click('#nav button[data-vista="empleadas"]');
+    await page.waitForSelector('#tabla-personal');
+    const orden = () => page.$$eval('#tabla-personal tbody tr[data-rol]', (r) => r.filter((x) => !(x as HTMLElement).hidden).map((x) => x.querySelector('td:nth-child(1) b')?.textContent));
+    // activos por orden alfabético y, al final, los inactivos
+    assert.deepEqual(await orden(), ['Edgardo', 'Karina', 'Lupe', 'Mario', 'Rosa', 'Ana']);
+    // buscador
+    await page.fill('#per-buscar', 'lup');
+    assert.deepEqual(await orden(), ['Lupe']);
+    await page.fill('#per-buscar', 'zzz');
+    assert.deepEqual(await orden(), []);
+    assert.equal(await page.isVisible('#per-vacio'), true);
+    await page.fill('#per-buscar', '');
+    // alta única: el rol decide los campos y el botón
+    assert.equal(await page.isVisible('#form-cajero'), true);
+    assert.equal(await page.isVisible('#form-admin'), false);
+    await page.selectOption('#alta-rol', 'almacenista');
+    assert.equal(await page.isVisible('#form-cajero'), false);
+    assert.equal(await page.isVisible('#form-admin'), true);
+    assert.match((await page.textContent('#btn-adm'))!, /Agregar almacenista/);
+    await page.selectOption('#alta-rol', 'supervisor');
+    assert.match((await page.textContent('#btn-adm'))!, /Agregar supervisor/);
+    // los protegidos y el propio usuario no tienen botón de eliminar activo; los demás sí
+    assert.equal(await page.isDisabled('#tabla-personal tr[data-admin] >> text=Edgardo >> xpath=ancestor::tr >> .a-eliminar'), true);
+    assert.equal(await page.isDisabled('#tabla-personal tr[data-sup] .s-eliminar'), false);
+    // eliminar a un supervisor de caja con la clave corta de quien tiene la sesión
+    await page.click('#tabla-personal tr[data-sup] .s-eliminar');
+    await page.waitForSelector('#dlg-eliminar-trab[open]');
+    await page.fill('#et-clave', '2468');
+    await page.click('#form-eliminar-trab button[type="submit"]');
+    await page.waitForFunction(() => document.querySelectorAll('#tabla-personal tr[data-sup]').length === 0);
+    // y a la almacenista
+    await page.click('#tabla-personal tr[data-rol="almacenista"] .a-eliminar');
+    await page.fill('#et-clave', '2468');
+    await page.click('#form-eliminar-trab button[type="submit"]');
+    await page.waitForFunction(() => !document.querySelector('#tabla-personal tr[data-rol="almacenista"]'));
+    assert.deepEqual(await orden(), ['Edgardo', 'Karina', 'Lupe', 'Ana']);
+    assert.deepEqual(errores, []);
+  });
 });

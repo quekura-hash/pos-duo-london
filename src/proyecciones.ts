@@ -359,7 +359,7 @@ export function configSesionDe(ops: Op[]): ConfigSesion {
 }
 export function administradoresDe(ops: Op[]): import('./supervisores.ts').Administrador[] {
   const m = new Map<string, import('./supervisores.ts').Administrador>();
-  for (const o of ops) if (o.tipo === 'admin.guardado') m.set(o.payload.id, o.payload);
+  for (const o of ops) if (o.tipo === 'admin.guardado') { if (o.payload.eliminado) m.delete(o.payload.id); else m.set(o.payload.id, o.payload); }
   return [...m.values()];
 }
 export function cajerosDe(ops: Op[]): import('./supervisores.ts').Cajero[] {
@@ -407,7 +407,7 @@ export function registradaEn(ops: Op[], cajeroId: string): string | null {
 }
 export function supervisoresDe(ops: Op[]): import('./supervisores.ts').Supervisor[] {
   const m = new Map<string, import('./supervisores.ts').Supervisor>();
-  for (const o of ops) if (o.tipo === 'supervisor.guardado') m.set(o.payload.id, o.payload);
+  for (const o of ops) if (o.tipo === 'supervisor.guardado') { if (o.payload.eliminado) m.delete(o.payload.id); else m.set(o.payload.id, o.payload); }
   return [...m.values()];
 }
 

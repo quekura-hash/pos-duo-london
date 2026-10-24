@@ -85,6 +85,13 @@ export function mezclarPerfil(actual: Perfil | undefined, d: Partial<Perfil> | u
 /** Quien entra a Administración: el supervisor ve todo y autoriza en la caja; el almacenista solo trabaja Inventario y Almacén. Sin `rol` (registros anteriores) vale supervisor. */
 export type RolAdmin = 'supervisor' | 'almacenista';
 export type Administrador = Cajero & { rol?: RolAdmin };
+/** Cuentas de Administración que no se pueden eliminar (los dueños del sistema), por nombres y apellidos del perfil. */
+const ADMINS_PROTEGIDOS = ['edgardo morales', 'karina palafox'];
+export function adminProtegido(a: { nombre: string; perfil?: { nombres?: string; apellidos?: string } }): boolean {
+  const completo = nombreClave(`${a.perfil?.nombres ?? ''} ${a.perfil?.apellidos ?? ''}`);
+  const alias = nombreClave(a.nombre);
+  return ADMINS_PROTEGIDOS.some((p) => completo === p || completo.startsWith(`${p} `) || alias === p);
+}
 export const claveAdminValida = (c: unknown): c is string => typeof c === 'string' && c.length >= 6 && c.length <= 40;
 /** Los nombres se comparan sin importar mayúsculas, acentos ni espacios de más. */
 export const nombreClave = (n: string) => n.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();

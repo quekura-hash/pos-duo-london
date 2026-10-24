@@ -432,7 +432,8 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     await page.click('#nav button[data-vista="administracion"]');
     await page.click('#nav button[data-vista="empleadas"]');
     await page.click('#per-tab-perfiles');
-    await page.waitForSelector('#form-admin');
+    await page.waitForSelector('#alta-rol');
+    await page.selectOption('#alta-rol', 'supervisor');
     await page.fill('#adm-nombre', 'Ana Supervisora'); await page.fill('#adm-clave', 'clave-segura'); await page.fill('#adm-clave-caja', '12');
     await perfilMin(page, 'adm'); await page.click('#btn-adm');
     await page.waitForFunction(() => /4 a 8 d/.test(document.querySelector('#msg-admins')!.textContent!));
@@ -1141,8 +1142,9 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     await page.selectOption('#sesion-prueba', 'admin');
     await page.click('#nav button[data-vista="empleadas"]');
     await page.click('#per-tab-perfiles');
-    await page.waitForSelector('#form-admin');
+    await page.waitForSelector('#alta-rol');
     assert.match((await page.textContent('#panel-personal'))!, /consola está abierta/);
+    await page.selectOption('#alta-rol', 'supervisor');
     await page.fill('#adm-nombre', 'Edgardo'); await page.fill('#adm-clave', 'clave-segura');
     await perfilMin(page, 'adm'); await page.click('#btn-adm');
     await page.waitForFunction(() => /Administrador agregado/.test(document.querySelector('#msg-admins')?.textContent ?? ''));
@@ -1194,13 +1196,14 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     await page.selectOption('#sesion-prueba', 'admin');
     await page.click('#nav button[data-vista="empleadas"]');
     await page.click('#per-tab-perfiles');
-    await page.waitForSelector('#form-admin');
+    await page.waitForSelector('#alta-rol');
     // el primer usuario debe ser supervisor (la opción de almacenista está desactivada) y registra su clave de caja
-    assert.equal(await page.locator('#adm-rol option[value="almacenista"]').isDisabled(), true);
+    assert.equal(await page.locator('#alta-rol option[value="almacenista"]').isDisabled(), true);
+    await page.selectOption('#alta-rol', 'supervisor');
     await page.fill('#adm-nombre', 'Edgardo'); await page.fill('#adm-clave', 'clave-segura'); await page.fill('#adm-clave-caja', '2468');
     await perfilMin(page, 'adm'); await page.click('#btn-adm');
     await page.waitForFunction(() => document.querySelectorAll('#tabla-personal tr[data-admin]').length === 1);
-    await page.selectOption('#adm-rol', 'almacenista');
+    await page.selectOption('#alta-rol', 'almacenista');
     assert.equal(await page.locator('#adm-caja-campo').isHidden(), false, 'el almacenista también puede tener clave de caja (para cobrar, sin autorizar descuentos)');
     await page.fill('#adm-nombre', 'Gabo'); await page.fill('#adm-clave', 'clave-gabo');
     await perfilMin(page, 'adm'); await page.click('#btn-adm');
@@ -1358,7 +1361,8 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     await page.selectOption('#sesion-prueba', 'admin');
     await page.click('#nav button[data-vista="empleadas"]');
     await page.click('#per-tab-perfiles');
-    await page.waitForSelector('#form-admin');
+    await page.waitForSelector('#alta-rol');
+    await page.selectOption('#alta-rol', 'supervisor');
     await page.fill('#adm-nombre', 'Edgardo'); await page.fill('#adm-clave', 'clave-segura'); await page.fill('#adm-clave-caja', '2468');
     await perfilMin(page, 'adm'); await page.click('#btn-adm');
     await page.waitForFunction(() => document.querySelectorAll('#tabla-personal tr[data-admin]').length === 1);
@@ -1464,8 +1468,9 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     await page.selectOption('#sesion-prueba', 'admin');
     await page.click('#nav button[data-vista="empleadas"]');
     await page.click('#per-tab-perfiles');
-    await page.waitForSelector('#form-admin');
+    await page.waitForSelector('#alta-rol');
     // sin nombres y apellidos no se registra
+    await page.selectOption('#alta-rol', 'supervisor');
     await page.fill('#adm-nombre', 'Edgardo'); await page.fill('#adm-clave', 'clave-segura'); await page.fill('#adm-clave-caja', '2468');
     await page.click('#btn-adm');
     await page.waitForSelector('#avisos-flotantes .toast-aviso.error');

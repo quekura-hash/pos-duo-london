@@ -95,7 +95,7 @@ export class Indice {
     if (o.tipo === 'promo.guardada') { if (p.eliminada) { this.promos.delete(p.id); this.recompensasMap.delete(p.id); } else this.promos.set(p.id, p as Promocion); }
     if (o.tipo === 'recompensa.guardada') this.recompensasMap.set(p.id, p as ReglaRecompensa);
     if (o.tipo === 'config.negocio') { const x = this.datosTienda.get(p.tienda) ?? {}; for (const c of CAMPOS_TIENDA) if (typeof p[c] === 'string') x[c] = p[c]; this.datosTienda.set(p.tienda, x); }
-    if (o.tipo === 'supervisor.guardado') this.supervisoresMap.set(p.id, p as Supervisor);
+    if (o.tipo === 'supervisor.guardado') { if (p.eliminado) { this.supervisoresMap.delete(p.id); this.tiendaDeCajero.delete(p.id); } else this.supervisoresMap.set(p.id, p as Supervisor); }
     if (o.tipo === 'config.sesion') this.cfgSesion = { caja_min: p.caja_min, admin_min: p.admin_min };
     if (o.tipo === 'cajero.guardado') {
       if (p.eliminado) { this.cajerosMap.delete(p.id); this.tiendaDeCajero.delete(p.id); }

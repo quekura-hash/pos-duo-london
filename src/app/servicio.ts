@@ -14,7 +14,7 @@ import { LOGOS_TICKET } from '../logos-ticket.ts';
 import { detalleHistorica, detalleDeVenta, validarDatosClienta, type DatosClienta } from '../detalle-venta.ts';
 import { aplicarDatosTienda, codigoTicket, interpretarFolio, construirTicket, construirTicketRegalo, formatoMXN, NEGOCIOS, renderTextoEscPos, renderTicketCancelacionTexto, renderTicketFirmaTexto, renderTicketDevolucionTexto, type ComprobanteClienta, renderTicketRetiroTexto, renderTicketEscPos, renderTicketCorteEscPos, renderTicketCorteTexto, renderTicketTexto, type NegocioCfg } from '../ticket.ts';
 import { promoDeRegla, type ReglaRecompensa } from '../recompensas.ts';
-import { hashClave, nombreClave, supervisorPorClave, type Perfil, type RolAdmin } from '../supervisores.ts';
+import { adminProtegido, hashClave, nombreClave, supervisorPorClave, type Perfil, type RolAdmin } from '../supervisores.ts';
 import { LIMBO, type Actor, type Articulo, type Linea, type Op, type Venta } from '../tipos.ts';
 import { fechaLocal } from '../util.ts';
 
@@ -854,7 +854,7 @@ export class ServicioAdmin {
   readonly cajas: { tienda: string; caja: number }[];
   private inv?: FuenteInventario;
   private central?: { fijarTipoCambio(tasa: number, usuario: string, versionBase: number, confirmarVariacion?: boolean): import('../nodos.ts').ResultadoTipoCambio; asignarPermiso(usuario: string, permiso: string, valor: boolean, por: string): Op; guardarDepto(c: import('../departamentos.ts').CambioDepto, por: string): { ok: true; op: Op } | { ok: false; error: import('../departamentos.ts').ErrorDepto };
-    guardarDatosTienda: import('../nodos.ts').Central['guardarDatosTienda']; editarArticulo: import('../nodos.ts').Central['editarArticulo']; guardarPromocion: import('../nodos.ts').Central['guardarPromocion'];  eliminarPromocion: import('../nodos.ts').Central['eliminarPromocion']; guardarRecompensa: import('../nodos.ts').Central['guardarRecompensa']; fijarFondoCaja: import('../nodos.ts').Central['fijarFondoCaja']; fijarConfigEmpleadas: import('../nodos.ts').Central['fijarConfigEmpleadas']; fijarLimiteEmpleada: import('../nodos.ts').Central['fijarLimiteEmpleada']; registrarMovimientoEmpleada: import('../nodos.ts').Central['registrarMovimientoEmpleada']; registrarAjusteCaja: import('../nodos.ts').Central['registrarAjusteCaja']; guardarSupervisor: import('../nodos.ts').Central['guardarSupervisor']; guardarCajero: import('../nodos.ts').Central['guardarCajero']; guardarAdmin: import('../nodos.ts').Central['guardarAdmin']; guardarConfigSesion: import('../nodos.ts').Central['guardarConfigSesion']; recordarSacarAPiso: import('../nodos.ts').Central['recordarSacarAPiso']; resolverFaltante: import('../nodos.ts').Central['resolverFaltante']; contarLimbo: import('../nodos.ts').Central['contarLimbo']; reubicarLimbo: import('../nodos.ts').Central['reubicarLimbo']; fijarExistencias: import('../nodos.ts').Central['fijarExistencias']; guardarExpediente: import('../nodos.ts').Central['guardarExpediente']; eliminarCajero: import('../nodos.ts').Central['eliminarCajero']; corregirEntrada: import('../nodos.ts').Central['corregirEntrada']; altaLote: import('../nodos.ts').Central['altaLote']; importarVentasHistoricas: import('../nodos.ts').Central['importarVentasHistoricas']; entregar: import('../nodos.ts').Central['entregar'] };
+    guardarDatosTienda: import('../nodos.ts').Central['guardarDatosTienda']; editarArticulo: import('../nodos.ts').Central['editarArticulo']; guardarPromocion: import('../nodos.ts').Central['guardarPromocion'];  eliminarPromocion: import('../nodos.ts').Central['eliminarPromocion']; guardarRecompensa: import('../nodos.ts').Central['guardarRecompensa']; fijarFondoCaja: import('../nodos.ts').Central['fijarFondoCaja']; fijarConfigEmpleadas: import('../nodos.ts').Central['fijarConfigEmpleadas']; fijarLimiteEmpleada: import('../nodos.ts').Central['fijarLimiteEmpleada']; registrarMovimientoEmpleada: import('../nodos.ts').Central['registrarMovimientoEmpleada']; registrarAjusteCaja: import('../nodos.ts').Central['registrarAjusteCaja']; guardarSupervisor: import('../nodos.ts').Central['guardarSupervisor']; guardarCajero: import('../nodos.ts').Central['guardarCajero']; guardarAdmin: import('../nodos.ts').Central['guardarAdmin']; guardarConfigSesion: import('../nodos.ts').Central['guardarConfigSesion']; recordarSacarAPiso: import('../nodos.ts').Central['recordarSacarAPiso']; resolverFaltante: import('../nodos.ts').Central['resolverFaltante']; contarLimbo: import('../nodos.ts').Central['contarLimbo']; reubicarLimbo: import('../nodos.ts').Central['reubicarLimbo']; fijarExistencias: import('../nodos.ts').Central['fijarExistencias']; guardarExpediente: import('../nodos.ts').Central['guardarExpediente']; eliminarCajero: import('../nodos.ts').Central['eliminarCajero']; eliminarAdmin: import('../nodos.ts').Central['eliminarAdmin']; eliminarSupervisorCaja: import('../nodos.ts').Central['eliminarSupervisorCaja']; corregirEntrada: import('../nodos.ts').Central['corregirEntrada']; altaLote: import('../nodos.ts').Central['altaLote']; importarVentasHistoricas: import('../nodos.ts').Central['importarVentasHistoricas']; entregar: import('../nodos.ts').Central['entregar'] };
   constructor(o: { actor: Extract<Actor, { rol: 'admin' }>; fuente: () => Op[]; cajas: { tienda: string; caja: number }[]; inventario?: FuenteInventario; central?: ServicioAdmin['central']; reloj?: { now(): string } }) {
     this.central = o.central;
     this.actor = o.actor;
@@ -1342,7 +1342,7 @@ export class ServicioAdmin {
     return /^(GET|POST) \/api\/admin\/(almacen|limbo)(\/|$)/.test(`${metodo} ${ruta}`) || /^GET \/api\/admin\/(inventario|entregas|articulos|articulo\/historial|departamentos|tipo-cambio)$/.test(`${metodo} ${ruta}`) || `${metodo} ${ruta}` === 'POST /api/admin/articulos';
   }
   administradores() {
-    return { administradores: administradoresDe(this.fuente()).map(({ id, nombre, activo, rol, perfil }) => ({ id, nombre, activo, perfil: perfil ?? null, rol: rol ?? 'supervisor', clave_caja: supervisoresDe(this.fuente()).some((s) => s.id === `sup-${id.slice(4)}`) })) };
+    return { administradores: administradoresDe(this.fuente()).map(({ id, nombre, activo, rol, perfil }) => ({ id, nombre, activo, perfil: perfil ?? null, rol: rol ?? 'supervisor', protegido: adminProtegido({ nombre, perfil }), clave_caja: supervisoresDe(this.fuente()).some((s) => s.id === `sup-${id.slice(4)}`) })) };
   }
   guardarAdmin(d: { id?: string; nombre?: string; clave?: string; activo?: boolean; rol?: RolAdmin; clave_caja?: string; perfil?: Partial<Perfil> }) {
     if (!this.central) throw new ErrorDominio('SIN_CENTRAL', 'esta sesión no tiene acceso al servicio central');
@@ -1441,6 +1441,24 @@ export class ServicioAdmin {
     const r = this.central.eliminarCajero(String(d.id ?? ''), this.actor.usuario);
     if (!r.ok) throw new ErrorDominio('NO_ENCONTRADO', r.error.mensaje);
     return this.cajeros();
+  }
+  /** Elimina a un supervisor o almacenista de Administración. Pide la clave corta de quien tiene la sesión (supervisor). */
+  eliminarAdmin(d: { id: string; clave: string }) {
+    if (this.rol() !== 'supervisor') throw new ErrorDominio('PROHIBIDO', 'solo un supervisor elimina usuarios');
+    if (!this.central) throw new ErrorDominio('SIN_CENTRAL', 'esta sesión no tiene acceso al servicio central');
+    this.verificarClaveCorta(String(d.clave ?? ''));
+    const r = this.central.eliminarAdmin(String(d.id ?? ''), this.actor.usuario);
+    if (!r.ok) throw new ErrorDominio(r.error.codigo === 'NO_EXISTE' ? 'NO_ENCONTRADO' : 'ELIMINAR_NO_PERMITIDO', r.error.mensaje, { motivo: r.error.codigo });
+    return this.administradores();
+  }
+  /** Elimina a un supervisor de caja (sin acceso a Administración). Pide la clave corta de quien tiene la sesión. */
+  eliminarSupervisorCaja(d: { id: string; clave: string }) {
+    if (this.rol() !== 'supervisor') throw new ErrorDominio('PROHIBIDO', 'solo un supervisor elimina usuarios');
+    if (!this.central) throw new ErrorDominio('SIN_CENTRAL', 'esta sesión no tiene acceso al servicio central');
+    this.verificarClaveCorta(String(d.clave ?? ''));
+    const r = this.central.eliminarSupervisorCaja(String(d.id ?? ''), this.actor.usuario);
+    if (!r.ok) throw new ErrorDominio('NO_ENCONTRADO', r.error.mensaje);
+    return this.supervisores();
   }
   supervisores() {
     return { supervisores: supervisoresDe(this.fuente()).filter((s) => !s.solo_caja).map(({ id, nombre, activo }) => ({ id, nombre, activo })) };

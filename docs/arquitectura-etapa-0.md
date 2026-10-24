@@ -866,3 +866,8 @@ La app de Windows (v0.2.0) abre ahora la **Caja conectada al central** (`dist/ca
 - Todo renglón `.mensaje` (error, aviso u ok) que quede fuera de la pantalla, tapado o recortado sale también como **aviso emergente con X** (`avisoFlotante`): arriba al centro, sobre cualquier ventana (con una ventana modal abierta se coloca dentro de ella para poder cerrarlo). El éxito se quita solo a los 5 s; error y aviso, con la X o al cambiar/borrarse su mensaje. Un mensaje que ya se ve no se duplica.
 - Campos obligatorios (`required`): el evento `invalid` se intercepta; se marcan en rojo (`campo-falta`, «falta este dato»), se enfoca el primero y sale «Falta completar: …». Se desmarcan al escribir.
 - Los mensajes de error ya no muestran el código técnico («SIN_EMPLEADA: …»).
+
+## 71. Perfiles: alta única, eliminar y cuentas protegidas
+- **Alta única**: se elige el rol (Vendedora-Cajera, Supervisor, Almacenista) y salen los campos que le tocan; el botón dice a quién se agrega.
+- **Lista**: activos primero y, dentro de cada grupo, por orden alfabético; los inactivos al final. Buscador por nombre, alias o teléfono, más el filtro por rol.
+- **Eliminar** también a supervisores y almacenistas (clave corta de quien tiene la sesión). No se elimina: una cuenta protegida (`adminProtegido`: Edgardo Morales y Karina Palafox, por nombres y apellidos del perfil), el propio usuario ni al último supervisor activo.

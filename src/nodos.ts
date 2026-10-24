@@ -2,7 +2,7 @@ import type { BusquedaVentas, VentaLocalizada } from './consultas.ts';
 import { ErrorDominio } from './errores.ts';
 import { buscarRecompensa, esCodigoRecompensa, promoDeRecompensa, recompensasGanadas, reglasVigentes, validarRegla, type EstadoRecompensa, type ReglaRecompensa } from './recompensas.ts';
 import { calcularDescuentos, esCanje, normCodigo, repartir, validarPromocion, type ErrorPromo, type Promocion, type ResultadoDescuentos } from './promociones.ts';
-import { mezclarPerfil, claveAdminValida, claveValida, hashClave, nombreClave, supervisorPorClave, type Cajero, type Perfil, type RolAdmin, type Supervisor } from './supervisores.ts';
+import { adminProtegido, mezclarPerfil, claveAdminValida, claveValida, hashClave, nombreClave, supervisorPorClave, type Cajero, type Perfil, type RolAdmin, type Supervisor } from './supervisores.ts';
 import { correccionesEntradas } from './almacen.ts';
 import { BILLETES_RETIRO_MXN, BILLETES_RETIRO_USD, efectivoDeVentaEnCaja, MINIMO_RETIRO, UMBRAL_AVISO_RETIRO, type RetiroRegistrado } from './retiros.ts';
 import { DESTINOS_FALTANTE_ESPECIALES, existenciaAlmacen, faltantes, fechaValida, recepcionesPendientes, type Faltante, type AltaManual, type RecepcionPendiente } from './almacen.ts';
@@ -555,6 +555,32 @@ export class Central {
     const actual = cajerosDe(this.repo.ops()).find((c) => c.id === id);
     if (!actual) return { ok: false, error: { codigo: 'NO_EXISTE', mensaje: 'la Vendedora-Cajera no existe' } };
     this.emitirAdmin('cajero.guardado', { id, nombre: actual.nombre, activo: false, sal: actual.sal, hash: actual.hash, eliminado: true, por });
+    return { ok: true };
+  }
+
+  /**
+   * Elimina a un supervisor o almacenista de Administración (y su clave de caja). No se elimina: una cuenta protegida (los dueños), la propia sesión ni al
+   * último supervisor activo. Sus ventas anteriores conservan su nombre.
+   */
+  eliminarAdmin(id: string, por: string): { ok: true } | { ok: false; error: { codigo: 'NO_EXISTE' | 'PROTEGIDO' | 'ULTIMO_SUPERVISOR' | 'PROPIO'; mensaje: string } } {
+    const ops = this.repo.ops();
+    const lista = administradoresDe(ops);
+    const a = lista.find((x) => x.id === id);
+    if (!a) return { ok: false, error: { codigo: 'NO_EXISTE', mensaje: 'el usuario no existe' } };
+    if (adminProtegido(a)) return { ok: false, error: { codigo: 'PROTEGIDO', mensaje: `«${a.nombre}» es una cuenta protegida: no se puede eliminar` } };
+    if (nombreClave(a.nombre) === nombreClave(por)) return { ok: false, error: { codigo: 'PROPIO', mensaje: 'no puede eliminar su propio usuario' } };
+    if ((a.rol ?? 'supervisor') === 'supervisor' && a.activo && !lista.some((x) => x.id !== id && x.activo && (x.rol ?? 'supervisor') === 'supervisor')) return { ok: false, error: { codigo: 'ULTIMO_SUPERVISOR', mensaje: 'debe quedar al menos un supervisor activo' } };
+    this.emitirUna('admin.guardado', { id, nombre: a.nombre, activo: false, sal: a.sal, hash: a.hash, rol: a.rol ?? 'supervisor', eliminado: true, por }, `admin.guardado:${uuid()}`, false);
+    const enlazado = `sup-${id.slice(4)}`;
+    const sup = supervisoresDe(ops).find((s) => s.id === enlazado);
+    if (sup) this.emitirAdmin('supervisor.guardado', { id: enlazado, nombre: sup.nombre, activo: false, sal: sup.sal, hash: sup.hash, eliminado: true, por });
+    return { ok: true };
+  }
+  /** Elimina a un supervisor que solo existe como «supervisor de caja» (sin acceso a Administración). */
+  eliminarSupervisorCaja(id: string, por: string): { ok: true } | { ok: false; error: { codigo: 'NO_EXISTE'; mensaje: string } } {
+    const s = supervisoresDe(this.repo.ops()).find((x) => x.id === id);
+    if (!s) return { ok: false, error: { codigo: 'NO_EXISTE', mensaje: 'el supervisor no existe' } };
+    this.emitirAdmin('supervisor.guardado', { id, nombre: s.nombre, activo: false, sal: s.sal, hash: s.hash, eliminado: true, por });
     return { ok: true };
   }
 
