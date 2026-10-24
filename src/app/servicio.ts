@@ -6,7 +6,7 @@ import { DEPARTAMENTOS_BASE, resolverDepartamento } from '../departamentos.ts';
 import { formatoTasa } from '../dinero.ts';
 import { ErrorDominio } from '../errores.ts';
 import type { Impresora } from '../impresion.ts';
-import { FONDO_AUTORIZADO_DEFECTO, type Caja } from '../nodos.ts';
+import { DIAS_CONSULTA_HISTORICA, FONDO_AUTORIZADO_DEFECTO, type Caja } from '../nodos.ts';
 import { estadoPromo, type Promocion } from '../promociones.ts';
 import { cuentasEmpleadas, configEmpleadas, CRITERIOS_EXPEDIENTE, expedientesDe, expedienteVacio, registradaEn, CAMPOS_EDITABLES, catalogo, historialArticulo, nombresTienda, datosTiendas, departamentos as proyDepartamentos, devoluciones, type Devolucion, promocionesDe, recompensasDe, supervisoresDe, cajerosDe, administradoresDe, configSesionDe, permisos as proyPermisos, tarjetasRegalo, tiposDeCambio, tipoCambioVigente, ventas, type TipoCambio } from '../proyecciones.ts';
 import { hojaAnalisis, hojaDetalleVentas, hojaResumenVentas, hojaDescuentos, hojaEntregas, hojaDolares, hojaInventario, leerInventario, PERFIL_CONFIRMADO, type Hoja } from '../inventario.ts';
@@ -293,8 +293,23 @@ export class ServicioCaja {
       clienta: d.clienta ?? null, motivo: d.por_cambio ? d.motivo_cambio ?? null : d.motivo, venta: v, lineas: d.lineas.map((l) => ({ linea_id: l.linea_id, qty: l.qty, importe: l.importe })), importe: d.importe, reembolsos: d.reembolsos, se_lleva: seLleva, nuevo_total: nuevoTotal,
     };
   }
+  /**
+   * Límite de consulta en la CAJA: solo los últimos 2 meses (`DIAS_CONSULTA_HISTORICA`) y un día a la vez; lo anterior solo se consulta en Administración.
+   * Lo impone el servicio (no la pantalla), así que ninguna ruta lo salta.
+   */
+  private limiteHistorial(): string {
+    return fechaLocal(new Date(Date.parse(this.reloj.now()) - DIAS_CONSULTA_HISTORICA * 86400_000).toISOString());
+  }
+  private exigirFechaReciente(fecha: string) {
+    if (fecha < this.limiteHistorial()) throw new ErrorDominio('FUERA_DE_LIMITE', 'La caja solo consulta los últimos 2 meses. Para fechas anteriores use Administración.');
+  }
+  private exigirVentaReciente(saleId: string) {
+    const v = ventas(this.caja.opsVentas()).get(saleId);
+    if (v && fechaLocal(v.ocurrio_en) < this.limiteHistorial()) throw new ErrorDominio('FUERA_DE_LIMITE', 'Esa venta tiene más de 2 meses: la caja ya no la consulta. Use Administración.');
+  }
   /** Detalle de una venta de ESTA caja (hora, cajera, prendas, pagos, cambios y cancelación). */
   detalleVenta(saleId: string) {
+    this.exigirVentaReciente(saleId);
     const d = detalleDeVenta(this.caja.opsDe('sale.confirmed', 'sale.cancelled', 'return.registered'), saleId);
     if (!d || d.tienda !== this.caja.tienda || d.caja !== this.caja.caja) throw new ErrorDominio('PROHIBIDO', 'solo se consultan ventas de la propia caja');
     return { detalle: { ...d, codigo_ticket: codigoTicket(d.tienda, d.caja, d.folio) }, ticket_texto: this.ticketTexto(saleId) };
@@ -569,6 +584,9 @@ export class ServicioCaja {
       }
       folio = f.folio; cajaBuscada = f.caja;
     }
+    // Un día a la vez y dentro de los últimos 2 meses. Un folio o un artículo escaneado es una búsqueda puntual (no un listado por periodo): solo devuelve lo reciente.
+    if (q.fecha) this.exigirFechaReciente(q.fecha);
+    else if (!(q.folio !== undefined && q.folio !== null && String(q.folio).trim() !== '') && !q.codigo && !q.item_id) throw new ErrorDominio('DATOS_INVALIDOS', 'indique la fecha (un día), un folio o escanee el artículo');
     let item_id = q.item_id;
     if (!item_id && q.codigo) {
       const art = this.caja.buscarPorCodigo(q.codigo.trim());
@@ -581,6 +599,8 @@ export class ServicioCaja {
     const hasta = q.fecha ? aUtc(q.hasta || '23:59').replace(':00.000Z', ':59.999Z') : undefined;
     const r = this.caja.buscarVentas({ desde, hasta, item_id, folio });
     if (cajaBuscada !== undefined) r.resultados = r.resultados.filter((v) => v.caja === cajaBuscada);
+    const limite = this.limiteHistorial();
+    r.resultados = r.resultados.filter((v) => fechaLocal(v.ocurrio_en) >= limite);
     const art = item_id ? this.caja.idx.articulo(item_id) : undefined;
     return {
       hub: r.hub, aviso: null as string | null, articulo: art ? { descripcion: art.descripcion, marca: art.marca, item_no: art.item_no } : null,
@@ -653,6 +673,7 @@ export class ServicioCaja {
   }
   /** Cambio: las piezas que regresa la clienta quedan en negativo como crédito de ESTA venta. Sin clave; el dinero solo sale con «devolver dinero». */
   iniciarCambio(cartId: string, saleId: string, renglones: { linea_id: string; qty: number }[], datos?: { clienta?: Partial<DatosClienta>; motivo?: string }) {
+    this.exigirVentaReciente(saleId);
     this.caja.iniciarCambio(cartId, saleId, renglones, validarDatosClienta(datos));
     return { carrito: this.vista(cartId) };
   }
@@ -680,6 +701,7 @@ export class ServicioCaja {
     return { devolucion: d, ticket_texto: texto, impresion, ticket_firma, impresion_firma, venta: null, ticket_venta: null, impresion_venta: null };
   }
   async devolver(saleId: string, renglones: { linea_id: string; qty: number }[], motivo: string, autoriza?: { nombre: string; clave: string }) {
+    this.exigirVentaReciente(saleId);
     const d = this.caja.devolver({ sale_id: saleId, renglones, motivo, cajero: this.actor.usuario, autoriza });
     const v = ventas(this.caja.opsVentas()).get(saleId)!;
     const texto = renderTicketDevolucionTexto(d, v, this.negociosVivos()[v.tienda]!, this.negociosVivos());
@@ -688,6 +710,7 @@ export class ServicioCaja {
   }
 
   async reimprimir(saleId: string) {
+    this.exigirVentaReciente(saleId);
     const v = ventas(this.caja.opsVentas()).get(saleId);
     if (!v || v.tienda !== this.caja.tienda || v.caja !== this.caja.caja) throw new ErrorDominio('PROHIBIDO', 'solo se reimprimen ventas de la propia caja');
     const n = this.caja.impresionesDe(saleId).filter((i) => i.tipo === 'reimpresion').length + 1;
@@ -699,6 +722,7 @@ export class ServicioCaja {
    * cambio. No abre el cajón ni cuenta como reimpresión del ticket de venta. Una venta cancelada o sin mercancía no tiene ticket de regalo.
    */
   async ticketRegalo(saleId: string) {
+    this.exigirVentaReciente(saleId);
     const v = ventas(this.caja.opsVentas()).get(saleId);
     if (!v || v.tienda !== this.caja.tienda || v.caja !== this.caja.caja) throw new ErrorDominio('PROHIBIDO', 'solo se imprimen tickets de regalo de ventas de la propia caja');
     if (v.estado === 'cancelada') throw new ErrorDominio('VENTA_CANCELADA', 'la venta está cancelada: no tiene ticket de regalo');
@@ -718,6 +742,7 @@ export class ServicioCaja {
   }
 
   ticketTexto(saleId: string): string {
+    this.exigirVentaReciente(saleId);
     const v = ventas(this.caja.opsVentas()).get(saleId);
     if (!v || v.tienda !== this.caja.tienda || v.caja !== this.caja.caja) throw new ErrorDominio('PROHIBIDO', 'solo se consultan tickets de la propia caja');
     const n = this.caja.impresionesDe(saleId).filter((i) => i.tipo === 'reimpresion').length;
@@ -726,6 +751,7 @@ export class ServicioCaja {
 
   /** Ventas de ESTA caja. El filtro por caja lo impone el permiso del actor, no la ausencia de datos. */
   ventasDelDia(fecha: string) {
+    this.exigirFechaReciente(fecha);
     return ventasPorCaja(this.actor, this.caja.opsVentas(), { desde: fecha, hasta: fecha }).map((r) => ({
       ...r, codigo_ticket: codigoTicket(r.tienda, r.caja, r.folio, this.negociosVivos()), impresiones: this.caja.impresionesDe(r.sale_id).length,
       ultima_impresion: this.caja.impresionesDe(r.sale_id).at(-1)?.resultado ?? null,
@@ -736,6 +762,7 @@ export class ServicioCaja {
   }
 
   corte(fecha: string) {
+    this.exigirFechaReciente(fecha);
     const vivo = this.caja.corteEnVivo(fecha);
     const cerrado = this.caja.repo.getOp(`corte:${this.caja.id}:${fecha}`)?.payload ?? null;
     const sinDatosDelCierre = (c: any) => { const { cerrado_por: _a, observaciones: _b, ...resto } = c ?? {}; return resto; };
@@ -756,6 +783,7 @@ export class ServicioCaja {
   }
   /** Reimprime el ticket del cierre YA guardado (no recalcula nada) con la leyenda de reimpresión. */
   async reimprimirCierre(fecha: string) {
+    this.exigirFechaReciente(fecha);
     const guardado = this.caja.repo.getOp(`corte:${this.caja.id}:${fecha}`);
     if (!guardado) throw new ErrorDominio('CORTE_ABIERTO', 'el corte de ese día aún no está cerrado: no hay cierre que reimprimir');
     const clave = `cierreimp:${this.caja.id}:${fecha}`;
