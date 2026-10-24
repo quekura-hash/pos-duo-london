@@ -1,7 +1,7 @@
 {
   "name": "londuo-pos-caja",
   "productName": "LonDuo POS",
-  "version": "0.2.23",
+  "version": "0.2.24",
   "private": true,
   "description": "LonDuo POS · Smart Retail Management (caja de pruebas para Windows)",
   "main": "main.cjs",
