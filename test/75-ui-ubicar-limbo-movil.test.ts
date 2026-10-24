@@ -185,11 +185,11 @@ describe('[iPhone] Inventario: seleccionar y ubicar piezas de El Limbo', { timeo
     await page.waitForSelector('#nav button');
     const atender = (metodo: string, ruta: string, cuerpo?: unknown) => page.evaluate(async (d) => (await (window as unknown as { __POS_ATENDER__: (m: string, r: string, c?: unknown) => Promise<{ status: number; json: Record<string, unknown> }> }).__POS_ATENDER__(d.m, d.r, d.c)).status, { m: metodo, r: ruta, c: cuerpo });
     assert.equal(await atender('POST', '/api/admin/cajeros', { nombre: 'Ana', clave: '1111', tienda: 'DUO', perfil: { nombres: 'Ana', apellidos: 'López' } }), 200);
-    await page.click('#nav button[data-vista="configuracion"]');
-    await page.click('#cfg-tab-cajeros');
-    await page.waitForSelector('#tabla-cajeros tr[data-cajero]');
-    assert.match((await page.textContent('#tabla-cajeros tr[data-cajero]'))!, /DÚO/);
-    await page.tap('#tabla-cajeros tr[data-cajero] .c-editar');
+    await page.click('#nav button[data-vista="empleadas"]');
+    await page.click('#per-tab-perfiles');
+    await page.waitForSelector('#tabla-personal tr[data-cajero]');
+    assert.match((await page.textContent('#tabla-personal tr[data-cajero]'))!, /DÚO/);
+    await page.tap('#tabla-personal tr[data-cajero] .c-editar');
     await page.waitForSelector('#dlg-empleado[open]');
     await page.tap('#emp-expediente');
     await page.waitForSelector('#dlg-expediente[open] #form-exp-clave');

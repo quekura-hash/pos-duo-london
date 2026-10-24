@@ -855,3 +855,9 @@ La app de Windows (v0.2.0) abre ahora la **Caja conectada al central** (`dist/ca
 ## 68. Ventas del POS anterior: Administración y consulta en cajas
 - El Historial de Administración mezcla las ventas importadas (`venta.historica`) con las nuevas, marcadas «POS anterior»; filtro de origen; detalle simple (solo folio, fecha, total, piezas y pago).
 - Las cajas no reciben el historial completo. Al importar, lo de los últimos 60 días (`DIAS_CONSULTA_HISTORICA`) se copia además como `venta.consulta` (migración 0012), y la caja lo muestra, solo para consultar, al buscar un folio en su Historial. No participa en reportes ni cortes.
+
+## 69. Personal (mapa del menú) y límite de historial en la caja
+- **Administración › Personal** (antes «Empleadas»): pestañas **Perfiles** (una sola lista con supervisores, almacenistas y Vendedoras-Cajeras, con filtro por rol y las claves de cada quien), **Descuento y crédito**, **Nómina** y **Horarios** (en desarrollo). Configuración ya no trae «Usuarios»: el cierre por inactividad pasó a Configuración › Cajas, y «Supervisores que autorizan descuentos» salió de Promociones (se administra en Perfiles).
+- **Caja**: supervisores y almacenistas con clave de caja inician sesión y cobran (la almacenista no autoriza descuentos: `solo_caja`).
+- **Historial en la caja**: solo los últimos 2 meses y un día a la vez; folio o artículo escaneado son búsquedas puntuales. Lo impone `ServicioCaja` (`FUERA_DE_LIMITE`); Administración consulta sin límite.
+- **Folios**: al sincronizar, el contador de la caja salta después de cualquier folio de esa misma caja que el central ya conozca (otro equipo, PC nueva).

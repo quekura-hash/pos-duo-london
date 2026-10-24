@@ -347,3 +347,5 @@ input[data-pin] { -webkit-text-security: disc; text-security: disc; }
 /* Aviso «la tasa cambió» a media venta: una línea discreta, no un botón grande */
 #btn-tasa-nueva { width: auto; border: 0; background: none; text-decoration: underline; padding: 0 0 6px; margin: 0; font-size: 13px; color: var(--aviso); }
 #info-tasa { background: none; padding: 0; margin: 2px 0 0; font-size: 13px; }
+
+.claves-celda { display: flex; flex-direction: column; gap: 4px; min-width: 210px; } .claves-celda .btn { width: 100%; }

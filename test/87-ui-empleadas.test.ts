@@ -72,6 +72,7 @@ describe('[navegador real] Ventas a empleadas: caja y Administración', { timeou
     await a.goto(adm.url);
     await a.waitForSelector('#nav');
     await a.click('#nav button[data-vista="empleadas"]');
+    await a.click('#per-tab-descuento');
     await a.waitForSelector('#tabla-empleadas tr[data-emp]');
     const fila = `#tabla-empleadas tr[data-emp="${rosa}"]`;
     assert.equal(await a.textContent(`${fila} [data-col="saldo"]`), '$848.15');
@@ -87,6 +88,7 @@ describe('[navegador real] Ventas a empleadas: caja y Administración', { timeou
     await a.click(`${fila} .em-mov`);
     await a.waitForSelector('#tabla-emp-mov');
     assert.match((await a.textContent('#tabla-emp-mov'))!, /Venta a crédito[\s\S]*Abono de nómina[\s\S]*octubre, 1ª quincena/);
+    await a.click('#per-tab-nomina');
     await a.fill('#nom-desde', '2026-10-01'); await a.fill('#nom-hasta', '2026-10-01');
     await a.click('#form-nomina button[type="submit"]');
     await a.waitForFunction(() => /\$548\.15/.test(document.querySelector('#nom-total')?.parentElement?.textContent ?? ''));

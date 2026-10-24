@@ -26,11 +26,11 @@ describe('[navegador real] Usuarios: tienda de cada trabajadora y expediente pri
     page.on('pageerror', (e) => errores.push(String(e)));
     page.on('console', (m) => { if (m.type() === 'error') errores.push(m.text()); });
     await page.goto(adm.url);
-    await page.click('#nav button[data-vista="configuracion"]');
-    await page.click('#cfg-tab-cajeros');
-    await page.waitForSelector('#tabla-cajeros tr[data-cajero]');
+    await page.click('#nav button[data-vista="empleadas"]');
+    await page.click('#per-tab-perfiles');
+    await page.waitForSelector('#tabla-personal tr[data-cajero]');
     // la lista muestra la tienda (sin asignar al principio)
-    assert.match((await page.textContent('#tabla-cajeros tr[data-cajero]'))!, /Sin asignar/);
+    assert.match((await page.textContent('#tabla-personal tr[data-cajero]'))!, /Sin asignar/);
     // las claves cortas no son campos de contraseña (Chrome les pondría la contraseña guardada) y los errores se ven junto al botón
     assert.equal(await page.getAttribute('#caj-clave', 'type'), 'text');
     assert.notEqual(await page.getAttribute('#caj-clave', 'type'), 'password');
@@ -38,7 +38,7 @@ describe('[navegador real] Usuarios: tienda de cada trabajadora y expediente pri
     await page.fill('#caj-nombre', 'Pepe'); await page.fill('#caj-clave', '5555');
     await page.click('#btn-caj');
     await esperarTexto(page, '#msg-caj-alta', /nombres y los apellidos/);
-    assert.equal(await page.locator('#tabla-cajeros tr[data-cajero]').count(), 1, 'con datos incompletos no se guarda nada');
+    assert.equal(await page.locator('#tabla-personal tr[data-cajero]').count(), 1, 'con datos incompletos no se guarda nada');
     await page.fill('#caj-nombre', '');
     await page.fill('#caj-clave', '');
     // alta con tienda
@@ -50,13 +50,13 @@ describe('[navegador real] Usuarios: tienda de cada trabajadora y expediente pri
     assert.equal((await api(adm.url, '/api/admin/cajeros')).json.cajeros.find((c: any) => c.nombre === 'Bea').tienda, 'LON');
 
     // editar a Ana: elegir tienda y abrir el expediente
-    await page.click('#tabla-cajeros tr[data-cajero] .c-editar >> nth=0');
+    await page.click('#tabla-personal tr[data-cajero] .c-editar >> nth=0');
     await page.waitForSelector('#dlg-empleado[open]');
     await page.selectOption('#ed-tienda', 'DUO');
     await page.click('#emp-guardar');
     await page.waitForSelector('#dlg-empleado', { state: 'hidden' });
     assert.equal((await api(adm.url, '/api/admin/cajeros')).json.cajeros.find((c: any) => c.nombre === 'Ana').tienda, 'DUO');
-    await page.click('#tabla-cajeros tr[data-cajero] .c-editar >> nth=0');
+    await page.click('#tabla-personal tr[data-cajero] .c-editar >> nth=0');
     await page.waitForSelector('#dlg-empleado[open]');
     // nada privado en pantalla mientras el expediente está cerrado
     assert.doesNotMatch(await page.content(), /Recontratable|Puntualidad|Anotaciones/);
@@ -109,7 +109,7 @@ describe('[navegador real] Usuarios: tienda de cada trabajadora y expediente pri
     assert.equal((await api(adm.url, `/api/admin/expediente?cajero_id=${ana.id}`)).json.error.codigo, 'EXPEDIENTE_BLOQUEADO');
     assert.doesNotMatch(await page.content(), /Faltaba mucho|Recontratable|Calificaciones/, 'nada del expediente queda en la pantalla');
     // volver a abrirla pide la clave corta (ya no la de crear)
-    await page.click('#tabla-cajeros tr[data-cajero] .c-editar >> nth=0');
+    await page.click('#tabla-personal tr[data-cajero] .c-editar >> nth=0');
     await page.waitForSelector('#dlg-empleado[open]');
     assert.equal((await page.textContent('#emp-expediente'))!.trim(), 'Ficha', 'el botón se llama Ficha');
     await page.click('#emp-expediente');
@@ -130,19 +130,19 @@ describe('[navegador real] Usuarios: tienda de cada trabajadora y expediente pri
     await page.click('#exp-cerrar2');
     await page.waitForSelector('#dlg-expediente', { state: 'hidden' });
     await page.waitForSelector('#dlg-empleado', { state: 'hidden' }).catch(() => undefined);
-    await page.click('#tabla-cajeros tr[data-cajero]:has-text("Bea") .c-eliminar');
+    await page.click('#tabla-personal tr[data-cajero]:has-text("Bea") .c-eliminar');
     await page.waitForSelector('#dlg-eliminar-trab[open]');
     assert.match((await page.textContent('#dlg-eliminar-trab'))!, /Desactivar/, 'avisa que Desactivar conserva la ficha');
     await page.fill('#et-clave', '0000');
     await page.click('#form-eliminar-trab button[type=submit]');
     await esperarTexto(page, '#msg-et', /no es correcta/);
-    assert.equal(await page.locator('#tabla-cajeros tr[data-cajero]').count(), 2);
+    assert.equal(await page.locator('#tabla-personal tr[data-cajero]').count(), 2);
     await page.fill('#et-clave', '2468');
     await page.click('#form-eliminar-trab button[type=submit]');
     await page.waitForSelector('#dlg-eliminar-trab', { state: 'hidden' });
     await esperarTexto(page, '#msg-cajeros', /«Bea» eliminada/);
-    assert.equal(await page.locator('#tabla-cajeros tr[data-cajero]').count(), 1);
-    assert.doesNotMatch((await page.textContent('#tabla-cajeros'))!, /Bea/);
+    assert.equal(await page.locator('#tabla-personal tr[data-cajero]').count(), 1);
+    assert.doesNotMatch((await page.textContent('#tabla-personal'))!, /Bea/);
     assert.deepEqual(errores.filter((x) => !/401|403|Failed to load resource/.test(x)), []);
   });
 });

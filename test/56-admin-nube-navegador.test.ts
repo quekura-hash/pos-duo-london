@@ -68,12 +68,12 @@ describe('[navegador real] Administración conectada al central (Supabase simula
     // Usuarios: la lista de Vendedoras-Cajeras muestra sus botones y toda la fila abre la edición.
     const alta = await mac.evaluate(async () => (await (window as unknown as { __POS_ATENDER__: (m: string, r: string, c?: unknown) => Promise<{ status: number }> }).__POS_ATENDER__('POST', '/api/admin/cajeros', { nombre: 'Tania', clave: '2468', activo: true, perfil: { nombres: 'Tania', apellidos: 'Ruiz' } })).status);
     assert.equal(alta, 200);
-    await mac.click('#nav button:has-text("Configuración")');
-    await mac.click('#cfg-tab-cajeros');
-    await mac.waitForSelector('#tabla-cajeros tr[data-cajero]');
-    assert.match((await mac.textContent('#tabla-cajeros tbody'))!, /Tania/);
-    assert.equal(await mac.locator('#tabla-cajeros tr[data-cajero] .c-editar:visible').count(), 1);
-    await mac.click('#tabla-cajeros tr[data-cajero] td:first-child');
+    await mac.click('#nav button[data-vista="empleadas"]');
+    await mac.click('#per-tab-perfiles');
+    await mac.waitForSelector('#tabla-personal tr[data-cajero]');
+    assert.match((await mac.textContent('#tabla-personal tbody'))!, /Tania/);
+    assert.equal(await mac.locator('#tabla-personal tr[data-cajero] .c-editar:visible').count(), 1);
+    await mac.click('#tabla-personal tr[data-cajero] td:first-child');
     await mac.waitForSelector('#dlg-empleado[open]');
     assert.match((await mac.textContent('#emp-titulo'))!, /Datos de Tania/);
     await mac.click('#emp-cerrar');

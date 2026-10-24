@@ -1231,7 +1231,7 @@ export class Caja {
     const ahora = Date.parse(this.ctx.reloj.now());
     if (fallos.hasta > ahora) throw new ErrorDominio('CLAVE_BLOQUEADA', `demasiados intentos con una clave equivocada: espere ${Math.ceil((fallos.hasta - ahora) / 60000)} minuto(s)`);
     const cajero = this.idx.cajeros().find((c) => c.activo && nombreClave(c.nombre) === nombreClave(usuario));
-    if (!cajero) throw new ErrorDominio('CAJERO_SIN_CLAVE', `«${usuario}» no tiene una clave registrada: pida a Administración que la dé de alta en Configuración → Usuarios`);
+    if (!cajero) throw new ErrorDominio('CAJERO_SIN_CLAVE', `«${usuario}» no tiene una clave registrada: pida a Administración que la dé de alta en Personal → Perfiles`);
     if (!claveValida(clave) || cajero.hash !== hashClave(cajero.sal, clave)) {
       const n = fallos.n + 1;
       this.repo.kvSet(llave, n >= 5 ? { n: 0, hasta: ahora + 5 * 60000 } : { n, hasta: 0 });

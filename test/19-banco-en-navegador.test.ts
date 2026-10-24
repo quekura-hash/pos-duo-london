@@ -99,7 +99,7 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     await page.uncheck('#falla-hub');
     await page.selectOption('#sesion-prueba', 'admin');
     await page.waitForSelector('#tabla-inv-resumen'); // Administración abre en Inventario
-    assert.deepEqual(await page.$$eval('#nav button', (b) => b.map((x) => x.textContent)), ['Inventario', 'Almacén', 'Promociones', 'Tarjetas de regalo', 'Reportes', 'Historial de ventas', 'Análisis', 'Cortes', 'Empleadas', 'Configuración', 'Caja']);
+    assert.deepEqual(await page.$$eval('#nav button', (b) => b.map((x) => x.textContent)), ['Inventario', 'Almacén', 'Promociones', 'Tarjetas de regalo', 'Reportes', 'Historial de ventas', 'Análisis', 'Cortes', 'Personal', 'Configuración', 'Caja']);
     await page.click('#nav button[data-vista="reportes"]');
     await page.waitForSelector('#filtros');
     await page.click('#filtros button[type="submit"]');
@@ -430,15 +430,16 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
 
     // Administración: supervisor, promoción 2x1 y cupón
     await page.click('#nav button[data-vista="administracion"]');
+    await page.click('#nav button[data-vista="empleadas"]');
+    await page.click('#per-tab-perfiles');
+    await page.waitForSelector('#form-admin');
+    await page.fill('#adm-nombre', 'Ana Supervisora'); await page.fill('#adm-clave', 'clave-segura'); await page.fill('#adm-clave-caja', '12');
+    await perfilMin(page, 'adm'); await page.click('#btn-adm');
+    await page.waitForFunction(() => /4 a 8 d/.test(document.querySelector('#msg-admins')!.textContent!));
+    await page.fill('#adm-clave-caja', '4321');
+    await page.click('#btn-adm');
+    await page.waitForSelector('#tabla-personal tr[data-admin]');
     await page.click('#nav button[data-vista="promociones"]');
-    await page.waitForSelector('#form-sup');
-    await page.fill('#sup-nombre', 'Ana Supervisora');
-    await page.fill('#sup-clave', '12');
-    await page.click('#btn-sup');
-    await page.waitForFunction(() => /4 a 8 d/.test(document.querySelector('#msg-sup')!.textContent!));
-    await page.fill('#sup-clave', '4321');
-    await page.click('#btn-sup');
-    await page.waitForSelector('#tabla-supervisores tr[data-sup]');
 
     await page.click('#btn-nueva-promo');
     await page.fill('#pr-nombre', '2x1 en jeans');
@@ -1086,12 +1087,12 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     await page.click('#na-cerrar');
     // Administración registra la clave del cajero
     await page.selectOption('#sesion-prueba', 'admin');
-    await page.click('#nav button[data-vista="configuracion"]');
-    await page.click('#cfg-tab-cajeros');
+    await page.click('#nav button[data-vista="empleadas"]');
+    await page.click('#per-tab-perfiles');
     await page.waitForSelector('#form-cajero');
     await page.fill('#caj-nombre', usuario); await page.fill('#caj-clave', '1234');
     await perfilMin(page, 'caj'); await page.click('#btn-caj');
-    await page.waitForSelector('#tabla-cajeros tr[data-cajero]');
+    await page.waitForSelector('#tabla-personal tr[data-cajero]');
     await page.screenshot({ path: join(RAIZ, 'docs', 'capturas', '48-cajeros.png') });
     // la caja: búsqueda sin resultados → ofrecer el alta con el código ya escrito
     await page.selectOption('#sesion-prueba', 'DUO/1');
@@ -1138,10 +1139,10 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     assert.equal(await page.locator('#btn-salir').count(), 0, 'sin cajeros registrados no hay inicio de sesión');
     // Administración (abierta) crea un administrador y un cajero
     await page.selectOption('#sesion-prueba', 'admin');
-    await page.click('#nav button[data-vista="configuracion"]');
-    await page.click('#cfg-tab-cajeros');
+    await page.click('#nav button[data-vista="empleadas"]');
+    await page.click('#per-tab-perfiles');
     await page.waitForSelector('#form-admin');
-    assert.match((await page.textContent('#panel-admins'))!, /consola está abierta/);
+    assert.match((await page.textContent('#panel-personal'))!, /consola está abierta/);
     await page.fill('#adm-nombre', 'Edgardo'); await page.fill('#adm-clave', 'clave-segura');
     await perfilMin(page, 'adm'); await page.click('#btn-adm');
     await page.waitForFunction(() => /Administrador agregado/.test(document.querySelector('#msg-admins')?.textContent ?? ''));
@@ -1149,7 +1150,7 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     assert.match((await page.textContent('[data-chip="usuario"]'))!, /Edgardo/);
     await page.fill('#caj-nombre', 'Lupe'); await page.fill('#caj-clave', '4321');
     await perfilMin(page, 'caj'); await page.click('#btn-caj');
-    await page.waitForSelector('#tabla-cajeros tr[data-cajero]');
+    await page.waitForSelector('#tabla-personal tr[data-cajero]');
     await page.screenshot({ path: join(RAIZ, 'docs', 'capturas', '51-usuarios.png') });
     // cerrar sesión de Administración → pide usuario y contraseña
     await page.click('#btn-salir');
@@ -1191,23 +1192,23 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     await page.goto(`file://${HTML}`);
     await page.waitForSelector('[data-chip="tienda"]');
     await page.selectOption('#sesion-prueba', 'admin');
-    await page.click('#nav button[data-vista="configuracion"]');
-    await page.click('#cfg-tab-cajeros');
+    await page.click('#nav button[data-vista="empleadas"]');
+    await page.click('#per-tab-perfiles');
     await page.waitForSelector('#form-admin');
     // el primer usuario debe ser supervisor (la opción de almacenista está desactivada) y registra su clave de caja
     assert.equal(await page.locator('#adm-rol option[value="almacenista"]').isDisabled(), true);
     await page.fill('#adm-nombre', 'Edgardo'); await page.fill('#adm-clave', 'clave-segura'); await page.fill('#adm-clave-caja', '2468');
     await perfilMin(page, 'adm'); await page.click('#btn-adm');
-    await page.waitForFunction(() => document.querySelectorAll('#tabla-admins tr[data-admin]').length === 1);
+    await page.waitForFunction(() => document.querySelectorAll('#tabla-personal tr[data-admin]').length === 1);
     await page.selectOption('#adm-rol', 'almacenista');
     assert.equal(await page.locator('#adm-caja-campo').isHidden(), false, 'el almacenista también puede tener clave de caja (para cobrar, sin autorizar descuentos)');
     await page.fill('#adm-nombre', 'Gabo'); await page.fill('#adm-clave', 'clave-gabo');
     await perfilMin(page, 'adm'); await page.click('#btn-adm');
-    await page.waitForFunction(() => document.querySelectorAll('#tabla-admins tr[data-admin]').length === 2);
-    assert.match((await page.textContent('#tabla-admins tr[data-rol="almacenista"]'))!, /Almacenista/);
+    await page.waitForFunction(() => document.querySelectorAll('#tabla-personal tr[data-admin]').length === 2);
+    assert.match((await page.textContent('#tabla-personal tr[data-rol="almacenista"]'))!, /Almacenista/);
     await page.fill('#caj-nombre', 'Lupe'); await page.fill('#caj-clave', '4321');
     await perfilMin(page, 'caj'); await page.click('#btn-caj');
-    await page.waitForSelector('#tabla-cajeros tr[data-cajero]');
+    await page.waitForSelector('#tabla-personal tr[data-cajero]');
     await page.screenshot({ path: join(RAIZ, 'docs', 'capturas', '53-roles.png') });
     // el almacenista
     await page.click('#btn-salir');
@@ -1252,12 +1253,12 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     await page.waitForSelector('[data-chip="tienda"]');
     // Administración registra dos cajeros
     await page.selectOption('#sesion-prueba', 'admin');
-    await page.click('#nav button[data-vista="configuracion"]');
-    await page.click('#cfg-tab-cajeros');
+    await page.click('#nav button[data-vista="empleadas"]');
+    await page.click('#per-tab-perfiles');
     await page.waitForSelector('#form-cajero');
     for (const [n, c] of [['Lupe', '4321'], ['Rosa', '8765']]) {
       await page.fill('#caj-nombre', n); await page.fill('#caj-clave', c); await perfilMin(page, 'caj'); await page.click('#btn-caj');
-      await page.waitForFunction((x) => [...document.querySelectorAll('#tabla-cajeros tr[data-cajero] b[data-alias]')].some((td) => td.textContent === x), n);
+      await page.waitForFunction((x) => [...document.querySelectorAll('#tabla-personal tr[data-cajero] b[data-alias]')].some((td) => td.textContent === x), n);
     }
     // Lupe entra a la caja y hace una venta
     await page.selectOption('#sesion-prueba', 'DUO/1');
@@ -1355,14 +1356,14 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     await page.goto(`file://${HTML}`);
     await page.waitForSelector('[data-chip="tienda"]');
     await page.selectOption('#sesion-prueba', 'admin');
-    await page.click('#nav button[data-vista="configuracion"]');
-    await page.click('#cfg-tab-cajeros');
+    await page.click('#nav button[data-vista="empleadas"]');
+    await page.click('#per-tab-perfiles');
     await page.waitForSelector('#form-admin');
     await page.fill('#adm-nombre', 'Edgardo'); await page.fill('#adm-clave', 'clave-segura'); await page.fill('#adm-clave-caja', '2468');
     await perfilMin(page, 'adm'); await page.click('#btn-adm');
-    await page.waitForFunction(() => document.querySelectorAll('#tabla-admins tr[data-admin]').length === 1);
+    await page.waitForFunction(() => document.querySelectorAll('#tabla-personal tr[data-admin]').length === 1);
     await page.fill('#caj-nombre', 'Lupe'); await page.fill('#caj-clave', '4321'); await perfilMin(page, 'caj'); await page.click('#btn-caj');
-    await page.waitForFunction(() => document.querySelectorAll('#tabla-cajeros tr[data-cajero]').length === 1);
+    await page.waitForFunction(() => document.querySelectorAll('#tabla-personal tr[data-cajero]').length === 1);
     await page.selectOption('#sesion-prueba', 'DUO/1');
     await page.waitForSelector('#form-login');
     await page.selectOption('#lg-usuario', 'Lupe'); await page.fill('#lg-clave', '4321'); await page.click('#lg-entrar');
@@ -1461,8 +1462,8 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     await page.goto(`file://${HTML}`);
     await page.waitForSelector('[data-chip="tienda"]');
     await page.selectOption('#sesion-prueba', 'admin');
-    await page.click('#nav button[data-vista="configuracion"]');
-    await page.click('#cfg-tab-cajeros');
+    await page.click('#nav button[data-vista="empleadas"]');
+    await page.click('#per-tab-perfiles');
     await page.waitForSelector('#form-admin');
     // sin nombres y apellidos no se registra
     await page.fill('#adm-nombre', 'Edgardo'); await page.fill('#adm-clave', 'clave-segura'); await page.fill('#adm-clave-caja', '2468');
@@ -1479,7 +1480,7 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     await page.waitForSelector('#adm-foto');
     assert.match((await page.getAttribute('#adm-foto', 'src'))!, /^data:image\/jpeg;base64,/);
     await page.click('#btn-adm');
-    await page.waitForFunction(() => document.querySelectorAll('#tabla-admins tr[data-admin]').length === 1);
+    await page.waitForFunction(() => document.querySelectorAll('#tabla-personal tr[data-admin]').length === 1);
     // cajera con foto de archivo
     await page.fill('#caj-nombre', 'Lupe'); await page.fill('#caj-clave', '4321');
     await page.fill('#caj-nombres', 'Guadalupe'); await page.fill('#caj-apellidos', 'Pérez López'); await page.fill('#caj-telefono', '6621234567'); await page.fill('#caj-direccion', 'Calle 5 #123');
@@ -1490,19 +1491,19 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     await page.click('#foto-usar');
     await page.waitForSelector('#caj-foto');
     await page.click('#btn-caj');
-    await page.waitForFunction(() => document.querySelectorAll('#tabla-cajeros tr[data-cajero]').length === 1);
-    const fila = page.locator('#tabla-cajeros tr[data-cajero]');
+    await page.waitForFunction(() => document.querySelectorAll('#tabla-personal tr[data-cajero]').length === 1);
+    const fila = page.locator('#tabla-personal tr[data-cajero]');
     assert.equal(await fila.locator('b[data-alias]').textContent(), 'Lupe');
     assert.equal(await fila.locator('[data-nombre-completo]').textContent(), 'Guadalupe Pérez López');
     assert.match((await fila.locator('img').getAttribute('src'))!, /^data:image\/jpeg;base64,/, 'la foto del archivo se recortó a JPEG');
     // editar datos
-    await page.click('#tabla-cajeros .c-editar');
+    await page.click('#tabla-personal .c-editar');
     await page.waitForSelector('#dlg-empleado[open]');
     assert.equal(await page.inputValue('#ed-alias'), 'Lupe');
     assert.equal(await page.inputValue('#ed-direccion'), 'Calle 5 #123');
     await page.fill('#ed-telefono', '6629998888');
     await page.click('#emp-guardar');
-    await page.waitForFunction(() => /6629998888/.test(document.querySelector('#tabla-cajeros tr[data-cajero]')!.textContent!));
+    await page.waitForFunction(() => /6629998888/.test(document.querySelector('#tabla-personal tr[data-cajero]')!.textContent!));
     // la caja: entra con su alias y debe elegir quién vendió
     await page.selectOption('#sesion-prueba', 'DUO/1');
     await page.waitForSelector('#form-login');
@@ -1918,13 +1919,15 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     // se puede configurar el tiempo (Administración abierta aún)
     await page.selectOption('#sesion-prueba', 'admin');
     await page.click('#nav button[data-vista="configuracion"]');
-    await page.click('#cfg-tab-cajeros');
+    await page.click('#cfg-tab-cajas');
     await page.waitForSelector('#form-inactividad');
     assert.deepEqual([await page.inputValue('#ina-caja'), await page.inputValue('#ina-admin')], ['10', '15']);
     await page.fill('#ina-caja', '10'); await page.click('#btn-inactividad');
     await page.waitForFunction(() => /Guardado/.test(document.querySelector('#msg-inactividad')!.textContent!));
+    await page.click('#nav button[data-vista="empleadas"]');
+    await page.click('#per-tab-perfiles');
     await page.fill('#caj-nombre', 'Lupe'); await page.fill('#caj-clave', '4321'); await perfilMin(page, 'caj'); await page.click('#btn-caj');
-    await page.waitForSelector('#tabla-cajeros tr[data-cajero]');
+    await page.waitForSelector('#tabla-personal tr[data-cajero]');
     await page.selectOption('#sesion-prueba', 'DUO/1');
     await page.waitForSelector('#form-login');
     await page.selectOption('#lg-usuario', 'Lupe'); await page.fill('#lg-clave', '4321'); await page.click('#lg-entrar');

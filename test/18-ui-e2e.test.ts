@@ -204,7 +204,7 @@ describe('[navegador real — Chromium con Playwright, UI sobre SQLite]', { time
     const { page, errores } = await pagina(browser, adm.url);
     await page.waitForSelector('#tabla-inv-resumen'); // Administración abre en Inventario
     assert.equal(await page.getAttribute('#nav button[aria-current="page"]', 'data-vista'), 'inventario');
-    assert.deepEqual(await page.$$eval('#nav button', (b) => b.map((x) => x.textContent)), ['Inventario', 'Almacén', 'Promociones', 'Tarjetas de regalo', 'Reportes', 'Historial de ventas', 'Análisis', 'Cortes', 'Empleadas', 'Configuración']);
+    assert.deepEqual(await page.$$eval('#nav button', (b) => b.map((x) => x.textContent)), ['Inventario', 'Almacén', 'Promociones', 'Tarjetas de regalo', 'Reportes', 'Historial de ventas', 'Análisis', 'Cortes', 'Personal', 'Configuración']);
     await page.click('#nav button[data-vista="reportes"]');
     await page.waitForSelector('#filtros');
     await page.fill('#desde', '2026-10-01');
