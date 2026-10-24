@@ -37,7 +37,10 @@ describe('[navegador real] Usuarios: tienda de cada trabajadora y expediente pri
     assert.equal(await page.getAttribute('#caj-nombre', 'autocomplete'), 'off');
     await page.fill('#caj-nombre', 'Pepe'); await page.fill('#caj-clave', '5555');
     await page.click('#btn-caj');
-    await esperarTexto(page, '#msg-caj-alta', /nombres y los apellidos/);
+    await page.waitForSelector('#avisos-flotantes .toast-aviso.error');
+    assert.match((await page.textContent('#avisos-flotantes .toast-aviso'))!, /Falta completar: .*Nombres.*Apellidos/);
+    assert.equal(await page.locator('#caj-nombres.campo-falta, #caj-apellidos.campo-falta').count(), 2, 'los datos que faltan quedan marcados en rojo');
+    await page.click('#avisos-flotantes .av-x');
     assert.equal(await page.locator('#tabla-personal tr[data-cajero]').count(), 1, 'con datos incompletos no se guarda nada');
     await page.fill('#caj-nombre', '');
     await page.fill('#caj-clave', '');

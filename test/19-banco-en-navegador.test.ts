@@ -1468,7 +1468,9 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     // sin nombres y apellidos no se registra
     await page.fill('#adm-nombre', 'Edgardo'); await page.fill('#adm-clave', 'clave-segura'); await page.fill('#adm-clave-caja', '2468');
     await page.click('#btn-adm');
-    await page.waitForFunction(() => /nombres y los apellidos/.test(document.querySelector('#msg-admins')!.textContent!));
+    await page.waitForSelector('#avisos-flotantes .toast-aviso.error');
+    assert.match((await page.textContent('#avisos-flotantes .toast-aviso'))!, /Falta completar: .*Nombres.*Apellidos/);
+    await page.click('#avisos-flotantes .av-x');
     // foto con la cámara (falsa en la prueba)
     await page.fill('#adm-nombres', 'Edgardo'); await page.fill('#adm-apellidos', 'Morales Ruiz'); await page.fill('#adm-telefono', '662 123 4567'); await page.fill('#adm-direccion', 'Blvd. Kino 100');
     await page.click('#adm-foto-btn');

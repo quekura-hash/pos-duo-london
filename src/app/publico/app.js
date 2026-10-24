@@ -18,7 +18,8 @@ async function api(ruta, cuerpo) {
     ? (await window.__POS_ATENDER__(cuerpo === undefined ? 'GET' : 'POST', ruta, cuerpo)).json
     : await (await fetch(ruta, cuerpo === undefined ? {} : { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(cuerpo) })).json();
   if (!j.ok) {
-    const e = new Error(j.error?.mensaje ?? 'Error'); e.codigo = j.error?.codigo; e.detalle = j.error?.detalle;
+    // El servidor antepone el código técnico («SIN_EMPLEADA: …»); a quien usa la pantalla solo le sirve el texto.
+    const e = new Error((j.error?.mensaje ?? 'Error').replace(/^[A-Z][A-Z0-9_]{3,}: /, '')); e.codigo = j.error?.codigo; e.detalle = j.error?.detalle;
     // La sesión se cerró (otro cajero desactivado, reinicio…): se vuelve a la pantalla de inicio de sesión.
     if (e.codigo === 'NO_AUTENTICADO' && S.sesion?.autenticado !== false && ruta !== '/api/sesion' && ruta !== '/api/login') { S.sesion = { ...S.sesion, autenticado: false }; setTimeout(() => iniciar(), 0); }
     throw e;
@@ -364,6 +365,112 @@ async function foliosListo(texto) {
 }
 
 // ── venta ──
+// ── Avisos a la vista: todo mensaje (error, aviso o éxito) que quede fuera de la pantalla sale también como aviso emergente con X ──
+let avisosCaja = null;
+const avisosActivos = new Set();
+function cajaDeAvisos() {
+  if (!avisosCaja) {
+    avisosCaja = document.createElement('div');
+    avisosCaja.id = 'avisos-flotantes';
+    avisosCaja.setAttribute('role', 'region');
+    avisosCaja.setAttribute('aria-label', 'Avisos');
+  }
+  // Con una ventana modal abierta el resto de la página queda inactivo (no se podría tocar la X): el aviso se coloca DENTRO de esa ventana.
+  const modal = [...document.querySelectorAll('dialog[open]')].filter((d) => d.matches(':modal')).pop() ?? null;
+  const destino = modal ?? document.body;
+  const popover = !modal && typeof avisosCaja.showPopover === 'function';
+  if (avisosCaja.parentElement !== destino) {
+    if (avisosCaja.matches?.(':popover-open')) { try { avisosCaja.hidePopover(); } catch { /* ya cerrado */ } }
+    destino.appendChild(avisosCaja);
+  }
+  avisosCaja.toggleAttribute('popover', popover);
+  if (popover) avisosCaja.setAttribute('popover', 'manual');
+  avisosCaja.classList.toggle('sin-popover', !popover);
+  return avisosCaja;
+}
+/** Muestra un aviso emergente. `fuente` es el renglón de mensaje de donde viene (si deja de existir o cambia, el aviso se quita solo). */
+function avisoFlotante(texto, tipo = 'error', fuente = null) {
+  const caja = cajaDeAvisos();
+  for (const a of avisosActivos) if (a.texto === texto && a.tipo === tipo) { a.fuente = fuente; return; }
+  const el = document.createElement('div');
+  el.className = `toast-aviso ${tipo}`;
+  el.setAttribute('role', tipo === 'error' ? 'alert' : 'status');
+  const t = document.createElement('span'); t.className = 'av-texto'; t.textContent = texto;
+  const x = document.createElement('button'); x.type = 'button'; x.className = 'av-x'; x.setAttribute('aria-label', 'Cerrar aviso'); x.title = 'Cerrar'; x.textContent = '✕';
+  el.append(t, x);
+  const a = { el, texto, tipo, fuente };
+  const quitar = () => { avisosActivos.delete(a); el.remove(); if (!avisosActivos.size && caja.hidePopover && caja.matches(':popover-open')) { try { caja.hidePopover(); } catch { /* ya cerrado */ } } };
+  a.quitar = quitar;
+  x.addEventListener('click', quitar);
+  caja.appendChild(el);
+  avisosActivos.add(a);
+  while (avisosActivos.size > 3) { const primero = avisosActivos.values().next().value; primero.quitar(); }
+  // Se vuelve a abrir cada vez para quedar por encima de cualquier ventana modal que esté abierta.
+  if (caja.hasAttribute('popover')) { try { if (caja.matches(':popover-open')) caja.hidePopover(); caja.showPopover(); } catch { /* sin soporte */ } }
+  if (tipo === 'ok') setTimeout(quitar, 5000);
+}
+/** ¿Se ve el renglón en pantalla (no está fuera de la vista, tapado ni recortado)? */
+function renglonVisible(el) {
+  const r = el.getBoundingClientRect();
+  if (!r.width && !r.height) return false;
+  const x = Math.min(Math.max(r.left + Math.min(r.width / 2, 40), 0), innerWidth - 1), y = r.top + Math.min(r.height / 2, 12);
+  if (y < 0 || y >= innerHeight) return false;
+  const t = document.elementFromPoint(x, y);
+  return !!t && (t === el || el.contains(t));
+}
+function iniciarAvisosFlotantes() {
+  const pendientes = new Set();
+  let programado = false;
+  const revisar = () => {
+    programado = false;
+    for (const a of [...avisosActivos]) if (a.fuente && (!a.fuente.isConnected || a.fuente.textContent.trim() !== a.texto || (a.fuente.closest('dialog') && !a.fuente.closest('dialog').open))) a.quitar();
+    for (const el of pendientes) {
+      if (!el.isConnected || el.closest('#avisos-flotantes')) continue;
+      const texto = el.textContent.trim();
+      const tipo = el.classList.contains('error') ? 'error' : el.classList.contains('aviso') ? 'aviso' : el.classList.contains('ok') ? 'ok' : null;
+      if (!texto || !tipo) continue;
+      if (el.getClientRects().length && !renglonVisible(el)) avisoFlotante(texto, tipo, el);
+    }
+    pendientes.clear();
+  };
+  new MutationObserver((muts) => {
+    for (const m of muts) {
+      const n = m.target.nodeType === 1 ? m.target : m.target.parentElement;
+      const el = n?.closest?.('.mensaje');
+      if (el) pendientes.add(el);
+      for (const a of m.addedNodes) { if (a.nodeType === 1 && a.matches?.('.mensaje')) pendientes.add(a); }
+    }
+    if (!programado && (pendientes.size || avisosActivos.size)) { programado = true; requestAnimationFrame(revisar); }
+  }).observe(document.body, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['class'] });
+}
+// ── Campos que faltan: se marcan en rojo, se enfoca el primero y se avisa cuáles son ──
+const etiquetaDeCampo = (c) => (c.labels?.[0]?.textContent ?? c.getAttribute('aria-label') ?? c.placeholder ?? c.name ?? '').replace(/\s+/g, ' ').trim();
+function marcarCampoFalta(c) { c.classList.add('campo-falta'); c.closest('.campo')?.classList.add('campo-con-falta'); }
+function limpiarCampoFalta(c) { c.classList.remove('campo-falta'); c.closest('.campo')?.classList.remove('campo-con-falta'); }
+function iniciarCamposObligatorios() {
+  let faltan = [];
+  let pendiente = false;
+  document.addEventListener('invalid', (ev) => {
+    const c = ev.target;
+    if (!(c instanceof HTMLElement)) return;
+    ev.preventDefault(); // en lugar de la burbuja del navegador, se marca el campo y sale un aviso propio
+    marcarCampoFalta(c);
+    faltan.push(c);
+    if (!pendiente) {
+      pendiente = true;
+      setTimeout(() => { // un turno después: así se juntan todos los campos que faltan, no solo el primero
+        pendiente = false;
+        const lista = faltan; faltan = [];
+        lista[0].focus({ preventScroll: true });
+        lista[0].scrollIntoView({ block: 'center', behavior: 'smooth' });
+        const nombres = [...new Set(lista.map(etiquetaDeCampo).filter(Boolean))];
+        avisoFlotante(`Falta completar: ${nombres.join(', ') || 'los campos marcados en rojo'}.`, 'error');
+      }, 0);
+    }
+  }, true);
+  for (const evento of ['input', 'change']) document.addEventListener(evento, (ev) => { if (ev.target instanceof HTMLElement && ev.target.classList.contains('campo-falta')) limpiarCampoFalta(ev.target); }, true);
+}
+
 function msg(texto, tipo = 'ok') { const m = $('#mensaje'); if (m) { m.className = `mensaje ${tipo}`; m.textContent = texto; } }
 
 async function vistaVenta() {
@@ -1243,7 +1350,7 @@ function camposClienta(p, motivoEtiqueta) {
 /** Lee y valida los campos de camposClienta; devuelve null (y marca el error en `m`) si falta algo. */
 function leerCamposClienta(p, m) {
   const nombre = $(`#${p}-nombre`).value.trim(), telefono = $(`#${p}-telefono`).value.trim(), motivo = $(`#${p}-motivo`).value.trim();
-  const falla = (t, id) => { m.className = 'mensaje error'; m.textContent = t; $(`#${p}-${id}`).focus(); return null; };
+  const falla = (t, id) => { m.className = 'mensaje error'; m.textContent = t; const c = $(`#${p}-${id}`); marcarCampoFalta(c); c.focus(); return null; };
   if (nombre.length < 2) return falla('Escriba el nombre de la clienta.', 'nombre');
   if (telefono.replace(/\D/g, '').length < 7) return falla('Escriba el teléfono de la clienta (al menos 7 dígitos).', 'telefono');
   if (motivo.length < 3) return falla('Escriba el motivo.', 'motivo');
@@ -2707,7 +2814,7 @@ async function abrirEmpleada() {
     <p class="nota">La empleada confirma con <b>su propia clave</b>. El descuento de <b>${config.pct}%</b> se aplica <b>solo, a toda la mercancía de la venta</b>; no se combina con promociones. Para los uniformes de la tienda (<b>${config.pct_uniforme}%</b>), después seleccione el artículo en la lista y toque «Marcar como uniforme». Se paga normal o a crédito.</p>
     <form id="form-empleada" autocomplete="off">
       <div class="campo"><label for="emp-quien">Empleada</label><select id="emp-quien" style="width:100%;padding:10px;border:2px solid var(--borde);border-radius:10px;background:var(--superficie)">${empleadas.map((e) => `<option value="${esc(e.id)}" data-nombre="${esc(e.nombre)}">${esc(e.nombre)}</option>`).join('')}</select></div>
-      <div class="campo"><label for="emp-clave">Clave de la empleada</label><input id="emp-clave" type="text" data-pin inputmode="numeric" autocomplete="off" placeholder="••••"></div>
+      <div class="campo"><label for="emp-clave">Clave de la empleada</label><input id="emp-clave" type="text" data-pin inputmode="numeric" autocomplete="off" placeholder="••••" required></div>
       <div class="campo" id="emp-sup-campo" hidden><label for="emp-sup">Clave de un supervisor (una cajera no se vende a sí misma sin autorización)</label><input id="emp-sup" type="text" data-pin inputmode="numeric" autocomplete="off" placeholder="••••"></div>
       <div id="msg-emp" class="mensaje" role="status" aria-live="polite"></div>
       <div class="filas"><button class="btn" type="button" id="emp-cerrar">Cancelar</button><button class="btn btn-primario" type="submit" style="width:auto;flex:1">${ico('check')}<span>Aplicar descuento de empleada</span></button></div>
@@ -3279,7 +3386,7 @@ async function abrirPromo(p, preset) {
         <option value="paquete" ${q.tipo === 'paquete' ? 'selected' : ''}>Paquete a precio fijo (lleva 4 por $185…)</option>
         <option value="por_cada" ${q.tipo === 'por_cada' ? 'selected' : ''}>Por cada $X de compra, $Y de descuento</option>
         <option value="cupon" ${q.tipo === 'cupon' ? 'selected' : ''}>Cupón de descuento (% o $) con código y QR</option></select></div>
-      ${campo('pr-nombre', 'Nombre (aparece en el ticket)', q.nombre)}
+      ${campo('pr-nombre', 'Nombre (aparece en el ticket)', q.nombre, 'required')}
       <fieldset style="border:1px solid var(--borde);border-radius:8px"><legend>Vale en la tienda</legend>${tiendas.map((t) => `<label style="display:inline-block;margin-right:16px"><input type="checkbox" class="pr-tienda" value="${esc(t.tienda)}" ${(q.tiendas ?? tiendas.map((x) => x.tienda)).includes(t.tienda) ? 'checked' : ''}> ${esc(t.nombre)}</label>`).join('')}</fieldset>
       <div class="filas"><div class="campo" style="flex:1"><label for="pr-inicio">Inicia</label><input id="pr-inicio" type="date" value="${esc(q.inicio ?? '')}" class="texto"></div>
         <div class="campo" style="flex:1"><label for="pr-fin">Termina</label><input id="pr-fin" type="date" value="${esc(q.fin ?? '')}" class="texto" ${q.fin ? '' : 'disabled'}></div></div>
@@ -3565,8 +3672,8 @@ const avatar = (x, tam = 44) => (x.perfil?.foto
   : `<span aria-hidden="true" style="width:${tam}px;height:${tam}px;border-radius:50%;background:var(--superficie-2);display:inline-flex;align-items:center;justify-content:center;flex:none">${ico('user')}</span>`);
 const nombreCompleto = (x) => [x.perfil?.nombres, x.perfil?.apellidos].filter(Boolean).join(' ');
 const celdaPersona = (x) => `<div style="display:flex;gap:10px;align-items:center">${avatar(x)}<div><b data-alias>${esc(x.nombre)}</b><br><small data-nombre-completo>${nombreCompleto(x) ? esc(nombreCompleto(x)) : '<span class="nota">sin datos completos</span>'}</small>${x.perfil?.telefono ? `<br><small>${esc(x.perfil.telefono)}</small>` : ''}</div></div>`;
-const perfilCampos = (p) => `<div class="campo"><label for="${p}-nombres">Nombres</label><input id="${p}-nombres" class="texto" maxlength="60" autocomplete="off"></div>
-  <div class="campo"><label for="${p}-apellidos">Apellidos</label><input id="${p}-apellidos" class="texto" maxlength="60" autocomplete="off"></div>
+const perfilCampos = (p) => `<div class="campo"><label for="${p}-nombres">Nombres</label><input id="${p}-nombres" class="texto" maxlength="60" autocomplete="off" required></div>
+  <div class="campo"><label for="${p}-apellidos">Apellidos</label><input id="${p}-apellidos" class="texto" maxlength="60" autocomplete="off" required></div>
   <div class="campo"><label for="${p}-telefono">Teléfono</label><input id="${p}-telefono" class="texto" inputmode="tel" maxlength="20" autocomplete="off"></div>
   <div class="campo"><label for="${p}-direccion">Dirección</label><input id="${p}-direccion" class="texto" maxlength="160" autocomplete="off"></div>
   <div class="campo"><label for="${p}-foto-btn">Foto</label><div class="filas" style="align-items:center"><span id="${p}-foto-img"></span><button class="btn" type="button" id="${p}-foto-btn">${ico('camera')}<span>Tomar foto</span></button></div></div>`;
@@ -3846,12 +3953,12 @@ async function vistaCajeros() {
     <div class="tabla-cont"><table id="tabla-personal"><thead><tr><th>Persona</th><th>Rol</th><th>Tienda</th><th>Estado</th><th>Acciones</th><th>Claves</th></tr></thead><tbody>${filas}</tbody></table></div></section>
     <section class="panel" id="panel-alta" style="margin-top:12px"><h2 style="margin-top:0">Agregar persona</h2>
     <h3>Vendedora-Cajera</h3>
-        <form id="form-cajero" class="filas" style="margin-top:12px;align-items:flex-end"><div class="campo"><label for="caj-nombre">Usuario (alias)</label><input id="caj-nombre" class="texto" maxlength="40" autocomplete="off" name="alias-caj-nombre" data-lpignore="true"></div>${perfilCampos('caj')} <div class="campo"><label for="caj-clave">Clave</label><input id="caj-clave" type="text" data-pin inputmode="numeric" autocomplete="off"></div>
+        <form id="form-cajero" class="filas" style="margin-top:12px;align-items:flex-end"><div class="campo"><label for="caj-nombre">Usuario (alias)</label><input id="caj-nombre" class="texto" maxlength="40" autocomplete="off" name="alias-caj-nombre" data-lpignore="true" required></div>${perfilCampos('caj')} <div class="campo"><label for="caj-clave">Clave</label><input id="caj-clave" type="text" data-pin inputmode="numeric" autocomplete="off" required></div>
       <div class="campo"><label for="caj-tienda">Tienda donde trabaja</label><select id="caj-tienda" style="padding:10px;border:2px solid var(--borde);border-radius:10px;background:var(--superficie)">${Object.entries(NOM_TIENDA_TRAB).map(([k, t]) => `<option value="${k}">${t}</option>`).join('')}</select></div>
       <button class="btn btn-primario" id="btn-caj" type="submit" style="width:auto">${ico('plus')}<span>Agregar Vendedora-Cajera</span></button></form>
     <div id="msg-caj-alta" class="mensaje" role="alert" aria-live="assertive" style="margin-top:8px"></div>
     <h3>Supervisor o almacenista</h3>
-          <form id="form-admin" class="filas" style="margin-top:12px;align-items:flex-end"><div class="campo"><label for="adm-nombre">Usuario (alias)</label><input id="adm-nombre" class="texto" maxlength="40" autocomplete="off" name="alias-adm-nombre" data-lpignore="true" autocomplete="off"></div>${perfilCampos('adm')}<div class="campo"><label for="adm-clave">Contraseña</label><input id="adm-clave" type="password" autocomplete="new-password"></div>
+          <form id="form-admin" class="filas" style="margin-top:12px;align-items:flex-end"><div class="campo"><label for="adm-nombre">Usuario (alias)</label><input id="adm-nombre" class="texto" maxlength="40" autocomplete="off" name="alias-adm-nombre" data-lpignore="true" autocomplete="off" required></div>${perfilCampos('adm')}<div class="campo"><label for="adm-clave">Contraseña</label><input id="adm-clave" type="password" autocomplete="new-password" required></div>
         <div class="campo"><label for="adm-rol">Rol</label><select id="adm-rol" style="padding:10px;border:2px solid var(--borde);border-radius:10px;background:var(--superficie)"><option value="supervisor">Supervisor</option><option value="almacenista" ${administradores.length ? '' : 'disabled'}>Almacenista</option></select></div>
         <div class="campo" id="adm-caja-campo"><label for="adm-clave-caja">Clave de caja (4 a 8 dígitos): para cobrar en la caja</label><input id="adm-clave-caja" type="text" data-pin inputmode="numeric" autocomplete="off"></div>
         <button class="btn btn-primario" id="btn-adm" type="submit" style="width:auto">${ico('plus')}<span>Agregar usuario</span></button></form></section>`;
@@ -4318,4 +4425,6 @@ setInterval(async () => {
     try { S.tasa = await api('/api/venta/tasa', { cart: S.cart, pasivo: true }); pintarInfoTasa(); recalcular(); } catch { /* sin cambios */ }
   }
 }, 5000);
+iniciarAvisosFlotantes();
+iniciarCamposObligatorios();
 if (!window.__POS_MANUAL__) iniciar();

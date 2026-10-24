@@ -349,3 +349,18 @@ input[data-pin] { -webkit-text-security: disc; text-security: disc; }
 #info-tasa { background: none; padding: 0; margin: 2px 0 0; font-size: 13px; }
 
 .claves-celda { display: flex; flex-direction: column; gap: 4px; min-width: 210px; } .claves-celda .btn { width: 100%; }
+
+/* Avisos emergentes (siempre a la vista, con X) */
+#avisos-flotantes { position: fixed; inset: 12px auto auto 50%; transform: translateX(-50%); margin: 0; padding: 0; border: 0; background: transparent; width: min(580px, calc(100vw - 24px)); overflow: visible; flex-direction: column; gap: 8px; pointer-events: none; z-index: 100000; }
+#avisos-flotantes:popover-open, #avisos-flotantes.sin-popover { display: flex; }
+#avisos-flotantes[popover]:not(:popover-open) { display: none; }
+.toast-aviso { pointer-events: auto; display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px; border-radius: 12px; border: 2px solid; font-size: 16px; font-weight: 600; line-height: 1.3; box-shadow: 0 10px 30px rgba(0,0,0,.4); }
+.toast-aviso .av-texto { flex: 1; overflow-wrap: anywhere; }
+.toast-aviso.error { background: var(--error-fondo); color: var(--error); border-color: var(--error); }
+.toast-aviso.aviso { background: var(--aviso-fondo); color: var(--aviso); border-color: var(--aviso); }
+.toast-aviso.ok { background: var(--ok-fondo); color: var(--ok); border-color: var(--ok); }
+.toast-aviso .av-x { flex: none; width: 34px; height: 34px; border: 0; border-radius: 8px; background: rgba(0,0,0,.12); color: inherit; font-size: 18px; line-height: 1; cursor: pointer; }
+/* Campos obligatorios vacíos */
+.campo-falta { border-color: var(--error) !important; background: var(--error-fondo) !important; outline: 2px solid var(--error); outline-offset: 1px; }
+.campo-con-falta > label { color: var(--error); }
+.campo-con-falta > label::after { content: ' · falta este dato'; font-weight: 600; font-size: 13px; }

@@ -861,3 +861,8 @@ La app de Windows (v0.2.0) abre ahora la **Caja conectada al central** (`dist/ca
 - **Caja**: supervisores y almacenistas con clave de caja inician sesión y cobran (la almacenista no autoriza descuentos: `solo_caja`).
 - **Historial en la caja**: solo los últimos 2 meses y un día a la vez; folio o artículo escaneado son búsquedas puntuales. Lo impone `ServicioCaja` (`FUERA_DE_LIMITE`); Administración consulta sin límite.
 - **Folios**: al sincronizar, el contador de la caja salta después de cualquier folio de esa misma caja que el central ya conozca (otro equipo, PC nueva).
+
+## 70. Avisos a la vista y campos que faltan
+- Todo renglón `.mensaje` (error, aviso u ok) que quede fuera de la pantalla, tapado o recortado sale también como **aviso emergente con X** (`avisoFlotante`): arriba al centro, sobre cualquier ventana (con una ventana modal abierta se coloca dentro de ella para poder cerrarlo). El éxito se quita solo a los 5 s; error y aviso, con la X o al cambiar/borrarse su mensaje. Un mensaje que ya se ve no se duplica.
+- Campos obligatorios (`required`): el evento `invalid` se intercepta; se marcan en rojo (`campo-falta`, «falta este dato»), se enfoca el primero y sale «Falta completar: …». Se desmarcan al escribir.
+- Los mensajes de error ya no muestran el código técnico («SIN_EMPLEADA: …»).
