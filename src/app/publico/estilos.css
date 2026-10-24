@@ -66,8 +66,8 @@ h1 { font-size: 26px; margin: 0; line-height: 1.15; } h2 { font-size: 17px; }
 .venta > *, .panel { min-width: 0; }
 .panel { background: var(--superficie); border: 1px solid var(--borde); border-radius: 12px; padding: 14px; box-shadow: var(--sombra); }
 .panel + .panel { margin-top: 12px; }
-.buscador { display: flex; gap: 10px; align-items: stretch; }
-.buscador form { flex: 1; display: flex; align-items: center; gap: 10px; border: 2px solid var(--borde); border-radius: 10px; background: var(--superficie); padding: 0 12px; }
+.buscador { display: flex; flex-wrap: wrap; gap: 10px; align-items: stretch; }
+.buscador form { flex: 1 1 280px; display: flex; align-items: center; gap: 10px; border: 2px solid var(--borde); border-radius: 10px; background: var(--superficie); padding: 0 12px; }
 .buscador form:focus-within { border-color: var(--acento); }
 .buscador input { flex: 1; min-width: 0; font-size: 18px; padding: 10px 0; border: 0; background: transparent; outline: none; }
 .buscador .ico { color: var(--texto-2); }
@@ -364,3 +364,7 @@ input[data-pin] { -webkit-text-security: disc; text-security: disc; }
 .campo-falta { border-color: var(--error) !important; background: var(--error-fondo) !important; outline: 2px solid var(--error); outline-offset: 1px; }
 .campo-con-falta > label { color: var(--error); }
 .campo-con-falta > label::after { content: ' · falta este dato'; font-weight: 600; font-size: 13px; }
+
+.moneda { font-size: 1em; line-height: 1; display: inline-block; vertical-align: baseline; }
+/* «Venta por» junto al buscador */
+.buscador .vendio-fila { margin: 0; flex: none; flex-wrap: nowrap; align-items: center; } .buscador .vendio-fila select { min-width: 190px; } .vendio-fila .nota:empty { display: none; }

@@ -64,7 +64,12 @@ describe('[navegador real] Caja conectada al central (Supabase simulado con Post
     const vender = async (p: Page, folio: string) => {
       await p.fill('#scan', ESCANEAR); await p.press('#scan', 'Enter');
       await p.waitForSelector('#cuerpo tr[data-linea]');
-      await p.fill('#recibido', '500'); await p.click('#btn-cobrar');
+      // la pantalla puede repintar el panel de pago justo después de escanear: se vuelve a escribir hasta que el botón se encienda
+      for (let i = 0; i < 5; i++) {
+        await p.fill('#recibido', '500');
+        try { await p.waitForFunction(() => !(document.querySelector('#btn-cobrar') as HTMLButtonElement).disabled, undefined, { timeout: 1500 }); break; } catch { /* repintado: se reintenta */ }
+      }
+      await p.click('#btn-cobrar');
       await p.waitForSelector('#dlg-ticket[open]');
       await p.waitForFunction((f) => new RegExp(`Folio ${f}`).test(document.querySelector('#resumen-venta')!.textContent!), folio);
     };

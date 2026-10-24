@@ -871,3 +871,8 @@ La app de Windows (v0.2.0) abre ahora la **Caja conectada al central** (`dist/ca
 - **Alta única**: se elige el rol (Vendedora-Cajera, Supervisor, Almacenista) y salen los campos que le tocan; el botón dice a quién se agrega.
 - **Lista**: activos primero y, dentro de cada grupo, por orden alfabético; los inactivos al final. Buscador por nombre, alias o teléfono, más el filtro por rol.
 - **Eliminar** también a supervisores y almacenistas (clave corta de quien tiene la sesión). No se elimina: una cuenta protegida (`adminProtegido`: Edgardo Morales y Karina Palafox, por nombres y apellidos del perfil), el propio usuario ni al último supervisor activo.
+
+## 72. Cobro en efectivo simplificado
+- Pesos y dólares siempre a la vista (💶 / 💵 junto a (MXN) y (USD)); sin botones de agregar o quitar dólares: al escribir dólares se fija el tipo de cambio de ese cobro (una sola vez) y al vaciar el renglón se quitan. Con dólares escritos y el tipo de cambio aún sin fijar no se puede cobrar.
+- **Enter** cobra cuando el botón COBRAR está encendido, solo desde los campos de pago (o sin campo enfocado); nunca desde el escáner ni desde un botón.
+- «Venta por» va junto al buscador de artículos (se acomoda en otra línea si la pantalla es angosta).

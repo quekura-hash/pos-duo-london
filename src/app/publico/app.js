@@ -491,10 +491,10 @@ async function vistaVenta() {
               <input id="scan" name="scan" inputmode="text" autocomplete="off" spellcheck="false" autofocus placeholder="Escanear código o buscar artículo…">
               <button class="btn btn-icono" type="submit" aria-label="Buscar" title="Buscar" style="border:0;background:none">${ico('search')}</button>
             </form>
+            <div class="vendio-fila" id="bloque-vendio" hidden><label for="vendio-por">Venta por:</label><select id="vendio-por"></select><span id="msg-vendio" class="nota"></span></div>
             <button class="btn" id="btn-limpiar-busqueda" type="button" title="Borra el texto y los resultados de la búsqueda (la venta no se toca). Atajo: Esc">${ico('x')}<span>Limpiar búsqueda</span></button>
             <button class="btn btn-acento" id="btn-nuevo-articulo" type="button" title="Dar de alta un artículo que no está en el catálogo (pide su clave)">${ico('plus')}<span>Nuevo artículo</span></button>
           </div>
-          <div class="vendio-fila" id="bloque-vendio" hidden><label for="vendio-por">Venta por:</label><select id="vendio-por"></select><span id="msg-vendio" class="nota"></span></div>
           <div id="mensaje" class="mensaje" role="status" aria-live="polite"></div>
           <div id="resultados"></div>
           <div class="tabla-cont"><table id="tabla-venta"><caption class="sr-only">Artículos de la venta en curso</caption>
@@ -609,10 +609,10 @@ function repartoTarjeta() {
 
 /** Efectivo: pesos y, si se pide, dólares. El cajero solo captura lo recibido; el POS calcula equivalente, faltante y cambio en MXN. */
 function htmlEfectivo(etiquetaPesos) {
-  return `<div class="efectivo-campos"><div class="campo"><label for="recibido" id="lbl-recibido">${etiquetaPesos}</label>
+  const pesos = /resto/.test(etiquetaPesos) ? 'Pesos recibidos para el resto (MXN)' : 'Pesos recibidos (MXN)';
+  return `<div class="efectivo-campos"><div class="campo"><label for="recibido" id="lbl-recibido">${pesos} <span class="moneda" aria-hidden="true">💶</span></label>
       <input id="recibido" inputmode="decimal" autocomplete="off" placeholder="0.00"></div>
-    <div class="campo" id="campo-usd" hidden><label for="usd">Dólares recibidos (USD)</label><input id="usd" inputmode="decimal" autocomplete="off" placeholder="0.00"></div></div>
-    <button class="btn btn-chico" id="btn-usd" type="button">${ico('dollar')}<span>Agregar dólares USD</span></button>
+    <div class="campo"><label for="usd">Dólares recibidos (USD) <span class="moneda" aria-hidden="true">💵</span></label><input id="usd" inputmode="decimal" autocomplete="off" placeholder="0.00"></div></div>
     <div id="bloque-usd" hidden>
       <div id="msg-usd" class="mensaje error" role="alert"></div>
       <div class="saldo-tarjeta" id="info-tasa" role="status" aria-live="polite"></div>
@@ -625,30 +625,32 @@ function htmlEfectivo(etiquetaPesos) {
 }
 function engancharEfectivo() {
   $('#recibido').addEventListener('input', recalcular);
-  $('#usd').addEventListener('input', recalcular);
-  $('#btn-usd').addEventListener('click', () => (S.usdAbierto ? cerrarUsd() : abrirUsd()));
+  $('#usd').addEventListener('input', alCambiarUsd);
   $('#btn-tasa-nueva').addEventListener('click', () => abrirUsd(true));
+}
+/** Con dólares escritos se fija el tipo de cambio de este cobro (una sola vez); al dejar el renglón vacío se quitan solos. */
+async function alCambiarUsd() {
+  const t = $('#usd').value.trim();
+  const v = t === '' ? 0 : parseMXN(t);
+  if (v !== null && v > 0 && !S.usdAbierto && !S.abriendoUsd) {
+    S.abriendoUsd = true;
+    try { await abrirUsd(); } finally { S.abriendoUsd = false; }
+  } else if (v === 0 && S.usdAbierto) cerrarUsd();
+  recalcular();
 }
 async function abrirUsd(renovar = false) {
   try {
     S.tasa = await api('/api/venta/tasa', { cart: S.cart, renovar });
     S.usdAbierto = true;
     $('#bloque-usd').hidden = false;
-    $('#campo-usd').hidden = false;
-    $('#lbl-recibido').textContent = S.forma === 'regalo' ? 'Pesos recibidos para el resto (MXN)' : 'Pesos recibidos (MXN)';
-    $('#btn-usd').innerHTML = `${ico('x')}<span>Quitar dólares USD</span>`;
     pintarInfoTasa();
     recalcular();
-    if (!renovar) $('#usd').focus();
-  } catch (e) { msg(e.message, 'error'); }
+  } catch (e) { const u = $('#usd'); if (u) u.value = ''; recalcular(); msg(e.message, 'error'); }
 }
 function cerrarUsd() {
   S.usdAbierto = false;
   $('#bloque-usd').hidden = true;
-  $('#campo-usd').hidden = true;
   $('#usd').value = '';
-  $('#lbl-recibido').textContent = S.forma === 'regalo' ? 'Efectivo recibido para el resto (MXN)' : 'Efectivo recibido (MXN)';
-  $('#btn-usd').innerHTML = `${ico('dollar')}<span>Agregar dólares USD</span>`;
   recalcular();
 }
 function pintarInfoTasa() {
@@ -820,7 +822,8 @@ function calcEfectivo(aplicar) {
   const pesos = pesosTxt.trim() === '' ? (S.usdAbierto ? 0 : null) : parseMXN(pesosTxt);
   const usdC = usdTxt.trim() === '' ? 0 : parseMXN(usdTxt);
   const billetes = usdC !== null && usdC % 100 === 0; // solo billetes: dólares enteros, sin centavos ni monedas
-  const valido = pesos !== null && usdC !== null && billetes && (usdC === 0 || !!S.tasa);
+  const escritoSinTasa = !S.usdAbierto && (() => { const t = ($('#usd')?.value ?? '').trim(); if (!t) return false; const v = parseMXN(t); return v === null || v > 0; })(); // se está fijando el tipo de cambio
+  const valido = pesos !== null && usdC !== null && billetes && !escritoSinTasa && (usdC === 0 || !!S.tasa);
   const equivalente = valido && usdC > 0 ? usdAMxn(usdC, S.tasa.bloqueada.tasa) : 0;
   const recibido = valido ? pesos + equivalente : 0;
   return { pesos: pesos ?? 0, usd: usdC ?? 0, valido, billetes: usdC === null || billetes, equivalente, recibido, ok: valido && aplicar > 0 && recibido >= aplicar, escribio: pesosTxt.trim() !== '' || usdTxt.trim() !== '' };
@@ -4454,4 +4457,17 @@ setInterval(async () => {
 }, 5000);
 iniciarAvisosFlotantes();
 iniciarCamposObligatorios();
+// Con el botón COBRAR encendido, Enter cobra (solo desde los campos de pago o sin ningún campo enfocado: nunca desde el escáner ni un botón).
+document.addEventListener('keydown', (ev) => {
+  if (ev.key !== 'Enter' || ev.isComposing || ev.repeat || S.vista !== 'venta' || document.querySelector('dialog[open]')) return;
+  const t = ev.target;
+  if (t instanceof HTMLElement && t !== document.body) {
+    const campoDePago = t.tagName === 'INPUT' && (t.id === 'recibido' || t.id === 'usd' || t.id.startsWith('tj-'));
+    if (!campoDePago) return;
+  }
+  const b = $('#btn-cobrar');
+  if (!b || b.disabled) return;
+  ev.preventDefault();
+  b.click();
+});
 if (!window.__POS_MANUAL__) iniciar();

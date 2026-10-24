@@ -566,11 +566,11 @@ describe('[navegador real — Chromium con Playwright, UI sobre SQLite]', { time
     await escanear(page, '0000000000017');
     await page.waitForSelector('#cuerpo tr[data-linea]:nth-child(2)');
     assert.equal(await page.textContent('#total'), '$1,349.00');
-    await page.click('#btn-usd');
-    await page.waitForSelector('#bloque-usd:not([hidden])');
+    // los dólares ya no se «agregan» con un botón: basta escribirlos en su renglón
     assert.equal(await page.locator('#info-tasa').isHidden(), true, 'ya no se muestra «Tasa de este cobro»');
     assert.equal(await page.locator('#btn-rechazar-billete').count(), 0);
     await page.fill('#usd', '50');
+    await page.waitForSelector('#bloque-usd:not([hidden])');
     await page.fill('#recibido', '400');
     assert.deepEqual([await page.textContent('#usd-equivalente'), await page.textContent('#total-recibido'), await page.textContent('#lbl-cambio'), await page.textContent('#cambio')], ['$900.00', '$1,300.00', 'Faltan', '$49.00']);
     assert.equal(await page.locator('#btn-cobrar').isDisabled(), true);
@@ -602,9 +602,9 @@ describe('[navegador real — Chromium con Playwright, UI sobre SQLite]', { time
     // solo dólares, cobro nuevo con la tasa vigente (19.00): US$100 = $1,900 para $120 → cambio $1,780
     await escanear(page, '7501234567890');
     await page.waitForSelector('#cuerpo tr[data-linea]');
-    await page.click('#btn-usd');
-    await page.waitForSelector('#bloque-usd:not([hidden])');
+    // los dólares ya no se «agregan» con un botón: basta escribirlos en su renglón
     await page.fill('#usd', '100');
+    await page.waitForSelector('#bloque-usd:not([hidden])');
     assert.equal(await page.textContent('#cambio'), '$1,780.00');
     await page.click('#btn-cobrar');
     await page.waitForSelector('#dlg-ticket[open]');
@@ -742,16 +742,17 @@ describe('[navegador real — Chromium con Playwright, UI sobre SQLite]', { time
     await page.waitForSelector('#scan');
     await escanear(page, '7501234567890');
     await page.waitForSelector('#cuerpo tr[data-linea]');
-    await page.click('#btn-usd');
-    await page.waitForSelector('#bloque-usd:not([hidden])');
+    // los dólares ya no se «agregan» con un botón: basta escribirlos en su renglón
     // solo billetes: sin centavos
     await page.fill('#usd', '100.50');
+    await page.waitForSelector('#bloque-usd:not([hidden])');
     await page.waitForFunction(() => /Solo se aceptan billetes/.test(document.querySelector('#msg-usd')!.textContent!));
     assert.equal(await page.locator('#btn-cobrar').isDisabled(), true);
     // el rechazo de un billete sigue registrándose en el servicio (ya no hay botón en la venta)
     assert.equal((await page.evaluate(async () => (await fetch('/api/efectivo/billete-rechazado', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ denominacion: 100, cantidad: 1, motivo: 'sospechoso', nota: 'sin marca de agua' }) })).status)), 200);
     // US$100 por $120: cambio $1,680, más de lo que se sabe que hay en la caja ($100) → advertencia, sin bloquear
     await page.fill('#usd', '100');
+    await page.waitForSelector('#bloque-usd:not([hidden])');
     assert.equal(await page.textContent('#cambio'), '$1,680.00');
     await page.waitForSelector('#aviso-cambio:not([hidden])');
     assert.match((await page.textContent('#aviso-cambio'))!, /Advertencia: el cambio \(\$1,680\.00\) supera los pesos que se sabe que hay en la caja \(\$100\.00\)/);

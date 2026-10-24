@@ -2064,8 +2064,8 @@ describe('[navegador real] Inventario real de DÚO en la página (solo con POS_I
     assert.match((await page.textContent('[data-tc="tasa"]'))!, /Dólar: \$18\.00 MXN/);
     await page.fill('#scan', '0002026090782'); await page.press('#scan', 'Enter');
     await page.waitForSelector('#cuerpo tr[data-linea]');
-    await page.click('#btn-usd');
     await page.fill('#usd', '50');
+    await page.waitForSelector('#bloque-usd:not([hidden])');
     await page.fill('#recibido', '0');
     assert.deepEqual([await page.textContent('#usd-equivalente'), await page.textContent('#lbl-cambio'), await page.textContent('#cambio')], ['$900.00', 'Cambio', '$1.00']);
     await page.click('#btn-cobrar');
