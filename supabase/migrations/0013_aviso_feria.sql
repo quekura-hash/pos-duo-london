@@ -1,6 +1,6 @@
 -- 0013: aviso al teléfono cuando la feria (billetes y monedas de cambio) de una caja empeora (`caja.alerta_feria`).
 -- Solo agrega el tipo al disparador de avisos; la Edge Function `notificar` debe desplegarse con el formato nuevo (supabase/functions/notificar/formato.ts).
--- NO se ha ejecutado contra la base real: requiere autorización explícita.
+-- Aplicada en la base real (ejecutada por Edgardo en el SQL Editor) con la Edge Function `notificar` ya desplegada con este formato.
 
 drop trigger if exists ops_notificar on pos.ops;
 create trigger ops_notificar after insert on pos.ops
