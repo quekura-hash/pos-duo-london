@@ -3797,13 +3797,20 @@ async function vistaFeria() {
       ${c.estado === 'sin_dato' ? '<p class="nota">La cajera todavía no cuenta y confirma el fondo de hoy: sin ese conteo no hay punto de partida.</p>' : `
       <p class="nota" style="margin:4px 0 8px">${c.estimado ? `<b>Estimado.</b> Último conteo confirmado a las ${hora(c.confirmado_en)}; desde entonces se supone lo más probable que entró y salió en cada operación.` : `<b>Confirmado</b> billete por billete y moneda por moneda a las ${hora(c.confirmado_en)}.`}${c.desfase ? ' <b style="color:#b3261e">La estimación no cuadró con lo que había: conviene contar la caja.</b>' : ''}</p>
       <div class="tabla-cont"><table><thead><tr><th>Denominación</th><th class="num">Entró hoy</th><th class="num">Salió hoy</th><th class="num">Hay ahora</th><th class="num">Mínimo</th><th>Estado</th></tr></thead><tbody>${filas}</tbody></table></div>
-      <h3 style="margin:10px 0 4px;font-size:1em">Movimientos de feria de hoy (${ev.length})</h3>
-      <div class="tabla-cont" style="max-height:190px;overflow:auto"><table><thead><tr><th>Hora</th><th>Movimiento</th><th>Entra</th><th>Sale</th></tr></thead><tbody>${ev.map((e) => `<tr><td>${hora(e.ocurrio_en)}</td><td>${esc(e.descripcion)}${e.estimado ? '' : ' <small><b>(exacto)</b></small>'}</td><td>${listaFeria(e.entra)}</td><td>${listaFeria(e.sale)}</td></tr>`).join('') || '<tr><td colspan="4" class="vacio">Sin movimientos de feria hoy.</td></tr>'}</tbody></table></div>`}
+      <div class="filas" style="margin-top:10px"><button class="btn ver-movimientos" type="button" aria-expanded="false">${ico('clock')}<span>Ver movimientos (${ev.length})</span></button></div>
+      <div class="tabla-cont movimientos-feria" hidden style="max-height:190px;overflow:auto;margin-top:6px"><table><thead><tr><th>Hora</th><th>Movimiento</th><th>Entra</th><th>Sale</th></tr></thead><tbody>${ev.map((e) => `<tr><td>${hora(e.ocurrio_en)}</td><td>${esc(e.descripcion)}${e.estimado ? '' : ' <small><b>(exacto)</b></small>'}</td><td>${listaFeria(e.entra)}</td><td>${listaFeria(e.sale)}</td></tr>`).join('') || '<tr><td colspan="4" class="vacio">Sin movimientos de feria hoy.</td></tr>'}</tbody></table></div>`}
     </section>`;
   };
   cuerpoVista().innerHTML = `<section class="panel"><h2 style="margin:0 0 4px">Estado de la feria por caja · hoy</h2>
       <p class="nota" style="margin:0">Billetes y monedas para dar cambio. Durante el día es un <b>estimado</b> (se supone lo más probable que entrega la clienta, nunca con billete de $1,000, y que da la cajera); en el cierre se cuenta billete por billete y deja de ser estimación. <b>Crítico</b>: ya no hay al menos dos denominaciones. <b>Va a faltar</b>: alguna agotada o por debajo de su mínimo. Solo se muestra el día de hoy.</p></section>
     ${cajas.map(tarjeta).join('')}`;
+  for (const b of cuerpoVista().querySelectorAll('.ver-movimientos')) {
+    b.addEventListener('click', () => {
+      const caja = b.closest('section'), lista = caja.querySelector('.movimientos-feria'), abrir = lista.hidden;
+      lista.hidden = !abrir; b.setAttribute('aria-expanded', String(abrir));
+      b.querySelector('span').textContent = `${abrir ? 'Ocultar' : 'Ver'} movimientos (${lista.querySelectorAll('tbody tr:not(:has(.vacio))').length})`;
+    });
+  }
   await montarInactividad();
 }
 
