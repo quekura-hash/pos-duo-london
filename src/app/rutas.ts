@@ -78,6 +78,8 @@ export async function atender(o: { cajero?: ServicioCaja; admin?: ServicioAdmin 
       case 'POST /api/efectivo/movimiento': return ok({ corte: exigirCajero().movimientoEfectivo(b.tipo, Number(b.monto), b.moneda ?? 'MXN', { ref: b.ref, motivo: b.motivo, clave: b.clave }) });
       case 'POST /api/efectivo/entrada': return ok({ corte: exigirCajero().entradaEfectivo({ monto: Number(b.monto), moneda: b.moneda ?? 'MXN', motivo: b.motivo, ref: b.ref, clave: b.clave, sin_supervisor: !!b.sin_supervisor }) });
       case 'GET /api/efectivo/extraordinarias': return ok(exigirCajero().operacionesExtraordinarias());
+      case 'GET /api/arqueo': return ok(exigirCajero().estadoArqueo());
+      case 'POST /api/arqueo': return ok(exigirCajero().registrarArqueo(b.denominaciones ?? {}, b.nota, b.clave === undefined ? undefined : String(b.clave)));
       case 'POST /api/cierre/fondo': return ok(exigirCajero().confirmarFondo(b.denominaciones ?? {}, b.nota));
       case 'POST /api/efectivo/conteo-usd': return ok(exigirCajero().registrarConteoUsd(b.denominaciones ?? {}));
       case 'POST /api/efectivo/conteo': return ok(exigirCajero().registrarConteo(b.moneda === 'USD' ? 'USD' : 'MXN', b.denominaciones ?? {}, b.alcance === 'ventas' ? 'ventas' : undefined));

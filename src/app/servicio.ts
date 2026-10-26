@@ -212,6 +212,17 @@ export class ServicioCaja {
     this.revisarFeria();
     return this.corte(fechaLocal(this.reloj.now()));
   }
+  /** Estado para contar el cajón a cualquier hora: lo que el sistema espera, el fondo, la feria estimada y los conteos de hoy. */
+  estadoArqueo() {
+    const fecha = fechaLocal(this.reloj.now());
+    return { fecha, pide_clave: this.caja.controlesConClave(), fondo: this.caja.fondoDelDia(fecha)?.total ?? null, esperado: this.caja.efectivoEsperadoCajon(fecha), conteos: this.caja.arqueos(fecha), feria: this.caja.estadoFeria(fecha) };
+  }
+  /** Confirma lo contado en el cajón (billetes y monedas) y rectifica la feria. */
+  registrarArqueo(denominaciones: Record<string, number>, nota?: string, clave?: string) {
+    const r = this.caja.registrarArqueo({ denominaciones, nota, usuario: this.actor.usuario, clave });
+    this.revisarFeria();
+    return { arqueo: r, estado: this.estadoArqueo() };
+  }
   registrarConteo(moneda: 'MXN' | 'USD', denominaciones: Record<string, number>, alcance?: 'ventas') {
     const r = this.caja.registrarConteo({ moneda, denominaciones, usuario: this.actor.usuario, alcance });
     this.revisarFeria();

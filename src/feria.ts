@@ -123,6 +123,11 @@ export function estimarFeria(ops: Op[], tienda: string, caja: number, fecha: str
     } else if (o.tipo === 'cash.ajuste_admin') {
       if (p.tipo === 'salida') aplicar(o, 'ajuste', 'Salida por ajuste de Administración', {}, desglosarCambio(p.monto));
       else aplicar(o, 'ajuste', 'Entrega de Administración (sin desglose)', desglosarEntrada(p.monto), {});
+    } else if (o.tipo === 'cash.arqueo' && p.fecha === fecha) {
+      // Conteo del cajón a cualquier hora: lo contado billete por billete es lo que hay y reemplaza la estimación.
+      inv = { ...(p.denominaciones as Desglose) };
+      confirmadoEn = o.ocurrio_en; estimado = false; desfase = false;
+      eventos.push({ ocurrio_en: o.ocurrio_en, tipo: 'conteo', descripcion: 'Conteo del cajón (billete por billete)', entra: {}, sale: {}, estimado: false });
     } else if (o.tipo === 'cash.conteo' && p.moneda === 'MXN' && p.alcance === 'ventas' && p.fecha === fecha) {
       // El conteo del cierre es exacto: fondo contado + efectivo de ventas contado, billete por billete y moneda por moneda.
       inv = sumar({ ...fondoDen }, (p.denominaciones ?? {}) as Desglose, 1).inv;

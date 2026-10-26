@@ -2631,6 +2631,41 @@ export class Caja {
     const op = this.emitir('cash.fondo', { tienda: this.tienda, caja: this.caja, fecha, denominaciones: den, total, autorizado, diferencia, estado, nota, usuario: d.usuario });
     return { ...op.payload, ocurrio_en: op.ocurrio_en };
   }
+  /** Lo que el sistema espera que haya en el cajón en pesos ahora: el fondo confirmado de hoy más el efectivo de las ventas y movimientos. Null sin fondo confirmado. */
+  efectivoEsperadoCajon(fecha = fechaLocal(this.ctx.reloj.now())): number | null {
+    const f = this.fondoDelDia(fecha);
+    return f ? f.total + this.estadoRetiro().en_cajon.mxn : null;
+  }
+  /**
+   * Conteo de TODO el cajón en pesos a cualquier hora, para rectificar feria y efectivo: billetes y monedas tal como quedaron. Reemplaza la estimación de la
+   * feria con lo contado y deja constancia de la diferencia contra lo que esperaba el sistema (con nota si no coincide). No mueve dinero ni cambia el corte.
+   */
+  registrarArqueo(d: { denominaciones: Record<string, number>; nota?: string; usuario: string; clave?: string }) {
+    // Con Vendedoras-Cajeras registradas, contar el cajón exige la propia clave de quien lo hace (la misma con que abrió el cajón).
+    if (this.controlesConClave()) this.verificarClaveCajero(d.usuario, String(d.clave ?? ''));
+    const fecha = fechaLocal(this.ctx.reloj.now());
+    if (this.repo.getOp(`corte:${this.id}:${fecha}`)) throw new ErrorDominio('CORTE_CERRADO', 'el corte de hoy ya está cerrado: el cajón no se cuenta');
+    if (!this.fondoDelDia(fecha)) throw new ErrorDominio('FONDO_PENDIENTE', 'primero cuente y confirme el fondo del día (en el cierre de caja)');
+    const den: Record<string, number> = {};
+    for (const [k, n] of Object.entries(d.denominaciones ?? {})) {
+      if (!n) continue;
+      if (!Number.isInteger(n) || n < 0) throw new ErrorDominio('CONTEO_INVALIDO', `cantidad inválida de ${k}`);
+      den[k] = n;
+    }
+    let total: number;
+    try { total = totalDenominacionesMxn(den); } catch (e) { throw new ErrorDominio('CONTEO_INVALIDO', (e as Error).message); }
+    if (total <= 0) throw new ErrorDominio('CONTEO_INVALIDO', 'cuente el cajón: no hay monedas ni billetes registrados');
+    const esperado = this.efectivoEsperadoCajon(fecha)!;
+    const diferencia = total - esperado;
+    const nota = String(d.nota ?? '').trim().slice(0, 300);
+    if (diferencia !== 0 && nota.length < 3) throw new ErrorDominio('ARQUEO_NO_COINCIDE', `el cajón suma ${diferencia < 0 ? 'menos' : 'más'} que lo esperado (${diferencia < 0 ? 'faltan' : 'sobran'} ${Math.abs(diferencia) / 100} pesos): escriba una nota que explique la diferencia`);
+    const op = this.emitir('cash.arqueo', { tienda: this.tienda, caja: this.caja, fecha, denominaciones: den, total, esperado, diferencia, estado: diferencia === 0 ? 'cuadra' : diferencia < 0 ? 'faltante' : 'sobrante', nota, usuario: d.usuario });
+    return { ...op.payload, ocurrio_en: op.ocurrio_en };
+  }
+  /** Conteos del cajón de una fecha en esta caja (el más reciente primero). */
+  arqueos(fecha: string) {
+    return this.opsDe('cash.arqueo').filter((o) => o.payload.tienda === this.tienda && o.payload.caja === this.caja && o.payload.fecha === fecha).map((o) => ({ ...o.payload, ocurrio_en: o.ocurrio_en })).reverse();
+  }
   /** Efectivo de venta en el cajón hoy (sin fondo ni entradas), lo disponible por moneda y si ya toca un retiro. */
   estadoRetiro() {
     const fecha = fechaLocal(this.ctx.reloj.now());
@@ -2698,7 +2733,7 @@ export class Caja {
   }
   /** Estado de la feria (billetes y monedas de cambio) de esta caja hoy: estimado venta por venta y confirmado en el conteo del cierre. */
   estadoFeria(fecha = fechaLocal(this.ctx.reloj.now())): ReporteFeria {
-    return estimarFeria(this.opsDe('cash.fondo', 'cash.conteo', 'cash.movement', 'cash.retiro', 'cash.ajuste_admin', 'sale.confirmed', 'sale.cancelled', 'return.registered'), this.tienda, this.caja, fecha);
+    return estimarFeria(this.opsDe('cash.fondo', 'cash.arqueo', 'cash.conteo', 'cash.movement', 'cash.retiro', 'cash.ajuste_admin', 'sale.confirmed', 'sale.cancelled', 'return.registered'), this.tienda, this.caja, fecha);
   }
   /**
    * Avisa a Administración (op `caja.alerta_feria`) cuando la feria EMPEORA: de bien a bajo, de bajo a crítico o de bien a crítico. Mejorar o seguir igual no
@@ -2859,7 +2894,7 @@ export class Caja {
       diferencias_cobradas_en_cambios: diferenciasCobradas, diferencias_devueltas_en_cambios: reembolsadoEnCambios,
       folios_de_devolucion: devs.length,
       ventas_netas: ventasMercancia - reembolsos,
-      cobros_efectivo: efectivoCobrado, cobros_tarjeta: tarjeta, cobros_tarjeta_regalo: regalo, ventas_a_credito_empleadas: creditoEmpleadas, fondo_inicial: mxn.fondo, entradas: mxn.entradas, retiros: mxn.retiros, gastos: mxn.gastos,
+      cobros_efectivo: efectivoCobrado, cobros_tarjeta: tarjeta, cobros_tarjeta_regalo: regalo, ventas_a_credito_empleadas: creditoEmpleadas, fondo_inicial: mxn.fondo, entradas: mxn.entradas, retiros: mxn.retiros, gastos: mxn.gastos, arqueos: this.arqueos(fecha),
       // Pesos FÍSICOS en el cajón (libro MXN): cobros recibidos − cambio entregado + fondo + entradas − devoluciones − cancelaciones − retiros.
       efectivo_esperado: mxn.esperado,
       // Cierre guiado: efectivo de ventas esperado SIN el fondo, y el fondo fijo (autorizado, confirmado y composición). El fondo no es movimiento de efectivo.

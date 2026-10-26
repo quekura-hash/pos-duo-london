@@ -514,7 +514,7 @@ async function vistaVenta() {
         </section>
         <div class="acciones-inf" id="acciones-inf">
           <button class="btn" id="btn-buscar-ticket" type="button" title="Abre el historial de ventas de esta caja">${ico('search')}<span>Buscar ticket</span></button>
-          <button class="btn" id="btn-devolucion" type="button" title="Buscar la venta y cambiar piezas (solo en la caja donde se vendió)">${ico('undo')}<span>Hacer Cambio</span></button><button class="btn" id="btn-descuento" type="button" title="Descuento con su clave (queda anotado quién lo hizo)">${ico('tag')}<span>Aplicar descuento</span></button><button class="btn" id="btn-cupon" type="button" title="Capturar o escanear un cupón de descuento">${ico('gift')}<span>Cupón</span></button><button class="btn" id="btn-espera" type="button" title="Guardar esta venta y atender a otro cliente, o retomar una venta guardada">${ico('pause')}<span id="txt-espera">Venta en espera</span></button><button class="btn" id="btn-abrir-caja" type="button" title="Abre el cajón de dinero sin hacer una venta (queda registrado). Atajo: Ctrl + F8">${ico('cash')}<span>Abrir caja</span></button><button class="btn btn-peligro" id="btn-cancelar-venta" type="button" title="Cancelar la venta en curso (aún sin cobrar)">${ico('trash')}<span>Cancelar venta</span></button>
+          <button class="btn" id="btn-devolucion" type="button" title="Buscar la venta y cambiar piezas (solo en la caja donde se vendió)">${ico('undo')}<span>Hacer Cambio</span></button><button class="btn" id="btn-descuento" type="button" title="Descuento con su clave (queda anotado quién lo hizo)">${ico('tag')}<span>Aplicar descuento</span></button><button class="btn" id="btn-cupon" type="button" title="Capturar o escanear un cupón de descuento">${ico('gift')}<span>Cupón</span></button><button class="btn" id="btn-espera" type="button" title="Guardar esta venta y atender a otro cliente, o retomar una venta guardada">${ico('pause')}<span id="txt-espera">Venta en espera</span></button><button class="btn" id="btn-abrir-caja" type="button" title="Abre el cajón de dinero sin hacer una venta (queda registrado). Atajo: Ctrl + F8">${ico('cash')}<span>Abrir caja</span></button><button class="btn" id="btn-contar-fondo" type="button" title="Abre el cajón y cuenta billetes y monedas para rectificar la feria y el efectivo (queda registrado)">${ico('cash')}<span>Contar fondo</span></button><button class="btn btn-peligro" id="btn-cancelar-venta" type="button" title="Cancelar la venta en curso (aún sin cobrar)">${ico('trash')}<span>Cancelar venta</span></button>
         <button class="btn" id="btn-empleada" type="button" title="Venta a una empleada: descuento de empleada y, si quiere, crédito a su cuenta">${ico('user')}<span>Venta a empleada</span></button>
         </div>
       </div>
@@ -563,6 +563,7 @@ async function vistaVenta() {
     } catch (e) { msg(e.message, 'error'); }
     $('#scan').focus();
   });
+  $('#btn-contar-fondo').addEventListener('click', () => abrirContarFondo());
   $('#btn-editar-venta').addEventListener('click', () => abrirEditarLinea());
   actualizarEspera();
   revisarAvisoRetiro();
@@ -2830,6 +2831,66 @@ function abrirMotivoApertura(pideClave) {
   });
   d.showModal();
   (pideClave ? $('#ac-clave') : d.querySelector('input[name="ac-motivo"]')).focus();
+}
+/** Contar el cajón a cualquier hora: abre el cajón (queda registrado como «Rectificar efectivo»), se cuentan billetes y monedas y «Confirmar fondo» guarda cómo quedaron. */
+async function abrirContarFondo() {
+  let e;
+  try { e = await api('/api/arqueo'); } catch (x) { return msg(x.message, 'error'); }
+  if (e.esperado === null) return msg('Primero cuente y confirme el fondo del día en el cierre de caja.', 'aviso');
+  const d = dialogo('dlg-contar-fondo');
+  d.setAttribute('aria-labelledby', 'cf-titulo');
+  d.innerHTML = `<h2 id="cf-titulo" style="margin-top:0">Contar fondo</h2>
+    <div id="cf-abrir"><p class="nota">Se abre el cajón (queda registrado como «Rectificar efectivo») para contar los billetes y monedas.</p>
+      ${e.pide_clave ? `<div class="campo"><label for="cf-clave">Su clave</label><input id="cf-clave" type="text" data-pin inputmode="numeric" autocomplete="off" placeholder="••••"></div>` : ''}
+      <div id="msg-cf-abrir" class="mensaje" role="alert"></div>
+      <div class="filas"><button class="btn" type="button" id="cf-cerrar-1">Cancelar</button><button class="btn btn-primario" type="button" id="cf-abrir-btn" style="width:auto;flex:1">${ico('cash')}<span>Abrir caja y contar</span></button></div></div>
+    <form id="cf-contar" autocomplete="off" hidden>
+      <p class="nota">Cuente todo lo que hay en el cajón. El sistema espera <b>${mxn(e.esperado)}</b> (fondo ${mxn(e.fondo)} + efectivo de ventas y movimientos).</p>
+      <div class="tabla-cont">${tablaDenominaciones('arq', FILAS_PESOS, mxn)}</div>
+      <p style="font-size:1.1em;margin:8px 0">Total contado: <b id="cf-total">${mxn(0)}</b> · <span id="cf-dif"></span></p>
+      <div class="campo" id="cf-nota-campo" hidden><label for="cf-nota">Nota de la diferencia (<span id="cf-nota-tipo"></span>)</label><input id="cf-nota" maxlength="300" placeholder="¿Por qué no coincide?"></div>
+      <div id="msg-cf" class="mensaje" role="alert"></div>
+      <div class="filas"><button class="btn" type="button" id="cf-cerrar-2">Cancelar</button><button class="btn btn-primario" type="submit" style="width:auto;flex:1">${ico('check')}<span>Confirmar fondo</span></button></div>
+    </form>`;
+  let claveConteo;
+  const cerrar = () => { d.close(); $('#scan')?.focus(); };
+  $('#cf-cerrar-1').addEventListener('click', cerrar);
+  $('#cf-cerrar-2').addEventListener('click', cerrar);
+  const total = () => {
+    const { total: t } = leerDenominaciones('arq', mxn, d);
+    const dif = t - e.esperado;
+    $('#cf-total').textContent = mxn(t);
+    $('#cf-dif').textContent = t === 0 ? '' : dif === 0 ? 'Cuadra con lo esperado' : dif < 0 ? `Faltan ${mxn(-dif)}` : `Sobran ${mxn(dif)}`;
+    $('#cf-dif').style.color = dif === 0 ? 'var(--ok,#0a7a4b)' : 'var(--error,#b3261e)';
+    $('#cf-nota-campo').hidden = dif === 0 || t === 0;
+    $('#cf-nota-tipo').textContent = dif < 0 ? 'faltante' : 'sobrante';
+    return t;
+  };
+  for (const i of d.querySelectorAll('[data-arq]')) i.addEventListener('input', total);
+  $('#cf-abrir-btn').addEventListener('click', async () => {
+    const m = $('#msg-cf-abrir');
+    if (e.pide_clave && !$('#cf-clave').value) { m.className = 'mensaje error'; m.textContent = 'Teclee su clave.'; $('#cf-clave').focus(); return; }
+    try {
+      await api('/api/caja/abrir', { motivo: 'Rectificar efectivo', ...(e.pide_clave ? { clave: $('#cf-clave').value } : {}) });
+      claveConteo = e.pide_clave ? $('#cf-clave').value : undefined; // la misma clave autoriza guardar el conteo
+      $('#cf-abrir').hidden = true; $('#cf-contar').hidden = false; total();
+      d.querySelector('[data-arq]').focus();
+      imprimirNavegador(comprobanteApertura(), { logo: false }).catch(() => {});
+    } catch (x) { m.className = 'mensaje error'; m.textContent = x.message; const c = $('#cf-clave'); if (c) c.value = ''; }
+  });
+  $('#cf-contar').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const m = $('#msg-cf');
+    const { den } = leerDenominaciones('arq', mxn, d);
+    try {
+      const r = await api('/api/arqueo', { denominaciones: den, nota: $('#cf-nota').value, ...(e.pide_clave ? { clave: claveConteo } : {}) });
+      d.close(); $('#scan')?.focus();
+      const a = r.arqueo;
+      msg(a.diferencia === 0 ? `Fondo confirmado: ${mxn(a.total)}. Cuadra y la feria quedó rectificada.` : `Fondo confirmado: ${mxn(a.total)} (${a.diferencia < 0 ? 'faltan' : 'sobran'} ${mxn(Math.abs(a.diferencia))}, anotado). La feria quedó rectificada.`);
+    } catch (x) { m.className = 'mensaje error'; m.textContent = x.message; }
+  });
+  d.showModal();
+  (e.pide_clave ? $('#cf-clave') : $('#cf-abrir-btn')).focus();
 }
 /** Cancelar la venta en curso (sin cobrar): solo pide confirmación, nunca clave. */
 function abrirCancelarVenta() {
