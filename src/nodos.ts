@@ -1649,10 +1649,10 @@ export class Caja {
     this.repo.kvSet(`cart:${cartId}`, c);
   }
   /** Un supervisor con su clave o, con `sinSupervisor`, quien cobra con la SUYA (queda anotado «supervisor ausente»). */
-  private supervisorOPropio(clave: string, usuario: string, sinSupervisor: boolean | undefined, mensaje: string): { id: string; nombre: string } {
+  private supervisorOPropio(clave: string, usuario: string, sinSupervisor: boolean | undefined, mensaje: string, codigo = 'CLAVE_INVALIDA'): { id: string; nombre: string } {
     if (sinSupervisor) { const cj = this.verificarClaveCajero(usuario, clave); return { id: cj.id, nombre: `${cj.nombre} (supervisor ausente)` }; }
     const sup = supervisorPorClave(this.idx.supervisores(), clave);
-    if (!sup) throw new ErrorDominio('CLAVE_INVALIDA', mensaje);
+    if (!sup) throw new ErrorDominio(codigo, mensaje);
     return sup;
   }
   /**
@@ -2550,7 +2550,7 @@ export class Caja {
     if (previo) return { ...previo.payload, ocurrio_en: previo.ocurrio_en };
     const motivo = String(d.motivo ?? '').trim();
     if (motivo.length < 3) throw new ErrorDominio('DATOS_REQUERIDOS', 'escriba el motivo de la entrada de efectivo');
-    const sup = this.supervisorOPropio(String(d.claveSupervisor ?? ''), d.usuario, d.sinSupervisor, 'una entrada de efectivo la autoriza un supervisor con su clave');
+    const sup = this.supervisorOPropio(String(d.claveSupervisor ?? ''), d.usuario, d.sinSupervisor, 'una entrada de efectivo la autoriza un supervisor con su clave', 'AUTORIZACION_REQUERIDA');
     if (d.moneda !== 'MXN' && d.moneda !== 'USD') throw new ErrorDominio('PAGO_INVALIDO', `moneda no soportada: ${d.moneda}`);
     if (!Number.isInteger(d.monto) || d.monto <= 0) throw new ErrorDominio('PAGO_INVALIDO', 'el monto es un entero positivo en centavos');
     const op = this.emitir('cash.movement', { tienda: this.tienda, caja: this.caja, tipo: 'entrada', monto: d.monto, moneda: d.moneda, fecha: fechaLocal(this.ctx.reloj.now()), motivo, autorizado_por: sup.nombre, usuario: d.usuario, ref: d.ref }, `entrada:${d.ref}`);
