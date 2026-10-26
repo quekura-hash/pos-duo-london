@@ -141,6 +141,13 @@ export function repartir(monto: number, pesos: number[]): number[] {
   return base;
 }
 
+/** No se manejan centavos: un descuento por porcentaje se redondea al peso entero más cercano (en centavos: múltiplo de 100). */
+export const aPesosEnteros = (centavos: number) => Math.round(centavos / 100) * 100;
+/** Como `repartir`, pero cada parte sale en pesos enteros (el monto debe ser múltiplo de 100). */
+export function repartirPesos(monto: number, pesos: number[]): number[] {
+  return repartir(Math.round(monto / 100), pesos).map((x) => x * 100);
+}
+
 export const esMercancia = (l: Linea) => !l.tarjeta_regalo;
 const manualDe = (l: Linea) => (l.descuento_detalle ? l.descuento_detalle.filter((d) => d.tipo === 'manual') : l.descuento > 0 ? [{ tipo: 'manual' as const, ref: '', nombre: 'Descuento', monto: l.descuento }] : []);
 
@@ -185,8 +192,8 @@ function descuentoDe(p: Promocion, merc: Linea[], restante: (l: Linea) => number
   const elegible = merc.reduce((a, l) => a + restante(l), 0);
   let monto = 0;
   if (p.tipo === 'por_cada') monto = Math.min(Math.min(Math.floor(elegible / p.cada!), p.acumulable === false ? 1 : Infinity) * p.descuenta!, elegible);
-  else if (usarCupon) monto = Math.min(p.pct !== undefined ? Math.floor((elegible * p.pct + 50) / 100) : p.monto!, elegible);
-  if (monto > 0) repartir(monto, merc.map(restante)).forEach((m, i) => suma(merc[i]!, m));
+  else if (usarCupon) monto = Math.min(p.pct !== undefined ? aPesosEnteros((elegible * p.pct) / 100) : p.monto!, elegible);
+  if (monto > 0) (monto % 100 === 0 ? repartirPesos : repartir)(monto, merc.map(restante)).forEach((m, i) => suma(merc[i]!, m));
   return por;
 }
 
@@ -214,7 +221,7 @@ export function calcularDescuentos(lineas: Linea[], promos: Promocion[], codigoC
   if (empleada) {
     const por: Reparto = new Map();
     for (const l of merc) {
-      const m = Math.floor((restante(l) * (l.uniforme ? empleada.pct_uniforme : empleada.pct) + 50) / 100);
+      const m = Math.min(aPesosEnteros((restante(l) * (l.uniforme ? empleada.pct_uniforme : empleada.pct)) / 100), restante(l));
       if (m > 0) por.set(l, m);
     }
     if (total(por) > 0) candidatas.push({ p: { id: ID_DESCUENTO_EMPLEADA, tipo: 'cupon', nombre: 'Descuento de empleada', activa: true, inicio: null, fin: null, canje: true }, por, total: total(por) });

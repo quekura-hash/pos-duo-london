@@ -49,21 +49,21 @@ describe('[navegador real] Ventas a empleadas: caja y Administración', { timeou
     await page.waitForSelector('#bloque-empleada:not([hidden])');
     assert.match((await page.textContent('#mensaje'))!, /15% ya se aplicó a toda la venta[\s\S]*Marcar como uniforme/);
     assert.match((await page.textContent('#bloque-empleada'))!, /Venta a empleada: Rosa[\s\S]*15%[\s\S]*Crédito disponible: \$1,000\.00/);
-    // 899 + 120 = 1,019 − 15 % = 866.15
-    await page.waitForFunction(() => document.querySelector('#total')!.textContent === '$866.15');
+    // 899 + 120 = 1,019 − 15 % = 866.00
+    await page.waitForFunction(() => document.querySelector('#total')!.textContent === '$866.00');
     // la mascada (120) es uniforme: 30 %
     await page.click('#cuerpo tr[data-linea]:nth-of-type(2) td.desc');
     await page.click('#btn-uniforme');
-    await page.waitForFunction(() => document.querySelector('#total')!.textContent === '$848.15'); // 764.15 + 84
+    await page.waitForFunction(() => document.querySelector('#total')!.textContent === '$848.00'); // 764 + 84
     // pago a crédito
     await page.click('[data-forma="credito"]');
     await page.waitForSelector('#credito-monto');
-    assert.equal(await page.textContent('#credito-monto'), '$848.15');
+    assert.equal(await page.textContent('#credito-monto'), '$848.00');
     assert.equal(await page.isDisabled('#btn-cobrar'), false);
     await page.click('#btn-cobrar');
     await page.waitForSelector('#dlg-ticket[open] #ticket-texto');
     const tk = (await page.textContent('#ticket-texto'))!;
-    assert.match(tk, /Empleada: Rosa[\s\S]*Descuento de empleada 15%[\s\S]*Descuento de empleada 30% \(uniforme\)[\s\S]*Crédito de empleada \(nómina\) +\$848\.15[\s\S]*Firma: Rosa/);
+    assert.match(tk, /Empleada: Rosa[\s\S]*Descuento de empleada 15%[\s\S]*Descuento de empleada 30% \(uniforme\)[\s\S]*Crédito de empleada \(nómina\) +\$848\.00[\s\S]*Firma: Rosa/);
 
     // Administración
     ctx.m.pump(); ctx.m.pump(); ctx.m.pump();
@@ -75,14 +75,14 @@ describe('[navegador real] Ventas a empleadas: caja y Administración', { timeou
     await a.click('#per-tab-descuento');
     await a.waitForSelector('#tabla-empleadas tr[data-emp]');
     const fila = `#tabla-empleadas tr[data-emp="${rosa}"]`;
-    assert.equal(await a.textContent(`${fila} [data-col="saldo"]`), '$848.15');
-    assert.equal(await a.textContent(`${fila} [data-col="disponible"]`), '$151.85');
+    assert.equal(await a.textContent(`${fila} [data-col="saldo"]`), '$848.00');
+    assert.equal(await a.textContent(`${fila} [data-col="disponible"]`), '$152.00');
     // abono de nómina de $300
     await a.click(`${fila} .em-abono`);
     await a.fill('#ef-monto', '300');
     await a.fill('#ef-periodo', 'octubre, 1ª quincena');
     await a.click('#form-emp button[type="submit"]');
-    await a.waitForFunction((f) => document.querySelector(`${f} [data-col="saldo"]`)?.textContent === '$548.15', fila);
+    await a.waitForFunction((f) => document.querySelector(`${f} [data-col="saldo"]`)?.textContent === '$548.00', fila);
     assert.equal(await a.textContent(`${fila} [data-col="abonos"]`), '$300.00');
     // movimientos y reporte de nómina del día
     await a.click(`${fila} .em-mov`);
@@ -91,7 +91,7 @@ describe('[navegador real] Ventas a empleadas: caja y Administración', { timeou
     await a.click('#per-tab-nomina');
     await a.fill('#nom-desde', '2026-10-01'); await a.fill('#nom-hasta', '2026-10-01');
     await a.click('#form-nomina button[type="submit"]');
-    await a.waitForFunction(() => /\$548\.15/.test(document.querySelector('#nom-total')?.parentElement?.textContent ?? ''));
+    await a.waitForFunction(() => /\$548\.00/.test(document.querySelector('#nom-total')?.parentElement?.textContent ?? ''));
     assert.deepEqual(errores, []);
   });
 });

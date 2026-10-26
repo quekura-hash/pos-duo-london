@@ -1,7 +1,7 @@
 import type { BusquedaVentas, VentaLocalizada } from './consultas.ts';
 import { ErrorDominio } from './errores.ts';
 import { buscarRecompensa, esCodigoRecompensa, promoDeRecompensa, recompensasGanadas, reglasVigentes, validarRegla, type EstadoRecompensa, type ReglaRecompensa } from './recompensas.ts';
-import { calcularDescuentos, esCanje, normCodigo, repartir, validarPromocion, type ErrorPromo, type Promocion, type ResultadoDescuentos } from './promociones.ts';
+import { calcularDescuentos, esCanje, aPesosEnteros, normCodigo, repartir, repartirPesos, validarPromocion, type ErrorPromo, type Promocion, type ResultadoDescuentos } from './promociones.ts';
 /** Quien autoriza: otra persona (nombre + clave) o, si no hay nadie más, quien cobra con su propia clave (`sin_segundo`). */
 export type Autoriza = { nombre: string; clave: string; sin_segundo?: boolean };
 import { adminDueno, adminProtegido, mezclarPerfil, claveAdminValida, claveValida, hashClave, nombreClave, supervisorPorClave, type Cajero, type Perfil, type RolAdmin, type Supervisor } from './supervisores.ts';
@@ -1713,9 +1713,9 @@ export class Caja {
     if (d.tipo === 'pct' && d.valor > 100) throw new ErrorDominio('DESCUENTO_INVALIDO', 'el porcentaje no puede pasar de 100');
     const lista = objetivo.map((l) => l.qty * l.precio_unit);
     const totalLista = lista.reduce((a, b) => a + b, 0);
-    const monto = d.tipo === 'pct' ? Math.floor((totalLista * d.valor + 50) / 100) : d.valor;
+    const monto = d.tipo === 'pct' ? aPesosEnteros((totalLista * d.valor) / 100) : d.valor; // sin centavos: el porcentaje se redondea al peso
     if (monto > totalLista) throw new ErrorDominio('DESCUENTO_INVALIDO', 'el descuento no puede pasar del importe');
-    const partes = repartir(monto, lista);
+    const partes = (monto % 100 === 0 ? repartirPesos : repartir)(monto, lista);
     objetivo.forEach((l, i) => {
       const resto = (l.descuento_detalle ?? (l.descuento > 0 ? [{ tipo: 'manual' as const, ref: '', nombre: 'Descuento', monto: l.descuento }] : [])).filter((x) => x.tipo !== 'manual');
       l.descuento_detalle = [...resto, ...(partes[i]! > 0 ? [{ tipo: 'manual' as const, ref: sup.id, nombre: `Descuento autorizado por ${sup.nombre}`, monto: partes[i]! }] : [])];

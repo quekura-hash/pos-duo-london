@@ -498,8 +498,8 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     await page.click('#btn-quitar');
     await page.waitForFunction(() => document.querySelectorAll('#cuerpo tr[data-linea]').length === 1);
     await escanear('CUPON:VERANO20');
-    await page.waitForFunction(() => document.querySelector('#total')!.textContent === '$719.20');
-    assert.match((await page.textContent('#promos-aplicadas'))!, /Cupón VERANO20.*-\$179\.80/);
+    await page.waitForFunction(() => document.querySelector('#total')!.textContent === '$719.00');
+    assert.match((await page.textContent('#promos-aplicadas'))!, /Cupón VERANO20.*-\$180\.00/);
     await page.click('#btn-quitar-cupon');
     await page.waitForFunction(() => document.querySelector('#total')!.textContent === '$899.00');
     await page.click('#btn-cupon');
@@ -508,7 +508,7 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     await page.waitForFunction(() => /no existe/.test(document.querySelector('#msg-cupon')!.textContent!));
     await page.fill('#cup-codigo', 'verano20');
     await page.click('#cup-aplicar');
-    await page.waitForFunction(() => document.querySelector('#total')!.textContent === '$719.20');
+    await page.waitForFunction(() => document.querySelector('#total')!.textContent === '$719.00');
     await page.screenshot({ path: join(RAIZ, 'docs', 'capturas', '30-venta-promos-cupon.png') });
 
     await page.click('#btn-descuento');

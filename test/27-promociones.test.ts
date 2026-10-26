@@ -59,11 +59,11 @@ it('PR5 vigencia: programada, vencida, inactiva y sin fecha límite', () => {
   assert.equal(imp(dosxuno()), 10000, 'sin fechas: vale hasta que Administración la desactive');
 });
 
-it('PR6 cupón: % con redondeo al centavo, monto fijo, compra mínima y mensajes claros', () => {
+it('PR6 cupón: % redondeado al peso entero, monto fijo, compra mínima y mensajes claros', () => {
   const pct = P({ tipo: 'cupon', id: 'k1', nombre: 'Verano', codigo: 'VERANO20', pct: 20, minimo: 50000, usos_max: null });
-  const art = [L('a', 'X', 33333, 2)]; // 66,666 → 20 % = 13,333.2 → 13,333
+  const art = [L('a', 'X', 33333, 2)]; // 66,666 → 20 % = 133.33 pesos → 133 pesos (sin centavos)
   const r = calcularDescuentos(art, [pct], 'verano20', HOY);
-  assert.deepEqual([r.cupon!.aplicado, r.cupon!.monto, r.lineas[0]!.importe], [true, 13333, 53333]);
+  assert.deepEqual([r.cupon!.aplicado, r.cupon!.monto, r.lineas[0]!.importe], [true, 13300, 53366]);
   const bajo = calcularDescuentos([L('a', 'X', 40000, 1)], [pct], 'VERANO20', HOY);
   assert.match(bajo.cupon!.motivo!, /al menos \$500\.00/);
   assert.equal(bajo.lineas[0]!.importe, 40000);
@@ -149,16 +149,16 @@ porAlmacen('Promociones, cupones y descuentos con clave de supervisor en la caja
     a.guardarPromocion({ ...jeans!, activa: false });
     ctx.m.pump();
     const k = s.svc.aplicarCupon(cart, 'DIEZ');
-    assert.deepEqual([k.cupon.monto, k.carrito.total, k.carrito.promos.length], [17980, 161820, 0]);
+    assert.deepEqual([k.cupon.monto, k.carrito.total, k.carrito.promos.length], [18000, 161800, 0]);
     s.svc.quitarCupon(cart);
     assert.equal(s.svc.vista(cart).total, 179800);
     s.svc.aplicarCupon(cart, 'DIEZ');
     // cobrar: el ticket explica el descuento
     const venta = await s.svc.cobrarEfectivo(cart, 200000, 0);
-    assert.equal(venta.venta.total, 161820);
+    assert.equal(venta.venta.total, 161800);
     const txt = renderTicketTexto(construirTicket(venta.venta));
-    assert.match(txt, /Cupón Cupón 10 % +-\$89\.90/);
-    assert.match(txt, /TOTAL +\$1,618\.20/);
+    assert.match(txt, /Cupón Cupón 10 % +-\$90\.00/);
+    assert.match(txt, /TOTAL +\$1,618\.00/);
     // usos_max = 1: el cupón ya no vale otra vez
     const cart2 = s.svc.nuevaVenta();
     s.svc.escanear(cart2, '7501234567890');
@@ -274,7 +274,7 @@ porAlmacen('Promociones, cupones y descuentos con clave de supervisor en la caja
     assert.throws(() => s.svc.aplicarDescuento(cart, { linea_id: lin, tipo: 'pct', valor: 10 }, ''), { codigo: 'CLAVE_INVALIDA' });
     assert.throws(() => s.svc.aplicarDescuento(cart, { linea_id: lin, tipo: 'pct', valor: 101 }, '4321'), { codigo: 'DESCUENTO_INVALIDO' });
     const r = s.svc.aplicarDescuento(cart, { linea_id: lin, tipo: 'pct', valor: 10 }, '4321');
-    assert.deepEqual([r.supervisor, r.carrito.total], ['Ana Supervisora', 80910 + 12000]);
+    assert.deepEqual([r.supervisor, r.carrito.total], ['Ana Supervisora', 80900 + 12000]);
     // reemplaza el descuento anterior de la línea; sobre toda la venta se reparte sin perder un centavo
     const todo = s.svc.aplicarDescuento(cart, { tipo: 'monto', valor: 10001 }, '4321');
     assert.equal(todo.carrito.descuentos, 10001);

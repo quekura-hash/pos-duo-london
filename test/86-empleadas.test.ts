@@ -43,12 +43,12 @@ porAlmacen('Empleadas: descuento de empleada (15 % / 30 % uniforme), crédito co
     let v = a.json.carrito;
     assert.deepEqual([v.empleada.nombre, v.empleada.pct, v.empleada.pct_uniforme], ['Rosa', 15, 30]);
     // jeans 899 − 15 % = 764.15 ; mascada 120 − 15 % = 102
-    assert.equal(v.total, 76415 + 10200);
+    assert.equal(v.total, 76400 + 10200);
     assert.equal(v.lineas[0].descuento_detalle[0].tipo, 'empleada');
     assert.match(v.lineas[0].descuento_detalle[0].nombre, /Descuento de empleada 15%/);
     // la mascada es uniforme: 30 %
     v = (await api(caja.url, '/api/venta/uniforme', { cart, linea_id: lineas[1].linea_id, uniforme: true })).json.carrito;
-    assert.equal(v.total, 76415 + 8400);
+    assert.equal(v.total, 76400 + 8400);
     assert.match(v.lineas[1].descuento_detalle[0].nombre, /30%.*uniforme/);
     // quitar a la empleada quita el descuento
     v = (await api(caja.url, '/api/venta/empleada/quitar', { cart })).json.carrito;
@@ -83,18 +83,18 @@ porAlmacen('Empleadas: descuento de empleada (15 % / 30 % uniforme), crédito co
     const antes = impresos().length;
     const ok = await api(caja.url, '/api/venta/cobrar-credito-empleada', { cart });
     assert.equal(ok.status, 200, JSON.stringify(ok.json));
-    assert.deepEqual(ok.json.venta.pagos.map((p: any) => [p.metodo, p.monto, p.empleada]), [['credito_empleada', 76415, 'Rosa']]);
+    assert.deepEqual(ok.json.venta.pagos.map((p: any) => [p.metodo, p.monto, p.empleada]), [['credito_empleada', 76400, 'Rosa']]);
     assert.equal(ok.json.venta.empleada.nombre, 'Rosa');
     const tk = impresos().slice(antes)[0]!;
-    assert.match(tk, /Empleada: Rosa[\s\S]*Descuento de empleada 15%[\s\S]*Crédito de empleada \(nómina\) +\$764\.15[\s\S]*se descuenta\s+de su\s+nómina[\s\S]*Firma: Rosa/);
+    assert.match(tk, /Empleada: Rosa[\s\S]*Descuento de empleada 15%[\s\S]*Crédito de empleada \(nómina\) +\$764\.00[\s\S]*se descuenta\s+de su\s+nómina[\s\S]*Firma: Rosa/);
     // venta del día sí; cobro y efectivo no
     const c = await corte(caja);
-    assert.deepEqual([c.ventas_mercancia, c.ventas_a_credito_empleadas, c.cobros_efectivo, c.efectivo_esperado, c.cobros_tarjeta], [76415, 76415, 0, 0, 0]);
+    assert.deepEqual([c.ventas_mercancia, c.ventas_a_credito_empleadas, c.cobros_efectivo, c.efectivo_esperado, c.cobros_tarjeta], [76400, 76400, 0, 0, 0]);
     // el ticket de cierre y el resumen del día muestran el crédito aparte, sin sumarlo a los cobros
-    assert.match(renderTicketCorteTexto(c, NEGOCIOS.DUO), /VENTA TOTAL DEL DÍA[\s\S]*TOTAL EN EFECTIVO +\$0\.00[\s\S]*Ventas a crédito de empleadas \(no es cobro\) +\$764\.15/);
+    assert.match(renderTicketCorteTexto(c, NEGOCIOS.DUO), /VENTA TOTAL DEL DÍA[\s\S]*TOTAL EN EFECTIVO +\$0\.00[\s\S]*Ventas a crédito de empleadas \(no es cobro\) +\$764\.00/);
     sync(ctx);
     const rd = (await api(adm.url, '/api/admin/resumen-dia?fecha=2026-10-01')).json.total;
-    assert.deepEqual([rd.venta_total, rd.credito_empleadas, rd.efectivo, rd.tarjeta, rd.ventas_netas], [76415, 76415, 0, 0, 76415]);
+    assert.deepEqual([rd.venta_total, rd.credito_empleadas, rd.efectivo, rd.tarjeta, rd.ventas_netas], [76400, 76400, 0, 0, 76400]);
     // el inventario bajó: la existencia de la venta nueva del mismo artículo es una menos
     const ex = (await api(caja.url, '/api/venta/escanear', { cart: (await api(caja.url, '/api/venta/nueva', {})).json.cart, codigo: JEANS })).json.carrito.existencias;
     assert.ok(Object.values(ex).every((x: any) => x.saldo >= 0));
@@ -106,7 +106,7 @@ porAlmacen('Empleadas: descuento de empleada (15 % / 30 % uniforme), crédito co
     // Administración ve la cuenta: debe $764.15, disponible $235.85
     sync(ctx);
     const e = (await api(adm.url, '/api/admin/empleadas')).json.empleadas.find((x: any) => x.id === rosa);
-    assert.deepEqual([e.limite, e.cargos, e.saldo, e.disponible], [pesos(1000), 76415, 76415, pesos(1000) - 76415]);
+    assert.deepEqual([e.limite, e.cargos, e.saldo, e.disponible], [pesos(1000), 76400, 76400, pesos(1000) - 76400]);
   });
 
   it('EM4 abono de nómina y ajustes con motivo y referencia única; devolución y cancelación de una venta a crédito bajan el saldo (sin efectivo)', async (t) => {
@@ -123,17 +123,17 @@ porAlmacen('Empleadas: descuento de empleada (15 % / 30 % uniforme), crédito co
     const v1 = await vender(JEANS), v2 = await vender(MASCADA);
     sync(ctx);
     let e = (await api(adm.url, '/api/admin/empleadas')).json.empleadas.find((x: any) => x.id === rosa);
-    assert.equal(e.saldo, 76415 + 10200);
+    assert.equal(e.saldo, 76400 + 10200);
     // devolución de los jeans a crédito: baja el saldo, no sale efectivo
     const d = await api(caja.url, '/api/venta/devolver', { sale_id: v1.sale_id, renglones: [{ linea_id: v1.lineas[0].linea_id, qty: 1 }], motivo: 'talla', autoriza: { nombre: 'Edgardo', clave: '2468' } });
     assert.equal(d.status, 200, JSON.stringify(d.json));
-    assert.deepEqual(d.json.devolucion.reembolsos.map((r: any) => [r.metodo, r.monto]), [['credito_empleada', 76415]]);
+    assert.deepEqual(d.json.devolucion.reembolsos.map((r: any) => [r.metodo, r.monto]), [['credito_empleada', 76400]]);
     // la mascada se cancela completa
     const cn = await api(caja.url, '/api/venta/cancelar', { sale_id: v2.sale_id, motivo: 'error', clienta: { nombre: 'Rosa', telefono: '6531234567' }, autoriza: { nombre: 'Edgardo', clave: '2468' } });
     assert.equal(cn.status, 200, JSON.stringify(cn.json));
     sync(ctx);
     e = (await api(adm.url, '/api/admin/empleadas')).json.empleadas.find((x: any) => x.id === rosa);
-    assert.deepEqual([e.cargos, e.devoluciones, e.saldo], [76415, 76415, 0]);
+    assert.deepEqual([e.cargos, e.devoluciones, e.saldo], [76400, 76400, 0]);
     const c = await corte(caja);
     assert.equal(c.efectivo_esperado, 0, 'ni la devolución ni la cancelación de un crédito mueven efectivo');
     // abonos y ajustes (con referencia única)
