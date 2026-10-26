@@ -16,6 +16,8 @@ const chromiumPath = [process.env.POS_CHROMIUM, '/opt/pw-browsers/chromium-1194/
 
 /** Con empleadas registradas la venta queda como «Autocompra» por omisión; en las pruebas que no lo revisan solo se espera a que se asigne. */
 const vendioClientas = async (page: import('playwright-core').Page) => { if (await page.locator('#bloque-vendio').isVisible()) await page.waitForFunction(() => (document.querySelector('#vendio-por') as HTMLSelectElement).value === 'autocompra'); };
+/** «Abrir caja»: primero el aviso de extorsión (ENTENDIDO) y luego el motivo (por omisión «Feria»). */
+const abrirCajaAviso = async (page: import('playwright-core').Page) => { await page.click('#btn-abrir-caja'); await page.waitForSelector('#dlg-aviso-extorsion[open]'); await page.click('#ax-ok'); await page.waitForSelector('#dlg-abrir-caja[open]'); };
 /** Los formularios de usuarios exigen nombres y apellidos: lo mínimo para las pruebas. */
 const perfilMin = async (page: import('playwright-core').Page, p: 'caj' | 'adm') => { await page.fill(`#${p}-nombres`, 'Prueba'); await page.fill(`#${p}-apellidos`, 'Apellido'); };
 describe('[navegador real] Versión de prueba en una sola página (motor en memoria dentro del navegador)', { timeout: 400_000, skip: chromiumPath ? false : 'Chromium no encontrado (defina POS_CHROMIUM)' }, () => {
@@ -1290,8 +1292,7 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     await page.click('#ret-tk-cerrar');
     // abrir caja: pide la clave de la propia persona
     await page.click('#nav button[data-vista="venta"]');
-    await page.click('#btn-abrir-caja');
-    await page.waitForSelector('#dlg-abrir-caja[open]');
+    await abrirCajaAviso(page);
     await page.fill('#ac-clave', '8765'); // la de Rosa no vale a nombre de Lupe
     await page.click('#form-abrir-caja button[type=submit]');
     await page.waitForFunction(() => /no es correcta/.test(document.querySelector('#msg-ac')!.textContent!));
@@ -1788,10 +1789,12 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     await page.goto(`file://${HTML}`);
     await page.waitForSelector('#scan');
     assert.equal((await page.textContent('#btn-abrir-caja'))!.trim(), 'Abrir caja');
-    await page.click('#btn-abrir-caja');
+    await abrirCajaAviso(page);
+    await page.click('#form-abrir-caja button[type=submit]');
     await page.waitForFunction(() => /Caja abierta/.test(document.querySelector('#mensaje')!.textContent!));
     await page.check('#falla-imp');
-    await page.click('#btn-abrir-caja');
+    await abrirCajaAviso(page);
+    await page.click('#form-abrir-caja button[type=submit]');
     await page.waitForFunction(() => /no se pudo abrir la caja/.test(document.querySelector('#mensaje')!.textContent!));
     await abrirDetalleCorte(page);
     assert.match((await page.textContent('body'))!, /Aperturas del cajón sin venta[\s\S]{0,40}1/);
@@ -1895,7 +1898,8 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     await page.waitForFunction(() => (window as any).__IMPRESOS__.length === 2);
     await page.click('#btn-nueva');
     // abrir caja: comprobante corto (el controlador abre el cajón al imprimir)
-    await page.click('#btn-abrir-caja');
+    await abrirCajaAviso(page);
+    await page.click('#form-abrir-caja button[type=submit]');
     await page.waitForFunction(() => (window as any).__IMPRESOS__.length === 3);
     r = await impresos();
     assert.match(r[2].texto, /APERTURA DE CAJA[\s\S]*Usuario:/);

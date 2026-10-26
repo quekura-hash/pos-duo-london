@@ -558,9 +558,8 @@ async function vistaVenta() {
   $('#btn-abrir-caja').addEventListener('click', async () => {
     try {
       const a = await api('/api/venta/autorizadores');
-      if (a.pide_clave) return abrirClaveCaja(); // con Vendedoras-Cajeras registradas: su propia clave
-      await api('/api/caja/abrir', {}); msg('Caja abierta (queda registrado en el corte).');
-      await imprimirNavegador(comprobanteApertura(), { logo: false });
+      avisoExtorsion(() => abrirMotivoApertura(a.pide_clave)); // primero el aviso; luego el motivo y, con Vendedoras-Cajeras registradas, su propia clave
+      return;
     } catch (e) { msg(e.message, 'error'); }
     $('#scan').focus();
   });
@@ -2781,22 +2780,55 @@ function abrirCupon() {
   $('#cup-codigo').focus();
 }
 /** «Abrir caja»: pide la clave de la propia Vendedora-Cajera y abre el cajón sin vender. */
-function abrirClaveCaja() {
+/** Aviso grande y legible antes de abrir la caja sin venta: las llamadas de extorsión piden justo eso. Hay que tocar ENTENDIDO para continuar. */
+function avisoExtorsion(alContinuar) {
+  const d = dialogo('dlg-aviso-extorsion');
+  d.setAttribute('aria-labelledby', 'ax-titulo');
+  d.setAttribute('aria-describedby', 'ax-texto');
+  d.style.cssText = 'max-width:760px;width:calc(100% - 32px);padding:0;border:6px solid #1a1a1a;border-radius:18px;background:#ffd400;color:#1a1a1a';
+  d.innerHTML = `<div style="padding:28px 30px;text-align:center">
+    <div style="font-size:64px;line-height:1" aria-hidden="true">⚠️</div>
+    <h2 id="ax-titulo" style="margin:6px 0 14px;font-size:48px;line-height:1.1;letter-spacing:1px">¡CUIDADO!</h2>
+    <p id="ax-texto" style="margin:0 0 24px;font-size:28px;line-height:1.35;font-weight:700">Si te llama alguien que no conoces para sacar dinero de la caja y hacer un depósito o un pago, <u>cuelga</u> y llama a <u>Edgardo</u> o a <u>Karina</u>.</p>
+    <button class="btn" id="ax-ok" type="button" style="font-size:30px;font-weight:800;padding:16px 56px;background:#1a1a1a;color:#ffd400;border:0;border-radius:14px;cursor:pointer">ENTENDIDO</button>
+  </div>`;
+  $('#ax-ok').addEventListener('click', () => { d.close(); alContinuar(); });
+  d.addEventListener('cancel', (ev) => ev.preventDefault()); // Esc no lo salta: hay que leerlo y tocar ENTENDIDO
+  d.showModal();
+  $('#ax-ok').focus();
+}
+const MOTIVOS_APERTURA = ['Feria', 'Rectificar efectivo', 'Otro'];
+/** Motivo de la apertura (Feria, Rectificar efectivo u Otro con texto) y, con Vendedoras-Cajeras registradas, la clave de quien abre. */
+function abrirMotivoApertura(pideClave) {
   const d = dialogo('dlg-abrir-caja');
+  d.removeAttribute('style');
   d.setAttribute('aria-labelledby', 'ac-titulo');
   d.innerHTML = `<h2 id="ac-titulo" style="margin-top:0">Abrir caja</h2>
-    <p class="nota" style="margin-top:0">Teclee su clave, ${esc(S.sesion.usuario ?? '')}. La apertura queda registrada a su nombre.</p>
-    <form id="form-abrir-caja" autocomplete="off"><div class="campo"><label for="ac-clave">Su clave</label><input id="ac-clave" type="text" data-pin inputmode="numeric" autocomplete="off" placeholder="••••"></div>
+    <p class="nota" style="margin-top:0">${pideClave ? `Elija el motivo y teclee su clave, ${esc(S.sesion.usuario ?? '')}.` : 'Elija el motivo.'} La apertura queda registrada a su nombre, con el motivo.</p>
+    <form id="form-abrir-caja" autocomplete="off">
+      <fieldset style="border:1px solid var(--borde);border-radius:8px;margin:8px 0"><legend>Motivo de la apertura</legend>
+        ${MOTIVOS_APERTURA.map((m, i) => `<label style="display:block;padding:4px 0;font-size:1.05em"><input type="radio" name="ac-motivo" value="${esc(m)}" ${i === 0 ? 'checked' : ''}> ${esc(m)}</label>`).join('')}
+        <div class="campo" id="ac-otro-campo" hidden><label for="ac-otro">Escriba el motivo</label><input id="ac-otro" maxlength="60" placeholder="Motivo de la apertura"></div></fieldset>
+      ${pideClave ? `<div class="campo"><label for="ac-clave">Su clave</label><input id="ac-clave" type="text" data-pin inputmode="numeric" autocomplete="off" placeholder="••••"></div>` : ''}
       <div id="msg-ac" class="mensaje" role="alert"></div>
       <div class="filas"><button class="btn" type="button" id="ac-no">Cancelar</button><button class="btn btn-primario" type="submit" style="width:auto;flex:1">${ico('cash')}<span>Abrir caja</span></button></div></form>`;
+  const motivo = () => d.querySelector('input[name="ac-motivo"]:checked').value;
+  for (const r of d.querySelectorAll('input[name="ac-motivo"]')) r.addEventListener('change', () => { $('#ac-otro-campo').hidden = motivo() !== 'Otro'; if (motivo() === 'Otro') $('#ac-otro').focus(); });
   $('#ac-no').addEventListener('click', () => { d.close(); $('#scan').focus(); });
   $('#form-abrir-caja').addEventListener('submit', async (ev) => {
     ev.preventDefault();
-    try { await api('/api/caja/abrir', { clave: $('#ac-clave').value }); d.close(); msg('Caja abierta (queda registrado en el corte).'); $('#scan').focus(); await imprimirNavegador(comprobanteApertura(), { logo: false }); }
-    catch (e) { const m = $('#msg-ac'); m.className = 'mensaje error'; m.textContent = e.message; $('#ac-clave').value = ''; }
+    const m = $('#msg-ac');
+    const texto = motivo() === 'Otro' ? $('#ac-otro').value.trim() : motivo();
+    if (texto.length < 3) { m.className = 'mensaje error'; m.textContent = 'Escriba el motivo de la apertura.'; marcarCampoFalta($('#ac-otro')); $('#ac-otro').focus(); return; }
+    if (pideClave && !$('#ac-clave').value) { m.className = 'mensaje error'; m.textContent = 'Teclee su clave.'; marcarCampoFalta($('#ac-clave')); $('#ac-clave').focus(); return; }
+    try {
+      await api('/api/caja/abrir', { motivo: motivo() === 'Otro' ? `Otro: ${texto}` : texto, ...(pideClave ? { clave: $('#ac-clave').value } : {}) });
+      d.close(); msg('Caja abierta (queda registrado en el corte).'); $('#scan').focus();
+      await imprimirNavegador(comprobanteApertura(), { logo: false });
+    } catch (e) { m.className = 'mensaje error'; m.textContent = e.message; const c = $('#ac-clave'); if (c) c.value = ''; }
   });
   d.showModal();
-  $('#ac-clave').focus();
+  (pideClave ? $('#ac-clave') : d.querySelector('input[name="ac-motivo"]')).focus();
 }
 /** Cancelar la venta en curso (sin cobrar): solo pide confirmación, nunca clave. */
 function abrirCancelarVenta() {
