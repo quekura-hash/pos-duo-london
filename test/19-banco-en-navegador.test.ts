@@ -1795,7 +1795,8 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     await page.check('#falla-imp');
     await abrirCajaAviso(page);
     await page.click('#form-abrir-caja button[type=submit]');
-    await page.waitForFunction(() => /no se pudo abrir la caja/.test(document.querySelector('#mensaje')!.textContent!));
+    await page.waitForFunction(() => /no se pudo abrir la caja/.test(document.querySelector('#msg-ac')!.textContent!)); // el error se ve en la propia ventana
+    await page.click('#ac-no');
     await abrirDetalleCorte(page);
     assert.match((await page.textContent('body'))!, /Aperturas del cajón sin venta[\s\S]{0,40}1/);
     assert.deepEqual(errores.filter((e) => !/401|403|Failed to load resource/.test(e)), []);
