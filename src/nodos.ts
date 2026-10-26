@@ -2677,9 +2677,10 @@ export class Caja {
       const f = this.estadoFeria();
       if (f.estado === 'sin_dato') return;
       const rango = { bien: 0, bajo: 1, critico: 2, sin_dato: 0 } as const;
-      const llave = `feria:estado:${f.fecha}`;
-      const antes = (this.repo.kvGet<string>(llave) ?? 'bien') as keyof typeof rango;
-      this.repo.kvSet(llave, f.estado);
+      // Un solo registro que se reescribe cada día: no se acumula nada de días anteriores.
+      const previo = this.repo.kvGet<{ fecha: string; estado: string }>('feria:estado');
+      const antes = (previo && previo.fecha === f.fecha ? previo.estado : 'bien') as keyof typeof rango;
+      this.repo.kvSet('feria:estado', { fecha: f.fecha, estado: f.estado });
       if (rango[f.estado] > rango[antes]) this.emitir('caja.alerta_feria', { tienda: this.tienda, caja: this.caja, fecha: f.fecha, estado: f.estado, agotadas: f.agotadas, bajas: f.bajas });
     } catch { /* la feria es una ayuda: no debe frenar una venta */ }
   }

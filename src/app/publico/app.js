@@ -3778,33 +3778,32 @@ const ESTADO_FERIA = {
   bien: ['Feria suficiente', 'var(--ok, #1f7a4d)'], bajo: ['Va a faltar feria pronto', '#b8860b'], critico: ['Estado de feria CRÍTICO', '#b3261e'], sin_dato: ['Sin fondo contado hoy', '#6b7280'],
 };
 async function vistaFeria() {
-  const fecha = S.feriaFecha ?? '';
-  const j = await api(`/api/admin/feria${fecha ? `?fecha=${encodeURIComponent(fecha)}` : ''}`);
+  const j = await api('/api/admin/feria'); // solo el día de hoy: la feria de días anteriores ya no se muestra
   const orden = { critico: 0, bajo: 1, bien: 2, sin_dato: 3 };
   const cajas = [...j.cajas].sort((a, b) => orden[a.estado] - orden[b.estado] || a.tienda.localeCompare(b.tienda) || a.caja - b.caja);
   const hora = (iso) => new Date(Date.parse(iso) - 7 * 3600_000).toISOString().slice(11, 16);
   const tarjeta = (c) => {
     const [rotulo, color] = ESTADO_FERIA[c.estado];
+    const movs = c.eventos.filter((e) => e.tipo !== 'fondo' && e.tipo !== 'conteo');
+    const suma = (campo, d) => movs.reduce((a, e) => a + (e[campo][String(d)] ?? 0), 0);
     const filas = c.estado === 'sin_dato' ? '' : j.denominaciones.map((d) => {
       const n = c.inventario[String(d)] ?? 0, min = j.minimos[d];
       const est = n === 0 ? ['Agotada', '#b3261e'] : n < min ? ['Baja', '#b8860b'] : ['OK', 'var(--ok, #1f7a4d)'];
-      return `<tr data-den="${d}"><td>${denFeria(d)}</td><td class="num"><b>${n}</b></td><td class="num">${min}</td><td><b style="color:${est[1]}">${est[0]}</b></td></tr>`;
+      return `<tr data-den="${d}"><td>${denFeria(d)}</td><td class="num">+${suma('entra', d)}</td><td class="num">−${suma('sale', d)}</td><td class="num"><b>${n}</b></td><td class="num">${min}</td><td><b style="color:${est[1]}">${est[0]}</b></td></tr>`;
     }).join('');
-    const ev = c.eventos.slice().reverse();
+    const ev = movs.slice().reverse();
     return `<section class="panel" data-caja="${esc(c.tienda)}/${c.caja}" data-estado="${esc(c.estado)}" style="border-left:8px solid ${color}">
       <div class="filas" style="align-items:center;justify-content:space-between"><h2 style="margin:0">${esc(c.nombre)} · Caja ${c.caja}</h2><b class="estado-feria" style="color:${color};font-size:1.1em">${rotulo}</b></div>
-      ${c.estado === 'sin_dato' ? '<p class="nota">La cajera todavía no cuenta y confirma el fondo de este día: sin ese conteo no hay punto de partida.</p>' : `
+      ${c.estado === 'sin_dato' ? '<p class="nota">La cajera todavía no cuenta y confirma el fondo de hoy: sin ese conteo no hay punto de partida.</p>' : `
       <p class="nota" style="margin:4px 0 8px">${c.estimado ? `<b>Estimado.</b> Último conteo confirmado a las ${hora(c.confirmado_en)}; desde entonces se supone lo más probable que entró y salió en cada operación.` : `<b>Confirmado</b> billete por billete y moneda por moneda a las ${hora(c.confirmado_en)}.`}${c.desfase ? ' <b style="color:#b3261e">La estimación no cuadró con lo que había: conviene contar la caja.</b>' : ''}</p>
-      <div class="tabla-cont"><table><thead><tr><th>Denominación</th><th class="num">Piezas</th><th class="num">Mínimo</th><th>Estado</th></tr></thead><tbody>${filas}</tbody></table></div>
-      <details style="margin-top:8px"><summary><b>Registro de feria del día</b> (${ev.length} movimientos)</summary>
-        <div class="tabla-cont"><table><thead><tr><th>Hora</th><th>Movimiento</th><th>Entra</th><th>Sale</th><th></th></tr></thead><tbody>${ev.map((e) => `<tr><td>${hora(e.ocurrio_en)}</td><td>${esc(e.descripcion)}</td><td>${listaFeria(e.entra)}</td><td>${listaFeria(e.sale)}</td><td>${e.estimado ? '<small>estimado</small>' : '<small><b>exacto</b></small>'}</td></tr>`).join('')}</tbody></table></div></details>`}
+      <div class="tabla-cont"><table><thead><tr><th>Denominación</th><th class="num">Entró hoy</th><th class="num">Salió hoy</th><th class="num">Hay ahora</th><th class="num">Mínimo</th><th>Estado</th></tr></thead><tbody>${filas}</tbody></table></div>
+      <h3 style="margin:10px 0 4px;font-size:1em">Movimientos de feria de hoy (${ev.length})</h3>
+      <div class="tabla-cont" style="max-height:190px;overflow:auto"><table><thead><tr><th>Hora</th><th>Movimiento</th><th>Entra</th><th>Sale</th></tr></thead><tbody>${ev.map((e) => `<tr><td>${hora(e.ocurrio_en)}</td><td>${esc(e.descripcion)}${e.estimado ? '' : ' <small><b>(exacto)</b></small>'}</td><td>${listaFeria(e.entra)}</td><td>${listaFeria(e.sale)}</td></tr>`).join('') || '<tr><td colspan="4" class="vacio">Sin movimientos de feria hoy.</td></tr>'}</tbody></table></div>`}
     </section>`;
   };
-  cuerpoVista().innerHTML = `<section class="panel"><div class="filas" style="align-items:flex-end;justify-content:space-between"><div><h2 style="margin:0 0 4px">Estado de la feria por caja</h2>
-      <p class="nota" style="margin:0">Billetes y monedas para dar cambio. Durante el día es un <b>estimado</b> (se supone lo más probable que entrega la clienta y que da la cajera); en el cierre se cuenta billete por billete y deja de ser estimación. <b>Crítico</b>: ya no hay al menos dos denominaciones. <b>Va a faltar</b>: alguna agotada o por debajo de su mínimo.</p></div>
-      <label>Día <input type="date" id="fe-fecha" value="${esc(j.fecha)}" max="${esc(j.hoy)}"></label></div></section>
+  cuerpoVista().innerHTML = `<section class="panel"><h2 style="margin:0 0 4px">Estado de la feria por caja · hoy</h2>
+      <p class="nota" style="margin:0">Billetes y monedas para dar cambio. Durante el día es un <b>estimado</b> (se supone lo más probable que entrega la clienta, nunca con billete de $1,000, y que da la cajera); en el cierre se cuenta billete por billete y deja de ser estimación. <b>Crítico</b>: ya no hay al menos dos denominaciones. <b>Va a faltar</b>: alguna agotada o por debajo de su mínimo. Solo se muestra el día de hoy.</p></section>
     ${cajas.map(tarjeta).join('')}`;
-  $('#fe-fecha').addEventListener('change', (ev) => { S.feriaFecha = ev.target.value === j.hoy ? '' : ev.target.value; vistaFeria(); });
   await montarInactividad();
 }
 

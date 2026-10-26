@@ -4,11 +4,11 @@
 import { fechaLocal } from './util.ts';
 import type { Op } from './tipos.ts';
 
-/** Denominaciones en centavos, de mayor a menor. Las de feria son las que se dan de cambio; $500 y $1,000 se reciben pero casi nunca se dan. */
-export const DENOMS_RECIBIDO = [100000, 50000, 20000, 10000, 5000, 2000, 1000, 500, 200, 100] as const;
-export const DENOMS_FERIA = [20000, 10000, 5000, 2000, 1000, 500, 200, 100] as const;
+/** Denominaciones en centavos, de mayor a menor. Las de feria son las que se vigilan y se dan de cambio. */
+export const DENOMS_RECIBIDO = [50000, 20000, 10000, 5000, 2000, 1000, 500, 200, 100] as const; // nunca se supone que pagaron con billete de $1,000
+export const DENOMS_FERIA = [50000, 20000, 10000, 5000, 2000, 1000, 500, 200, 100] as const;
 /** Mínimo de piezas de cada denominación de feria: por debajo, la caja «va a necesitar feria pronto». Con 0 en dos o más, el estado es crítico. */
-export const MINIMO_FERIA: Record<number, number> = { 20000: 2, 10000: 3, 5000: 4, 2000: 6, 1000: 8, 500: 8, 200: 10, 100: 10 };
+export const MINIMO_FERIA: Record<number, number> = { 50000: 2, 20000: 5, 10000: 5, 5000: 8, 2000: 10, 1000: 5, 500: 10, 200: 10, 100: 20 };
 /** Entradas de feria sin desglose conocido (una entrega de cambio): se supone billete chico y moneda, no de $200. */
 const DENOMS_ENTRADA = [10000, 5000, 2000, 1000, 500, 200, 100] as const;
 
@@ -24,7 +24,7 @@ export function repartir(cent: number, denoms: readonly number[]): Desglose {
 }
 /** Lo más probable que dio la cajera de cambio: 349 → 1 de $200, 1 de $100, 2 de $20, 1 de $5 y 2 de $2. */
 export const desglosarCambio = (cent: number) => repartir(cent, DENOMS_FERIA);
-/** Lo más probable que entregó la clienta: 2,500 → 2 de $1,000 y 1 de $500. */
+/** Lo más probable que entregó la clienta, sin billetes de $1,000: 2,500 → 5 de $500. */
 export const desglosarRecibido = (cent: number) => repartir(cent, DENOMS_RECIBIDO);
 export const desglosarEntrada = (cent: number) => repartir(cent, DENOMS_ENTRADA);
 
