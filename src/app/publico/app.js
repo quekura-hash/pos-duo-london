@@ -143,7 +143,7 @@ async function pintarEncabezado() {
     <div class="datos">
       <span class="chip-top" data-chip="tienda">${ico('store')}<span>Tienda: <b>${esc(e.negocio)}</b></span></span>
       <span class="chip-top" data-chip="caja">${ico('caja')}<span>CAJA <b>${e.caja}</b></span></span>
-      <span class="chip-top" data-chip="usuario">${ico('user')}<span>${S.sesion?.supervisor ? 'Supervisor' : 'Vendedora-Cajera'}: <b>${esc(e.usuario)}</b></span></span>
+      <span class="chip-top" data-chip="usuario">${avatarBarra(e.usuario, e.usuario_foto)}<span>${S.sesion?.supervisor ? 'Supervisor' : 'Vendedora-Cajera'}: <b>${esc(e.usuario)}</b></span></span>
       <span class="sincro ${sincro[0]}" data-chip="sincro">${sincro[1]}</span>
       <span class="chip-top" data-chip="fecha">${ico('calendar')}<b>${fechaCorta(e.ahora)}</b></span>
       ${S.sesion.requiere_login ? `<button class="btn" type="button" id="btn-salir" title="Cerrar la sesión">${ico('x')}<span>Cerrar sesión</span></button>` : ''}
@@ -3923,6 +3923,10 @@ async function vistaFeria() {
 }
 
 // ── Registro de empleadas: alias (el «Usuario»), datos completos y foto con la cámara de la PC ──
+/** Avatar de quien tiene la sesión en la barra azul: tan grande como cabe sin agrandar la barra (64 px menos su relleno = 48 px). Sin foto, su inicial. */
+const avatarBarra = (nombre, foto) => (foto
+  ? `<img class="avatar-barra" src="${esc(foto)}" alt="Foto de ${esc(nombre)}">`
+  : `<span class="avatar-barra avatar-inicial" aria-hidden="true">${esc(String(nombre ?? '?').trim().slice(0, 1).toUpperCase() || '?')}</span>`);
 const avatar = (x, tam = 44) => (x.perfil?.foto
   ? `<img src="${esc(x.perfil.foto)}" alt="Foto de ${esc(x.nombre)}" style="width:${tam}px;height:${tam}px;border-radius:50%;object-fit:cover;flex:none">`
   : `<span aria-hidden="true" style="width:${tam}px;height:${tam}px;border-radius:50%;background:var(--superficie-2);display:inline-flex;align-items:center;justify-content:center;flex:none">${ico('user')}</span>`);

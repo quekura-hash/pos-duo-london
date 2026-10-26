@@ -33,10 +33,12 @@ button, input, select { font: inherit; color: inherit; }
 .encabezado .logo { height: 44px; width: auto; display: block; }
 .encabezado .logos { display: flex; gap: 14px; align-items: center; }
 .encabezado .titulo { border-left: 1px solid var(--marino-texto-2); padding-left: 18px; font-size: 17px; }
-.encabezado .datos { margin-left: auto; display: flex; flex-wrap: wrap; gap: 6px 22px; align-items: center; }
+.encabezado .datos { margin-left: auto; display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center; }
 .chip-top { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; white-space: nowrap; }
 .chip-top .ico { color: var(--marino-texto-2); }
 .chip-top b { font-weight: 600; }
+.avatar-barra { width: 48px; height: 48px; box-sizing: border-box; border-radius: 50%; object-fit: cover; flex: none; border: 2px solid var(--marino-texto-2); background: var(--marino-2); }
+.avatar-inicial { display: inline-flex; align-items: center; justify-content: center; font-size: 22px; font-weight: 700; color: var(--marino-texto); }
 .sincro { display: inline-flex; align-items: center; gap: 7px; font-weight: 600; }
 .sincro::before { content: ""; width: 10px; height: 10px; border-radius: 50%; background: #4ade80; }
 .sincro.pendiente { color: #fcd34d; } .sincro.pendiente::before { background: #fcd34d; }

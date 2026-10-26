@@ -42,7 +42,7 @@ export function sha256(texto: string): string {
 }
 
 /** Supervisor de caja: autoriza descuentos y cambios con su clave numérica y también puede iniciar sesión y cobrar en la caja. `solo_caja` (almacenista que también cobra): puede cobrar pero NO autoriza descuentos. */
-export interface Supervisor { id: string; nombre: string; activo: boolean; sal: string; hash: string; solo_caja?: boolean; dueno?: boolean }
+export interface Supervisor { id: string; nombre: string; activo: boolean; sal: string; hash: string; solo_caja?: boolean; dueno?: boolean; foto?: string }
 export const hashClave = (sal: string, clave: string) => sha256(`${sal}:${clave}`);
 export const claveValida = (c: unknown): c is string => typeof c === 'string' && /^\d{4,8}$/.test(c);
 

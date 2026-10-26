@@ -309,7 +309,7 @@ export class Indice {
     this.actualizar();
     // Los supervisores (y la almacenista que cobra) también inician sesión y cobran en la caja con su misma clave numérica.
     const nombres = new Set([...this.cajerosMap.values()].map((c) => nombreClave(c.nombre)));
-    const comoCajero = [...this.supervisoresMap.values()].filter((s) => !nombres.has(nombreClave(s.nombre))).map(({ id, nombre, activo, sal, hash }): Cajero => ({ id, nombre, activo, sal, hash }));
+    const comoCajero = [...this.supervisoresMap.values()].filter((s) => !nombres.has(nombreClave(s.nombre))).map(({ id, nombre, activo, sal, hash, foto }): Cajero => ({ id, nombre, activo, sal, hash, ...(foto ? { perfil: { nombres: '', apellidos: '', telefono: '', direccion: '', foto } } : {}) }));
     return [...this.cajerosMap.values(), ...comoCajero].map((c) => { const t = this.tiendaDeCajero.get(c.id)?.tienda; return t === undefined ? c : { ...c, tienda: t }; });
   }
   /** Solo las Vendedoras-Cajeras dadas de alta como tales (sin los supervisores que también cobran): con alguna activa la caja pide usuario y clave. */

@@ -519,7 +519,7 @@ export class Central {
     return { ok: true };
   }
   /** Alta o edición de un supervisor que autoriza descuentos con clave numérica. La clave se guarda con sal y hash. */
-  guardarSupervisor(d: { id?: string; id_nuevo?: string; nombre?: string; clave?: string; activo?: boolean; solo_caja?: boolean; dueno?: boolean }, por: string): { ok: true; supervisor: Omit<Supervisor, 'sal' | 'hash'> } | { ok: false; error: { codigo: 'DATOS_INVALIDOS' | 'CLAVE_REPETIDA' | 'NO_EXISTE'; mensaje: string } } {
+  guardarSupervisor(d: { id?: string; id_nuevo?: string; nombre?: string; clave?: string; activo?: boolean; solo_caja?: boolean; dueno?: boolean; foto?: string | null }, por: string): { ok: true; supervisor: Omit<Supervisor, 'sal' | 'hash'> } | { ok: false; error: { codigo: 'DATOS_INVALIDOS' | 'CLAVE_REPETIDA' | 'NO_EXISTE'; mensaje: string } } {
     const lista = supervisoresDe(this.repo.ops());
     const actual = d.id ? lista.find((s) => s.id === d.id) : undefined;
     if (d.id && !actual) return { ok: false, error: { codigo: 'NO_EXISTE', mensaje: 'el supervisor no existe' } };
@@ -538,7 +538,8 @@ export class Central {
     const id = actual?.id ?? d.id_nuevo ?? `sup-${uuid().slice(0, 8)}`;
     const solo_caja = d.solo_caja ?? actual?.solo_caja;
     const dueno = d.dueno ?? actual?.dueno;
-    this.emitirAdmin('supervisor.guardado', { id, nombre, activo, sal, hash, ...(solo_caja ? { solo_caja: true } : {}), ...(dueno ? { dueno: true } : {}), por });
+    const foto = d.foto === undefined ? actual?.foto : (d.foto || undefined); // la foto del perfil viaja a la caja para mostrarla junto al nombre
+    this.emitirAdmin('supervisor.guardado', { id, nombre, activo, sal, hash, ...(solo_caja ? { solo_caja: true } : {}), ...(dueno ? { dueno: true } : {}), ...(foto ? { foto } : {}), por });
     return { ok: true, supervisor: { id, nombre, activo } };
   }
 
@@ -673,7 +674,7 @@ export class Central {
       const enlazado = `sup-${id.slice(4)}`;
       const existe = supervisoresDe(ops).some((s) => s.id === enlazado);
       if (d.clave_caja || existe) {
-        const r = this.guardarSupervisor({ ...(existe ? { id: enlazado } : { id_nuevo: enlazado }), nombre, clave: d.clave_caja || undefined, activo, solo_caja: rol === 'almacenista', dueno: rol === 'supervisor' && adminDueno({ nombre, perfil: pf.perfil }) }, por);
+        const r = this.guardarSupervisor({ ...(existe ? { id: enlazado } : { id_nuevo: enlazado }), nombre, clave: d.clave_caja || undefined, activo, solo_caja: rol === 'almacenista', dueno: rol === 'supervisor' && adminDueno({ nombre, perfil: pf.perfil }), foto: pf.perfil?.foto ?? null }, por);
         if (!r.ok) return { ok: false, error: { codigo: 'DATOS_INVALIDOS', mensaje: r.error.mensaje } };
       }
     }
@@ -1326,6 +1327,11 @@ export class Caja {
     }
     this.repo.kvSet(llave, { n: 0, hasta: 0 });
     return sup.nombre;
+  }
+  /** Foto del perfil de quien tiene la sesión (data URL) o null: se muestra junto a su nombre en la barra de la caja. */
+  fotoDe(usuario: string): string | null {
+    const c = this.idx.cajeros().find((x) => nombreClave(x.nombre) === nombreClave(usuario));
+    return c?.perfil?.foto ?? null;
   }
   /** ¿Quien tiene la sesión es el dueño del sistema (Edgardo Morales, con clave de caja)? Solo él tiene autoridad plena en la caja; los demás supervisores siguen como antes. */
   esSupervisorActivo(usuario: string): boolean {

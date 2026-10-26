@@ -135,7 +135,7 @@ export class ServicioCaja {
   estado() {
     const ahora = this.reloj.now();
     return {
-      tienda: this.caja.tienda, caja: this.caja.caja, usuario: this.actor.usuario,
+      tienda: this.caja.tienda, caja: this.caja.caja, usuario: this.actor.usuario, usuario_foto: this.actor.usuario ? this.caja.fotoDe(this.actor.usuario) : null,
       negocio: this.negociosVivos()[this.caja.tienda]!.nombre,
       metodos: this.caja.cfg.metodos,
       ahora, fecha_local: fechaLocal(ahora),
