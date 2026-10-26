@@ -1234,7 +1234,7 @@ async function vistaCorte() {
       </tbody></table></div>
       <p class="nota">Los faltantes y sobrantes se registran tal cual en el corte; el sistema no los corrige para cuadrar la caja.</p>
       <div class="campo"><label for="cierre-obs">Observaciones del cierre</label><textarea id="cierre-obs" rows="2" maxlength="500" ${cerrado ? 'disabled' : ''} style="width:100%;box-sizing:border-box;padding:8px;border:2px solid var(--borde);border-radius:10px;background:var(--superficie);font:inherit">${esc(cerrado ? (j.cerrado.observaciones ?? '') : '')}</textarea></div>
-      ${!cerrado && est.puede_cerrar && j.pide_clave ? '<div class="campo"><label for="cierre-clave">Su clave para cerrar el corte</label><input id="cierre-clave" type="text" data-pin inputmode="numeric" autocomplete="off" style="width:140px;padding:8px;border:2px solid var(--borde);border-radius:10px"></div>' : ''}
+      ${!cerrado && est.puede_cerrar && j.pide_clave ? rotuloSesion() + '<div class="campo"><label for="cierre-clave">Su clave para cerrar el corte</label><input id="cierre-clave" type="text" data-pin inputmode="numeric" autocomplete="off" style="width:140px;padding:8px;border:2px solid var(--borde);border-radius:10px"></div>' : ''}
       <div id="msg-cierre" class="mensaje" role="status" aria-live="polite"></div>
       <div class="filas"><button class="btn" type="button" id="btn-volver-conteo" ${cerrado ? 'hidden' : ''}>Volver al conteo</button>${!cerrado && est.puede_cerrar ? `<button class="btn btn-primario" id="btn-cerrar-corte" type="button">${ico('check')}<span>CERRAR CORTE</span></button>` : ''}</div>
       <details id="detalle-corte" style="margin-top:12px"><summary>Ver el detalle completo del corte</summary>
@@ -1246,7 +1246,7 @@ async function vistaCorte() {
   if (!cerrado && paso < 3 && S.cierreCajon !== llaveCajon) {
     $('#vista').innerHTML = `${cab}<section class="panel" id="paso-empezar"><h2 style="margin-top:0">Empezar corte</h2>
       <p class="nota">Para contar el fondo y el efectivo de las ventas se abre el cajón (queda registrado en el corte como «Corte de caja»).</p>
-      ${j.pide_clave ? '<div class="campo"><label for="empezar-clave">Su clave</label><input id="empezar-clave" type="text" data-pin inputmode="numeric" autocomplete="off" placeholder="••••"></div>' : ''}
+      ${j.pide_clave ? rotuloSesion() + '<div class="campo"><label for="empezar-clave">Su clave</label><input id="empezar-clave" type="text" data-pin inputmode="numeric" autocomplete="off" placeholder="••••"></div>' : ''}
       <div id="msg-empezar" class="mensaje" role="alert"></div>
       <button class="btn btn-primario" id="btn-empezar" type="button">${ico('cash')}<span>Empezar corte y abrir cajón</span></button></section>`;
     for (const b of $('#cierre-pasos').querySelectorAll('[data-paso]')) b.addEventListener('click', () => { S.cierrePaso = Number(b.dataset.paso); vistaCorte(); });
@@ -3139,6 +3139,26 @@ async function abrirEspera() {
   }));
   if (!d.open) d.showModal();
 }
+/** «Sesión de Carmen · ¿No eres tú? Cambiar usuario»: se muestra junto a toda clave propia para que, si quien teclea no es quien tiene la sesión, cambie de usuario antes. */
+const rotuloSesion = () => (S.sesion?.autenticado && S.sesion.usuario
+  ? `<p class="quien-sesion" style="margin:8px 0;padding:8px 10px;border-radius:8px;background:var(--acento-suave);color:var(--texto);font-size:16px">Sesión de <b>${esc(S.sesion.usuario)}</b> · ¿No es usted? <button type="button" class="btn" data-cambiar-usuario style="min-height:0;padding:2px 10px">Cambiar usuario</button></p>`
+  : '');
+document.addEventListener('click', (ev) => {
+  const b = ev.target.closest?.('[data-cambiar-usuario]');
+  if (!b) return;
+  b.closest('dialog')?.close();
+  document.getElementById('btn-salir')?.click(); // cierra la sesión (la venta en curso queda en espera) y pide usuario y clave
+});
+// Todo cuadro que pide una clave (descuento, cambio de precio, entrada, retiro, gasto, abrir caja…) muestra quién tiene la sesión. Los que eligen a OTRA persona que autoriza (con lista) ya muestran su nombre.
+const showModalOriginal = HTMLDialogElement.prototype.showModal;
+HTMLDialogElement.prototype.showModal = function (...args) {
+  try {
+    this.querySelector('.quien-sesion')?.remove();
+    const pin = this.querySelector('input[data-pin]');
+    if (pin && !this.querySelector('select')) (pin.closest('.campo') ?? pin).insertAdjacentHTML('beforebegin', rotuloSesion());
+  } catch { /* el rótulo es una ayuda: nunca impide abrir el cuadro */ }
+  return showModalOriginal.apply(this, args);
+};
 function dialogo(id) {
   let d = document.getElementById(id);
   if (!d) { d = document.createElement('dialog'); d.id = id; document.body.appendChild(d); }

@@ -170,4 +170,25 @@ describe('[navegador real] Cierre de caja guiado por pasos', { timeout: 240_000,
     assert.deepEqual([v.entradas, v.ajustes_admin, v.efectivo_esperado], [30000, 100000, 130000]);
     assert.deepEqual(errores.filter((e) => !/401|403|Failed to load resource/.test(e)), []);
   });
+  it('UC3 todo cuadro que pide una clave muestra quién tiene la sesión y permite cambiar de usuario', async (t) => {
+    const browser = await chromium.launch({ executablePath: chromiumPath, args: ['--no-sandbox'] });
+    const ctx = nuevoMundo(sqlite, politica());
+    const adm = await appAdmin(ctx);
+    const caja = await appCajero(ctx, 'DUO', 1, 'Lupe');
+    t.after(async () => { await browser.close(); await adm.cerrar(); await caja.cerrar(); ctx.limpiar(); });
+    await api(adm.url, '/api/admin/cajeros', { nombre: 'Lupe', clave: '4321' });
+    ctx.m.pump(); ctx.m.pump(); ctx.m.pump();
+    await api(caja.url, '/api/login', { usuario: 'Lupe', clave: '4321' });
+    const { page, errores } = await pagina(browser, caja.url);
+    await page.waitForSelector('#scan');
+    await page.fill('#scan', '0002026090782'); await page.press('#scan', 'Enter');
+    await page.waitForSelector('#cuerpo tr[data-linea]');
+    await page.click('#btn-descuento');
+    await page.waitForSelector('#form-descuento');
+    assert.match((await page.textContent('#dlg-descuento .quien-sesion'))!, /Sesión de Lupe/);
+    // «Cambiar usuario» cierra la sesión (la venta queda en espera) y vuelve a pedir usuario y clave
+    await page.click('#dlg-descuento [data-cambiar-usuario]');
+    await page.waitForSelector('#lg-usuario');
+    assert.deepEqual(errores.filter((e) => !/401|403|Failed to load resource/.test(e)), []);
+  });
 });
