@@ -98,6 +98,19 @@ export function revisarReporteAnterior(filasHoja: unknown[][]): RevisionHistoric
   for (const c of crudas) if (c.f?.deTexto && c.f.d > 12) meses.set(`${c.f.y}-${c.f.m}`, (meses.get(`${c.f.y}-${c.f.m}`) ?? 0) + 1);
   const ref = [...meses.entries()].sort((a, b) => b[1] - a[1])[0]?.[0]?.split('-').map(Number) as [number, number] | undefined;
 
+  // Fechas con día y mes intercambiados (Excel leyó 01/09 como 9 de enero): solo pueden estarlo las que llegaron como fecha de Excel con día ≤ 12 y distinto del mes.
+  // Los folios crecen con el tiempo, así que cada fecha dudosa se resuelve con las seguras de sus folios vecinos: sirve igual para un mes que para dos años.
+  const dia = (f: { y: number; m: number; d: number }) => Date.UTC(f.y, f.m - 1, f.d) / 86_400_000;
+  const dudosa = (c: { f: ReturnType<typeof aFecha> }) => !!c.f && !c.f.deTexto && c.f.d <= 12 && c.f.d !== c.f.m;
+  const anclas = crudas.filter((c) => c.f && !dudosa(c)).map((c) => ({ folio: c.folio, t: dia(c.f!) })).sort((a, b) => a.folio - b.folio);
+  const fechaEsperada = (folio: number): number | null => {
+    let lo = 0, hi = anclas.length;
+    while (lo < hi) { const mid = (lo + hi) >> 1; if (anclas[mid]!.folio < folio) lo = mid + 1; else hi = mid; }
+    const ant = lo > 0 ? anclas[lo - 1]! : null, sig = lo < anclas.length ? anclas[lo]! : null;
+    if (ant && sig) return sig.folio === ant.folio ? ant.t : ant.t + ((sig.t - ant.t) * (folio - ant.folio)) / (sig.folio - ant.folio);
+    return (ant ?? sig)?.t ?? null;
+  };
+
   const filas: VentaHistorica[] = [];
   const revisar: RevisionHistorica['para_revisar'] = [];
   let corregidas = 0;
@@ -105,7 +118,12 @@ export function revisarReporteAnterior(filasHoja: unknown[][]): RevisionHistoric
   for (const c of crudas) {
     if (!c.f) { errores.push(`Fila ${c.fila} (folio ${c.folio}): fecha ilegible «${String(c.fechaTxt)}».`); continue; }
     let { y, m, d } = c.f;
-    if (!c.f.deTexto && ref && y === ref[0] && d === ref[1] && m !== ref[1]) { [m, d] = [d, m]; corregidas++; } // Excel leyó 01/09 como 9 de enero
+    if (dudosa(c)) {
+      const esperada = fechaEsperada(c.folio);
+      // Con folios vecinos de fecha segura: gana la lectura (tal cual o intercambiada) más cercana a la fecha que toca por el folio; sin ellos, la regla del mes de referencia.
+      const cambiar = esperada !== null ? Math.abs(dia({ y, m: d, d: m }) - esperada) < Math.abs(dia({ y, m, d }) - esperada) : !!(ref && y === ref[0] && d === ref[1] && m !== ref[1]);
+      if (cambiar) { [m, d] = [d, m]; corregidas++; }
+    }
     if (m < 1 || m > 12 || d < 1 || d > diasDelMes(y, m)) { errores.push(`Fila ${c.fila} (folio ${c.folio}): fecha inválida.`); continue; }
     if (vistos.has(c.folio)) { errores.push(`El folio ${c.folio} aparece más de una vez.`); continue; }
     vistos.add(c.folio);
@@ -122,8 +140,8 @@ export function revisarReporteAnterior(filasHoja: unknown[][]): RevisionHistoric
     if (nota) revisar.push({ folio: v.folio, fecha, tipo, pago, piezas: v.piezas, total: v.total, nota });
   }
   filas.sort((a, b) => a.folio - b.folio);
-  if (corregidas) avisos.push(`${corregidas} fecha(s) venían con el día y el mes intercambiados (Excel leyó, por ejemplo, 01/${dosDig(ref![1])} como 9 de enero); ya las corregí al mes ${dosDig(ref![1])}/${ref![0]}.`);
-  if (!ref) avisos.push('No pude comprobar si hay fechas con el día y el mes intercambiados (no hay fechas escritas como texto con día mayor a 12). Revise el rango de fechas.');
+  if (corregidas) avisos.push(`${corregidas} fecha(s) venían con el día y el mes intercambiados (Excel leyó, por ejemplo, 01/09 como 9 de enero); ya las corregí según los folios vecinos.`);
+  if (!ref && !anclas.length) avisos.push('No pude comprobar si hay fechas con el día y el mes intercambiados (no hay fechas escritas como texto con día mayor a 12). Revise el rango de fechas.');
   const fueraDeOrden = filas.some((f, i) => i > 0 && f.fecha < filas[i - 1]!.fecha);
   if (fueraDeOrden) avisos.push('Las fechas no van en orden creciente respecto a los folios: revise que estén bien.');
   const huecos: number[] = [];

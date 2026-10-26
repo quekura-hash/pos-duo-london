@@ -127,3 +127,26 @@ porAlmacen('Reporte para la contadora: Excel con detalle y resumen por día, his
     assert.equal(det2.filter((f) => f[12] === 'POS nuevo').length, 1);
   });
 });
+
+it('HV3 un reporte de varios años: las fechas intercambiadas se corrigen con los folios vecinos (no solo las de un mes)', () => {
+  // Folios consecutivos desde el 1 de enero de 2024, 3 tickets por día. Excel deja como fecha (ISO) las de día ≤ 12 con día y mes intercambiados; las de día > 12 quedan como texto dd/mm/aaaa.
+  const filas: unknown[][] = [ENCABEZADO];
+  const esperadas = new Map<number, string>();
+  let folio = 43000;
+  for (let t = Date.UTC(2024, 0, 1); t <= Date.UTC(2025, 11, 31); t += 86_400_000) {
+    const d = new Date(t), y = d.getUTCFullYear(), m = d.getUTCMonth() + 1, dd = d.getUTCDate();
+    for (let k = 0; k < 3; k++, folio++) {
+      esperadas.set(folio, `${y}-${String(m).padStart(2, '0')}-${String(dd).padStart(2, '0')}`);
+      const p2 = (n: number) => String(n).padStart(2, '0');
+      filas.push(fila(dd > 12 || dd === m ? `${p2(dd)}/${p2(m)}/${y}` : `${y}-${p2(dd)}-${p2(m)}T00:00:00.000Z`, folio, 'Sales', 1, 100 + (folio % 7), 'Cash'));
+    }
+  }
+  const r = revisarReporteAnterior(filas);
+  assert.deepEqual(r.errores, []);
+  const malas = r.filas.filter((f) => f.fecha !== esperadas.get(f.folio));
+  assert.equal(malas.length, 0, `fechas mal: ${malas.slice(0, 3).map((f) => `${f.folio}→${f.fecha} (esperada ${esperadas.get(f.folio)})`).join('; ')}`);
+  assert.equal(r.resumen.desde, '2024-01-01');
+  assert.equal(r.resumen.hasta, '2025-12-31');
+  assert.ok(r.resumen.fechas_corregidas > 600, 'se corrigieron muchas fechas dudosas');
+  assert.ok(!r.avisos.some((a) => /no van en orden/.test(a)), 'con las fechas bien, van en orden respecto a los folios');
+});
