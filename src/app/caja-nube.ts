@@ -4,7 +4,7 @@
 import type { Impresora, TrabajoImpresion } from '../impresion.ts';
 import type { Op } from '../tipos.ts';
 import { CAJAS_ESTANDAR, fabricaMemoria, Mundo } from '../mundo.ts';
-import { relevanteParaHub } from '../nodos.ts';
+import { folioMaximoConocido, relevanteParaHub } from '../nodos.ts';
 import { crearPoliticasEnsayo } from '../politicas.ts';
 import { MemoriaRepo } from '../repo.ts';
 import { PuenteCentral, type ClienteCentral } from '../transporte/puente-central.ts';
@@ -138,12 +138,7 @@ export function iniciarCajaNube(o: { cliente: ClienteCaja; almacen?: AlmacenCaja
    */
   function alinearFolios() {
     if (!m || !identidad) return;
-    let maximo = 0;
-    for (const op of m.central.repo.ops()) {
-      if (op.tienda !== identidad.tienda || op.caja !== identidad.caja) continue;
-      if (op.tipo === 'sale.confirmed') maximo = Math.max(maximo, Number(op.payload.folio) || 0);
-      else if (op.tipo === 'folio.gap') maximo = Math.max(maximo, Number(op.payload.hasta) || 0);
-    }
+    const maximo = folioMaximoConocido(m.central.repo.ops(), identidad.tienda, identidad.caja);
     m.caja(identidad.tienda, identidad.caja).continuarFoliosDesde(maximo);
   }
 

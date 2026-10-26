@@ -104,7 +104,7 @@ const esMovimientoLimbo = (op: Op) => op.tipo === 'inv.movement' && op.payload.t
 const esAjusteAdmin = (op: Op) => (op.tipo === 'inv.movement' && op.payload.tipo === 'ajuste_admin') || (op.tipo === 'inv.conteo' && op.payload.admin === true);
 const BROADCAST_TIENDA = new Set(['cajero.ubicacion', 'alm.recibida', 'inv.movement', 'inv.conteo', 'inv.verificacion_pendiente', 'doc.perdida_posible', 'item.created', 'item.item_no_assigned', 'giftcard.emitida', 'giftcard.recarga', 'giftcard.uso', 'giftcard.reintegro']);
 // Lo que el central baja a hubs y cajas (catálogo y resoluciones administrativas).
-const CATALOGO = new Set(['cajero.ubicacion', 'item.created', 'item.item_no_assigned', 'item.codigo_corregido', 'doc.perdida_resuelta', 'giftcard.emitida', 'giftcard.recarga', 'giftcard.uso', 'giftcard.reintegro', 'config.tipo_cambio', 'permiso.asignado', 'depto.alta', 'depto.editado', 'alm.entrega', 'alm.faltante', 'promo.guardada', 'recompensa.guardada', 'supervisor.guardado', 'cajero.guardado', 'config.sesion', 'config.negocio', 'item.editado', 'caja.fondo_autorizado', 'cash.ajuste_admin', 'empleadas.config', 'empleada.credito', 'empleada.movimiento', 'venta.consulta']);
+const CATALOGO = new Set(['cajero.ubicacion', 'item.created', 'item.item_no_assigned', 'item.codigo_corregido', 'doc.perdida_resuelta', 'giftcard.emitida', 'giftcard.recarga', 'giftcard.uso', 'giftcard.reintegro', 'config.tipo_cambio', 'permiso.asignado', 'depto.alta', 'depto.editado', 'alm.entrega', 'alm.faltante', 'promo.guardada', 'recompensa.guardada', 'supervisor.guardado', 'cajero.guardado', 'config.sesion', 'config.negocio', 'item.editado', 'caja.fondo_autorizado', 'cash.ajuste_admin', 'empleadas.config', 'empleada.credito', 'empleada.movimiento', 'venta.consulta', 'folio.continuacion']);
 /** Días de ventas del POS anterior que las cajas conservan para consulta. */
 export const DIAS_CONSULTA_HISTORICA = 60;
 /** Fondo fijo de cada caja mientras Administración no asigne otro (centavos). */
@@ -117,6 +117,21 @@ export function relevanteParaHub(op: Op, tienda: string): boolean {
   if (CATALOGO.has(op.tipo) || esMovimientoLimbo(op)) return true;
   const inventario = op.tipo.startsWith('inv.') || op.tipo.startsWith('doc.') || op.tipo.startsWith('giftcard.') || op.tipo.startsWith('alm.');
   return inventario && op.payload?.tienda === tienda;
+}
+
+/**
+ * Mayor folio de una caja que el central ya conoce: ventas de esa caja, huecos documentados y la continuación del sistema anterior (`folio.continuacion`,
+ * que Administración emite al importar las ventas viejas). El contador de la caja nunca queda por debajo.
+ */
+export function folioMaximoConocido(ops: Op[], tienda: string, caja: number): number {
+  let maximo = 0;
+  for (const op of ops) {
+    if (op.tipo === 'folio.continuacion') { if (op.payload.tienda === tienda && op.payload.caja === caja) maximo = Math.max(maximo, Number(op.payload.hasta) || 0); continue; }
+    if (op.tienda !== tienda || op.caja !== caja) continue;
+    if (op.tipo === 'sale.confirmed') maximo = Math.max(maximo, Number(op.payload.folio) || 0);
+    else if (op.tipo === 'folio.gap') maximo = Math.max(maximo, Number(op.payload.hasta) || 0);
+  }
+  return maximo;
 }
 
 // ───────────────────────────── Hub ─────────────────────────────
@@ -722,7 +737,7 @@ export class Central {
    * Cada ticket lleva un identificador estable (tienda/caja/folio): volver a importar el mismo archivo no duplica nada.
    * La operación no lleva tienda: queda en Administración y las cajas no la descargan.
    */
-  importarVentasHistoricas(d: { tienda: string; caja: number; lote: string; por: string; filas: VentaHistorica[] }): { nuevas: number; existentes: number } {
+  importarVentasHistoricas(d: { tienda: string; caja: number; lote: string; por: string; filas: VentaHistorica[]; continuarFolios?: boolean }): { nuevas: number; existentes: number; folio_maximo: number; siguiente_folio: number } {
     let nuevas = 0;
     const limite = new Date(Date.parse(this.ctx.reloj.now()) - DIAS_CONSULTA_HISTORICA * 86400_000).toISOString().slice(0, 10);
     for (const f of d.filas) {
@@ -733,7 +748,15 @@ export class Central {
         if (!this.repo.tieneOp(id)) this.emitirAdmin('venta.consulta', payloadVentaHistorica(f, d), id);
       }
     }
-    return { nuevas, existentes: d.filas.length - nuevas };
+    // Los folios nuevos de esta caja continúan después del último folio del sistema anterior (nunca baja el contador ni repite un número).
+    const folio_maximo = this.folioMaximoHistorico(d.tienda, d.caja);
+    if (d.continuarFolios && folio_maximo > 0) this.emitirAdmin('folio.continuacion', { tienda: d.tienda, caja: d.caja, hasta: folio_maximo, motivo: 'continuación del sistema anterior', por: d.por }, `folio.continuacion:${d.tienda}/${d.caja}:${folio_maximo}`);
+    return { nuevas, existentes: d.filas.length - nuevas, folio_maximo, siguiente_folio: d.continuarFolios ? folio_maximo + 1 : 0 };
+  }
+  /** Mayor folio de las ventas importadas del sistema anterior para una caja (0 si no hay). */
+  folioMaximoHistorico(tienda: string, caja: number): number {
+    const prefijo = `hist:${tienda}/${caja}:`;
+    return this.repo.opsDeTipos(['venta.historica']).filter((o) => o.op_id.startsWith(prefijo)).reduce((m, o) => Math.max(m, Number(o.payload.folio) || 0), 0);
   }
 
   /**

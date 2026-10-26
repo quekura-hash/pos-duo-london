@@ -1610,13 +1610,13 @@ export class ServicioAdmin {
     return { tienda, caja, revision: { ...revision, filas: undefined }, ya_importadas: yaImportadas, nuevas: revision.filas.length - yaImportadas };
   }
   /** Guarda las ventas históricas revisadas (el mismo archivo otra vez no duplica nada). */
-  importarVentasHistoricas(d: { filas: unknown[][]; tienda?: string; caja?: number; nombre?: string }) {
+  importarVentasHistoricas(d: { filas: unknown[][]; tienda?: string; caja?: number; nombre?: string; continuar_folios?: boolean }) {
     if (!this.central) throw new ErrorDominio('SIN_CENTRAL', 'esta sesión no tiene acceso al servicio central');
     const r = this.revisarVentasHistoricas(d.filas, d);
     if (r.revision.errores.length) throw new ErrorDominio('ARCHIVO_INVALIDO', r.revision.errores.join('; '));
     const revision = revisarReporteAnterior(d.filas);
     if (!revision.filas.length) throw new ErrorDominio('ARCHIVO_INVALIDO', 'el archivo no tiene tickets para importar');
-    const res = this.central.importarVentasHistoricas({ tienda: r.tienda, caja: r.caja, lote: String(d.nombre ?? 'archivo sin nombre'), por: this.actor.usuario, filas: revision.filas });
+    const res = this.central.importarVentasHistoricas({ tienda: r.tienda, caja: r.caja, lote: String(d.nombre ?? 'archivo sin nombre'), por: this.actor.usuario, filas: revision.filas, continuarFolios: !!d.continuar_folios });
     return { ...res, resumen: revision.resumen };
   }
   /** Alta manual de un artículo (o suma de piezas si el código ya existe). */

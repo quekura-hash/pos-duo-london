@@ -1654,6 +1654,7 @@ async function abrirImportarHistoricas(cajas, alTerminar) {
     <div class="campo"><label for="hist-archivo">Archivo de Excel (.xlsx)</label><input id="hist-archivo" type="file" accept=".xlsx"></div>
     <div id="hist-msg" class="mensaje" role="status" aria-live="polite"></div>
     <div id="hist-previa"></div>
+    <label style="display:flex;gap:8px;align-items:flex-start;margin:8px 0"><input type="checkbox" id="hist-folios" checked style="margin-top:4px"><span>Que los tickets nuevos de esta caja <b>continúen después del último folio</b> importado (así no se repiten números del sistema anterior). Solo sube el contador; nunca lo baja.</span></label>
     <div class="filas"><button class="btn" type="button" id="hist-cerrar">Cerrar</button><button class="btn btn-primario" type="button" id="hist-confirmar" style="width:auto;flex:1" disabled>${ico('check')}<span>Importar</span></button></div>`;
   d.showModal();
   const msg = (t, tipo = '') => { const m = $('#hist-msg'); m.className = `mensaje ${tipo}`; m.textContent = t; };
@@ -1691,8 +1692,8 @@ async function abrirImportarHistoricas(cajas, alTerminar) {
   $('#hist-confirmar').addEventListener('click', async () => {
     $('#hist-confirmar').disabled = true;
     try {
-      const r = await api('/api/admin/ventas-historicas/importar', { filas: hoja, ...caja(), nombre });
-      msg(`Listo: ${r.nuevas} ticket(s) importados${r.existentes ? `, ${r.existentes} ya existían` : ''}. Total ${mxn(r.resumen.total)}.`, 'ok');
+      const r = await api('/api/admin/ventas-historicas/importar', { filas: hoja, ...caja(), nombre, continuar_folios: $('#hist-folios').checked });
+      msg(`Listo: ${r.nuevas} ticket(s) importados${r.existentes ? `, ${r.existentes} ya existían` : ''}. Total ${mxn(r.resumen.total)}.${r.siguiente_folio > 1 ? ` Los tickets nuevos de esta caja seguirán desde el folio ${r.siguiente_folio} (después del último del sistema anterior).` : ''}`, 'ok');
       $('#hist-previa').innerHTML = '';
       alTerminar?.();
     } catch (e) { msg(e.message, 'error'); $('#hist-confirmar').disabled = false; }
