@@ -27,7 +27,7 @@ describe('[navegador real] Personal: una sola lista de perfiles y sus pestañas'
     assert.ok((await page.$$eval('#nav button', (b) => b.map((x) => x.textContent))).includes('Personal'));
     await page.click('#nav button[data-vista="configuracion"]');
     await page.waitForSelector('#cfg-tab-tiendas');
-    assert.deepEqual(await page.$$eval('[role="tab"]', (b) => b.map((x) => x.textContent)), ['Tiendas', 'Departamentos', 'Tipo de cambio', 'Cajas']);
+    assert.deepEqual(await page.$$eval('[role="tab"]', (b) => b.map((x) => x.textContent)), ['Tiendas', 'Departamentos', 'Tipo de cambio', 'Cajas', 'Feria']);
     await page.click('#cfg-tab-cajas');
     await page.waitForSelector('#form-inactividad');
     // Personal: cuatro pestañas y Perfiles por omisión
