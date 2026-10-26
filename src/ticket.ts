@@ -1,5 +1,6 @@
 import type { Devolucion } from './proyecciones.ts';
 import type { RetiroRegistrado } from './retiros.ts';
+import type { GastoRegistrado } from './gastos.ts';
 import type { Venta } from './tipos.ts';
 import { formatoTasa } from './dinero.ts';
 import { fechaLocal } from './util.ts';
@@ -522,6 +523,25 @@ export function renderTicketRetiroTexto(r: RetiroRegistrado, cfg: NegocioCfg, re
   return L.join('\n') + '\n';
 }
 
+/** Recibo de «Gasto de caja»: lo firma quien recibe el dinero, quien lo entrega y, si lo hubo, quien autorizó. */
+export function renderTicketGastoTexto(g: GastoRegistrado, cfg: NegocioCfg, reimpresion = 0): string {
+  const c = cfg.columnas;
+  const regla = '-'.repeat(c);
+  const local = new Date(Date.parse(g.ocurrio_en) - 7 * 3600_000).toISOString();
+  const [y, mo, dd] = fechaLocal(g.ocurrio_en).split('-');
+  const L: string[] = [centrar(cfg.nombre, c)];
+  for (const x of encabezadoDe(cfg)) L.push(...envolver(x, c).map((y2) => centrar(y2, c)));
+  L.push(centrar(`Tienda ${g.tienda} - Caja ${g.caja}`, c), '', centrar('*** GASTO DE CAJA ***', c), centrar('RECIBO', c));
+  if (reimpresion > 0) L.push(centrar(`REIMPRESIÓN ${reimpresion}`, c));
+  L.push('', `Folio: ${g.folio_gasto}`, `Fecha: ${dd}/${mo}/${y}  ${local.slice(11, 16)}`, regla);
+  L.push(...envolver(`Concepto: ${g.concepto}`, c), ...envolver(`Recibe: ${g.recibio}`, c), regla, dos('IMPORTE', formatoMXN(g.monto), c), regla);
+  L.push(...envolver(`Recibí de ${cfg.nombre} la cantidad de ${formatoMXN(g.monto)} por el concepto indicado.`, c));
+  L.push('', '', '_'.repeat(c), 'Firma de quien recibe', ...envolver(g.recibio, c));
+  L.push('', '', '_'.repeat(c), 'Entrega (Vendedora-Cajera)', ...envolver(g.usuario, c));
+  if (g.autorizado_por) L.push('', `Autorizó: ${g.autorizado_por}`.slice(0, c));
+  return L.join('\n') + '\n';
+}
+
 // ── ticket de cierre de corte ──
 /** Datos del corte que imprime el ticket (los de `Caja.corteEnVivo` / el corte guardado; lo que un corte viejo no trae sale «No disponible»). */
 export type DatosCorte = Record<string, any>;
@@ -575,6 +595,7 @@ export function lineasTicketCorte(k: DatosCorte, cfg: NegocioCfg = NEGOCIOS[k.ti
   L.push(b('CONCILIACIÓN DEL EFECTIVO EN PESOS'), t(dos('Cobros recibidos', formatoMXN(m.cobros ?? 0), c)), t(dos('Cambio entregado', `-${formatoMXN(m.cambio ?? 0)}`, c)), t(dos('Devoluciones en efectivo', `-${formatoMXN(m.devoluciones ?? 0)}`, c)));
   if (m.cancelaciones) L.push(t(dos('Cancelaciones', `-${formatoMXN(m.cancelaciones)}`, c)));
   if (m.retiros) L.push(t(dos('Retiros', `-${formatoMXN(m.retiros)}`, c)));
+  if (m.gastos) L.push(t(dos('Gastos de caja', `-${formatoMXN(m.gastos)}`, c)));
   if (m.entradas) L.push(t(dos('Entradas extraordinarias', formatoMXN(m.entradas), c)));
   if (m.ajustes) L.push(t(dos('Ajustes de Administración', formatoMXN(m.ajustes), c)));
   L.push(t(regla), b(dos('Efectivo de ventas esperado', dato(k.efectivo_ventas_esperado), c)));

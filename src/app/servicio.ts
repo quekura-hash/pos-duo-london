@@ -1,6 +1,7 @@
 import { revisarReporteAnterior, idVentaHistorica } from '../ventas-historicas.ts';
 import { AGRUPACIONES, analizarVentas, type Agrupar } from '../analisis-ventas.ts';
-import { retirosPorCaja, cortesPorCaja, descuentosPorCaja, dolaresPorCaja, reporteConsolidado, ventasPorCaja, ventasPorVendedora, type Filtro } from '../consultas.ts';
+import { gastosPorCaja, retirosPorCaja, cortesPorCaja, descuentosPorCaja, dolaresPorCaja, reporteConsolidado, ventasPorCaja, ventasPorVendedora, type Filtro } from '../consultas.ts';
+import type { GastoRegistrado } from '../gastos.ts';
 import { DIAS_URGENTE, diasHasta, entradasDeArticulo, existenciaAlmacen, faltantes, recepcionesPendientes, recordatoriosPiso, reporteEntregas, revisarAlta, type AltaManual } from '../almacen.ts';
 import { DEPARTAMENTOS_BASE, resolverDepartamento } from '../departamentos.ts';
 import { formatoTasa } from '../dinero.ts';
@@ -12,7 +13,7 @@ import { cuentasEmpleadas, configEmpleadas, CRITERIOS_EXPEDIENTE, expedientesDe,
 import { hojaAnalisis, hojaDetalleVentas, hojaResumenVentas, hojaDescuentos, hojaEntregas, hojaDolares, hojaInventario, leerInventario, PERFIL_CONFIRMADO, type Hoja } from '../inventario.ts';
 import { LOGOS_TICKET } from '../logos-ticket.ts';
 import { detalleHistorica, detalleDeVenta, validarDatosClienta, type DatosClienta } from '../detalle-venta.ts';
-import { aplicarDatosTienda, codigoTicket, interpretarFolio, construirTicket, construirTicketRegalo, formatoMXN, NEGOCIOS, renderTextoEscPos, renderTicketCancelacionTexto, renderTicketFirmaTexto, renderTicketDevolucionTexto, type ComprobanteClienta, renderTicketRetiroTexto, renderTicketEscPos, renderTicketCorteEscPos, renderTicketCorteTexto, renderTicketTexto, type NegocioCfg } from '../ticket.ts';
+import { aplicarDatosTienda, codigoTicket, interpretarFolio, construirTicket, construirTicketRegalo, formatoMXN, NEGOCIOS, renderTextoEscPos, renderTicketCancelacionTexto, renderTicketGastoTexto, renderTicketFirmaTexto, renderTicketDevolucionTexto, type ComprobanteClienta, renderTicketRetiroTexto, renderTicketEscPos, renderTicketCorteEscPos, renderTicketCorteTexto, renderTicketTexto, type NegocioCfg } from '../ticket.ts';
 import { promoDeRegla, type ReglaRecompensa } from '../recompensas.ts';
 import { adminProtegido, hashClave, nombreClave, supervisorPorClave, type Perfil, type RolAdmin } from '../supervisores.ts';
 import { LIMBO, type Actor, type Articulo, type Linea, type Op, type Venta } from '../tipos.ts';
@@ -200,7 +201,8 @@ export class ServicioCaja {
     const entradas = this.caja.opsDe('cash.movement').filter((o) => propia(o.payload) && o.payload.tipo === 'entrada').map((o) => ({ tipo: 'entrada', moneda: o.payload.moneda, monto: o.payload.monto, motivo: o.payload.motivo ?? '', autorizado_por: o.payload.autorizado_por ?? null, usuario: o.payload.usuario ?? null, ocurrio_en: o.ocurrio_en }));
     const retiros = this.caja.opsDe('cash.retiro').filter((o) => propia(o.payload)).map((o) => ({ tipo: 'retiro', moneda: 'MXN', monto: o.payload.equivalente_mxn, motivo: '', autorizado_por: null, usuario: o.payload.usuario, ocurrio_en: o.ocurrio_en, folio: o.payload.folio_retiro }));
     const ajustes = this.caja.opsDe('cash.ajuste_admin').filter((o) => propia(o.payload)).map((o) => ({ tipo: o.payload.tipo === 'salida' ? 'ajuste_salida' : 'ajuste_entrada', moneda: 'MXN', monto: o.payload.monto, motivo: o.payload.motivo, autorizado_por: o.payload.por, usuario: o.payload.por, ocurrio_en: o.ocurrio_en }));
-    return { fecha, operaciones: [...entradas, ...retiros, ...ajustes].sort((a, b) => b.ocurrio_en.localeCompare(a.ocurrio_en)) };
+    const gastos = this.caja.opsDe('cash.gasto').filter((o) => propia(o.payload)).map((o) => ({ tipo: 'gasto', moneda: 'MXN', monto: o.payload.monto, motivo: `${o.payload.concepto} · recibió ${o.payload.recibio}`, autorizado_por: o.payload.autorizado_por ?? null, usuario: o.payload.usuario, ocurrio_en: o.ocurrio_en, folio: o.payload.folio_gasto, gasto_id: o.payload.gasto_id }));
+    return { fecha, operaciones: [...entradas, ...retiros, ...ajustes, ...gastos].sort((a, b) => b.ocurrio_en.localeCompare(a.ocurrio_en)) };
   }
   /** Cuenta y confirma el fondo físico. La cajera no cambia el monto autorizado: solo registra lo que hay (con nota si no coincide). */
   confirmarFondo(denominaciones: Record<string, number>, nota?: string) {
@@ -227,6 +229,26 @@ export class ServicioCaja {
   async registrarRetiro(d: { retiro_id: string; mxn?: Record<string, number>; usd?: Record<string, number>; clave?: string }) {
     const retiro = this.caja.registrarRetiro({ ...d, usuario: this.actor.usuario });
     return { retiro, ...(await this.imprimirRetiro(retiro, 0)), estado: this.estadoRetiro() };
+  }
+  /** Gasto de caja (pago con efectivo del cajón): lo registra, imprime el recibo para firmar y queda en el corte. Una falla de impresión no lo deshace. */
+  async registrarGasto(d: { ref: string; monto: number; concepto: string; recibio: string; autoriza?: Autoriza }) {
+    const gasto = this.caja.registrarGasto({ ...d, usuario: this.actor.usuario });
+    return { gasto, ...(await this.imprimirGasto(gasto, 0)) };
+  }
+  async reimprimirGasto(gastoId: string) {
+    const hoy = fechaLocal(this.reloj.now());
+    const gasto = this.caja.gastos(hoy).find((x) => x.gasto_id === gastoId) ?? this.caja.gastos(fechaLocal(new Date(Date.parse(this.reloj.now()) - 86400000).toISOString())).find((x) => x.gasto_id === gastoId);
+    if (!gasto) throw new ErrorDominio('GASTO_INEXISTENTE', 'ese gasto no existe en esta caja');
+    return { gasto, ...(await this.imprimirGasto(gasto, 1)) };
+  }
+  private async imprimirGasto(g: GastoRegistrado, reimpresion: number) {
+    const texto = renderTicketGastoTexto(g, this.negociosVivos()[g.tienda]!, reimpresion);
+    try {
+      await this.impresora.imprimir({ ref: `gasto:${g.gasto_id}${reimpresion ? `:re${Date.now()}` : ''}`, texto, bytes: renderTextoEscPos(texto) });
+      return { ticket_texto: texto, impresion: { ok: true as boolean, error: undefined as string | undefined } };
+    } catch (e) {
+      return { ticket_texto: texto, impresion: { ok: false, error: e instanceof Error ? e.message : String(e) } };
+    }
   }
   async reimprimirRetiro(retiroId: string) {
     const retiro = this.caja.retiros(fechaLocal(this.reloj.now())).find((r) => r.retiro_id === retiroId)
@@ -1673,7 +1695,8 @@ export class ServicioAdmin {
     const ordenadas = [...filas].sort((a, b) => `${b.fecha_local} ${b.hora}`.localeCompare(`${a.fecha_local} ${a.hora}`) || b.folio - a.folio);
     // Los retiros de efectivo del mismo periodo y cajas (no se filtran por folio ni por origen: no son ventas).
     const retiros = buscado || origen === 'anterior' ? [] : retirosPorCaja(this.actor, this.fuente(), filtro);
-    return { ventas: ordenadas.slice(0, 500), total_filas: ordenadas.length, truncado: ordenadas.length > 500, retiros };
+    const gastos = buscado || origen === 'anterior' ? [] : gastosPorCaja(this.actor, this.fuente(), filtro);
+    return { ventas: ordenadas.slice(0, 500), total_filas: ordenadas.length, truncado: ordenadas.length > 500, retiros, gastos };
   }
   /**
    * Resumen del día de TODAS las tiendas (el mismo que llega como aviso a las 9 p. m.): por tienda y en total, la venta total, cómo se cobró
@@ -1686,8 +1709,10 @@ export class ServicioAdmin {
     const devs = devoluciones(ops).filter((d) => fechaLocal(d.ocurrio_en) === dia);
     const suma = (xs: number[]) => xs.reduce((a, b) => a + b, 0);
     const retirosDia = retirosPorCaja(this.actor, ops, { desde: dia, hasta: dia });
+    const gastosDia = gastosPorCaja(this.actor, ops, { desde: dia, hasta: dia });
     const filaDe = (tienda: string | null) => {
       const rt = retirosDia.filter((x) => tienda === null || x.tienda === tienda);
+      const gt = gastosDia.filter((x) => tienda === null || x.tienda === tienda);
       const v = vs.filter((x) => tienda === null || x.tienda === tienda);
       const conf = v.filter((x) => x.estado === 'confirmada');
       const d = devs.filter((x) => tienda === null || x.tienda === tienda);
@@ -1701,7 +1726,7 @@ export class ServicioAdmin {
         efectivo: pagos('efectivo') + pagos('efectivo_usd'), pesos: pagos('efectivo'), dolares_mxn: pagos('efectivo_usd'), tarjeta: pagos('tarjeta'), tarjeta_regalo: pagos('tarjeta_regalo'), credito_empleadas: pagos('credito_empleada'),
         mercancia_recibida_por_cambio: recibida, devoluciones_con_reembolso: suma(d.map((x) => x.importe)) - recibida, devuelto_a_tarjeta: suma(d.flatMap((x) => x.reembolsos.filter((r) => r.metodo === 'tarjeta').map((r) => r.monto))),
         ventas_netas: ventaTotal - suma(d.map((x) => x.importe)), reembolsado,
-        retiros: suma(rt.map((x) => x.equivalente_mxn)), retiros_n: rt.length,
+        retiros: suma(rt.map((x) => x.equivalente_mxn)), retiros_n: rt.length, gastos: suma(gt.map((x) => x.monto)), gastos_n: gt.length,
       };
     };
     const info = this.tiendasInfo();

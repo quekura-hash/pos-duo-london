@@ -88,6 +88,22 @@ export function retirosPorCaja(actor: Actor, ops: Op[], f: Filtro = {}): FilaRet
   return filas.sort((x, y) => `${y.fecha_local} ${y.hora}`.localeCompare(`${x.fecha_local} ${x.hora}`));
 }
 
+export interface FilaGasto { tienda: string; caja: number; folio_gasto: string; fecha_local: string; hora: string; usuario: string; concepto: string; recibio: string; autorizado_por: string | null; monto: number; gasto_id: string }
+/** Gastos de caja (pagos con efectivo del cajón, con recibo firmado). */
+export function gastosPorCaja(actor: Actor, ops: Op[], f: Filtro = {}): FilaGasto[] {
+  const permitidas = cajasPermitidas(actor, f);
+  const filas: FilaGasto[] = [];
+  for (const o of ops) {
+    if (o.tipo !== 'cash.gasto') continue;
+    const r = o.payload;
+    if (permitidas !== 'todas' && !permitidas.some((c) => mismaCaja(c, r))) continue;
+    if (f.tiendas && !f.tiendas.includes(r.tienda)) continue;
+    if (!enPeriodo(o.ocurrio_en, f)) continue;
+    filas.push({ tienda: r.tienda, caja: r.caja, folio_gasto: r.folio_gasto, fecha_local: fechaLocal(o.ocurrio_en), hora: new Date(Date.parse(o.ocurrio_en) - 7 * 3600_000).toISOString().slice(11, 16), usuario: r.usuario, concepto: r.concepto, recibio: r.recibio, autorizado_por: r.autorizado_por ?? null, monto: r.monto, gasto_id: r.gasto_id });
+  }
+  return filas.sort((x, y) => `${y.fecha_local} ${y.hora}`.localeCompare(`${x.fecha_local} ${x.hora}`));
+}
+
 export function ventasPorCaja(actor: Actor, ops: Op[], f: Filtro = {}): FilaVenta[] {
   const permitidas = cajasPermitidas(actor, f);
   const filas: FilaVenta[] = [];

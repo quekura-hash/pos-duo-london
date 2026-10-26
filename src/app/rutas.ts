@@ -87,6 +87,8 @@ export async function atender(o: { cajero?: ServicioCaja; admin?: ServicioAdmin 
       case 'POST /api/venta/retomar': return ok(exigirCajero().retomarVenta(b.cart, b.actual ? String(b.actual) : undefined));
       case 'POST /api/venta/espera/descartar': return ok(exigirCajero().descartarEnEspera(b.cart));
       case 'GET /api/retiro': return ok({ retiro: exigirCajero().estadoRetiro() });
+      case 'POST /api/gasto': return ok(await exigirCajero().registrarGasto({ ref: String(b.ref ?? ''), monto: Number(b.monto), concepto: String(b.concepto ?? ''), recibio: String(b.recibio ?? ''), autoriza: b.autoriza }));
+      case 'POST /api/gasto/reimprimir': return ok(await exigirCajero().reimprimirGasto(String(b.gasto_id ?? '')));
       case 'POST /api/retiro': return ok(await exigirCajero().registrarRetiro({ retiro_id: String(b.retiro_id ?? ''), mxn: b.mxn ?? {}, usd: b.usd ?? {}, clave: b.clave === undefined ? undefined : String(b.clave) }));
       case 'POST /api/retiro/reimprimir': return ok(await exigirCajero().reimprimirRetiro(String(b.retiro_id ?? '')));
       case 'POST /api/venta/anular': return ok(exigirCajero().anularVenta(b.cart, String(b.motivo ?? 'anulada')));

@@ -1315,10 +1315,11 @@ async function vistaCorte() {
 
 // ── Operaciones extraordinarias de efectivo (fuera del cierre): entradas con clave de supervisor; los retiros tienen su módulo ──
 const nuevaRef = () => (globalThis.crypto?.randomUUID ? crypto.randomUUID() : `r-${Date.now()}-${Math.random().toString(16).slice(2)}`);
-const NOM_EXTRA = { entrada: 'Entrada de efectivo', retiro: 'Retiro', ajuste_entrada: 'Entrega de Administración', ajuste_salida: 'Salida por ajuste de Administración' };
+const NOM_EXTRA = { entrada: 'Entrada de efectivo', retiro: 'Retiro', ajuste_entrada: 'Entrega de Administración', ajuste_salida: 'Salida por ajuste de Administración', gasto: 'Gasto de caja' };
 async function vistaExtraordinarias() {
-  const j = await api('/api/efectivo/extraordinarias');
+  const [j, au] = await Promise.all([api('/api/efectivo/extraordinarias'), api('/api/venta/autorizadores')]);
   S.refEntrada ??= nuevaRef();
+  S.refGasto ??= nuevaRef();
   $('#vista').innerHTML = `<div class="titulo-vista">${ico('cash')}<h1>Operaciones extraordinarias de efectivo</h1></div>
     <section class="panel"><h2 style="margin-top:0">Entrada de efectivo</h2>
       <p class="nota">Dinero que entra al cajón y no es una venta. Lo autoriza un <b>supervisor con su clave</b> y queda registrado con el motivo. El fondo fijo no se registra aquí: se cuenta en el cierre y su monto lo asigna Administración. Para retirar efectivo use <button class="btn" type="button" id="ir-retiro">Retiro</button>.</p>
@@ -1330,9 +1331,42 @@ async function vistaExtraordinarias() {
         ${casillaSola('ent-solo', 'Supervisor ausente: autorizo yo con mi clave (queda anotado)')}
         <button class="btn btn-primario" id="btn-entrada" type="submit">${ico('plus')}<span>Registrar entrada</span></button>
       </form><div id="msg-ent" class="mensaje" role="status" aria-live="polite"></div></section>
+    <section class="panel" id="panel-gasto"><h2 style="margin-top:0">Gasto de caja</h2>
+      <p class="nota">Pagos con efectivo del cajón, por ejemplo al barrendero o a un proveedor. Se imprime un <b>recibo que firma quien recibe</b> y el gasto se resta del efectivo esperado en el corte.${au.pide_clave ? ' Lo autoriza otra Vendedora-Cajera o un supervisor con su clave.' : ''}</p>
+      <form id="form-gasto" autocomplete="off">
+        <div class="campo"><label for="gs-monto">Importe</label><input id="gs-monto" inputmode="decimal" placeholder="0.00" style="width:140px"></div>
+        <div class="campo"><label for="gs-concepto">Concepto</label><input id="gs-concepto" maxlength="80" placeholder="Ej. Pago de limpieza"></div>
+        <div class="campo"><label for="gs-recibio">Nombre de quien recibe</label><input id="gs-recibio" maxlength="60" placeholder="Nombre y apellido"></div>
+        ${au.pide_clave ? `<div class="campo" id="gs-quien-campo"><label for="gs-quien">Autoriza</label><select id="gs-quien" style="width:100%;padding:8px;border:1px solid var(--borde);border-radius:8px;background:var(--superficie)">${au.autorizadores.map((x) => `<option value="${esc(x.nombre)}">${esc(x.nombre)}${x.tipo === 'supervisor' ? ' (supervisor)' : ''}</option>`).join('')}</select></div>
+        <div class="campo"><label for="gs-clave">Clave de quien autoriza</label><input id="gs-clave" type="text" data-pin inputmode="numeric" autocomplete="off" style="width:140px"></div>
+        ${casillaSola('gs-solo', 'No hay nadie más para autorizar: autorizo yo con mi clave (queda anotado)')}` : ''}
+        <button class="btn btn-primario" id="btn-gasto" type="submit">${ico('receipt')}<span>Registrar gasto e imprimir recibo</span></button>
+      </form><div id="msg-gasto" class="mensaje" role="status" aria-live="polite"></div></section>
     <section class="panel"><h2 style="margin-top:0">Operaciones de hoy</h2><div class="tabla-cont"><table id="tabla-extraordinarias"><thead><tr><th>Hora</th><th>Operación</th><th class="num">Monto</th><th>Motivo</th><th>Autorizó</th></tr></thead><tbody>
       ${j.operaciones.map((o) => `<tr><td>${esc(fechaHora(o.ocurrio_en))}</td><td>${esc(NOM_EXTRA[o.tipo] ?? o.tipo)}${o.folio ? ` ${esc(o.folio)}` : ''}</td><td class="num">${o.moneda === 'USD' ? usd(o.monto) : mxn(o.monto)}</td><td>${esc(o.motivo || '—')}</td><td>${esc(o.autorizado_por || '—')}</td></tr>`).join('') || '<tr><td colspan="5" class="vacio">Sin operaciones extraordinarias hoy.</td></tr>'}</tbody></table></div></section>`;
   $('#ir-retiro').addEventListener('click', () => ir('retiro'));
+  $('#gs-solo')?.addEventListener('change', (e) => { $('#gs-quien-campo').hidden = e.target.checked; });
+  $('#form-gasto').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const m = $('#msg-gasto');
+    const monto = parseMXN($('#gs-monto').value);
+    const falla = (t, id) => { m.className = 'mensaje error'; m.textContent = t; const c = $(`#${id}`); if (c) { marcarCampoFalta(c); c.focus(); } };
+    if (monto === null || monto <= 0) return falla('Escriba el importe del gasto (por ejemplo 150 o 150.00).', 'gs-monto');
+    if ($('#gs-concepto').value.trim().length < 3) return falla('Escriba el concepto del gasto.', 'gs-concepto');
+    if ($('#gs-recibio').value.trim().length < 2) return falla('Escriba el nombre de quien recibe el dinero.', 'gs-recibio');
+    let autoriza;
+    if (au.pide_clave) {
+      if (!$('#gs-clave').value) return falla('Teclee la clave de quien autoriza.', 'gs-clave');
+      autoriza = $('#gs-solo').checked ? { nombre: S.sesion.usuario, clave: $('#gs-clave').value, sin_segundo: true } : { nombre: $('#gs-quien').value, clave: $('#gs-clave').value };
+    }
+    try {
+      const r = await api('/api/gasto', { ref: S.refGasto, monto, concepto: $('#gs-concepto').value, recibio: $('#gs-recibio').value, ...(autoriza ? { autoriza } : {}) });
+      S.refGasto = null;
+      await vistaExtraordinarias();
+      const mm = $('#msg-gasto'); mm.className = r.impresion?.ok === false ? 'mensaje aviso' : 'mensaje ok';
+      mm.textContent = r.impresion?.ok === false ? `Gasto ${r.gasto.folio_gasto} registrado, pero el recibo no se imprimió: ${r.impresion.error}` : `Gasto ${r.gasto.folio_gasto} registrado. Recibo impreso: que lo firme quien recibe.`;
+    } catch (e) { m.className = 'mensaje error'; m.textContent = e.message; const c = $('#gs-clave'); if (c) c.value = ''; }
+  });
   $('#form-entrada').addEventListener('submit', async (ev) => {
     ev.preventDefault();
     const m = $('#msg-ent');
@@ -1558,6 +1592,16 @@ function panelRetiros(retiros) {
     ${lista.map((r) => `<tr data-retiro="${esc(r.retiro_id)}"><td>${esc(r.tienda)} · ${r.caja}</td><td>${esc(r.folio_retiro)}</td><td>${esc(r.fecha_local.split('-').reverse().join('/'))}</td><td>${esc(r.hora)}</td><td>${esc(r.usuario)}</td><td class="num">${mxn(r.pesos)}</td><td class="num">${r.dolares ? usd(r.dolares) : '—'}</td><td class="num"><b>${mxn(r.equivalente_mxn)}</b></td></tr>`).join('') || '<tr><td colspan="8" class="vacio">Sin retiros en el periodo.</td></tr>'}
     </tbody>${lista.length ? `<tfoot><tr><th colspan="7">Total retirado (${lista.length})</th><td class="num"><b id="total-retiros">${mxn(total)}</b></td></tr></tfoot>` : ''}</table></div></div>`;
 }
+/** Gastos de caja: pagos con efectivo del cajón, con el nombre de quien recibió el dinero y quién lo autorizó. */
+function panelGastos(gastos) {
+  const lista = gastos ?? [];
+  const total = lista.reduce((a, r) => a + r.monto, 0);
+  return `<div class="panel" id="panel-gastos"><h2 style="margin-top:0">Gastos de caja</h2>
+    <p class="nota" style="margin-top:0">Pagos con efectivo del cajón (limpieza, proveedores…). Cada uno tiene su recibo firmado.</p>
+    <div class="tabla-cont"><table id="tabla-gastos"><thead><tr><th>Caja</th><th>Recibo</th><th>Fecha</th><th>Hora</th><th>Concepto</th><th>Recibió</th><th>Entregó</th><th>Autorizó</th><th class="num">Importe</th></tr></thead><tbody>
+    ${lista.map((r) => `<tr data-gasto="${esc(r.gasto_id)}"><td>${esc(r.tienda)} · ${r.caja}</td><td>${esc(r.folio_gasto)}</td><td>${esc(r.fecha_local.split('-').reverse().join('/'))}</td><td>${esc(r.hora)}</td><td>${esc(r.concepto)}</td><td>${esc(r.recibio)}</td><td>${esc(r.usuario)}</td><td>${esc(r.autorizado_por ?? '—')}</td><td class="num"><b>${mxn(r.monto)}</b></td></tr>`).join('') || '<tr><td colspan="9" class="vacio">Sin gastos en el periodo.</td></tr>'}
+    </tbody>${lista.length ? `<tfoot><tr><th colspan="8">Total de gastos (${lista.length})</th><td class="num"><b id="total-gastos">${mxn(total)}</b></td></tr></tfoot>` : ''}</table></div></div>`;
+}
 
 // ── Historial de ventas en Administración: todas las tiendas y cajas, con el mismo detalle (solo consulta) ──
 async function vistaHistorialAdmin() {
@@ -1586,7 +1630,7 @@ async function vistaHistorialAdmin() {
     $('#ha-resultado').innerHTML = `<div class="panel"><p class="nota" style="margin-top:0">Toque una venta para ver el detalle y el ticket.</p><div class="tabla-cont"><table id="tabla-historial-admin" class="solo-escritorio"><thead><tr><th>Caja</th><th>Folio</th><th>Fecha</th><th>Hora</th><th>Vendedora-Cajera</th><th>Venta por</th><th>Pago</th><th class="num">Total</th><th>Estado</th></tr></thead><tbody>
       ${j.ventas.length ? j.ventas.map((r) => `<tr data-detalle="${esc(r.sale_id)}" tabindex="0" style="cursor:pointer"><td>${esc(r.tienda)} · ${r.caja}</td><td>${r.historico ? `${esc(String(r.folio))} <span class="insignia" title="Venta importada del POS anterior: solo se conserva folio, fecha, total, piezas y forma de pago">POS anterior</span>` : esc(r.codigo_ticket)}</td><td>${esc(r.fecha_local.split('-').reverse().join('/'))}</td><td>${esc(r.hora || '—')}</td><td>${esc(r.cajero)}</td><td data-col="vendio">${esc(r.vendedora || '—')}</td><td>${esc(r.pago)}</td><td class="num">${mxn(r.total)}</td><td><span class="insignia ${esc(r.estado)}">${esc(r.estado)}</span></td></tr>`).join('') : '<tr><td colspan="9" class="vacio">No hay ventas con esos datos.</td></tr>'}
       </tbody></table>
-      <div class="lista-inv solo-movil" id="lista-historial-admin" role="list">${j.ventas.map((r) => `<button type="button" class="fila-inv" role="listitem" data-detalle="${esc(r.sale_id)}"><span class="fi-linea"><b class="fi-desc">${r.historico ? `${esc(String(r.folio))} · POS anterior` : `${esc(r.codigo_ticket)} · ${esc(r.hora)}`}</b><span class="fi-precio">${mxn(r.total)}</span></span><span class="fi-quien">${esc(r.tienda)} · Caja ${r.caja} · ${esc(r.vendedora || r.cajero)}</span><span class="fi-sub"><span>${esc(r.fecha_local.split('-').reverse().join('/'))}</span><span>${esc(r.pago)}</span><span class="insignia ${esc(r.estado)}">${esc(r.estado)}</span></span></button>`).join('') || '<p class="vacio">No hay ventas con esos datos.</p>'}</div></div></div>${panelRetiros(j.retiros)}`;
+      <div class="lista-inv solo-movil" id="lista-historial-admin" role="list">${j.ventas.map((r) => `<button type="button" class="fila-inv" role="listitem" data-detalle="${esc(r.sale_id)}"><span class="fi-linea"><b class="fi-desc">${r.historico ? `${esc(String(r.folio))} · POS anterior` : `${esc(r.codigo_ticket)} · ${esc(r.hora)}`}</b><span class="fi-precio">${mxn(r.total)}</span></span><span class="fi-quien">${esc(r.tienda)} · Caja ${r.caja} · ${esc(r.vendedora || r.cajero)}</span><span class="fi-sub"><span>${esc(r.fecha_local.split('-').reverse().join('/'))}</span><span>${esc(r.pago)}</span><span class="insignia ${esc(r.estado)}">${esc(r.estado)}</span></span></button>`).join('') || '<p class="vacio">No hay ventas con esos datos.</p>'}</div></div></div>${panelRetiros(j.retiros)}${panelGastos(j.gastos)}`;
     for (const fila of $('#ha-resultado').querySelectorAll('[data-detalle]')) {
       const abrir = () => abrirDetalleVenta(fila.dataset.detalle, { acciones: false, ruta: `/api/admin/venta?sale_id=${encodeURIComponent(fila.dataset.detalle)}` }).catch((e) => { m.className = 'mensaje error'; m.textContent = e.message; });
       fila.addEventListener('click', abrir);
@@ -1708,7 +1752,7 @@ async function pintarResumenDia(fecha) {
   cont.innerHTML = `<div class="filas" style="align-items:center;justify-content:space-between"><h2 style="margin:0">${ico('store')} Resumen del día — todas las tiendas</h2>
       <label>Día <input type="date" id="rd-fecha" value="${esc(j.fecha)}" max="${esc(j.hoy)}"></label></div>
     <div class="kpi-grande" id="rd-venta-total"><span class="kpi-rotulo">VENTA TOTAL DEL DÍA · ${esc(f(j.fecha))}</span><span class="kpi-valor" id="rd-total">${mxn(t.venta_total)}</span><span class="kpi-sub">${t.tickets} ticket${t.tickets === 1 ? '' : 's'} de venta${t.canceladas ? ` · ${t.canceladas} cancelada${t.canceladas === 1 ? '' : 's'}` : ''}</span></div>
-    <div class="kpi-grid" id="rd-tiendas">${j.tiendas.map((x) => `<div class="kpi" data-tienda="${esc(x.tienda)}"><span class="kpi-rotulo">${esc(x.nombre).toUpperCase()}</span><b data-col="venta">${mxn(x.venta_total)}</b><small>${x.tickets} ticket${x.tickets === 1 ? '' : 's'} · netas ${mxn(x.ventas_netas)}</small><small>Efectivo ${mxn(x.efectivo)} · Tarjeta ${mxn(x.tarjeta)}</small><small>Cortes cerrados: ${x.cajas_con_corte} de ${x.cajas} cajas</small><small data-col="retiros">Retiros: ${mxn(x.retiros)}${x.retiros_n ? ` (${x.retiros_n})` : ''}</small></div>`).join('')}</div>
+    <div class="kpi-grid" id="rd-tiendas">${j.tiendas.map((x) => `<div class="kpi" data-tienda="${esc(x.tienda)}"><span class="kpi-rotulo">${esc(x.nombre).toUpperCase()}</span><b data-col="venta">${mxn(x.venta_total)}</b><small>${x.tickets} ticket${x.tickets === 1 ? '' : 's'} · netas ${mxn(x.ventas_netas)}</small><small>Efectivo ${mxn(x.efectivo)} · Tarjeta ${mxn(x.tarjeta)}</small><small>Cortes cerrados: ${x.cajas_con_corte} de ${x.cajas} cajas</small><small data-col="retiros">Retiros: ${mxn(x.retiros)}${x.retiros_n ? ` (${x.retiros_n})` : ''}</small><small data-col="gastos">Gastos de caja: ${mxn(x.gastos)}${x.gastos_n ? ` (${x.gastos_n})` : ''}</small></div>`).join('')}</div>
     <h3 style="margin:14px 0 6px">Cómo se cobró</h3>
     <div class="kpi-grid">
       <div class="kpi" style="border-color:var(--acento)"><span class="kpi-rotulo">TOTAL EN EFECTIVO</span><b id="rd-efectivo">${mxn(t.efectivo)}</b></div>
@@ -1721,8 +1765,9 @@ async function pintarResumenDia(fecha) {
       <tr><th scope="row">Mercancía recibida a cambio</th><td class="num" id="rd-cambio">${mxn(t.mercancia_recibida_por_cambio)}</td></tr>
       <tr><th scope="row">Devoluciones con reembolso</th><td class="num" id="rd-devoluciones">${mxn(t.devoluciones_con_reembolso)}</td></tr>
       <tr><th scope="row" style="font-size:18px">VENTAS NETAS</th><td class="num" style="font-size:20px" id="rd-netas"><b>${mxn(t.ventas_netas)}</b></td></tr></tbody></table></div>
-    <div class="panel" style="margin:10px 0"><h3 style="margin:0 0 6px">Retiros de efectivo</h3><table><tbody>
-      <tr><th scope="row">Retirado de las cajas${t.retiros_n ? ` (${t.retiros_n} retiro${t.retiros_n === 1 ? '' : 's'})` : ''}</th><td class="num" id="rd-retiros"><b>${mxn(t.retiros)}</b></td></tr></tbody></table>
+    <div class="panel" style="margin:10px 0"><h3 style="margin:0 0 6px">Retiros y gastos de efectivo</h3><table><tbody>
+      <tr><th scope="row">Retirado de las cajas${t.retiros_n ? ` (${t.retiros_n} retiro${t.retiros_n === 1 ? '' : 's'})` : ''}</th><td class="num" id="rd-retiros"><b>${mxn(t.retiros)}</b></td></tr>
+      <tr><th scope="row">Gastos de caja${t.gastos_n ? ` (${t.gastos_n})` : ''}</th><td class="num" id="rd-gastos"><b>${mxn(t.gastos)}</b></td></tr></tbody></table>
       <p class="nota" style="margin:6px 0 0">No es venta: es dinero que salió del cajón. El detalle (quién y cuánto) está en Historial de ventas.</p></div>
     <p class="nota">Este es el mismo resumen que llega como aviso al teléfono (menú Avisos, hora configurable). Las pruebas que aún no se hayan borrado también cuentan.</p>`;
   $('#rd-fecha').addEventListener('change', (ev) => pintarResumenDia(ev.target.value || j.hoy));

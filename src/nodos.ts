@@ -6,6 +6,7 @@ import { calcularDescuentos, esCanje, normCodigo, repartir, validarPromocion, ty
 export type Autoriza = { nombre: string; clave: string; sin_segundo?: boolean };
 import { adminProtegido, mezclarPerfil, claveAdminValida, claveValida, hashClave, nombreClave, supervisorPorClave, type Cajero, type Perfil, type RolAdmin, type Supervisor } from './supervisores.ts';
 import { correccionesEntradas } from './almacen.ts';
+import type { GastoRegistrado } from './gastos.ts';
 import { BILLETES_RETIRO_MXN, BILLETES_RETIRO_USD, efectivoDeVentaEnCaja, MINIMO_RETIRO, UMBRAL_AVISO_RETIRO, type RetiroRegistrado } from './retiros.ts';
 import { DESTINOS_FALTANTE_ESPECIALES, existenciaAlmacen, faltantes, fechaValida, recepcionesPendientes, type Faltante, type AltaManual, type RecepcionPendiente } from './almacen.ts';
 import { slug, validarCambioDepto, type CambioDepto, type ErrorDepto } from './departamentos.ts';
@@ -2662,6 +2663,37 @@ export class Caja {
       return { ...retiro, ocurrio_en: op.ocurrio_en };
     });
   }
+  /** Gastos de caja de una fecha en esta caja (los más recientes primero). */
+  gastos(fecha: string): GastoRegistrado[] {
+    return this.opsDe('cash.gasto').filter((o) => o.payload.tienda === this.tienda && o.payload.caja === this.caja && o.payload.fecha === fecha)
+      .map((o) => ({ ...o.payload, ocurrio_en: o.ocurrio_en }) as GastoRegistrado).reverse();
+  }
+  /**
+   * Gasto de caja: se paga con efectivo del cajón (por ejemplo al barrendero) y queda un recibo que firma quien recibe. Sin tope de monto; lo autoriza
+   * otra persona o un supervisor con su clave (o, si no hay nadie más, quien cobra con la suya: `sin_segundo`). Resta del efectivo esperado del corte.
+   * Reintentar con la misma referencia no lo duplica.
+   */
+  registrarGasto(d: { ref: string; monto: number; concepto: string; recibio: string; usuario: string; autoriza?: Autoriza }): GastoRegistrado {
+    if (!d.ref) throw new ErrorDominio('DATOS_REQUERIDOS', 'falta la referencia del gasto');
+    const previo = this.repo.getOp(`gasto:${d.ref}`);
+    if (previo) return { ...previo.payload, ocurrio_en: previo.ocurrio_en } as GastoRegistrado;
+    const concepto = String(d.concepto ?? '').trim().replace(/\s+/g, ' ');
+    const recibio = String(d.recibio ?? '').trim().replace(/\s+/g, ' ');
+    if (concepto.length < 3 || concepto.length > 80) throw new ErrorDominio('DATOS_REQUERIDOS', 'escriba en qué se gastó (de 3 a 80 caracteres)');
+    if (recibio.length < 2 || recibio.length > 60) throw new ErrorDominio('DATOS_REQUERIDOS', 'escriba el nombre de quien recibe el dinero');
+    if (!Number.isInteger(d.monto) || d.monto <= 0) throw new ErrorDominio('PAGO_INVALIDO', 'el monto es un entero positivo en centavos');
+    const autorizo = this.verificarAutorizador(d.usuario, d.autoriza);
+    const est = this.estadoRetiro();
+    if (d.monto > est.en_cajon.mxn) throw new ErrorDominio('GASTO_EXCEDE_EFECTIVO', 'el gasto es mayor que los pesos que registra la caja', { pesos_en_cajon: est.en_cajon.mxn });
+    return this.repo.tx(() => {
+      const n = this.opsDe('cash.gasto').filter((o) => o.payload.tienda === this.tienda && o.payload.caja === this.caja).length + 1;
+      const folio_gasto = `${this.tienda === 'DUO' ? 'D' : this.tienda === 'LON' ? 'L' : this.tienda.slice(0, 1)}${this.caja}-G${String(n).padStart(4, '0')}`;
+      const g: Omit<GastoRegistrado, 'ocurrio_en'> = { gasto_id: d.ref, folio_gasto, tienda: this.tienda, caja: this.caja, fecha: est.fecha, monto: d.monto, concepto, recibio, usuario: d.usuario, autorizado_por: autorizo };
+      this.emitir('cash.movement', { tienda: this.tienda, caja: this.caja, tipo: 'gasto', monto: d.monto, moneda: 'MXN', fecha: est.fecha, gasto_id: d.ref }, `gasto:${d.ref}:mov`);
+      const op = this.emitir('cash.gasto', g, `gasto:${d.ref}`);
+      return { ...g, ocurrio_en: op.ocurrio_en };
+    });
+  }
   /** Conteo físico por denominación (USD: billetes en dólares; MXN: billetes y monedas en centavos). El corte lo compara con lo esperado. */
   registrarConteo(d: { moneda: 'MXN' | 'USD'; denominaciones: Record<string, number>; usuario: string; alcance?: 'ventas' }) {
     let total: number;
@@ -2729,7 +2761,7 @@ export class Caja {
       const deVentas = conteo?.payload.alcance === 'ventas';
       const comparable = deVentas ? esperado - de('fondo_inicial') : esperado;
       return {
-        fondo: de('fondo_inicial'), cobros: de('cobro'), cambio: -de('cambio'), entradas: de('entrada'), ajustes: de('ajuste'), devoluciones: -de('devolucion'), cancelaciones: -de('cancelacion'), retiros: -de('retiro'),
+        fondo: de('fondo_inicial'), cobros: de('cobro'), cambio: -de('cambio'), entradas: de('entrada'), ajustes: de('ajuste'), devoluciones: -de('devolucion'), cancelaciones: -de('cancelacion'), retiros: -de('retiro'), gastos: -de('gasto'),
         esperado,
         contado: conteo ? (conteo.payload.total as number) : null,
         diferencia: conteo ? (conteo.payload.total as number) - comparable : null,
@@ -2774,7 +2806,7 @@ export class Caja {
       diferencias_cobradas_en_cambios: diferenciasCobradas, diferencias_devueltas_en_cambios: reembolsadoEnCambios,
       folios_de_devolucion: devs.length,
       ventas_netas: ventasMercancia - reembolsos,
-      cobros_efectivo: efectivoCobrado, cobros_tarjeta: tarjeta, cobros_tarjeta_regalo: regalo, ventas_a_credito_empleadas: creditoEmpleadas, fondo_inicial: mxn.fondo, entradas: mxn.entradas, retiros: mxn.retiros,
+      cobros_efectivo: efectivoCobrado, cobros_tarjeta: tarjeta, cobros_tarjeta_regalo: regalo, ventas_a_credito_empleadas: creditoEmpleadas, fondo_inicial: mxn.fondo, entradas: mxn.entradas, retiros: mxn.retiros, gastos: mxn.gastos,
       // Pesos FÍSICOS en el cajón (libro MXN): cobros recibidos − cambio entregado + fondo + entradas − devoluciones − cancelaciones − retiros.
       efectivo_esperado: mxn.esperado,
       // Cierre guiado: efectivo de ventas esperado SIN el fondo, y el fondo fijo (autorizado, confirmado y composición). El fondo no es movimiento de efectivo.
