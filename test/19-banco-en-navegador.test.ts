@@ -531,6 +531,22 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     assert.match(ticket, /TOTAL +\$0\.00/);
     // reporte de descuentos: la venta aparece con el supervisor que la autorizó
     await page.click('#btn-nueva');
+    // «Precio final»: un vestido de $899 que está en la raca de $399 se vende a $399 sin calcular el descuento a mano
+    await escanear('0002026090782');
+    await page.waitForFunction(() => document.querySelector('#total')!.textContent === '$899.00');
+    await page.click('#cuerpo tr[data-linea]');
+    await page.click('#btn-descuento');
+    await page.waitForSelector('#form-descuento');
+    await page.check('input[name="desc-tipo"][value="precio_final"]');
+    assert.match((await page.textContent('#desc-final-ayuda'))!, /precio actual \$899\.00/);
+    await page.fill('#desc-valor', '950');
+    await page.fill('#desc-clave', '4321');
+    await page.click('#desc-aplicar');
+    await page.waitForFunction(() => /menor al precio actual/.test(document.querySelector('#msg-desc')!.textContent!));
+    await page.fill('#desc-valor', '399');
+    await page.fill('#desc-clave', '4321');
+    await page.click('#desc-aplicar');
+    await page.waitForFunction(() => document.querySelector('#total')!.textContent === '$399.00');
     await page.click('#nav button[data-vista="administracion"]');
     await page.click('#nav button[data-vista="promociones"]');
     await page.click('#btn-reporte-promos');

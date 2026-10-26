@@ -3039,13 +3039,28 @@ function abrirDescuento() {
         <label style="display:block"><input type="radio" name="desc-alcance" value="venta" ${sel ? '' : 'checked'}> Toda la venta</label></fieldset>
       <fieldset style="border:1px solid var(--borde);border-radius:8px;margin:8px 0"><legend>Tipo de descuento</legend>
         <label style="display:inline-block;margin-right:16px"><input type="radio" name="desc-tipo" value="pct" checked> Porcentaje (%)</label>
-        <label style="display:inline-block"><input type="radio" name="desc-tipo" value="monto"> Monto ($)</label></fieldset>
+        <label style="display:inline-block;margin-right:16px"><input type="radio" name="desc-tipo" value="monto"> Monto ($)</label>
+        <label style="display:inline-block"><input type="radio" name="desc-tipo" value="precio_final" ${sel ? '' : 'disabled'}> Precio final ($)</label></fieldset>
+      <p class="nota" id="desc-final-ayuda" hidden></p>
       <div class="campo"><label for="desc-valor">Valor</label><input id="desc-valor" inputmode="decimal" placeholder="10"></div>
       <div class="campo"><label for="desc-clave">Su clave (o la de un supervisor)</label><input id="desc-clave" type="text" data-pin inputmode="numeric" autocomplete="off" placeholder="••••"></div>
       <div id="msg-desc" class="mensaje" role="status" aria-live="polite"></div>
       <div class="filas"><button class="btn" type="button" id="desc-cerrar">Cancelar</button>${hayManual ? `<button class="btn btn-peligro" type="button" id="desc-quitar">Quitar descuentos</button>` : ''}<button class="btn btn-primario" type="submit" id="desc-aplicar" style="width:auto;flex:1">${ico('check')}<span>Autorizar y aplicar</span></button></div>
     </form>`;
   $('#desc-cerrar').addEventListener('click', () => d.close());
+  // «Precio final»: se escribe lo que debe costar la prenda (por pieza) y el descuento se calcula solo; vale para el artículo seleccionado.
+  const alPrecioFinal = () => {
+    const pf = d.querySelector('input[name="desc-tipo"]:checked').value === 'precio_final';
+    const ay = $('#desc-final-ayuda');
+    ay.hidden = !pf;
+    if (pf && sel) {
+      d.querySelector('input[name="desc-alcance"][value="linea"]').checked = true;
+      ay.textContent = `${sel.descripcion}: precio actual ${mxn(sel.precio_unit)}${sel.qty > 1 ? ` por pieza (${sel.qty} piezas)` : ''}. Escriba el precio final por pieza; el descuento se calcula solo.`;
+      $('#desc-valor').placeholder = '399';
+    } else $('#desc-valor').placeholder = '10';
+  };
+  for (const r of d.querySelectorAll('input[name="desc-tipo"]')) r.addEventListener('change', alPrecioFinal);
+  for (const r of d.querySelectorAll('input[name="desc-alcance"]')) r.addEventListener('change', () => { if (r.value === 'venta' && r.checked && d.querySelector('input[name="desc-tipo"][value="precio_final"]').checked) d.querySelector('input[name="desc-tipo"][value="pct"]').checked = true; alPrecioFinal(); });
   const q = $('#desc-quitar');
   if (q) q.addEventListener('click', async () => {
     const alcance = d.querySelector('input[name="desc-alcance"]:checked').value;
@@ -3055,12 +3070,19 @@ function abrirDescuento() {
   $('#form-descuento').addEventListener('submit', async (ev) => {
     ev.preventDefault();
     const m = $('#msg-desc');
-    const tipo = d.querySelector('input[name="desc-tipo"]:checked').value;
+    let tipo = d.querySelector('input[name="desc-tipo"]:checked').value;
     const alcance = d.querySelector('input[name="desc-alcance"]:checked').value;
     const crudo = $('#desc-valor').value.trim();
     let valor = null;
     if (tipo === 'pct') valor = /^\d{1,3}$/.test(crudo) ? Number(crudo) : null;
     else valor = parseMXN(crudo);
+    if (tipo === 'precio_final') {
+      if (!sel || alcance !== 'linea') { m.className = 'mensaje error'; m.textContent = 'El precio final es para un artículo: selecciónelo en la lista.'; return; }
+      if (!valor) { m.className = 'mensaje error'; m.textContent = 'Escriba el precio final en pesos (por pieza).'; return; }
+      if (valor >= sel.precio_unit) { m.className = 'mensaje error'; m.textContent = `El precio final debe ser menor al precio actual (${mxn(sel.precio_unit)}).`; return; }
+      valor = (sel.precio_unit - valor) * sel.qty; // descuento en pesos de toda la línea
+      tipo = 'monto';
+    }
     if (!valor) { m.className = 'mensaje error'; m.textContent = tipo === 'pct' ? 'Escriba un porcentaje entero de 1 a 100.' : 'Escriba el monto del descuento en pesos.'; return; }
     try {
       const r = await api('/api/venta/descuento', { cart: S.cart, linea_id: alcance === 'linea' ? sel.linea_id : null, tipo, valor, clave: $('#desc-clave').value });
