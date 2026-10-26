@@ -60,7 +60,7 @@ porAlmacen('Reporte de promociones y descuentos autorizados por supervisor', (al
     assert.deepEqual(hoja.encabezados.slice(6, 11), ['Tipo', 'Concepto', 'Supervisor que autorizó', 'Importe de la venta', 'Descuento']);
     const total = hoja.filas.at(-1)!;
     assert.deepEqual([total[0], total[10]], ['TOTAL (sin cancelados)', '1091.00']);
-    assert.ok(hoja.filas.some((f) => f[6] === 'Manual (supervisor)' && f[8] === 'Ana Supervisora' && f[11] === '50.00 %'));
+    assert.ok(hoja.filas.some((f) => f[6] === 'Manual (con clave)' && f[8] === 'Ana Supervisora' && f[11] === '50.00 %'));
   });
 
   it('RD2 una venta con descuento anterior al registro de supervisores aparece «sin registro de supervisor»', async (t) => {

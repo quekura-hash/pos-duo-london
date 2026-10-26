@@ -408,9 +408,9 @@ export class ServicioCaja {
   async cobrarCreditoEmpleada(cartId: string) {
     return this.finalizarCobro(this.caja.cobrarConCreditoEmpleada(cartId, this.actor.usuario));
   }
-  /** Descuento manual: lo autoriza un supervisor con su clave. */
+  /** Descuento manual: lo autoriza un supervisor con su clave, o quien atiende con la suya (queda anotado quién). */
   aplicarDescuento(cartId: string, d: { linea_id?: string | null; tipo: 'pct' | 'monto'; valor: number }, clave: string) {
-    const r = this.caja.aplicarDescuentoManual(cartId, d, clave);
+    const r = this.caja.aplicarDescuentoManual(cartId, d, clave, this.actor.usuario);
     return { ...r, carrito: this.vista(cartId) };
   }
   /** «Editar en esta venta»: precio (con la clave de un supervisor) y/o descripción de un renglón, solo para esta venta. */

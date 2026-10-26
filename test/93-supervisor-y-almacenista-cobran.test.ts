@@ -6,7 +6,7 @@ import { ALMACENES, nuevoMundo, politica } from './ayudas/comun.ts';
 const sqlite = ALMACENES.find((a) => a.nombre === 'sqlite')!;
 const JEANS = '0002026090782';
 
-it('SC1 el supervisor y la almacenista con clave de caja inician sesión y cobran; solo el supervisor autoriza descuentos', async (t) => {
+it('SC1 el supervisor y la almacenista con clave de caja inician sesión y cobran; el descuento lo autoriza quien atiende con su clave o un supervisor', async (t) => {
   const ctx = nuevoMundo(sqlite, politica());
   const adm = await appAdmin(ctx);
   const caja = await appCajero(ctx, 'DUO', 1, 'Ana');
@@ -35,11 +35,15 @@ it('SC1 el supervisor y la almacenista con clave de caja inician sesión y cobra
   assert.equal((await api(caja.url, '/api/login', { usuario: 'Mario', clave: '9753' })).status, 200);
   const c2 = (await api(caja.url, '/api/venta/nueva', {})).json.cart;
   const l2 = (await api(caja.url, '/api/venta/escanear', { cart: c2, codigo: JEANS })).json.linea;
-  // …pero su clave NO autoriza un descuento; la de la supervisora sí
-  const malo = await api(caja.url, '/api/venta/descuento', { cart: c2, linea_id: l2.linea_id, tipo: 'pct', valor: 10, clave: '9753' });
-  assert.equal(malo.status >= 400, true, 'la clave de la almacenista no autoriza descuentos');
-  const bueno = await api(caja.url, '/api/venta/descuento', { cart: c2, linea_id: l2.linea_id, tipo: 'pct', valor: 10, clave: '1357' });
+  // …un descuento lo autoriza con su PROPIA clave (queda anotado quién) o con la de un supervisor; la clave de otra persona que no es supervisora no sirve
+  const ajena = await api(caja.url, '/api/venta/descuento', { cart: c2, linea_id: l2.linea_id, tipo: 'pct', valor: 10, clave: '4321' });
+  assert.equal(ajena.status >= 400, true, 'la clave de otra cajera no autoriza');
+  const propia = await api(caja.url, '/api/venta/descuento', { cart: c2, linea_id: l2.linea_id, tipo: 'pct', valor: 10, clave: '9753' });
+  assert.equal(propia.status, 200, JSON.stringify(propia.json));
+  assert.equal(propia.json.supervisor, 'Mario');
+  const bueno = await api(caja.url, '/api/venta/descuento', { cart: c2, linea_id: l2.linea_id, tipo: 'pct', valor: 15, clave: '1357' });
   assert.equal(bueno.status, 200, JSON.stringify(bueno.json));
+  assert.equal(bueno.json.supervisor, 'Evelin');
   const v2 = await api(caja.url, '/api/venta/cobrar-efectivo', { cart: c2, recibido: 100000 });
   assert.equal(v2.json.venta.cajero, 'Mario');
   // la lista «Supervisores que autorizan descuentos» no incluye a la almacenista

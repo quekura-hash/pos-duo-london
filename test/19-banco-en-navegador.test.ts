@@ -515,7 +515,7 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     await page.fill('#desc-valor', '100');
     await page.fill('#desc-clave', '0000');
     await page.click('#desc-aplicar');
-    await page.waitForFunction(() => /clave del supervisor no es válida/.test(document.querySelector('#msg-desc')!.textContent!));
+    await page.waitForFunction(() => /clave (de quien autoriza )?no es (válida|correcta)/.test(document.querySelector('#msg-desc')!.textContent!));
     await page.fill('#desc-clave', '4321');
     await page.click('#desc-aplicar');
     await page.waitForFunction(() => document.querySelector('#total')!.textContent === '$0.00');

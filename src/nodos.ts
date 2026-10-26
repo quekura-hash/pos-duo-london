@@ -1646,15 +1646,19 @@ export class Caja {
     this.repo.kvSet(`cart:${cartId}`, c);
   }
   /**
-   * Descuento manual autorizado por un supervisor con su clave (sin tope: hasta 100 %). `linea_id` = una línea; sin él, toda la venta
+   * Descuento manual autorizado con la clave de un supervisor o con la propia de quien atiende (sin tope: hasta 100 %). `linea_id` = una línea; sin él, toda la venta
    * (repartido proporcionalmente). Reemplaza el descuento manual anterior de esas líneas. Queda anotado quién lo autorizó.
    */
-  aplicarDescuentoManual(cartId: string, d: { linea_id?: string | null; tipo: 'pct' | 'monto'; valor: number }, clave: string): { supervisor: string } {
+  aplicarDescuentoManual(cartId: string, d: { linea_id?: string | null; tipo: 'pct' | 'monto'; valor: number }, clave: string, usuario = ''): { supervisor: string } {
     const c = this.cartGet(cartId);
     this.exigirAbierto(c);
     this.exigirSinCobroPendiente(c);
-    const sup = supervisorPorClave(this.idx.supervisores(), String(clave ?? ''));
-    if (!sup) throw new ErrorDominio('CLAVE_INVALIDA', 'la clave del supervisor no es válida');
+    // Autoriza un supervisor con su clave o, si no es la de un supervisor, quien tiene la sesión con la SUYA (Vendedora-Cajera o almacenista que cobra): queda anotado quién lo hizo.
+    const supClave = supervisorPorClave(this.idx.supervisores(), String(clave ?? ''));
+    let sup: { id: string; nombre: string };
+    if (supClave) sup = supClave;
+    else if (usuario && this.idx.cajeros().some((x) => x.activo && nombreClave(x.nombre) === nombreClave(usuario))) { const cj = this.verificarClaveCajero(usuario, String(clave ?? '')); sup = { id: cj.id, nombre: cj.nombre }; }
+    else throw new ErrorDominio('CLAVE_INVALIDA', 'la clave de quien autoriza no es válida');
     const objetivo = d.linea_id ? c.lineas.filter((l) => l.linea_id === d.linea_id && !l.tarjeta_regalo) : c.lineas.filter((l) => !l.tarjeta_regalo);
     if (!objetivo.length) throw new ErrorDominio('LINEA_INEXISTENTE', d.linea_id ? 'la línea no existe o es una tarjeta de regalo' : 'no hay mercancía a la que aplicar el descuento');
     if (!Number.isInteger(d.valor) || d.valor <= 0) throw new ErrorDominio('DESCUENTO_INVALIDO', 'el descuento debe ser mayor que 0');

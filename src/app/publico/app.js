@@ -511,7 +511,7 @@ async function vistaVenta() {
         </section>
         <div class="acciones-inf" id="acciones-inf">
           <button class="btn" id="btn-buscar-ticket" type="button" title="Abre el historial de ventas de esta caja">${ico('search')}<span>Buscar ticket</span></button>
-          <button class="btn" id="btn-devolucion" type="button" title="Buscar la venta y cambiar piezas (solo en la caja donde se vendió)">${ico('undo')}<span>Hacer Cambio</span></button><button class="btn" id="btn-descuento" type="button" title="Descuento autorizado por un supervisor con su clave">${ico('tag')}<span>Aplicar descuento</span></button><button class="btn" id="btn-cupon" type="button" title="Capturar o escanear un cupón de descuento">${ico('gift')}<span>Cupón</span></button><button class="btn" id="btn-espera" type="button" title="Guardar esta venta y atender a otro cliente, o retomar una venta guardada">${ico('pause')}<span id="txt-espera">Venta en espera</span></button><button class="btn" id="btn-abrir-caja" type="button" title="Abre el cajón de dinero sin hacer una venta (queda registrado)">${ico('cash')}<span>Abrir caja</span></button><button class="btn btn-peligro" id="btn-cancelar-venta" type="button" title="Cancelar la venta en curso (aún sin cobrar)">${ico('trash')}<span>Cancelar venta</span></button>
+          <button class="btn" id="btn-devolucion" type="button" title="Buscar la venta y cambiar piezas (solo en la caja donde se vendió)">${ico('undo')}<span>Hacer Cambio</span></button><button class="btn" id="btn-descuento" type="button" title="Descuento con su clave (queda anotado quién lo hizo)">${ico('tag')}<span>Aplicar descuento</span></button><button class="btn" id="btn-cupon" type="button" title="Capturar o escanear un cupón de descuento">${ico('gift')}<span>Cupón</span></button><button class="btn" id="btn-espera" type="button" title="Guardar esta venta y atender a otro cliente, o retomar una venta guardada">${ico('pause')}<span id="txt-espera">Venta en espera</span></button><button class="btn" id="btn-abrir-caja" type="button" title="Abre el cajón de dinero sin hacer una venta (queda registrado)">${ico('cash')}<span>Abrir caja</span></button><button class="btn btn-peligro" id="btn-cancelar-venta" type="button" title="Cancelar la venta en curso (aún sin cobrar)">${ico('trash')}<span>Cancelar venta</span></button>
         <button class="btn" id="btn-empleada" type="button" title="Venta a una empleada: descuento de empleada y, si quiere, crédito a su cuenta">${ico('user')}<span>Venta a empleada</span></button>
         </div>
       </div>
@@ -2403,7 +2403,7 @@ async function vistaDolares() {
 
 // ── Reporte de promociones y descuentos autorizados por supervisor ──
 const pctBp = (bp) => `${(bp / 100).toFixed(2).replace(/\.00$/, '')} %`;
-const NOM_TIPO_DESC = { promo: 'Promoción', cupon: 'Cupón', manual: 'Manual (supervisor)', empleada: 'Descuento de empleada' };
+const NOM_TIPO_DESC = { promo: 'Promoción', cupon: 'Cupón', manual: 'Manual (con clave)', empleada: 'Descuento de empleada' };
 // ── retiro de efectivo ──
 /** Ventana flotante (no modal: no bloquea el escaneo ni el cobro) cuando el efectivo de venta de la caja llega al umbral. «Más tarde» la oculta 15 minutos. */
 async function revisarAvisoRetiro() {
@@ -2649,9 +2649,9 @@ async function vistaDescuentos() {
         <tr><th scope="row">Total descontado</th><td class="num" data-campo="monto"><b>${mxn(R.monto)}</b></td><td class="num" data-campo="tickets">${R.tickets} ticket(s)</td></tr>
         <tr><th scope="row">Promociones</th><td class="num" data-campo="promo">${mxn(R.promo.monto)}</td><td class="num">${R.promo.tickets} ticket(s)</td></tr>
         <tr><th scope="row">Cupones</th><td class="num" data-campo="cupon">${mxn(R.cupon.monto)}</td><td class="num">${R.cupon.tickets} ticket(s)</td></tr>
-        <tr><th scope="row">Descuentos autorizados por supervisor</th><td class="num" data-campo="manual">${mxn(R.manual.monto)}</td><td class="num">${R.manual.tickets} ticket(s)</td></tr></tbody></table></div>
-      <div class="panel" style="margin-top:12px"><h2 style="margin-top:0">Por supervisor</h2>
-        <table id="tabla-desc-supervisor"><thead><tr><th>Supervisor</th><th class="num">Descuentos</th><th class="num">Monto</th><th class="num">Mayor % de una venta</th><th class="num">Al 100 %</th></tr></thead><tbody>
+        <tr><th scope="row">Descuentos manuales (con clave)</th><td class="num" data-campo="manual">${mxn(R.manual.monto)}</td><td class="num">${R.manual.tickets} ticket(s)</td></tr></tbody></table></div>
+      <div class="panel" style="margin-top:12px"><h2 style="margin-top:0">Por quién lo autorizó</h2>
+        <table id="tabla-desc-supervisor"><thead><tr><th>Autorizó</th><th class="num">Descuentos</th><th class="num">Monto</th><th class="num">Mayor % de una venta</th><th class="num">Al 100 %</th></tr></thead><tbody>
         ${r.porSupervisor.map((x) => `<tr data-supervisor="${esc(x.supervisor)}"><td>${esc(x.supervisor)}</td><td class="num">${x.descuentos}</td><td class="num">${mxn(x.monto)}</td><td class="num">${pctBp(x.mayor_pct_bp)}</td><td class="num">${x.al_100}</td></tr>`).join('') || '<tr><td colspan="5" class="vacio">Sin descuentos autorizados en el periodo.</td></tr>'}</tbody></table></div>
       <div class="panel" style="margin-top:12px"><h2 style="margin-top:0">Por promoción o cupón</h2>
         <table id="tabla-desc-promos"><thead><tr><th>Tipo</th><th>Nombre</th><th class="num">Tickets</th><th class="num">Monto</th></tr></thead><tbody>
@@ -2844,7 +2844,7 @@ function abrirDescuento() {
   const hayManual = S.carrito.lineas.some((l) => (l.descuento_detalle ?? []).some((x) => x.tipo === 'manual'));
   d.setAttribute('aria-labelledby', 'desc-titulo');
   d.innerHTML = `<h2 id="desc-titulo" style="margin-top:0">Aplicar descuento</h2>
-    <p class="nota">Lo autoriza un supervisor con su clave. Queda anotado en la venta y en el ticket.</p>
+    <p class="nota">Lo autoriza con su clave quien atiende la venta (o un supervisor). Queda anotado quién lo hizo, en la venta y en el ticket.</p>
     <form id="form-descuento" autocomplete="off">
       <fieldset style="border:1px solid var(--borde);border-radius:8px;margin:8px 0"><legend>Aplicar a</legend>
         <label style="display:block"><input type="radio" name="desc-alcance" value="linea" ${sel ? 'checked' : 'disabled'}> Solo el artículo seleccionado${sel ? `: ${esc(sel.descripcion)} ${esc(sel.marca)}` : ' (seleccione uno en la lista)'}</label>
@@ -2853,7 +2853,7 @@ function abrirDescuento() {
         <label style="display:inline-block;margin-right:16px"><input type="radio" name="desc-tipo" value="pct" checked> Porcentaje (%)</label>
         <label style="display:inline-block"><input type="radio" name="desc-tipo" value="monto"> Monto ($)</label></fieldset>
       <div class="campo"><label for="desc-valor">Valor</label><input id="desc-valor" inputmode="decimal" placeholder="10"></div>
-      <div class="campo"><label for="desc-clave">Clave del supervisor</label><input id="desc-clave" type="text" data-pin inputmode="numeric" autocomplete="off" placeholder="••••"></div>
+      <div class="campo"><label for="desc-clave">Su clave (o la de un supervisor)</label><input id="desc-clave" type="text" data-pin inputmode="numeric" autocomplete="off" placeholder="••••"></div>
       <div id="msg-desc" class="mensaje" role="status" aria-live="polite"></div>
       <div class="filas"><button class="btn" type="button" id="desc-cerrar">Cancelar</button>${hayManual ? `<button class="btn btn-peligro" type="button" id="desc-quitar">Quitar descuentos</button>` : ''}<button class="btn btn-primario" type="submit" id="desc-aplicar" style="width:auto;flex:1">${ico('check')}<span>Autorizar y aplicar</span></button></div>
     </form>`;
@@ -2876,7 +2876,7 @@ function abrirDescuento() {
     if (!valor) { m.className = 'mensaje error'; m.textContent = tipo === 'pct' ? 'Escriba un porcentaje entero de 1 a 100.' : 'Escriba el monto del descuento en pesos.'; return; }
     try {
       const r = await api('/api/venta/descuento', { cart: S.cart, linea_id: alcance === 'linea' ? sel.linea_id : null, tipo, valor, clave: $('#desc-clave').value });
-      S.carrito = r.carrito; pintarCarrito(); d.close(); msg(`Descuento autorizado por ${r.supervisor}.`);
+      S.carrito = r.carrito; pintarCarrito(); d.close(); msg(`Descuento aplicado por ${r.supervisor}.`);
     } catch (e) { m.className = 'mensaje error'; m.textContent = e.message; $('#desc-clave').value = ''; }
   });
   d.showModal();
