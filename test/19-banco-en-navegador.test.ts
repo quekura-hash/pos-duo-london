@@ -1834,24 +1834,30 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     page.on('console', (m) => { if (m.type() === 'error') errores.push(m.text()); });
     await page.goto(`file://${HTML}`);
     await page.waitForSelector('#scan');
-    // sin fondo confirmado del día no hay con qué comparar
-    await page.click('#btn-contar-fondo');
-    await page.waitForFunction(() => /Primero cuente y confirme el fondo/.test(document.querySelector('#mensaje')!.textContent!));
-    await page.evaluate(() => (window as any).api('/api/cierre/fondo', { denominaciones: { '50000': 4, '20000': 5, '10000': 10 } , nota: 'prueba' }));
+    // «Contar fondo» vive en Cierre de caja y solo aparece cuando el fondo del día ya está confirmado
+    await page.click('#nav button[data-vista="corte"]');
+    await page.waitForSelector('#btn-empezar');
+    assert.equal(await page.locator('#btn-contar-fondo').count(), 0, 'sin fondo confirmado no hay con qué comparar');
+    await page.click('#btn-empezar');
+    await page.waitForSelector('#paso-fondo');
+    await page.fill('[data-fondo="b100000"]', '5');
+    await page.click('#btn-fondo');
+    await page.waitForSelector('#paso-ventas');
     await page.click('#btn-contar-fondo');
     await page.waitForSelector('#dlg-contar-fondo[open]');
     assert.equal(await page.locator('#cf-contar').isHidden(), true, 'primero se abre el cajón');
     await page.click('#cf-abrir-btn');
     await page.waitForSelector('#cf-contar:not([hidden])');
     assert.match((await page.textContent('#dlg-contar-fondo'))!, /espera/);
-    // cuenta lo que hay (falta un billete de $100 frente a lo esperado): pide nota
-    await page.fill('[data-arq="b50000"]', '4'); await page.fill('[data-arq="b20000"]', '5'); await page.fill('[data-arq="b10000"]', '9');
+    // cuenta lo que hay (falta un billete de $1,000 frente a lo esperado): pide nota
+    await page.fill('[data-arq="b100000"]', '4');
     assert.match((await page.textContent('#cf-dif'))!, /Faltan/);
     await page.click('#cf-contar button[type=submit]');
     await page.waitForFunction(() => /nota/i.test(document.querySelector('#msg-cf')!.textContent!));
     await page.fill('#cf-nota', 'cambié un billete con la tienda de junto');
     await page.click('#cf-contar button[type=submit]');
-    await page.waitForFunction(() => /Fondo confirmado/.test(document.querySelector('#mensaje')!.textContent!));
+    await page.waitForSelector('#dlg-contar-fondo[open]', { state: 'detached' });
+    await page.waitForSelector('#paso-ventas'); // el cierre se vuelve a pintar con lo contado
     assert.deepEqual(errores.filter((e) => !/401|403|Failed to load resource/.test(e)), []);
   });
 

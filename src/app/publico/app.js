@@ -514,7 +514,7 @@ async function vistaVenta() {
         </section>
         <div class="acciones-inf" id="acciones-inf">
           <button class="btn" id="btn-buscar-ticket" type="button" title="Abre el historial de ventas de esta caja">${ico('search')}<span>Buscar ticket</span></button>
-          <button class="btn" id="btn-devolucion" type="button" title="Buscar la venta y cambiar piezas (solo en la caja donde se vendió)">${ico('undo')}<span>Hacer Cambio</span></button><button class="btn" id="btn-descuento" type="button" title="Descuento con su clave (queda anotado quién lo hizo)">${ico('tag')}<span>Aplicar descuento</span></button><button class="btn" id="btn-cupon" type="button" title="Capturar o escanear un cupón de descuento">${ico('gift')}<span>Cupón</span></button><button class="btn" id="btn-espera" type="button" title="Guardar esta venta y atender a otro cliente, o retomar una venta guardada">${ico('pause')}<span id="txt-espera">Venta en espera</span></button><button class="btn" id="btn-abrir-caja" type="button" title="Abre el cajón de dinero sin hacer una venta (queda registrado). Atajo: Ctrl + F8">${ico('cash')}<span>Abrir caja</span></button><button class="btn" id="btn-contar-fondo" type="button" title="Abre el cajón y cuenta billetes y monedas para rectificar la feria y el efectivo (queda registrado)">${ico('cash')}<span>Contar fondo</span></button><button class="btn btn-peligro" id="btn-cancelar-venta" type="button" title="Cancelar la venta en curso (aún sin cobrar)">${ico('trash')}<span>Cancelar venta</span></button>
+          <button class="btn" id="btn-devolucion" type="button" title="Buscar la venta y cambiar piezas (solo en la caja donde se vendió)">${ico('undo')}<span>Hacer Cambio</span></button><button class="btn" id="btn-descuento" type="button" title="Descuento con su clave (queda anotado quién lo hizo)">${ico('tag')}<span>Aplicar descuento</span></button><button class="btn" id="btn-cupon" type="button" title="Capturar o escanear un cupón de descuento">${ico('gift')}<span>Cupón</span></button><button class="btn" id="btn-espera" type="button" title="Guardar esta venta y atender a otro cliente, o retomar una venta guardada">${ico('pause')}<span id="txt-espera">Venta en espera</span></button><button class="btn" id="btn-abrir-caja" type="button" title="Abre el cajón de dinero sin hacer una venta (queda registrado). Atajo: Ctrl + F8">${ico('cash')}<span>Abrir caja</span></button><button class="btn btn-peligro" id="btn-cancelar-venta" type="button" title="Cancelar la venta en curso (aún sin cobrar)">${ico('trash')}<span>Cancelar venta</span></button>
         <button class="btn" id="btn-empleada" type="button" title="Venta a una empleada: descuento de empleada y, si quiere, crédito a su cuenta">${ico('user')}<span>Venta a empleada</span></button>
         </div>
       </div>
@@ -563,7 +563,6 @@ async function vistaVenta() {
     } catch (e) { msg(e.message, 'error'); }
     $('#scan').focus();
   });
-  $('#btn-contar-fondo').addEventListener('click', () => abrirContarFondo());
   $('#btn-editar-venta').addEventListener('click', () => abrirEditarLinea());
   actualizarEspera();
   revisarAvisoRetiro();
@@ -1163,6 +1162,7 @@ async function vistaCorte() {
     return `<li><button type="button" class="paso-btn ${n === paso ? 'activo' : ''} ${ok ? 'hecho' : ''}" data-paso="${n}" ${clic ? '' : 'disabled'} aria-current="${n === paso ? 'step' : 'false'}"><span class="paso-num">${ok ? ico('check') : n}</span><span>${n}. ${t}</span></button></li>`;
   }).join('')}</ol>`;
   const cab = `<div class="titulo-vista">${ico('register')}<h1>Cierre de caja — Caja ${v.caja} (${esc(v.tienda)}) · ${esc(v.fecha)}</h1></div>${pasos}
+    ${!cerrado && v.fondo_confirmado !== null ? `<div class="filas" style="justify-content:flex-end;margin:6px 0"><button class="btn" id="btn-contar-fondo" type="button" style="width:auto;flex:none" title="Abre el cajón y cuenta billetes y monedas para rectificar la feria y el efectivo (queda registrado)">${ico('cash')}<span>Contar fondo</span></button></div>` : ''}
     ${v.perdida_documental_abierta.length ? '<div class="mensaje error" data-alerta="perdida-corte">Este corte puede estar incompleto: hay una posible pérdida de ventas, pagos o folios de esta caja sin resolver.</div>' : ''}
     ${j.cerrado && !cerrado ? `<div class="mensaje aviso" id="corte-reabierto">Ya se hizo un corte de arqueo a las ${horaCorte(j.cerrado_en)} con ${mxn(j.cerrado.ventas_mercancia)} de venta${j.cerrado.fondo_confirmado !== null ? ' y se confirmó fondo' : ''}. Hubo operaciones después: cuente de nuevo y cierre otra vez (el cierre cubre todo el día y deja anotado el corte anterior).</div>` : ''}
     ${cerrado ? `<div class="mensaje ok" id="corte-cerrado">Corte cerrado${j.cerrado.cerrado_por ? ` por ${esc(j.cerrado.cerrado_por)}` : ''}.</div>
@@ -1242,6 +1242,7 @@ async function vistaCorte() {
         <p class="nota">Corte en vivo: se calcula con las ventas de ESTA caja. Pesos y dólares se concilian por separado.</p></details></section>`;
   }
   // Para contar el fondo y el efectivo hay que abrir el cajón: «Empezar corte» lo abre (con la clave de quien cierra) y deja registrado el motivo. Cada cierre del día empieza así.
+  const enlazarContarFondo = () => $('#btn-contar-fondo')?.addEventListener('click', () => abrirContarFondo(() => vistaCorte()));
   const llaveCajon = `${v.fecha}:${j.cierres ?? 0}`;
   if (!cerrado && paso < 3 && S.cierreCajon !== llaveCajon) {
     $('#vista').innerHTML = `${cab}<section class="panel" id="paso-empezar"><h2 style="margin-top:0">Empezar corte</h2>
@@ -1250,6 +1251,7 @@ async function vistaCorte() {
       <div id="msg-empezar" class="mensaje" role="alert"></div>
       <button class="btn btn-primario" id="btn-empezar" type="button">${ico('cash')}<span>Empezar corte y abrir cajón</span></button></section>`;
     for (const b of $('#cierre-pasos').querySelectorAll('[data-paso]')) b.addEventListener('click', () => { S.cierrePaso = Number(b.dataset.paso); vistaCorte(); });
+    enlazarContarFondo();
     $('#btn-empezar').addEventListener('click', async () => {
       const m = $('#msg-empezar');
       if (j.pide_clave && !$('#empezar-clave').value) { m.className = 'mensaje error'; m.textContent = 'Teclee su clave.'; $('#empezar-clave').focus(); return; }
@@ -1265,6 +1267,7 @@ async function vistaCorte() {
   }
   $('#vista').innerHTML = `${cab}${cuerpo}`;
   for (const b of $('#cierre-pasos').querySelectorAll('[data-paso]')) b.addEventListener('click', () => { S.cierrePaso = Number(b.dataset.paso); vistaCorte(); });
+  enlazarContarFondo();
   if (paso === 1) {
     const total = () => {
       const { total: t } = leerDenominaciones('fondo', mxn);
@@ -2857,7 +2860,7 @@ function abrirMotivoApertura(pideClave) {
   (pideClave ? $('#ac-clave') : d.querySelector('input[name="ac-motivo"]')).focus();
 }
 /** Contar el cajón a cualquier hora: abre el cajón (queda registrado como «Rectificar efectivo»), se cuentan billetes y monedas y «Confirmar fondo» guarda cómo quedaron. */
-async function abrirContarFondo() {
+async function abrirContarFondo(alTerminar) {
   let e;
   try { e = await api('/api/arqueo'); } catch (x) { return msg(x.message, 'error'); }
   if (e.esperado === null) return msg('Primero cuente y confirme el fondo del día en el cierre de caja.', 'aviso');
@@ -2910,6 +2913,7 @@ async function abrirContarFondo() {
       const r = await api('/api/arqueo', { denominaciones: den, nota: $('#cf-nota').value, ...(e.pide_clave ? { clave: claveConteo } : {}) });
       d.close(); $('#scan')?.focus();
       const a = r.arqueo;
+      if (alTerminar) await alTerminar();
       msg(a.diferencia === 0 ? `Fondo confirmado: ${mxn(a.total)}. Cuadra y la feria quedó rectificada.` : `Fondo confirmado: ${mxn(a.total)} (${a.diferencia < 0 ? 'faltan' : 'sobran'} ${mxn(Math.abs(a.diferencia))}, anotado). La feria quedó rectificada.`);
     } catch (x) { m.className = 'mensaje error'; m.textContent = x.message; }
   });
