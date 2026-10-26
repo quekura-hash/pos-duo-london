@@ -9,6 +9,13 @@ import { abrirDetalleCorte } from './ayudas/cierre.ts';
 import { leerXlsxNode } from '../src/xlsx-node.ts';
 import { readFileSync } from 'node:fs';
 
+const empezarCorte = async (page: import('playwright-core').Page, clave = '4321') => {
+  await page.waitForSelector('#btn-empezar');
+  if (await page.locator('#empezar-clave').count()) await page.fill('#empezar-clave', clave);
+  await page.click('#btn-empezar');
+  await page.waitForSelector('#paso-fondo, #paso-ventas, #paso-cierre');
+};
+
 const CAPTURAS = join(import.meta.dirname, '..', 'docs', 'capturas');
 const CANDIDATOS = [process.env.POS_CHROMIUM, '/opt/pw-browsers/chromium-1194/chrome-linux/chrome', '/opt/pw-browsers/chromium/chrome-linux/chrome'];
 const chromiumPath = CANDIDATOS.find((p) => p && existsSync(p));
@@ -635,6 +642,7 @@ describe('[navegador real — Chromium con Playwright, UI sobre SQLite]', { time
 
     // corte: pesos y dólares por separado (US$150 recibidos; cambio de $51 y $1,780 en pesos)
     await page.click('#nav button[data-vista="corte"]');
+    await empezarCorte(page);
     await page.waitForSelector('#cierre-pasos');
     await page.fill('[data-fondo="b100000"]', '5');
     await page.click('#btn-fondo');
@@ -781,6 +789,7 @@ describe('[navegador real — Chromium con Playwright, UI sobre SQLite]', { time
 
     // corte: conteo de pesos con diferencia, billetes rechazados y cierre
     await page.click('#nav button[data-vista="corte"]');
+    await empezarCorte(page);
     await page.waitForSelector('#cierre-pasos');
     await page.fill('[data-fondo="b100000"]', '5');
     await page.click('#btn-fondo');

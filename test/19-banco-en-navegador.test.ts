@@ -1804,7 +1804,7 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     await page.waitForFunction(() => /no se pudo abrir la caja/.test(document.querySelector('#msg-ac')!.textContent!)); // el error se ve en la propia ventana
     await page.click('#ac-no');
     await abrirDetalleCorte(page);
-    assert.match((await page.textContent('body'))!, /Aperturas del cajón sin venta[\s\S]{0,40}1/);
+    assert.match((await page.textContent('body'))!, /Aperturas del cajón sin venta[\s\S]{0,40}2/); // la apertura del botón y la de «Empezar corte»
     assert.deepEqual(errores.filter((e) => !/401|403|Failed to load resource/.test(e)), []);
   });
 

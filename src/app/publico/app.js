@@ -1241,6 +1241,28 @@ async function vistaCorte() {
         <table id="tabla-corte"><tbody>${FILAS_CORTE.map(([k, t, f]) => `<tr data-campo="${k}"><th scope="row">${t}</th><td class="num">${f(v[k])}</td></tr>`).join('')}</tbody></table>
         <p class="nota">Corte en vivo: se calcula con las ventas de ESTA caja. Pesos y dólares se concilian por separado.</p></details></section>`;
   }
+  // Para contar el fondo y el efectivo hay que abrir el cajón: «Empezar corte» lo abre (con la clave de quien cierra) y deja registrado el motivo. Cada cierre del día empieza así.
+  const llaveCajon = `${v.fecha}:${j.cierres ?? 0}`;
+  if (!cerrado && paso < 3 && S.cierreCajon !== llaveCajon) {
+    $('#vista').innerHTML = `${cab}<section class="panel" id="paso-empezar"><h2 style="margin-top:0">Empezar corte</h2>
+      <p class="nota">Para contar el fondo y el efectivo de las ventas se abre el cajón (queda registrado en el corte como «Corte de caja»).</p>
+      ${j.pide_clave ? '<div class="campo"><label for="empezar-clave">Su clave</label><input id="empezar-clave" type="text" data-pin inputmode="numeric" autocomplete="off" placeholder="••••"></div>' : ''}
+      <div id="msg-empezar" class="mensaje" role="alert"></div>
+      <button class="btn btn-primario" id="btn-empezar" type="button">${ico('cash')}<span>Empezar corte y abrir cajón</span></button></section>`;
+    for (const b of $('#cierre-pasos').querySelectorAll('[data-paso]')) b.addEventListener('click', () => { S.cierrePaso = Number(b.dataset.paso); vistaCorte(); });
+    $('#btn-empezar').addEventListener('click', async () => {
+      const m = $('#msg-empezar');
+      if (j.pide_clave && !$('#empezar-clave').value) { m.className = 'mensaje error'; m.textContent = 'Teclee su clave.'; $('#empezar-clave').focus(); return; }
+      try {
+        await api('/api/caja/abrir', { motivo: 'Corte de caja', ...(j.pide_clave ? { clave: $('#empezar-clave').value } : {}) });
+        S.cierreCajon = llaveCajon;
+        imprimirNavegador(comprobanteApertura(), { logo: false }).catch(() => {});
+        await vistaCorte();
+      } catch (e) { m.className = 'mensaje error'; m.textContent = e.message; const c = $('#empezar-clave'); if (c) c.value = ''; }
+    });
+    ($('#empezar-clave') ?? $('#btn-empezar')).focus();
+    return;
+  }
   $('#vista').innerHTML = `${cab}${cuerpo}`;
   for (const b of $('#cierre-pasos').querySelectorAll('[data-paso]')) b.addEventListener('click', () => { S.cierrePaso = Number(b.dataset.paso); vistaCorte(); });
   if (paso === 1) {

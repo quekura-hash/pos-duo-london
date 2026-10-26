@@ -5,6 +5,13 @@ import { chromium, type Browser, type Page } from 'playwright-core';
 import { api, appAdmin, appCajero } from './ayudas/app.ts';
 import { ALMACENES, nuevoMundo, politica } from './ayudas/comun.ts';
 
+const empezarCorte = async (page: import('playwright-core').Page, clave = '4321') => {
+  await page.waitForSelector('#btn-empezar');
+  if (await page.locator('#empezar-clave').count()) await page.fill('#empezar-clave', clave);
+  await page.click('#btn-empezar');
+  await page.waitForSelector('#paso-fondo, #paso-ventas, #paso-cierre');
+};
+
 const CANDIDATOS = [process.env.POS_CHROMIUM, '/opt/pw-browsers/chromium-1194/chrome-linux/chrome', '/opt/pw-browsers/chromium/chrome-linux/chrome'];
 const chromiumPath = CANDIDATOS.find((p) => p && existsSync(p));
 const sqlite = ALMACENES.find((a) => a.nombre === 'sqlite')!;
@@ -36,6 +43,19 @@ describe('[navegador real] Cierre de caja guiado por pasos', { timeout: 240_000,
 
     const { page, errores } = await pagina(browser, caja.url);
     await page.click('#nav button[data-vista="corte"]');
+    // antes de contar nada hay que abrir el cajón: «Empezar corte» (pide la clave y deja la apertura registrada)
+    await page.waitForSelector('#paso-empezar');
+    assert.equal(await page.locator('#paso-fondo').count(), 0, 'el conteo del fondo no se ve hasta abrir el cajón');
+    await page.fill('#empezar-clave', '0000');
+    await page.click('#btn-empezar');
+    await page.waitForFunction(() => /clave/i.test(document.querySelector('#msg-empezar')!.textContent!));
+    assert.equal(await page.locator('#paso-fondo').count(), 0, 'con clave equivocada no avanza');
+    await page.fill('#empezar-clave', '4321');
+    await page.click('#btn-empezar');
+    await page.waitForSelector('#paso-fondo');
+    assert.equal((await api(caja.url, '/api/corte')).json.vivo.aperturas_cajon_sin_venta, 1);
+    await page.click('#nav button[data-vista="corte"]');
+    await page.waitForSelector('#paso-fondo'); // ya abierto en este cierre: no vuelve a pedirlo
     await page.waitForSelector('#paso-fondo');
     // paso 1: lo que no se ve todavía
     assert.equal(await page.locator('#btn-cerrar-corte').count(), 0, 'CERRAR CORTE no aparece hasta terminar los conteos');
@@ -143,6 +163,7 @@ describe('[navegador real] Cierre de caja guiado por pasos', { timeout: 240_000,
     ctx.m.pump(); ctx.m.pump(); ctx.m.pump();
     // la caja recibe el nuevo fondo autorizado y la entrega
     await page.click('#nav button[data-vista="corte"]');
+    await empezarCorte(page);
     await page.waitForSelector('#paso-fondo');
     assert.match((await page.textContent('#fondo-autorizado'))!, /\$6,000\.00/);
     const v = (await api(caja.url, '/api/corte')).json.vivo;

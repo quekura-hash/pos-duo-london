@@ -7,6 +7,11 @@ import type { Page } from 'playwright-core';
 export async function abrirDetalleCorte(page: Page, conteo: Record<string, number> = {}): Promise<void> {
   await page.click('#nav button[data-vista="corte"]');
   await page.waitForSelector('#cierre-pasos');
+  if (await page.locator('#btn-empezar').count()) { // «Empezar corte» abre el cajón (con la clave de la cajera, si la caja la pide)
+    if (await page.locator('#empezar-clave').count()) await page.fill('#empezar-clave', '4321');
+    await page.click('#btn-empezar');
+    await page.waitForSelector('#paso-fondo, #paso-ventas, #paso-cierre');
+  }
   if (await page.locator('#paso-fondo').count()) {
     await page.fill('[data-fondo="b100000"]', '5');
     await page.click('#btn-fondo');
