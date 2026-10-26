@@ -106,7 +106,7 @@ export class ServicioCaja {
     const dentro = this.autenticada();
     const limite = this.caja.configSesion().caja_min * 60;
     return {
-      requiere_login: this.requiereLogin(), autenticado: dentro, usuario: dentro ? this.actor.usuario : null, cajeros: dentro ? [] : this.caja.cajerosActivos(),
+      requiere_login: this.requiereLogin(), autenticado: dentro, usuario: dentro ? this.actor.usuario : null, supervisor: dentro && this.caja.esSupervisorActivo(this.actor.usuario), cajeros: dentro ? [] : this.caja.cajerosActivos(),
       // Sin cajeras registradas no hay sesión que cerrar: no hay cuenta regresiva.
       inactividad: dentro && this.requiereLogin() && limite > 0 ? { limite_seg: limite, restante_seg: Math.max(0, Math.ceil((this.ultimaActividad + limite * 1000 - this.ahoraMs()) / 1000)) } : null,
     };

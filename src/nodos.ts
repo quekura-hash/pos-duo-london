@@ -1304,6 +1304,8 @@ export class Caja {
    */
   verificarAutorizador(usuarioActual: string, autoriza: Autoriza | undefined, permitirPropio = false): string | null {
     if (!this.controlesConClave()) return null; // sin cajeros registrados no hay a quién pedirle clave: la caja trabaja abierta
+    // Un supervisor con sesión iniciada no necesita a nadie más: autoriza con su PROPIA clave (sin leyenda de «sin segunda persona»).
+    if (this.esSupervisorActivo(usuarioActual) && autoriza?.clave && (autoriza.sin_segundo || !String(autoriza.nombre ?? '').trim() || nombreClave(String(autoriza.nombre)) === nombreClave(usuarioActual))) return this.verificarClaveCajero(usuarioActual, String(autoriza.clave)).nombre;
     // «No hay nadie más»: quien cobra autoriza con su PROPIA clave y queda anotado que no hubo segunda persona.
     if (autoriza?.sin_segundo) return `${this.verificarClaveCajero(usuarioActual, String(autoriza.clave ?? '')).nombre} (sin segunda persona)`;
     const nombre = String(autoriza?.nombre ?? '').trim();
@@ -1324,11 +1326,17 @@ export class Caja {
     this.repo.kvSet(llave, { n: 0, hasta: 0 });
     return sup.nombre;
   }
+  /** ¿Quien tiene la sesión es un supervisor activo (no solo almacenista con clave de caja)? Tiene autoridad plena en la caja. */
+  esSupervisorActivo(usuario: string): boolean {
+    return !!usuario && this.idx.supervisores().some((s) => s.activo && nombreClave(s.nombre) === nombreClave(usuario));
+  }
   /** Quién puede autorizar al cajero actual: los demás cajeros activos y los supervisores activos. */
   autorizadoresPosibles(usuarioActual: string, incluirPropio = false): { nombre: string; tipo: 'cajero' | 'supervisor' }[] {
-    const otro = (n: string) => incluirPropio || nombreClave(n) !== nombreClave(usuarioActual);
+    const otro = (n: string) => incluirPropio || this.esSupervisorActivo(usuarioActual) || nombreClave(n) !== nombreClave(usuarioActual);
     const sups = new Set(this.idx.supervisores().map((s) => nombreClave(s.nombre)));
-    return [...this.idx.cajeros().filter((c) => c.activo && otro(c.nombre)).map((c) => ({ nombre: c.nombre, tipo: (sups.has(nombreClave(c.nombre)) ? 'supervisor' : 'cajero') as 'cajero' | 'supervisor' }))];
+    const lista = this.idx.cajeros().filter((c) => c.activo && otro(c.nombre)).map((c) => ({ nombre: c.nombre, tipo: (sups.has(nombreClave(c.nombre)) ? 'supervisor' : 'cajero') as 'cajero' | 'supervisor' }));
+    // Un supervisor se autoriza a sí mismo: aparece primero y queda elegido por omisión.
+    return this.esSupervisorActivo(usuarioActual) ? [...lista.filter((x) => nombreClave(x.nombre) === nombreClave(usuarioActual)), ...lista.filter((x) => nombreClave(x.nombre) !== nombreClave(usuarioActual))] : lista;
   }
   /** Minutos de inactividad que cierran la sesión de la caja (0 = nunca). */
   configSesion() {
@@ -1736,7 +1744,7 @@ export class Caja {
     const emp = this.empleadasActivas().find((e) => e.id === d.empleada_id);
     if (!emp) throw new ErrorDominio('EMPLEADA_INEXISTENTE', 'esa empleada no está activa');
     this.verificarClaveCajero(emp.nombre, String(d.clave ?? ''));
-    if (nombreClave(emp.nombre) === nombreClave(d.usuario) && !d.sinSupervisor && !supervisorPorClave(this.idx.supervisores(), String(d.claveSupervisor ?? ''))) {
+    if (nombreClave(emp.nombre) === nombreClave(d.usuario) && !d.sinSupervisor && !this.esSupervisorActivo(d.usuario) && !supervisorPorClave(this.idx.supervisores(), String(d.claveSupervisor ?? ''))) {
       throw new ErrorDominio('AUTORIZACION_REQUERIDA', 'una cajera no puede venderse a sí misma: un supervisor debe autorizarlo con su clave');
     }
     c.empleada = { id: emp.id, nombre: emp.nombre, ...(d.sinSupervisor && nombreClave(emp.nombre) === nombreClave(d.usuario) ? { sin_supervisor: true } : {}) };

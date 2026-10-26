@@ -353,7 +353,7 @@ async function vistaFolios() {
     const siguiente = Number($('#fo-siguiente').value);
     if (!Number.isInteger(siguiente) || siguiente < 1) { m.className = 'mensaje error'; m.textContent = 'Escriba el número de folio siguiente.'; return; }
     if (!$('#fo-ref').value.trim()) { m.className = 'mensaje error'; m.textContent = 'Escriba en qué evidencia se apoya (por ejemplo, el último ticket impreso).'; return; }
-    const foSolo = pideClave && $('#fo-solo').checked;
+    const foSolo = pideClave && $('#fo-solo')?.checked;
     if (pideClave && !$('#fo-clave').value) { m.className = 'mensaje error'; m.textContent = 'El supervisor debe teclear su clave.'; return; }
     try {
       await api('/api/folios/confirmar', { siguiente, evidencia: { tipo: $('#fo-tipo').value, referencia: $('#fo-ref').value }, sin_anclas: !!$('#fo-sin-hub')?.checked, ...(pideClave ? { autoriza: foSolo ? { nombre: S.sesion.usuario, clave: $('#fo-clave').value, sin_segundo: true } : { nombre: $('#fo-quien').value, clave: $('#fo-clave').value } } : {}) });
@@ -1356,7 +1356,7 @@ async function vistaExtraordinarias() {
     let autoriza;
     if (au.pide_clave) {
       if (!$('#gs-clave').value) return falla('Teclee la clave de quien autoriza.', 'gs-clave');
-      autoriza = $('#gs-solo').checked ? { nombre: S.sesion.usuario, clave: $('#gs-clave').value, sin_segundo: true } : { nombre: $('#gs-quien').value, clave: $('#gs-clave').value };
+      autoriza = $('#gs-solo')?.checked ? { nombre: S.sesion.usuario, clave: $('#gs-clave').value, sin_segundo: true } : { nombre: $('#gs-quien').value, clave: $('#gs-clave').value };
     }
     try {
       const r = await api('/api/gasto', { ref: S.refGasto, monto, concepto: $('#gs-concepto').value, recibio: $('#gs-recibio').value, ...(autoriza ? { autoriza } : {}) });
@@ -1371,7 +1371,7 @@ async function vistaExtraordinarias() {
     const m = $('#msg-ent');
     const monto = parseMXN($('#ent-monto').value);
     if (monto === null || monto <= 0) { m.className = 'mensaje error'; m.textContent = 'Escriba un monto válido (por ejemplo 500 o 500.00).'; return; }
-    try { await api('/api/efectivo/entrada', { monto, moneda: $('#ent-moneda').value, motivo: $('#ent-motivo').value, clave: $('#ent-clave').value, ...($('#ent-solo').checked ? { sin_supervisor: true } : {}), ref: S.refEntrada }); S.refEntrada = null; await vistaExtraordinarias(); const mm = $('#msg-ent'); mm.className = 'mensaje ok'; mm.textContent = 'Entrada registrada.'; }
+    try { await api('/api/efectivo/entrada', { monto, moneda: $('#ent-moneda').value, motivo: $('#ent-motivo').value, clave: $('#ent-clave').value, ...($('#ent-solo')?.checked ? { sin_supervisor: true } : {}), ref: S.refEntrada }); S.refEntrada = null; await vistaExtraordinarias(); const mm = $('#msg-ent'); mm.className = 'mensaje ok'; mm.textContent = 'Entrada registrada.'; }
     catch (e) { m.className = 'mensaje error'; m.textContent = e.message; }
   });
 }
@@ -1442,7 +1442,7 @@ async function abrirRevertirVenta(det, alTerminar) {
     const m = $('#msg-rv');
     const datos = leerCamposClienta('rv', m);
     if (!datos) return;
-    const rvSolo = a.pide_clave && $('#rv-solo').checked;
+    const rvSolo = a.pide_clave && $('#rv-solo')?.checked;
     if (a.pide_clave && ((!rvSolo && !$('#rv-quien').value) || !$('#rv-clave').value)) { m.className = 'mensaje error'; m.textContent = 'Elija quién autoriza y teclee su clave.'; return; }
     try {
       const r = await api('/api/venta/cancelar', { sale_id: det.sale_id, motivo: datos.motivo, clienta: datos.clienta, ...(a.pide_clave ? { autoriza: rvSolo ? { nombre: S.sesion.usuario, clave: $('#rv-clave').value, sin_segundo: true } : { nombre: $('#rv-quien').value, clave: $('#rv-clave').value } } : {}) });
@@ -2875,7 +2875,7 @@ function abrirEditarLinea() {
     const precio = parseMXN($('#el-precio').value);
     if (!precio) { m.className = 'mensaje error'; m.textContent = 'Escriba el precio en pesos.'; return; }
     try {
-      const r = await api('/api/venta/editar-linea', { cart: S.cart, linea_id: l.linea_id, descripcion: $('#el-desc').value, ...(precio !== l.precio_unit ? { precio_unit: precio, clave: $('#el-clave').value, ...($('#el-solo').checked ? { sin_supervisor: true } : {}) } : {}) });
+      const r = await api('/api/venta/editar-linea', { cart: S.cart, linea_id: l.linea_id, descripcion: $('#el-desc').value, ...(precio !== l.precio_unit ? { precio_unit: precio, clave: $('#el-clave').value, ...($('#el-solo')?.checked ? { sin_supervisor: true } : {}) } : {}) });
       S.carrito = r.carrito; pintarCarrito(); d.close(); msg('Artículo editado en esta venta.'); $('#scan').focus();
     } catch (e) { m.className = 'mensaje error'; m.textContent = e.message; const c = $('#el-clave'); if (c) c.value = ''; }
   });
@@ -2923,14 +2923,14 @@ async function abrirEmpleada() {
       <div id="msg-emp" class="mensaje" role="status" aria-live="polite"></div>
       <div class="filas"><button class="btn" type="button" id="emp-cerrar">Cancelar</button><button class="btn btn-primario" type="submit" style="width:auto;flex:1">${ico('check')}<span>Aplicar descuento de empleada</span></button></div>
     </form>`;
-  const sup = () => { $('#emp-sup-campo').hidden = $('#emp-quien').selectedOptions[0]?.dataset.nombre.toLowerCase() !== String(yo).toLowerCase(); };
+  const sup = () => { $('#emp-sup-campo').hidden = S.sesion?.supervisor || $('#emp-quien').selectedOptions[0]?.dataset.nombre.toLowerCase() !== String(yo).toLowerCase(); };
   $('#emp-quien').addEventListener('change', sup); sup();
   $('#emp-cerrar').addEventListener('click', () => d.close());
   $('#form-empleada').addEventListener('submit', async (ev) => {
     ev.preventDefault();
     const m = $('#msg-emp');
     try {
-      const r = await api('/api/venta/empleada', { cart: S.cart, empleada_id: $('#emp-quien').value, clave: $('#emp-clave').value, ...(!$('#emp-sup-campo').hidden ? ($('#emp-solo').checked ? { sin_supervisor: true } : { clave_supervisor: $('#emp-sup').value }) : {}) });
+      const r = await api('/api/venta/empleada', { cart: S.cart, empleada_id: $('#emp-quien').value, clave: $('#emp-clave').value, ...(!$('#emp-sup-campo').hidden ? ($('#emp-solo')?.checked ? { sin_supervisor: true } : { clave_supervisor: $('#emp-sup').value }) : {}) });
       S.carrito = r.carrito; d.close(); pintarCarrito(); msg(`Venta a empleada: ${r.carrito.empleada.nombre}. El ${config.pct}% ya se aplicó a toda la venta. Si algún artículo es uniforme, selecciónelo en la lista y toque «Marcar como uniforme» (${config.pct_uniforme}%). Luego elija la forma de pago.`);
     } catch (e) { m.className = 'mensaje error'; m.textContent = e.message; }
   });
@@ -2939,7 +2939,7 @@ async function abrirEmpleada() {
 }
 
 /** «No hay nadie más / supervisor ausente»: quien cobra autoriza con su PROPIA clave y queda anotado. */
-const casillaSola = (id, texto) => `<label style="display:flex;gap:8px;align-items:flex-start;margin:8px 0"><input type="checkbox" id="${id}" style="margin-top:4px"><span>${texto}</span></label>`;
+const casillaSola = (id, texto) => S.sesion?.supervisor ? '' : `<label style="display:flex;gap:8px;align-items:flex-start;margin:8px 0"><input type="checkbox" id="${id}" style="margin-top:4px"><span>${texto}</span></label>`;
 function abrirDescuento() {
   if (!S.carrito.lineas.length) return msg('Agregue artículos a la venta antes de aplicar un descuento.', 'aviso');
   const d = dialogo('dlg-descuento');
