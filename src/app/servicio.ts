@@ -1,6 +1,6 @@
 import { revisarReporteAnterior, idVentaHistorica } from '../ventas-historicas.ts';
 import { AGRUPACIONES, analizarVentas, type Agrupar } from '../analisis-ventas.ts';
-import { gastosPorCaja, retirosPorCaja, cortesPorCaja, descuentosPorCaja, dolaresPorCaja, reporteConsolidado, ventasPorCaja, ventasPorVendedora, type Filtro } from '../consultas.ts';
+import { gastosPorCaja, retirosPorCaja, cortesPorCaja, ultimoCortePorCaja, descuentosPorCaja, dolaresPorCaja, reporteConsolidado, ventasPorCaja, ventasPorVendedora, type Filtro } from '../consultas.ts';
 import type { GastoRegistrado } from '../gastos.ts';
 import { DENOMS_FERIA, MINIMO_FERIA, estimarFeria } from '../feria.ts';
 import { DIAS_URGENTE, diasHasta, entradasDeArticulo, existenciaAlmacen, faltantes, recepcionesPendientes, recordatoriosPiso, reporteEntregas, revisarAlta, type AltaManual } from '../almacen.ts';
@@ -807,10 +807,9 @@ export class ServicioCaja {
   corte(fecha: string) {
     this.exigirFechaReciente(fecha);
     const vivo = this.caja.corteEnVivo(fecha);
-    const cerrado = this.caja.repo.getOp(`corte:${this.caja.id}:${fecha}`)?.payload ?? null;
-    const sinDatosDelCierre = (c: any) => { const { cerrado_por: _a, observaciones: _b, ...resto } = c ?? {}; return resto; };
+    const cerrado = this.caja.corteVigente(fecha)?.payload ?? null;
     return {
-      vivo, cerrado, desactualizado: cerrado ? JSON.stringify(sinDatosDelCierre(cerrado)) !== JSON.stringify(vivo) : false,
+      vivo, cerrado, cerrado_en: this.caja.corteVigente(fecha)?.ocurrio_en ?? null, desactualizado: cerrado ? !this.caja.corteAlDia(fecha, vivo) : false, cierres: this.caja.cortesDelDia(fecha).length,
       estado: this.caja.estadoCierre(fecha), pide_clave: this.caja.controlesConClave(),
     };
   }
@@ -819,7 +818,8 @@ export class ServicioCaja {
    * imprime el ticket de cierre; una falla de impresión no deshace el cierre (se reimprime con «Reimprimir cierre»). Cerrar otra vez no reimprime.
    */
   async cerrarCorte(fecha: string, d: { clave?: string; observaciones?: string } = {}) {
-    const yaCerrado = !!this.caja.repo.getOp(`corte:${this.caja.id}:${fecha}`);
+    const antes = this.caja.cortesDelDia(fecha).length;
+    const yaCerrado = antes > 0 && this.caja.corteAlDia(fecha);
     const corte = this.caja.cerrarCorteGuiado(fecha, { usuario: this.actor.usuario, clave: d.clave, observaciones: d.observaciones });
     if (yaCerrado) return { corte, ticket_texto: null as string | null, impresion: null as { ok: boolean; error?: string } | null };
     return { corte, ...(await this.imprimirCierre(corte, 0)) };
@@ -827,7 +827,7 @@ export class ServicioCaja {
   /** Reimprime el ticket del cierre YA guardado (no recalcula nada) con la leyenda de reimpresión. */
   async reimprimirCierre(fecha: string) {
     this.exigirFechaReciente(fecha);
-    const guardado = this.caja.repo.getOp(`corte:${this.caja.id}:${fecha}`);
+    const guardado = this.caja.corteVigente(fecha);
     if (!guardado) throw new ErrorDominio('CORTE_ABIERTO', 'el corte de ese día aún no está cerrado: no hay cierre que reimprimir');
     const clave = `cierreimp:${this.caja.id}:${fecha}`;
     const n = (this.caja.repo.kvGet<number>(clave) ?? 0) + 1;
@@ -1751,7 +1751,7 @@ export class ServicioAdmin {
       };
     };
     const info = this.tiendasInfo();
-    const cortes = ops.filter((o) => o.tipo === 'corte.generado' && o.payload.fecha === dia);
+    const cortes = ultimoCortePorCaja(ops.filter((o) => o.tipo === 'corte.generado' && o.payload.fecha === dia));
     return {
       fecha: dia, hoy: fechaLocal(this.reloj.now()),
       tiendas: info.map((t) => ({ tienda: t.tienda, nombre: t.nombre, ...filaDe(t.tienda), cajas_con_corte: cortes.filter((o) => o.payload.tienda === t.tienda).length, cajas: this.cajas.filter((c) => c.tienda === t.tienda).length })),

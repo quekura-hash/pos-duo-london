@@ -2613,7 +2613,7 @@ export class Caja {
    */
   confirmarFondo(d: { denominaciones: Record<string, number>; nota?: string; usuario: string }) {
     const fecha = fechaLocal(this.ctx.reloj.now());
-    if (this.repo.getOp(`corte:${this.id}:${fecha}`)) throw new ErrorDominio('CORTE_CERRADO', 'el corte de hoy ya está cerrado: el fondo no se modifica');
+    if (this.corteAlDia(fecha)) throw new ErrorDominio('CORTE_CERRADO', 'el corte de hoy ya está cerrado: el fondo no se modifica');
     const den: Record<string, number> = {};
     for (const [k, n] of Object.entries(d.denominaciones ?? {})) {
       if (!n) continue;
@@ -2644,7 +2644,7 @@ export class Caja {
     // Con Vendedoras-Cajeras registradas, contar el cajón exige la propia clave de quien lo hace (la misma con que abrió el cajón).
     if (this.controlesConClave()) this.verificarClaveCajero(d.usuario, String(d.clave ?? ''));
     const fecha = fechaLocal(this.ctx.reloj.now());
-    if (this.repo.getOp(`corte:${this.id}:${fecha}`)) throw new ErrorDominio('CORTE_CERRADO', 'el corte de hoy ya está cerrado: el cajón no se cuenta');
+    if (this.corteAlDia(fecha)) throw new ErrorDominio('CORTE_CERRADO', 'el corte de hoy ya está cerrado: el cajón no se cuenta');
     if (!this.fondoDelDia(fecha)) throw new ErrorDominio('FONDO_PENDIENTE', 'primero cuente y confirme el fondo del día (en el cierre de caja)');
     const den: Record<string, number> = {};
     for (const [k, n] of Object.entries(d.denominaciones ?? {})) {
@@ -2922,7 +2922,7 @@ export class Caja {
   /** Qué falta para cerrar el corte: fondo confirmado, conteo de pesos (sin fondo) y, si hubo dólares, su conteo; todos vigentes. */
   estadoCierre(fecha: string) {
     const v = this.corteEnVivo(fecha);
-    const cerrado = !!this.repo.getOp(`corte:${this.id}:${fecha}`);
+    const cerrado = this.corteAlDia(fecha, v);
     const usdRequerido = v.usd.cobros !== 0 || v.usd.esperado !== 0 || v.usd.contado !== null;
     const faltan: string[] = [];
     if (v.fondo_confirmado === null) faltan.push('fondo');
@@ -2931,23 +2931,47 @@ export class Caja {
     if (usdRequerido) { if (v.usd.contado === null) faltan.push('conteo_usd'); else if (v.conteo_desactualizado.usd) faltan.push('recontar_usd'); }
     return { cerrado, usd_requerido: usdRequerido, faltan, puede_cerrar: !cerrado && faltan.length === 0 };
   }
-  /** Cierra el corte del día con el flujo guiado: exige los conteos al día y la clave de quien cierra; guarda observaciones y quién cerró. */
+  /** Cierres del día en orden (el primero conserva el identificador de siempre; los siguientes llevan un número). */
+  cortesDelDia(fecha: string): Op[] {
+    const r: Op[] = [];
+    for (let n = 1; ; n++) {
+      const o = this.repo.getOp(n === 1 ? `corte:${this.id}:${fecha}` : `corte:${this.id}:${fecha}:${n}`);
+      if (!o) return r;
+      r.push(o);
+    }
+  }
+  /** El cierre vigente del día (el último) o null. */
+  corteVigente(fecha: string): Op | null {
+    return this.cortesDelDia(fecha).at(-1) ?? null;
+  }
+  /** ¿El día está cerrado Y sin operaciones posteriores al último cierre? Con operaciones nuevas el corte se vuelve a abrir: se puede cerrar otra vez con todo el día. */
+  corteAlDia(fecha: string, vivo: ReturnType<Caja['corteEnVivo']> = this.corteEnVivo(fecha)): boolean {
+    const o = this.corteVigente(fecha);
+    if (!o) return false;
+    const sinDatosDelCierre = (c: any) => { const { cerrado_por: _a, observaciones: _b, cierres_previos: _c, ...resto } = c ?? {}; return resto; };
+    return JSON.stringify(sinDatosDelCierre(o.payload)) === JSON.stringify(sinDatosDelCierre(vivo));
+  }
+  /**
+   * Cierra el corte del día con el flujo guiado: exige los conteos al día y la clave de quien cierra; guarda observaciones y quién cerró.
+   * Se puede cerrar más de una vez al día: el nuevo cierre cubre TODO el día y lleva una nota por cada cierre anterior (hora, venta de ese momento y que se confirmó el fondo).
+   */
   cerrarCorteGuiado(fecha: string, d: { usuario: string; clave?: string; observaciones?: string }) {
-    const previo = this.repo.getOp(`corte:${this.id}:${fecha}`);
-    if (previo) return previo.payload as ReturnType<Caja['corteEnVivo']>;
+    const previos = this.cortesDelDia(fecha);
+    if (previos.length && this.corteAlDia(fecha)) return previos.at(-1)!.payload as ReturnType<Caja['corteEnVivo']>;
     const est = this.estadoCierre(fecha);
     if (!est.puede_cerrar) {
       const texto: Record<string, string> = { fondo: 'confirme el fondo', conteo_ventas: 'cuente el efectivo de ventas', recontar_ventas: 'hubo movimientos después del conteo de pesos: vuelva a contar', conteo_usd: 'cuente los dólares', recontar_usd: 'hubo movimientos después del conteo de dólares: vuelva a contar' };
       throw new ErrorDominio('CIERRE_INCOMPLETO', `no se puede cerrar el corte: ${est.faltan.map((f) => texto[f]).join('; ')}`, { faltan: est.faltan });
     }
     if (this.controlesConClave()) this.verificarClaveCajero(d.usuario, String(d.clave ?? ''));
-    const corte = { ...this.corteEnVivo(fecha), cerrado_por: d.usuario, observaciones: String(d.observaciones ?? '').trim().slice(0, 500) };
-    this.emitir('corte.generado', corte, `corte:${this.id}:${fecha}`);
+    const cierres_previos = previos.map((o) => ({ cerrado_en: o.ocurrio_en, cerrado_por: (o.payload.cerrado_por as string | undefined) ?? '', ventas: o.payload.ventas_mercancia as number, fondo_confirmado: o.payload.fondo_confirmado !== null && o.payload.fondo_confirmado !== undefined }));
+    const corte = { ...this.corteEnVivo(fecha), cerrado_por: d.usuario, observaciones: String(d.observaciones ?? '').trim().slice(0, 500), ...(cierres_previos.length ? { cierres_previos } : {}) };
+    this.emitir('corte.generado', corte, previos.length ? `corte:${this.id}:${fecha}:${previos.length + 1}` : `corte:${this.id}:${fecha}`);
     return corte;
   }
   /** Cierre del corte del día: se guarda UNA vez por caja y fecha; llamarlo otra vez devuelve el ya guardado. */
   generarCorte(fecha: string) {
-    const previo = this.repo.getOp(`corte:${this.id}:${fecha}`);
+    const previo = this.corteVigente(fecha);
     if (previo) return previo.payload as ReturnType<Caja['corteEnVivo']>;
     const corte = this.corteEnVivo(fecha);
     this.emitir('corte.generado', corte, `corte:${this.id}:${fecha}`);

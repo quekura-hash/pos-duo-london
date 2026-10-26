@@ -1144,12 +1144,13 @@ function leerDenominaciones(prefijo, fmt, raiz = document) {
   }
   return { total, den };
 }
+const horaCorte = (iso) => new Date(Date.parse(iso) - 7 * 3600000).toISOString().slice(11, 16);
 const dif$ = (c, f = mxn) => (c === 0 ? f(0) : `${c < 0 ? '-' : '+'}${f(Math.abs(c))}`);
 
 async function vistaCorte() {
   const j = await api('/api/corte');
   const v = j.vivo, est = j.estado;
-  const cerrado = !!j.cerrado;
+  const cerrado = !!j.cerrado && !j.desactualizado; // con operaciones posteriores al último cierre se puede cerrar de nuevo (cubre todo el día)
   const hecho = { 1: v.fondo_confirmado !== null, 2: v.conteo_alcance === 'ventas' && !est.faltan.some((f) => f.startsWith('recontar') || f === 'conteo_usd') && !est.faltan.includes('conteo_ventas') };
   const primero = !hecho[1] ? 1 : !hecho[2] ? 2 : 3;
   const maximo = cerrado ? 3 : primero;
@@ -1163,7 +1164,8 @@ async function vistaCorte() {
   }).join('')}</ol>`;
   const cab = `<div class="titulo-vista">${ico('register')}<h1>Cierre de caja — Caja ${v.caja} (${esc(v.tienda)}) · ${esc(v.fecha)}</h1></div>${pasos}
     ${v.perdida_documental_abierta.length ? '<div class="mensaje error" data-alerta="perdida-corte">Este corte puede estar incompleto: hay una posible pérdida de ventas, pagos o folios de esta caja sin resolver.</div>' : ''}
-    ${cerrado ? `<div class="mensaje ok" id="corte-cerrado">Corte cerrado${j.cerrado.cerrado_por ? ` por ${esc(j.cerrado.cerrado_por)}` : ''}${j.desactualizado ? '. Hay operaciones posteriores al cierre (no se reescribe el corte cerrado).' : '.'}</div>
+    ${j.cerrado && !cerrado ? `<div class="mensaje aviso" id="corte-reabierto">Ya se hizo un corte de arqueo a las ${horaCorte(j.cerrado_en)} con ${mxn(j.cerrado.ventas_mercancia)} de venta${j.cerrado.fondo_confirmado !== null ? ' y se confirmó fondo' : ''}. Hubo operaciones después: cuente de nuevo y cierre otra vez (el cierre cubre todo el día y deja anotado el corte anterior).</div>` : ''}
+    ${cerrado ? `<div class="mensaje ok" id="corte-cerrado">Corte cerrado${j.cerrado.cerrado_por ? ` por ${esc(j.cerrado.cerrado_por)}` : ''}.</div>
       <div id="estado-impresion-cierre" class="mensaje ${S.cierreImpresion && !S.cierreImpresion.ok ? 'error' : 'ok'}" role="status" aria-live="polite" ${S.cierreImpresion ? '' : 'hidden'}>${S.cierreImpresion ? (S.cierreImpresion.ok ? 'El ticket de cierre se envió a la impresora.' : `No se pudo imprimir el ticket de cierre: ${esc(S.cierreImpresion.error ?? '')}. El corte SÍ quedó cerrado; use «Reimprimir cierre».`) : ''}</div>
       <div class="filas"><button class="btn" type="button" id="btn-reimprimir-cierre">${ico('printer')}<span>Reimprimir cierre</span></button></div>` : ''}`;
   let cuerpo = '';

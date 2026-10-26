@@ -568,6 +568,11 @@ export function lineasTicketCorte(k: DatosCorte, cfg: NegocioCfg = NEGOCIOS[k.ti
   L.push(t(''), b(centrar('*** CIERRE DE CAJA ***', c)));
   if (opts.reimpresion) L.push(t(centrar(`REIMPRESIÓN ${opts.reimpresion}`, c)));
   L.push(t(`Fecha: ${dd}/${mo}/${y}`), ...(k.cerrado_por ? [t(`Cerró: ${k.cerrado_por}`.slice(0, c))] : []), t(`Folios: ${k.folio_inicial ? `${String(k.folio_inicial).padStart(6, '0')} al ${String(k.folio_final).padStart(6, '0')}` : 'sin movimientos'}`), t(doble));
+  // Cortes de arqueo (revisión) hechos antes durante el día: este cierre cubre TODO el día y los anota.
+  for (const x of (Array.isArray(k.cierres_previos) ? k.cierres_previos : []) as { cerrado_en: string; ventas: number; fondo_confirmado: boolean }[]) {
+    const hora = new Date(Date.parse(x.cerrado_en) - 7 * 3600_000).toISOString().slice(11, 16);
+    for (const z of envolver(`Se hizo un corte de arqueo a las ${hora} con ${formatoMXN(x.ventas)} de venta${x.fondo_confirmado ? ' y se confirmó fondo' : ''}.`, c)) L.push(t(z));
+  }
   // 1) LO MÁS IMPORTANTE: la venta total del día
   L.push({ texto: centrar('VENTA TOTAL DEL DÍA', c), negrita: true }, { texto: centrar(formatoMXN(k.ventas_mercancia), c), negrita: true, grande: true });
   L.push(t(dos(`${k.tickets} ticket${k.tickets === 1 ? '' : 's'} de venta`, k.descuentos ? `descuentos -${formatoMXN(k.descuentos)}` : '', c)));

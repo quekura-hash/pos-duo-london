@@ -200,10 +200,16 @@ export interface ResumenMoneda {
   diferencia: number | null;
 }
 
+/** Si una caja cerró más de una vez el mismo día, solo cuenta el último cierre (cubre todo el día). */
+export function ultimoCortePorCaja(ops: Op[]): Op[] {
+  const m = new Map<string, Op>();
+  for (const o of [...ops].sort((a, b) => a.ocurrio_en.localeCompare(b.ocurrio_en))) m.set(`${o.payload.tienda}|${o.payload.caja}|${o.payload.fecha}`, o);
+  return [...m.values()];
+}
+
 export function cortesPorCaja(actor: Actor, ops: Op[], f: Filtro = {}): FilaCorte[] {
   const permitidas = cajasPermitidas(actor, f);
-  return ops
-    .filter((o) => o.tipo === 'corte.generado')
+  return ultimoCortePorCaja(ops.filter((o) => o.tipo === 'corte.generado'))
     .map((o) => o.payload as FilaCorte)
     .filter((c) => (permitidas === 'todas' || permitidas.some((p) => mismaCaja(p, c))) &&
       (!f.desde || c.fecha >= f.desde) && (!f.hasta || c.fecha <= f.hasta))
