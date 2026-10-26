@@ -2926,6 +2926,11 @@ export class Caja {
     const usdRequerido = v.usd.cobros !== 0 || v.usd.esperado !== 0 || v.usd.contado !== null;
     const faltan: string[] = [];
     if (v.fondo_confirmado === null) faltan.push('fondo');
+    else {
+      // Con un cierre anterior del día, el fondo se vuelve a contar y confirmar: la feria y los billetes ya no son los mismos.
+      const previo = this.corteVigente(fecha), fondo = this.fondoDelDia(fecha);
+      if (previo && fondo && fondo.ocurrio_en <= previo.ocurrio_en) faltan.push('fondo');
+    }
     if (v.conteo_alcance !== 'ventas') faltan.push('conteo_ventas');
     else if (v.conteo_desactualizado.mxn) faltan.push('recontar_ventas');
     if (usdRequerido) { if (v.usd.contado === null) faltan.push('conteo_usd'); else if (v.conteo_desactualizado.usd) faltan.push('recontar_usd'); }
@@ -2964,7 +2969,7 @@ export class Caja {
       throw new ErrorDominio('CIERRE_INCOMPLETO', `no se puede cerrar el corte: ${est.faltan.map((f) => texto[f]).join('; ')}`, { faltan: est.faltan });
     }
     if (this.controlesConClave()) this.verificarClaveCajero(d.usuario, String(d.clave ?? ''));
-    const cierres_previos = previos.map((o) => ({ cerrado_en: o.ocurrio_en, cerrado_por: (o.payload.cerrado_por as string | undefined) ?? '', ventas: o.payload.ventas_mercancia as number, fondo_confirmado: o.payload.fondo_confirmado !== null && o.payload.fondo_confirmado !== undefined }));
+    const cierres_previos = previos.map((o) => ({ cerrado_en: o.ocurrio_en, cerrado_por: (o.payload.cerrado_por as string | undefined) ?? '', ventas: o.payload.ventas_mercancia as number, fondo_confirmado: o.payload.fondo_confirmado !== null && o.payload.fondo_confirmado !== undefined, fondo_estado: (o.payload.fondo_estado as string | null) ?? null, fondo_diferencia: (o.payload.fondo_diferencia as number | null) ?? 0 }));
     const corte = { ...this.corteEnVivo(fecha), cerrado_por: d.usuario, observaciones: String(d.observaciones ?? '').trim().slice(0, 500), ...(cierres_previos.length ? { cierres_previos } : {}) };
     this.emitir('corte.generado', corte, previos.length ? `corte:${this.id}:${fecha}:${previos.length + 1}` : `corte:${this.id}:${fecha}`);
     return corte;

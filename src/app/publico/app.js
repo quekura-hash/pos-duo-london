@@ -1151,7 +1151,7 @@ async function vistaCorte() {
   const j = await api('/api/corte');
   const v = j.vivo, est = j.estado;
   const cerrado = !!j.cerrado && !j.desactualizado; // con operaciones posteriores al último cierre se puede cerrar de nuevo (cubre todo el día)
-  const hecho = { 1: v.fondo_confirmado !== null, 2: v.conteo_alcance === 'ventas' && !est.faltan.some((f) => f.startsWith('recontar') || f === 'conteo_usd') && !est.faltan.includes('conteo_ventas') };
+  const hecho = { 1: !est.faltan.includes('fondo'), 2: v.conteo_alcance === 'ventas' && !est.faltan.some((f) => f.startsWith('recontar') || f === 'conteo_usd') && !est.faltan.includes('conteo_ventas') };
   const primero = !hecho[1] ? 1 : !hecho[2] ? 2 : 3;
   const maximo = cerrado ? 3 : primero;
   const paso = Math.min(S.cierrePaso ?? primero, maximo);
@@ -1170,7 +1170,7 @@ async function vistaCorte() {
       <div class="filas"><button class="btn" type="button" id="btn-reimprimir-cierre">${ico('printer')}<span>Reimprimir cierre</span></button></div>` : ''}`;
   let cuerpo = '';
   if (paso === 1) {
-    const prev = v.fondo_denominaciones ?? v.fondo_referencia?.denominaciones ?? {};
+    const prev = (j.cerrado && !cerrado) ? {} : (v.fondo_denominaciones ?? v.fondo_referencia?.denominaciones ?? {}); // al reabrir, se cuenta de nuevo desde cero
     cuerpo = `<section class="panel" id="paso-fondo"><h2 style="margin-top:0">Paso 1: Contar y completar fondo</h2>
       <p class="nota">Primero separe el fondo fijo autorizado por Administración. La cajera cuenta el fondo, pero no modifica el importe autorizado. Separarlo del cajón no es una venta ni un ingreso.</p>
       <div class="mensaje" id="fondo-autorizado" style="background:var(--superficie-2,#eef6fb)">Fondo autorizado por Administración: <b>${mxn(v.fondo_autorizado)}</b></div>
