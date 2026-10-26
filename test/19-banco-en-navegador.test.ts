@@ -1789,7 +1789,13 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     await page.goto(`file://${HTML}`);
     await page.waitForSelector('#scan');
     assert.equal((await page.textContent('#btn-abrir-caja'))!.trim(), 'Abrir caja');
-    await abrirCajaAviso(page);
+    // Ctrl + F8 hace lo mismo que el botón (F8 solo no): primero el aviso y luego el motivo
+    await page.keyboard.press('F8');
+    assert.equal(await page.locator('#dlg-aviso-extorsion[open]').count(), 0);
+    await page.keyboard.press('Control+F8');
+    await page.waitForSelector('#dlg-aviso-extorsion[open]');
+    await page.click('#ax-ok');
+    await page.waitForSelector('#dlg-abrir-caja[open]');
     await page.click('#form-abrir-caja button[type=submit]');
     await page.waitForFunction(() => /Caja abierta/.test(document.querySelector('#mensaje')!.textContent!));
     await page.check('#falla-imp');
