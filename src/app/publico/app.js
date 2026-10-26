@@ -1548,6 +1548,17 @@ async function vistaVentas() {
   }
 }
 
+/** Retiros de efectivo de las cajas (los del módulo Retiro): quién, cuándo y cuánto salió, en pesos y dólares. */
+function panelRetiros(retiros) {
+  const lista = retiros ?? [];
+  const total = lista.reduce((a, r) => a + r.equivalente_mxn, 0);
+  return `<div class="panel" id="panel-retiros"><h2 style="margin-top:0">Retiros de efectivo</h2>
+    <p class="nota" style="margin-top:0">Dinero que salió de las cajas en el periodo. No son ventas: no restan a las ventas netas, pero sí al efectivo de la caja.</p>
+    <div class="tabla-cont"><table id="tabla-retiros"><thead><tr><th>Caja</th><th>Retiro</th><th>Fecha</th><th>Hora</th><th>Lo retiró</th><th class="num">Pesos</th><th class="num">Dólares</th><th class="num">Total en pesos</th></tr></thead><tbody>
+    ${lista.map((r) => `<tr data-retiro="${esc(r.retiro_id)}"><td>${esc(r.tienda)} · ${r.caja}</td><td>${esc(r.folio_retiro)}</td><td>${esc(r.fecha_local.split('-').reverse().join('/'))}</td><td>${esc(r.hora)}</td><td>${esc(r.usuario)}</td><td class="num">${mxn(r.pesos)}</td><td class="num">${r.dolares ? usd(r.dolares) : '—'}</td><td class="num"><b>${mxn(r.equivalente_mxn)}</b></td></tr>`).join('') || '<tr><td colspan="8" class="vacio">Sin retiros en el periodo.</td></tr>'}
+    </tbody>${lista.length ? `<tfoot><tr><th colspan="7">Total retirado (${lista.length})</th><td class="num"><b id="total-retiros">${mxn(total)}</b></td></tr></tfoot>` : ''}</table></div></div>`;
+}
+
 // ── Historial de ventas en Administración: todas las tiendas y cajas, con el mismo detalle (solo consulta) ──
 async function vistaHistorialAdmin() {
   const { cajas } = await api('/api/admin/cajas');
@@ -1575,7 +1586,7 @@ async function vistaHistorialAdmin() {
     $('#ha-resultado').innerHTML = `<div class="panel"><p class="nota" style="margin-top:0">Toque una venta para ver el detalle y el ticket.</p><div class="tabla-cont"><table id="tabla-historial-admin" class="solo-escritorio"><thead><tr><th>Caja</th><th>Folio</th><th>Fecha</th><th>Hora</th><th>Vendedora-Cajera</th><th>Venta por</th><th>Pago</th><th class="num">Total</th><th>Estado</th></tr></thead><tbody>
       ${j.ventas.length ? j.ventas.map((r) => `<tr data-detalle="${esc(r.sale_id)}" tabindex="0" style="cursor:pointer"><td>${esc(r.tienda)} · ${r.caja}</td><td>${r.historico ? `${esc(String(r.folio))} <span class="insignia" title="Venta importada del POS anterior: solo se conserva folio, fecha, total, piezas y forma de pago">POS anterior</span>` : esc(r.codigo_ticket)}</td><td>${esc(r.fecha_local.split('-').reverse().join('/'))}</td><td>${esc(r.hora || '—')}</td><td>${esc(r.cajero)}</td><td data-col="vendio">${esc(r.vendedora || '—')}</td><td>${esc(r.pago)}</td><td class="num">${mxn(r.total)}</td><td><span class="insignia ${esc(r.estado)}">${esc(r.estado)}</span></td></tr>`).join('') : '<tr><td colspan="9" class="vacio">No hay ventas con esos datos.</td></tr>'}
       </tbody></table>
-      <div class="lista-inv solo-movil" id="lista-historial-admin" role="list">${j.ventas.map((r) => `<button type="button" class="fila-inv" role="listitem" data-detalle="${esc(r.sale_id)}"><span class="fi-linea"><b class="fi-desc">${r.historico ? `${esc(String(r.folio))} · POS anterior` : `${esc(r.codigo_ticket)} · ${esc(r.hora)}`}</b><span class="fi-precio">${mxn(r.total)}</span></span><span class="fi-quien">${esc(r.tienda)} · Caja ${r.caja} · ${esc(r.vendedora || r.cajero)}</span><span class="fi-sub"><span>${esc(r.fecha_local.split('-').reverse().join('/'))}</span><span>${esc(r.pago)}</span><span class="insignia ${esc(r.estado)}">${esc(r.estado)}</span></span></button>`).join('') || '<p class="vacio">No hay ventas con esos datos.</p>'}</div></div></div>`;
+      <div class="lista-inv solo-movil" id="lista-historial-admin" role="list">${j.ventas.map((r) => `<button type="button" class="fila-inv" role="listitem" data-detalle="${esc(r.sale_id)}"><span class="fi-linea"><b class="fi-desc">${r.historico ? `${esc(String(r.folio))} · POS anterior` : `${esc(r.codigo_ticket)} · ${esc(r.hora)}`}</b><span class="fi-precio">${mxn(r.total)}</span></span><span class="fi-quien">${esc(r.tienda)} · Caja ${r.caja} · ${esc(r.vendedora || r.cajero)}</span><span class="fi-sub"><span>${esc(r.fecha_local.split('-').reverse().join('/'))}</span><span>${esc(r.pago)}</span><span class="insignia ${esc(r.estado)}">${esc(r.estado)}</span></span></button>`).join('') || '<p class="vacio">No hay ventas con esos datos.</p>'}</div></div></div>${panelRetiros(j.retiros)}`;
     for (const fila of $('#ha-resultado').querySelectorAll('[data-detalle]')) {
       const abrir = () => abrirDetalleVenta(fila.dataset.detalle, { acciones: false, ruta: `/api/admin/venta?sale_id=${encodeURIComponent(fila.dataset.detalle)}` }).catch((e) => { m.className = 'mensaje error'; m.textContent = e.message; });
       fila.addEventListener('click', abrir);
@@ -1697,7 +1708,7 @@ async function pintarResumenDia(fecha) {
   cont.innerHTML = `<div class="filas" style="align-items:center;justify-content:space-between"><h2 style="margin:0">${ico('store')} Resumen del día — todas las tiendas</h2>
       <label>Día <input type="date" id="rd-fecha" value="${esc(j.fecha)}" max="${esc(j.hoy)}"></label></div>
     <div class="kpi-grande" id="rd-venta-total"><span class="kpi-rotulo">VENTA TOTAL DEL DÍA · ${esc(f(j.fecha))}</span><span class="kpi-valor" id="rd-total">${mxn(t.venta_total)}</span><span class="kpi-sub">${t.tickets} ticket${t.tickets === 1 ? '' : 's'} de venta${t.canceladas ? ` · ${t.canceladas} cancelada${t.canceladas === 1 ? '' : 's'}` : ''}</span></div>
-    <div class="kpi-grid" id="rd-tiendas">${j.tiendas.map((x) => `<div class="kpi" data-tienda="${esc(x.tienda)}"><span class="kpi-rotulo">${esc(x.nombre).toUpperCase()}</span><b data-col="venta">${mxn(x.venta_total)}</b><small>${x.tickets} ticket${x.tickets === 1 ? '' : 's'} · netas ${mxn(x.ventas_netas)}</small><small>Efectivo ${mxn(x.efectivo)} · Tarjeta ${mxn(x.tarjeta)}</small><small>Cortes cerrados: ${x.cajas_con_corte} de ${x.cajas} cajas</small></div>`).join('')}</div>
+    <div class="kpi-grid" id="rd-tiendas">${j.tiendas.map((x) => `<div class="kpi" data-tienda="${esc(x.tienda)}"><span class="kpi-rotulo">${esc(x.nombre).toUpperCase()}</span><b data-col="venta">${mxn(x.venta_total)}</b><small>${x.tickets} ticket${x.tickets === 1 ? '' : 's'} · netas ${mxn(x.ventas_netas)}</small><small>Efectivo ${mxn(x.efectivo)} · Tarjeta ${mxn(x.tarjeta)}</small><small>Cortes cerrados: ${x.cajas_con_corte} de ${x.cajas} cajas</small><small data-col="retiros">Retiros: ${mxn(x.retiros)}${x.retiros_n ? ` (${x.retiros_n})` : ''}</small></div>`).join('')}</div>
     <h3 style="margin:14px 0 6px">Cómo se cobró</h3>
     <div class="kpi-grid">
       <div class="kpi" style="border-color:var(--acento)"><span class="kpi-rotulo">TOTAL EN EFECTIVO</span><b id="rd-efectivo">${mxn(t.efectivo)}</b></div>
@@ -1710,6 +1721,9 @@ async function pintarResumenDia(fecha) {
       <tr><th scope="row">Mercancía recibida a cambio</th><td class="num" id="rd-cambio">${mxn(t.mercancia_recibida_por_cambio)}</td></tr>
       <tr><th scope="row">Devoluciones con reembolso</th><td class="num" id="rd-devoluciones">${mxn(t.devoluciones_con_reembolso)}</td></tr>
       <tr><th scope="row" style="font-size:18px">VENTAS NETAS</th><td class="num" style="font-size:20px" id="rd-netas"><b>${mxn(t.ventas_netas)}</b></td></tr></tbody></table></div>
+    <div class="panel" style="margin:10px 0"><h3 style="margin:0 0 6px">Retiros de efectivo</h3><table><tbody>
+      <tr><th scope="row">Retirado de las cajas${t.retiros_n ? ` (${t.retiros_n} retiro${t.retiros_n === 1 ? '' : 's'})` : ''}</th><td class="num" id="rd-retiros"><b>${mxn(t.retiros)}</b></td></tr></tbody></table>
+      <p class="nota" style="margin:6px 0 0">No es venta: es dinero que salió del cajón. El detalle (quién y cuánto) está en Historial de ventas.</p></div>
     <p class="nota">Este es el mismo resumen que llega como aviso al teléfono (menú Avisos, hora configurable). Las pruebas que aún no se hayan borrado también cuentan.</p>`;
   $('#rd-fecha').addEventListener('change', (ev) => pintarResumenDia(ev.target.value || j.hoy));
 }

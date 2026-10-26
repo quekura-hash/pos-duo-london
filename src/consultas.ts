@@ -72,6 +72,22 @@ function enPeriodo(iso: string, f: Filtro) {
   return (!f.desde || d >= f.desde) && (!f.hasta || d <= f.hasta);
 }
 
+export interface FilaRetiro { tienda: string; caja: number; folio_retiro: string; fecha_local: string; hora: string; usuario: string; pesos: number; dolares: number; equivalente_mxn: number; retiro_id: string }
+/** Retiros de efectivo de las cajas (los que se hacen en el módulo Retiro), con quién, cuánto en pesos y dólares y su equivalente en pesos. */
+export function retirosPorCaja(actor: Actor, ops: Op[], f: Filtro = {}): FilaRetiro[] {
+  const permitidas = cajasPermitidas(actor, f);
+  const filas: FilaRetiro[] = [];
+  for (const o of ops) {
+    if (o.tipo !== 'cash.retiro') continue;
+    const r = o.payload;
+    if (permitidas !== 'todas' && !permitidas.some((c) => mismaCaja(c, r))) continue;
+    if (f.tiendas && !f.tiendas.includes(r.tienda)) continue;
+    if (!enPeriodo(o.ocurrio_en, f)) continue;
+    filas.push({ tienda: r.tienda, caja: r.caja, folio_retiro: r.folio_retiro, fecha_local: fechaLocal(o.ocurrio_en), hora: new Date(Date.parse(o.ocurrio_en) - 7 * 3600_000).toISOString().slice(11, 16), usuario: r.usuario, pesos: r.mxn?.total ?? 0, dolares: r.usd?.total ?? 0, equivalente_mxn: r.equivalente_mxn ?? 0, retiro_id: r.retiro_id });
+  }
+  return filas.sort((x, y) => `${y.fecha_local} ${y.hora}`.localeCompare(`${x.fecha_local} ${x.hora}`));
+}
+
 export function ventasPorCaja(actor: Actor, ops: Op[], f: Filtro = {}): FilaVenta[] {
   const permitidas = cajasPermitidas(actor, f);
   const filas: FilaVenta[] = [];

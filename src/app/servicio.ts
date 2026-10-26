@@ -1,6 +1,6 @@
 import { revisarReporteAnterior, idVentaHistorica } from '../ventas-historicas.ts';
 import { AGRUPACIONES, analizarVentas, type Agrupar } from '../analisis-ventas.ts';
-import { cortesPorCaja, descuentosPorCaja, dolaresPorCaja, reporteConsolidado, ventasPorCaja, ventasPorVendedora, type Filtro } from '../consultas.ts';
+import { retirosPorCaja, cortesPorCaja, descuentosPorCaja, dolaresPorCaja, reporteConsolidado, ventasPorCaja, ventasPorVendedora, type Filtro } from '../consultas.ts';
 import { DIAS_URGENTE, diasHasta, entradasDeArticulo, existenciaAlmacen, faltantes, recepcionesPendientes, recordatoriosPiso, reporteEntregas, revisarAlta, type AltaManual } from '../almacen.ts';
 import { DEPARTAMENTOS_BASE, resolverDepartamento } from '../departamentos.ts';
 import { formatoTasa } from '../dinero.ts';
@@ -1671,7 +1671,9 @@ export class ServicioAdmin {
       .filter((r) => !buscado || (r.folio === buscado.folio && (!buscado.tienda || (!r.historico && r.tienda === buscado.tienda)) && (buscado.caja === undefined || r.caja === buscado.caja)))
       .map((r) => ({ ...r, codigo_ticket: r.historico ? null : codigoTicket(r.tienda, r.caja, r.folio) }));
     const ordenadas = [...filas].sort((a, b) => `${b.fecha_local} ${b.hora}`.localeCompare(`${a.fecha_local} ${a.hora}`) || b.folio - a.folio);
-    return { ventas: ordenadas.slice(0, 500), total_filas: ordenadas.length, truncado: ordenadas.length > 500 };
+    // Los retiros de efectivo del mismo periodo y cajas (no se filtran por folio ni por origen: no son ventas).
+    const retiros = buscado || origen === 'anterior' ? [] : retirosPorCaja(this.actor, this.fuente(), filtro);
+    return { ventas: ordenadas.slice(0, 500), total_filas: ordenadas.length, truncado: ordenadas.length > 500, retiros };
   }
   /**
    * Resumen del día de TODAS las tiendas (el mismo que llega como aviso a las 9 p. m.): por tienda y en total, la venta total, cómo se cobró
@@ -1683,7 +1685,9 @@ export class ServicioAdmin {
     const vs = [...ventas(ops).values()].filter((v) => fechaLocal(v.ocurrio_en) === dia);
     const devs = devoluciones(ops).filter((d) => fechaLocal(d.ocurrio_en) === dia);
     const suma = (xs: number[]) => xs.reduce((a, b) => a + b, 0);
+    const retirosDia = retirosPorCaja(this.actor, ops, { desde: dia, hasta: dia });
     const filaDe = (tienda: string | null) => {
+      const rt = retirosDia.filter((x) => tienda === null || x.tienda === tienda);
       const v = vs.filter((x) => tienda === null || x.tienda === tienda);
       const conf = v.filter((x) => x.estado === 'confirmada');
       const d = devs.filter((x) => tienda === null || x.tienda === tienda);
@@ -1697,6 +1701,7 @@ export class ServicioAdmin {
         efectivo: pagos('efectivo') + pagos('efectivo_usd'), pesos: pagos('efectivo'), dolares_mxn: pagos('efectivo_usd'), tarjeta: pagos('tarjeta'), tarjeta_regalo: pagos('tarjeta_regalo'), credito_empleadas: pagos('credito_empleada'),
         mercancia_recibida_por_cambio: recibida, devoluciones_con_reembolso: suma(d.map((x) => x.importe)) - recibida, devuelto_a_tarjeta: suma(d.flatMap((x) => x.reembolsos.filter((r) => r.metodo === 'tarjeta').map((r) => r.monto))),
         ventas_netas: ventaTotal - suma(d.map((x) => x.importe)), reembolsado,
+        retiros: suma(rt.map((x) => x.equivalente_mxn)), retiros_n: rt.length,
       };
     };
     const info = this.tiendasInfo();
