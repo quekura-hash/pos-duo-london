@@ -92,7 +92,7 @@ export interface Venta {
   vendedora_id?: string | null;
   vendedora?: string;
   /** Venta a una empleada (descuento de empleada; puede pagarse a crédito de su cuenta). */
-  empleada?: { id: string; nombre: string };
+  empleada?: { id: string; nombre: string; sin_supervisor?: boolean };
   /** Cupones de recompensa regalados en este ticket (cada uno con su código único). */
   recompensas?: import('./recompensas.ts').RecompensaEmitida[];
   /** Avisos del arbitraje del hub al confirmar (p. ej. sobreventa). No forman parte de la operación persistida. */

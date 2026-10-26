@@ -2,6 +2,8 @@ import type { BusquedaVentas, VentaLocalizada } from './consultas.ts';
 import { ErrorDominio } from './errores.ts';
 import { buscarRecompensa, esCodigoRecompensa, promoDeRecompensa, recompensasGanadas, reglasVigentes, validarRegla, type EstadoRecompensa, type ReglaRecompensa } from './recompensas.ts';
 import { calcularDescuentos, esCanje, normCodigo, repartir, validarPromocion, type ErrorPromo, type Promocion, type ResultadoDescuentos } from './promociones.ts';
+/** Quien autoriza: otra persona (nombre + clave) o, si no hay nadie más, quien cobra con su propia clave (`sin_segundo`). */
+export type Autoriza = { nombre: string; clave: string; sin_segundo?: boolean };
 import { adminProtegido, mezclarPerfil, claveAdminValida, claveValida, hashClave, nombreClave, supervisorPorClave, type Cajero, type Perfil, type RolAdmin, type Supervisor } from './supervisores.ts';
 import { correccionesEntradas } from './almacen.ts';
 import { BILLETES_RETIRO_MXN, BILLETES_RETIRO_USD, efectivoDeVentaEnCaja, MINIMO_RETIRO, UMBRAL_AVISO_RETIRO, type RetiroRegistrado } from './retiros.ts';
@@ -991,7 +993,7 @@ interface Carrito {
   /** Quién atendió a la clienta (`id` null = «Autocompra»: nadie la ayudó). Se elige en la venta, sin clave; queda en la venta y en los reportes. */
   vendedora?: { id: string | null; alias: string };
   /** Venta a una empleada: descuento de empleada (15 %, o 30 % en uniformes) y, si quiere, cargo a su cuenta. Se confirma con la clave de la empleada. */
-  empleada?: { id: string; nombre: string };
+  empleada?: { id: string; nombre: string; sin_supervisor?: boolean };
   /** Cambio en curso: piezas que la clienta regresa de una venta anterior; su importe es un crédito que se descuenta de lo que se lleve en ESTA venta. */
   cambio?: CambioEnCurso;
   /** Venta en espera: el cliente se fue un momento y la caja atiende a otro. No reserva existencias; se recalcula al retomarla. */
@@ -1081,9 +1083,10 @@ export class Caja {
     return this.opsDe('incidencia.ticket_fuera_de_rango').filter((o) => o.payload.tienda === this.tienda && o.payload.caja === this.caja).reduce((m, o) => Math.max(m, o.payload.folio), 0);
   }
   /** La confirmación de un folio la da un supervisor con su clave (sin controles con clave, la caja trabaja abierta). */
-  verificarSupervisor(autoriza: { nombre: string; clave: string } | undefined): string | null {
-    const nombre = this.verificarAutorizador('', autoriza, true);
+  verificarSupervisor(autoriza: Autoriza | undefined, usuario = ''): string | null {
+    const nombre = this.verificarAutorizador(usuario, autoriza, true);
     if (nombre === null) return null;
+    if (autoriza?.sin_segundo) return nombre; // no hay supervisor: confirma quien cobra con su clave y queda anotado
     if (!this.idx.supervisores().some((x) => x.activo && nombreClave(x.nombre) === nombreClave(nombre))) throw new ErrorDominio('AUTORIZADOR_INVALIDO', 'la continuación de folios la confirma un supervisor con su clave');
     return nombre;
   }
@@ -1274,8 +1277,10 @@ export class Caja {
    * Autorización de OTRA persona: otro cajero activo o un supervisor activo (por su clave de caja) con su nombre y su clave. Quien hace la operación
    * no puede autorizarse a sí mismo. Las claves equivocadas se cuentan por autorizador (5 fallos = 5 minutos de bloqueo). Devuelve el nombre registrado.
    */
-  verificarAutorizador(usuarioActual: string, autoriza: { nombre: string; clave: string } | undefined, permitirPropio = false): string | null {
+  verificarAutorizador(usuarioActual: string, autoriza: Autoriza | undefined, permitirPropio = false): string | null {
     if (!this.controlesConClave()) return null; // sin cajeros registrados no hay a quién pedirle clave: la caja trabaja abierta
+    // «No hay nadie más»: quien cobra autoriza con su PROPIA clave y queda anotado que no hubo segunda persona.
+    if (autoriza?.sin_segundo) return `${this.verificarClaveCajero(usuarioActual, String(autoriza.clave ?? '')).nombre} (sin segunda persona)`;
     const nombre = String(autoriza?.nombre ?? '').trim();
     if (!nombre || !autoriza?.clave) throw new ErrorDominio('AUTORIZACION_REQUERIDA', 'esta operación necesita la clave de otra Vendedora-Cajera o de un supervisor');
     if (!permitirPropio && nombreClave(nombre) === nombreClave(usuarioActual)) throw new ErrorDominio('AUTORIZADOR_INVALIDO', 'la autorización debe darla otra persona, no quien hace la operación');
@@ -1564,7 +1569,7 @@ export class Caja {
    * precio exige la clave de un supervisor** (es lo mismo que un descuento o un recargo); la descripción se edita sin clave. Quedan guardados el
    * precio de lista, la descripción original y quién autorizó, dentro de la venta.
    */
-  editarLinea(cartId: string, lineaId: string, d: { precio_unit?: number; descripcion?: string }, clave?: string): Linea {
+  editarLinea(cartId: string, lineaId: string, d: { precio_unit?: number; descripcion?: string }, clave?: string, extra: { usuario?: string; sinSupervisor?: boolean } = {}): Linea {
     const c = this.cartGet(cartId);
     this.exigirAbierto(c);
     this.exigirSinCobroPendiente(c);
@@ -1579,9 +1584,7 @@ export class Caja {
     let autorizo = l.editado?.autorizo;
     if (cambiaPrecio) {
       if (!Number.isInteger(d.precio_unit) || (d.precio_unit as number) <= 0) throw new ErrorDominio('PRECIO_INVALIDO', 'el precio es un entero de centavos mayor que 0');
-      const sup = supervisorPorClave(this.idx.supervisores(), String(clave ?? ''));
-      if (!sup) throw new ErrorDominio('CLAVE_INVALIDA', 'cambiar un precio lo autoriza un supervisor con su clave');
-      autorizo = sup.nombre;
+      autorizo = this.supervisorOPropio(String(clave ?? ''), extra.usuario ?? '', extra.sinSupervisor, 'cambiar un precio lo autoriza un supervisor con su clave').nombre;
     }
     const precio = cambiaPrecio ? (d.precio_unit as number) : l.precio_unit;
     l.descripcion = descripcion;
@@ -1645,6 +1648,13 @@ export class Caja {
     this.recalcular(c);
     this.repo.kvSet(`cart:${cartId}`, c);
   }
+  /** Un supervisor con su clave o, con `sinSupervisor`, quien cobra con la SUYA (queda anotado «supervisor ausente»). */
+  private supervisorOPropio(clave: string, usuario: string, sinSupervisor: boolean | undefined, mensaje: string): { id: string; nombre: string } {
+    if (sinSupervisor) { const cj = this.verificarClaveCajero(usuario, clave); return { id: cj.id, nombre: `${cj.nombre} (supervisor ausente)` }; }
+    const sup = supervisorPorClave(this.idx.supervisores(), clave);
+    if (!sup) throw new ErrorDominio('CLAVE_INVALIDA', mensaje);
+    return sup;
+  }
   /**
    * Descuento manual autorizado con la clave de un supervisor o con la propia de quien atiende (sin tope: hasta 100 %). `linea_id` = una línea; sin él, toda la venta
    * (repartido proporcionalmente). Reemplaza el descuento manual anterior de esas líneas. Queda anotado quién lo autorizó.
@@ -1694,17 +1704,17 @@ export class Caja {
    * Marca la venta como venta a una empleada: ella confirma con SU clave. Una cajera no puede venderse a sí misma sin que un supervisor lo autorice
    * con su clave. Desde ahí el descuento de empleada se calcula solo (compite con las promociones: aplica el que más le convenga).
    */
-  asignarEmpleada(cartId: string, d: { empleada_id: string; clave: string; claveSupervisor?: string; usuario: string }): { id: string; nombre: string } {
+  asignarEmpleada(cartId: string, d: { empleada_id: string; clave: string; claveSupervisor?: string; usuario: string; sinSupervisor?: boolean }): { id: string; nombre: string } {
     const c = this.cartGet(cartId);
     this.exigirAbierto(c);
     this.exigirSinCobroPendiente(c);
     const emp = this.empleadasActivas().find((e) => e.id === d.empleada_id);
     if (!emp) throw new ErrorDominio('EMPLEADA_INEXISTENTE', 'esa empleada no está activa');
     this.verificarClaveCajero(emp.nombre, String(d.clave ?? ''));
-    if (nombreClave(emp.nombre) === nombreClave(d.usuario) && !supervisorPorClave(this.idx.supervisores(), String(d.claveSupervisor ?? ''))) {
+    if (nombreClave(emp.nombre) === nombreClave(d.usuario) && !d.sinSupervisor && !supervisorPorClave(this.idx.supervisores(), String(d.claveSupervisor ?? ''))) {
       throw new ErrorDominio('AUTORIZACION_REQUERIDA', 'una cajera no puede venderse a sí misma: un supervisor debe autorizarlo con su clave');
     }
-    c.empleada = { id: emp.id, nombre: emp.nombre };
+    c.empleada = { id: emp.id, nombre: emp.nombre, ...(d.sinSupervisor && nombreClave(emp.nombre) === nombreClave(d.usuario) ? { sin_supervisor: true } : {}) };
     this.recalcular(c);
     this.repo.kvSet(`cart:${cartId}`, c);
     return c.empleada;
@@ -2166,7 +2176,7 @@ export class Caja {
    * (importes originales, sin recalcular con otra tasa; un cobro con dólares conserva los dólares recibidos). Para algo anulado ANTES de recibir
    * dinero usar `anularCarrito`.
    */
-  cancelarVenta(saleId: string, motivo: string, usuario = 'cajero', autoriza?: { nombre: string; clave: string }, clienta?: { nombre: string; telefono: string }) {
+  cancelarVenta(saleId: string, motivo: string, usuario = 'cajero', autoriza?: Autoriza, clienta?: { nombre: string; telefono: string }) {
     const v = ventas(this.opsVentas()).get(saleId);
     if (!v || v.tienda !== this.tienda || v.caja !== this.caja) throw new ErrorDominio('PROHIBIDO', 'solo se cancelan ventas de la propia caja');
     if (v.estado === 'cancelada') return v;
@@ -2393,7 +2403,7 @@ export class Caja {
     return { venta, verificacion, lineas, importe: lineas.reduce((a, l) => a + l.importe, 0), local };
   }
 
-  devolver(d: { sale_id: string; renglones: { linea_id: string; qty: number }[]; motivo: string; devolucion_id?: string; ventaSnapshot?: Venta; cajero?: string; autoriza?: { nombre: string; clave: string } }): Devolucion {
+  devolver(d: { sale_id: string; renglones: { linea_id: string; qty: number }[]; motivo: string; devolucion_id?: string; ventaSnapshot?: Venta; cajero?: string; autoriza?: Autoriza }): Devolucion {
     const id = d.devolucion_id ?? uuid();
     const previa = this.repo.getOp(`ret:${id}`);
     if (previa) return { ...previa.payload, ocurrio_en: previa.ocurrio_en };
@@ -2498,7 +2508,7 @@ export class Caja {
    * «No hay cambio posible, devolver dinero»: lo que queda a favor de la clienta (o todo, si no se llevó nada) se entrega en efectivo. La misma
    * Vendedora-Cajera u otra autoriza con su clave. Si hay artículos en la venta se cobran con el crédito en el mismo paso.
    */
-  devolverEfectivoDeCambio(cartId: string, cajero: string, autoriza?: { nombre: string; clave: string }): { venta: Venta | null; devolucion: Devolucion } {
+  devolverEfectivoDeCambio(cartId: string, cajero: string, autoriza?: Autoriza): { venta: Venta | null; devolucion: Devolucion } {
     const ya = this.repo.getOp(`ret:cambio-${cartId}`);
     if (ya) {
       const vp = this.repo.getOp(`sale:${cartId}`);
@@ -2534,14 +2544,13 @@ export class Caja {
    * Entrada extraordinaria de efectivo (operación fuera del cierre): la autoriza un supervisor con su clave, lleva motivo y una referencia única
    * (reintentar con la misma referencia no la duplica).
    */
-  registrarEntrada(d: { ref: string; monto: number; moneda: 'MXN' | 'USD'; motivo: string; claveSupervisor: string; usuario: string }) {
+  registrarEntrada(d: { ref: string; monto: number; moneda: 'MXN' | 'USD'; motivo: string; claveSupervisor: string; usuario: string; sinSupervisor?: boolean }) {
     if (!d.ref) throw new ErrorDominio('DATOS_REQUERIDOS', 'falta la referencia de la operación');
     const previo = this.repo.getOp(`entrada:${d.ref}`);
     if (previo) return { ...previo.payload, ocurrio_en: previo.ocurrio_en };
     const motivo = String(d.motivo ?? '').trim();
     if (motivo.length < 3) throw new ErrorDominio('DATOS_REQUERIDOS', 'escriba el motivo de la entrada de efectivo');
-    const sup = supervisorPorClave(this.idx.supervisores(), String(d.claveSupervisor ?? ''));
-    if (!sup) throw new ErrorDominio('AUTORIZACION_REQUERIDA', 'una entrada de efectivo la autoriza un supervisor con su clave');
+    const sup = this.supervisorOPropio(String(d.claveSupervisor ?? ''), d.usuario, d.sinSupervisor, 'una entrada de efectivo la autoriza un supervisor con su clave');
     if (d.moneda !== 'MXN' && d.moneda !== 'USD') throw new ErrorDominio('PAGO_INVALIDO', `moneda no soportada: ${d.moneda}`);
     if (!Number.isInteger(d.monto) || d.monto <= 0) throw new ErrorDominio('PAGO_INVALIDO', 'el monto es un entero positivo en centavos');
     const op = this.emitir('cash.movement', { tienda: this.tienda, caja: this.caja, tipo: 'entrada', monto: d.monto, moneda: d.moneda, fecha: fechaLocal(this.ctx.reloj.now()), motivo, autorizado_por: sup.nombre, usuario: d.usuario, ref: d.ref }, `entrada:${d.ref}`);

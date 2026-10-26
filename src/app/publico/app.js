@@ -337,7 +337,8 @@ async function vistaFolios() {
           <div class="campo" style="flex:1;min-width:220px"><label for="fo-ref">En qué se apoya (obligatorio)</label><input id="fo-ref" class="texto" maxlength="120" placeholder="Ej. último ticket impreso D1-000142"></div></div>
         ${f.hub.disponible ? '' : '<label style="display:block;margin:8px 0"><input type="checkbox" id="fo-sin-hub"> Confirmo que no hay forma de contrastar con el hub o el central y quiero continuar sin ese contraste.</label>'}
         ${pideClave ? `<div class="filas" style="align-items:flex-end"><div class="campo"><label for="fo-quien">Confirma (supervisor)</label><select id="fo-quien" style="padding:10px;border:2px solid var(--borde);border-radius:10px;background:var(--superficie)">${f.supervisores.map((n) => `<option>${esc(n)}</option>`).join('')}</select></div>
-          <div class="campo"><label for="fo-clave">Su clave</label><input id="fo-clave" type="text" data-pin inputmode="numeric" autocomplete="off" placeholder="••••"></div></div>` : ''}
+          <div class="campo"><label for="fo-clave">Su clave</label><input id="fo-clave" type="text" data-pin inputmode="numeric" autocomplete="off" placeholder="••••"></div></div>
+          ${casillaSola('fo-solo', 'No hay supervisor: confirmo yo con mi clave (queda anotado)')}` : ''}
         <div id="msg-folios" class="mensaje" role="alert"></div>
         <button class="btn btn-peligro" type="submit" id="fo-confirmar" style="width:auto">${ico('check')}<span>Confirmar y continuar</span></button>
       </form></section>`;
@@ -345,15 +346,17 @@ async function vistaFolios() {
     try { await api('/api/folios/recuperar', {}); await foliosListo('Folios recuperados automáticamente; los huecos quedaron documentados.'); }
     catch (e) { const m = $('#msg-folios'); m.className = 'mensaje error'; m.textContent = e.message; }
   });
+  $('#fo-solo')?.addEventListener('change', (e) => { $('#fo-quien').closest('.campo').hidden = e.target.checked; });
   $('#form-folios').addEventListener('submit', async (ev) => {
     ev.preventDefault();
     const m = $('#msg-folios');
     const siguiente = Number($('#fo-siguiente').value);
     if (!Number.isInteger(siguiente) || siguiente < 1) { m.className = 'mensaje error'; m.textContent = 'Escriba el número de folio siguiente.'; return; }
     if (!$('#fo-ref').value.trim()) { m.className = 'mensaje error'; m.textContent = 'Escriba en qué evidencia se apoya (por ejemplo, el último ticket impreso).'; return; }
+    const foSolo = pideClave && $('#fo-solo').checked;
     if (pideClave && !$('#fo-clave').value) { m.className = 'mensaje error'; m.textContent = 'El supervisor debe teclear su clave.'; return; }
     try {
-      await api('/api/folios/confirmar', { siguiente, evidencia: { tipo: $('#fo-tipo').value, referencia: $('#fo-ref').value }, sin_anclas: !!$('#fo-sin-hub')?.checked, ...(pideClave ? { autoriza: { nombre: $('#fo-quien').value, clave: $('#fo-clave').value } } : {}) });
+      await api('/api/folios/confirmar', { siguiente, evidencia: { tipo: $('#fo-tipo').value, referencia: $('#fo-ref').value }, sin_anclas: !!$('#fo-sin-hub')?.checked, ...(pideClave ? { autoriza: foSolo ? { nombre: S.sesion.usuario, clave: $('#fo-clave').value, sin_segundo: true } : { nombre: $('#fo-quien').value, clave: $('#fo-clave').value } } : {}) });
       await foliosListo(`Folios confirmados: la caja continúa desde el ${folio6(siguiente)}.`);
     } catch (e) { m.className = 'mensaje error'; m.textContent = e.message; const c = $('#fo-clave'); if (c) c.value = ''; }
   });
@@ -1324,6 +1327,7 @@ async function vistaExtraordinarias() {
         <div class="campo"><label for="ent-monto">Monto</label><input id="ent-monto" inputmode="decimal" placeholder="0.00"></div>
         <div class="campo"><label for="ent-motivo">Motivo</label><input id="ent-motivo" maxlength="120" placeholder="Ej. cambio de la tienda de junto"></div>
         <div class="campo"><label for="ent-clave">Clave del supervisor</label><input id="ent-clave" type="text" data-pin inputmode="numeric" autocomplete="off" style="width:140px"></div>
+        ${casillaSola('ent-solo', 'Supervisor ausente: autorizo yo con mi clave (queda anotado)')}
         <button class="btn btn-primario" id="btn-entrada" type="submit">${ico('plus')}<span>Registrar entrada</span></button>
       </form><div id="msg-ent" class="mensaje" role="status" aria-live="polite"></div></section>
     <section class="panel"><h2 style="margin-top:0">Operaciones de hoy</h2><div class="tabla-cont"><table id="tabla-extraordinarias"><thead><tr><th>Hora</th><th>Operación</th><th class="num">Monto</th><th>Motivo</th><th>Autorizó</th></tr></thead><tbody>
@@ -1334,7 +1338,7 @@ async function vistaExtraordinarias() {
     const m = $('#msg-ent');
     const monto = parseMXN($('#ent-monto').value);
     if (monto === null || monto <= 0) { m.className = 'mensaje error'; m.textContent = 'Escriba un monto válido (por ejemplo 500 o 500.00).'; return; }
-    try { await api('/api/efectivo/entrada', { monto, moneda: $('#ent-moneda').value, motivo: $('#ent-motivo').value, clave: $('#ent-clave').value, ref: S.refEntrada }); S.refEntrada = null; await vistaExtraordinarias(); const mm = $('#msg-ent'); mm.className = 'mensaje ok'; mm.textContent = 'Entrada registrada.'; }
+    try { await api('/api/efectivo/entrada', { monto, moneda: $('#ent-moneda').value, motivo: $('#ent-motivo').value, clave: $('#ent-clave').value, ...($('#ent-solo').checked ? { sin_supervisor: true } : {}), ref: S.refEntrada }); S.refEntrada = null; await vistaExtraordinarias(); const mm = $('#msg-ent'); mm.className = 'mensaje ok'; mm.textContent = 'Entrada registrada.'; }
     catch (e) { m.className = 'mensaje error'; m.textContent = e.message; }
   });
 }
@@ -1393,19 +1397,22 @@ async function abrirRevertirVenta(det, alTerminar) {
     <form id="form-revertir" autocomplete="off">${camposClienta('rv', 'Motivo de la cancelación')}
       ${a.pide_clave ? `<p class="nota">La cancelación la autoriza otra Vendedora-Cajera o un supervisor con su clave.</p>
       <div class="campo"><label for="rv-quien">Autoriza</label><select id="rv-quien" style="width:100%;padding:10px;border:2px solid var(--borde);border-radius:10px;background:var(--superficie)">${a.autorizadores.map((x) => `<option value="${esc(x.nombre)}">${esc(x.nombre)}${x.tipo === 'supervisor' ? ' (supervisor)' : ''}</option>`).join('')}</select></div>
-      <div class="campo"><label for="rv-clave">Su clave</label><input id="rv-clave" type="text" data-pin inputmode="numeric" autocomplete="off" placeholder="••••"></div>` : ''}
+      <div class="campo"><label for="rv-clave">Clave de quien autoriza</label><input id="rv-clave" type="text" data-pin inputmode="numeric" autocomplete="off" placeholder="••••"></div>
+      ${casillaSola('rv-solo', 'No hay nadie más para autorizar: autorizo yo con mi clave (queda anotado)')}` : ''}
       <div id="msg-rv" class="mensaje" role="alert"></div>
       <div class="filas"><button class="btn" type="button" id="rv-no">No revertir</button><button class="btn btn-peligro" type="submit" id="rv-ok" style="width:auto;flex:1">${ico('undo')}<span>Revertir venta</span></button></div>
     </form>`;
   $('#rv-no').addEventListener('click', () => d.close());
+  $('#rv-solo')?.addEventListener('change', (e) => { $('#rv-quien').closest('.campo').hidden = e.target.checked; });
   $('#form-revertir').addEventListener('submit', async (ev) => {
     ev.preventDefault();
     const m = $('#msg-rv');
     const datos = leerCamposClienta('rv', m);
     if (!datos) return;
-    if (a.pide_clave && (!$('#rv-quien').value || !$('#rv-clave').value)) { m.className = 'mensaje error'; m.textContent = 'Elija quién autoriza y teclee su clave.'; return; }
+    const rvSolo = a.pide_clave && $('#rv-solo').checked;
+    if (a.pide_clave && ((!rvSolo && !$('#rv-quien').value) || !$('#rv-clave').value)) { m.className = 'mensaje error'; m.textContent = 'Elija quién autoriza y teclee su clave.'; return; }
     try {
-      const r = await api('/api/venta/cancelar', { sale_id: det.sale_id, motivo: datos.motivo, clienta: datos.clienta, ...(a.pide_clave ? { autoriza: { nombre: $('#rv-quien').value, clave: $('#rv-clave').value } } : {}) });
+      const r = await api('/api/venta/cancelar', { sale_id: det.sale_id, motivo: datos.motivo, clienta: datos.clienta, ...(a.pide_clave ? { autoriza: rvSolo ? { nombre: S.sesion.usuario, clave: $('#rv-clave').value, sin_segundo: true } : { nombre: $('#rv-quien').value, clave: $('#rv-clave').value } } : {}) });
       d.close();
       if (alTerminar) await alTerminar(r);
     } catch (e) { m.className = 'mensaje error'; m.textContent = e.message; const c = $('#rv-clave'); if (c) c.value = ''; }
@@ -2762,7 +2769,8 @@ function abrirEditarLinea() {
     <form id="form-editar-linea" autocomplete="off">
       <div class="campo"><label for="el-desc">Descripción</label><input id="el-desc" maxlength="60" value="${esc(l.descripcion)}"></div>
       <div class="campo"><label for="el-precio">Precio unitario</label><input id="el-precio" inputmode="decimal" value="${centavosAPesos(l.precio_unit)}"></div>
-      <div class="campo" id="el-clave-bloque" hidden><label for="el-clave">Clave del supervisor</label><input id="el-clave" type="text" data-pin inputmode="numeric" autocomplete="off" placeholder="••••"></div>
+      <div id="el-clave-bloque" hidden><div class="campo"><label for="el-clave">Clave del supervisor</label><input id="el-clave" type="text" data-pin inputmode="numeric" autocomplete="off" placeholder="••••"></div>
+        ${casillaSola('el-solo', 'Supervisor ausente: autorizo yo con mi clave (queda anotado)')}</div>
       <div id="msg-el" class="mensaje" role="status" aria-live="polite"></div>
       <div class="filas"><button class="btn" type="button" id="el-cerrar">Cancelar</button><button class="btn btn-primario" type="submit" style="width:auto;flex:1">${ico('check')}<span>Guardar cambios</span></button></div>
     </form>`;
@@ -2775,7 +2783,7 @@ function abrirEditarLinea() {
     const precio = parseMXN($('#el-precio').value);
     if (!precio) { m.className = 'mensaje error'; m.textContent = 'Escriba el precio en pesos.'; return; }
     try {
-      const r = await api('/api/venta/editar-linea', { cart: S.cart, linea_id: l.linea_id, descripcion: $('#el-desc').value, ...(precio !== l.precio_unit ? { precio_unit: precio, clave: $('#el-clave').value } : {}) });
+      const r = await api('/api/venta/editar-linea', { cart: S.cart, linea_id: l.linea_id, descripcion: $('#el-desc').value, ...(precio !== l.precio_unit ? { precio_unit: precio, clave: $('#el-clave').value, ...($('#el-solo').checked ? { sin_supervisor: true } : {}) } : {}) });
       S.carrito = r.carrito; pintarCarrito(); d.close(); msg('Artículo editado en esta venta.'); $('#scan').focus();
     } catch (e) { m.className = 'mensaje error'; m.textContent = e.message; const c = $('#el-clave'); if (c) c.value = ''; }
   });
@@ -2818,7 +2826,8 @@ async function abrirEmpleada() {
     <form id="form-empleada" autocomplete="off">
       <div class="campo"><label for="emp-quien">Empleada</label><select id="emp-quien" style="width:100%;padding:10px;border:2px solid var(--borde);border-radius:10px;background:var(--superficie)">${empleadas.map((e) => `<option value="${esc(e.id)}" data-nombre="${esc(e.nombre)}">${esc(e.nombre)}</option>`).join('')}</select></div>
       <div class="campo"><label for="emp-clave">Clave de la empleada</label><input id="emp-clave" type="text" data-pin inputmode="numeric" autocomplete="off" placeholder="••••" required></div>
-      <div class="campo" id="emp-sup-campo" hidden><label for="emp-sup">Clave de un supervisor (una cajera no se vende a sí misma sin autorización)</label><input id="emp-sup" type="text" data-pin inputmode="numeric" autocomplete="off" placeholder="••••"></div>
+      <div class="campo" id="emp-sup-campo" hidden><label for="emp-sup">Clave de un supervisor (una cajera no se vende a sí misma sin autorización)</label><input id="emp-sup" type="text" data-pin inputmode="numeric" autocomplete="off" placeholder="••••">
+        ${casillaSola('emp-solo', 'No hay supervisor: lo autorizo yo (queda anotado)')}</div>
       <div id="msg-emp" class="mensaje" role="status" aria-live="polite"></div>
       <div class="filas"><button class="btn" type="button" id="emp-cerrar">Cancelar</button><button class="btn btn-primario" type="submit" style="width:auto;flex:1">${ico('check')}<span>Aplicar descuento de empleada</span></button></div>
     </form>`;
@@ -2829,7 +2838,7 @@ async function abrirEmpleada() {
     ev.preventDefault();
     const m = $('#msg-emp');
     try {
-      const r = await api('/api/venta/empleada', { cart: S.cart, empleada_id: $('#emp-quien').value, clave: $('#emp-clave').value, ...(!$('#emp-sup-campo').hidden ? { clave_supervisor: $('#emp-sup').value } : {}) });
+      const r = await api('/api/venta/empleada', { cart: S.cart, empleada_id: $('#emp-quien').value, clave: $('#emp-clave').value, ...(!$('#emp-sup-campo').hidden ? ($('#emp-solo').checked ? { sin_supervisor: true } : { clave_supervisor: $('#emp-sup').value }) : {}) });
       S.carrito = r.carrito; d.close(); pintarCarrito(); msg(`Venta a empleada: ${r.carrito.empleada.nombre}. El ${config.pct}% ya se aplicó a toda la venta. Si algún artículo es uniforme, selecciónelo en la lista y toque «Marcar como uniforme» (${config.pct_uniforme}%). Luego elija la forma de pago.`);
     } catch (e) { m.className = 'mensaje error'; m.textContent = e.message; }
   });
@@ -2837,6 +2846,8 @@ async function abrirEmpleada() {
   $('#emp-clave').focus();
 }
 
+/** «No hay nadie más / supervisor ausente»: quien cobra autoriza con su PROPIA clave y queda anotado. */
+const casillaSola = (id, texto) => `<label style="display:flex;gap:8px;align-items:flex-start;margin:8px 0"><input type="checkbox" id="${id}" style="margin-top:4px"><span>${texto}</span></label>`;
 function abrirDescuento() {
   if (!S.carrito.lineas.length) return msg('Agregue artículos a la venta antes de aplicar un descuento.', 'aviso');
   const d = dialogo('dlg-descuento');

@@ -60,7 +60,7 @@ export async function atender(o: { cajero?: ServicioCaja; admin?: ServicioAdmin 
       case 'POST /api/venta/nuevo-articulo': return ok(exigirCajero().nuevoArticulo(b.cart, { codigo: String(b.codigo ?? ''), marca: b.marca, descripcion: String(b.descripcion ?? ''), estilo: b.estilo, lote: b.lote, departamento: String(b.departamento ?? ''), precio: Number(b.precio) }, String(b.clave ?? '')));
       case 'POST /api/venta/agregar': return ok(exigirCajero().agregarArticulo(b.cart, b.item_id));
       case 'GET /api/empleadas': return ok(exigirCajero().empleadas());
-      case 'POST /api/venta/empleada': return ok(exigirCajero().asignarEmpleada(b.cart, { empleada_id: String(b.empleada_id ?? ''), clave: String(b.clave ?? ''), clave_supervisor: b.clave_supervisor }));
+      case 'POST /api/venta/empleada': return ok(exigirCajero().asignarEmpleada(b.cart, { empleada_id: String(b.empleada_id ?? ''), clave: String(b.clave ?? ''), clave_supervisor: b.clave_supervisor, sin_supervisor: !!b.sin_supervisor }));
       case 'POST /api/venta/empleada/quitar': return ok(exigirCajero().quitarEmpleada(b.cart));
       case 'POST /api/venta/uniforme': return ok(exigirCajero().marcarUniforme(b.cart, String(b.linea_id ?? ''), !!b.uniforme));
       case 'POST /api/venta/cobrar-credito-empleada': return ok(await exigirCajero().cobrarCreditoEmpleada(b.cart));
@@ -69,14 +69,14 @@ export async function atender(o: { cajero?: ServicioCaja; admin?: ServicioAdmin 
       case 'POST /api/venta/descuento': return ok(exigirCajero().aplicarDescuento(b.cart, { linea_id: b.linea_id ?? null, tipo: b.tipo === 'monto' ? 'monto' : 'pct', valor: Number(b.valor) }, String(b.clave ?? '')));
       case 'POST /api/venta/descuento/quitar': return ok(exigirCajero().quitarDescuento(b.cart, b.linea_id ?? null));
       case 'POST /api/venta/cantidad': return ok({ carrito: exigirCajero().cambiarCantidad(b.cart, b.linea_id, Number(b.qty)) });
-      case 'POST /api/venta/editar-linea': return ok(exigirCajero().editarLinea(b.cart, b.linea_id, { precio_unit: b.precio_unit === undefined ? undefined : Number(b.precio_unit), descripcion: b.descripcion }, b.clave === undefined ? undefined : String(b.clave)));
+      case 'POST /api/venta/editar-linea': return ok(exigirCajero().editarLinea(b.cart, b.linea_id, { precio_unit: b.precio_unit === undefined ? undefined : Number(b.precio_unit), descripcion: b.descripcion }, b.clave === undefined ? undefined : String(b.clave), !!b.sin_supervisor));
       case 'POST /api/venta/quitar': return ok({ carrito: exigirCajero().quitarLinea(b.cart, b.linea_id) });
       case 'POST /api/venta/cobrar-efectivo': return ok(await exigirCajero().cobrarEfectivo(b.cart, Number(b.recibido ?? 0), Number(b.usd ?? 0)));
       case 'POST /api/venta/tasa': return ok(exigirCajero().bloquearTasa(b.cart, !!b.renovar));
       case 'GET /api/tipo-cambio': return ok({ tipo_cambio: exigirCajero().tipoCambio() });
       case 'POST /api/tipo-cambio': return ok({ tipo_cambio: await exigirCajero().fijarTipoCambio(Number(b.tasa), !!b.confirmar) });
       case 'POST /api/efectivo/movimiento': return ok({ corte: exigirCajero().movimientoEfectivo(b.tipo, Number(b.monto), b.moneda ?? 'MXN', { ref: b.ref, motivo: b.motivo, clave: b.clave }) });
-      case 'POST /api/efectivo/entrada': return ok({ corte: exigirCajero().entradaEfectivo({ monto: Number(b.monto), moneda: b.moneda ?? 'MXN', motivo: b.motivo, ref: b.ref, clave: b.clave }) });
+      case 'POST /api/efectivo/entrada': return ok({ corte: exigirCajero().entradaEfectivo({ monto: Number(b.monto), moneda: b.moneda ?? 'MXN', motivo: b.motivo, ref: b.ref, clave: b.clave, sin_supervisor: !!b.sin_supervisor }) });
       case 'GET /api/efectivo/extraordinarias': return ok(exigirCajero().operacionesExtraordinarias());
       case 'POST /api/cierre/fondo': return ok(exigirCajero().confirmarFondo(b.denominaciones ?? {}, b.nota));
       case 'POST /api/efectivo/conteo-usd': return ok(exigirCajero().registrarConteoUsd(b.denominaciones ?? {}));

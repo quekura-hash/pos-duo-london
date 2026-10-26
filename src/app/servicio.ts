@@ -6,7 +6,7 @@ import { DEPARTAMENTOS_BASE, resolverDepartamento } from '../departamentos.ts';
 import { formatoTasa } from '../dinero.ts';
 import { ErrorDominio } from '../errores.ts';
 import type { Impresora } from '../impresion.ts';
-import { DIAS_CONSULTA_HISTORICA, FONDO_AUTORIZADO_DEFECTO, type Caja } from '../nodos.ts';
+import { DIAS_CONSULTA_HISTORICA, FONDO_AUTORIZADO_DEFECTO, type Autoriza, type Caja } from '../nodos.ts';
 import { estadoPromo, type Promocion } from '../promociones.ts';
 import { cuentasEmpleadas, configEmpleadas, CRITERIOS_EXPEDIENTE, expedientesDe, expedienteVacio, registradaEn, CAMPOS_EDITABLES, catalogo, historialArticulo, nombresTienda, datosTiendas, departamentos as proyDepartamentos, devoluciones, type Devolucion, promocionesDe, recompensasDe, supervisoresDe, cajerosDe, administradoresDe, configSesionDe, permisos as proyPermisos, tarjetasRegalo, tiposDeCambio, tipoCambioVigente, ventas, type TipoCambio } from '../proyecciones.ts';
 import { hojaAnalisis, hojaDetalleVentas, hojaResumenVentas, hojaDescuentos, hojaEntregas, hojaDolares, hojaInventario, leerInventario, PERFIL_CONFIRMADO, type Hoja } from '../inventario.ts';
@@ -189,8 +189,8 @@ export class ServicioCaja {
     return this.entradaEfectivo({ monto, moneda, ...extra });
   }
   /** Entrada extraordinaria de efectivo: la autoriza un supervisor con su clave, lleva motivo y referencia única. */
-  entradaEfectivo(d: { monto: number; moneda?: 'MXN' | 'USD'; motivo?: string; ref?: string; clave?: string }) {
-    this.caja.registrarEntrada({ ref: String(d.ref ?? ''), monto: d.monto, moneda: d.moneda ?? 'MXN', motivo: String(d.motivo ?? ''), claveSupervisor: String(d.clave ?? ''), usuario: this.actor.usuario });
+  entradaEfectivo(d: { monto: number; moneda?: 'MXN' | 'USD'; motivo?: string; ref?: string; clave?: string; sin_supervisor?: boolean }) {
+    this.caja.registrarEntrada({ ref: String(d.ref ?? ''), monto: d.monto, moneda: d.moneda ?? 'MXN', motivo: String(d.motivo ?? ''), claveSupervisor: String(d.clave ?? ''), usuario: this.actor.usuario, sinSupervisor: !!d.sin_supervisor });
     return this.caja.corteEnVivo(fechaLocal(this.reloj.now()));
   }
   /** Entradas, retiros y ajustes administrativos de hoy en esta caja (el módulo de operaciones extraordinarias). */
@@ -250,12 +250,12 @@ export class ServicioCaja {
     return { cart, carrito: this.vista(cart) };
   }
   /** Venta cancelada DESPUÉS de recibir efectivo: conserva el cobro y suma la salida de pesos. */
-  cancelarVenta(saleId: string, motivo: string, autoriza?: { nombre: string; clave: string }, clienta?: DatosClienta) {
+  cancelarVenta(saleId: string, motivo: string, autoriza?: Autoriza, clienta?: DatosClienta) {
     const v = this.caja.cancelarVenta(saleId, motivo, this.actor.usuario, autoriza, clienta);
     return { venta: v };
   }
   /** «Revertir venta» desde el Historial: exige nombre y teléfono de la clienta, el motivo y la clave de otra persona. Imprime el ticket de la clienta (VENTA CANCELADA) y el que ella firma. */
-  async revertirVenta(d: { sale_id: string; motivo?: string; clienta?: Partial<DatosClienta>; autoriza?: { nombre: string; clave: string } }) {
+  async revertirVenta(d: { sale_id: string; motivo?: string; clienta?: Partial<DatosClienta>; autoriza?: Autoriza }) {
     const datos = validarDatosClienta(d);
     const antes = ventas(this.caja.opsVentas()).get(d.sale_id);
     const { venta } = this.cancelarVenta(d.sale_id, datos.motivo, d.autoriza, datos.clienta);
@@ -392,8 +392,8 @@ export class ServicioCaja {
   empleadas() {
     return { empleadas: this.caja.empleadasActivas(), config: this.caja.configEmpleadas(), yo: this.actor.usuario };
   }
-  asignarEmpleada(cartId: string, d: { empleada_id: string; clave: string; clave_supervisor?: string }) {
-    this.caja.asignarEmpleada(cartId, { empleada_id: d.empleada_id, clave: d.clave, claveSupervisor: d.clave_supervisor, usuario: this.actor.usuario });
+  asignarEmpleada(cartId: string, d: { empleada_id: string; clave: string; clave_supervisor?: string; sin_supervisor?: boolean }) {
+    this.caja.asignarEmpleada(cartId, { empleada_id: d.empleada_id, clave: d.clave, claveSupervisor: d.clave_supervisor, usuario: this.actor.usuario, sinSupervisor: !!d.sin_supervisor });
     return { carrito: this.vista(cartId) };
   }
   quitarEmpleada(cartId: string) {
@@ -414,8 +414,8 @@ export class ServicioCaja {
     return { ...r, carrito: this.vista(cartId) };
   }
   /** «Editar en esta venta»: precio (con la clave de un supervisor) y/o descripción de un renglón, solo para esta venta. */
-  editarLinea(cartId: string, lineaId: string, d: { precio_unit?: number; descripcion?: string }, clave?: string) {
-    this.caja.editarLinea(cartId, lineaId, d, clave);
+  editarLinea(cartId: string, lineaId: string, d: { precio_unit?: number; descripcion?: string }, clave?: string, sinSupervisor = false) {
+    this.caja.editarLinea(cartId, lineaId, d, clave, { usuario: this.actor.usuario, sinSupervisor });
     return { carrito: this.vista(cartId) };
   }
   /** Departamentos entre los que se elige al dar de alta un artículo en la caja. */
@@ -657,8 +657,8 @@ export class ServicioCaja {
     return { resultado, folios: this.estadoFolios() };
   }
   /** Continuar la serie tras una pérdida: un supervisor confirma el folio siguiente y deja la evidencia en la que se apoya. */
-  confirmarFolio(d: { siguiente: number; evidencia: { tipo: string; referencia: string }; sin_anclas?: boolean; autoriza?: { nombre: string; clave: string } }) {
-    const autorizo = this.caja.verificarSupervisor(d.autoriza);
+  confirmarFolio(d: { siguiente: number; evidencia: { tipo: string; referencia: string }; sin_anclas?: boolean; autoriza?: Autoriza }) {
+    const autorizo = this.caja.verificarSupervisor(d.autoriza, this.actor.usuario);
     this.caja.atestarSiguienteFolio({ siguiente: d.siguiente, usuario: this.actor.usuario, evidencia: d.evidencia, sinAnclasConfirmado: !!d.sin_anclas, autorizo });
     return { folios: this.estadoFolios() };
   }
@@ -686,7 +686,7 @@ export class ServicioCaja {
     return { pide_clave: this.caja.controlesConClave(), actual: this.actor.usuario, autorizadores: this.caja.controlesConClave() ? this.caja.autorizadoresPosibles(this.actor.usuario, true) : [] };
   }
   /** «No hay cambio posible, devolver dinero»: entrega en efectivo el saldo del cambio, con la clave de quien lo autoriza. */
-  async devolverEfectivoCambio(cartId: string, autoriza?: { nombre: string; clave: string }) {
+  async devolverEfectivoCambio(cartId: string, autoriza?: Autoriza) {
     const { venta, devolucion: d } = this.caja.devolverEfectivoDeCambio(cartId, this.actor.usuario, autoriza);
     const origen = ventas(this.caja.opsVentas()).get(d.sale_id)!;
     if (venta) {
@@ -700,7 +700,7 @@ export class ServicioCaja {
     const { impresion, ticket_firma, impresion_firma } = await this.imprimirComprobantes(this.comprobanteDeDevolucion(d, origen), texto);
     return { devolucion: d, ticket_texto: texto, impresion, ticket_firma, impresion_firma, venta: null, ticket_venta: null, impresion_venta: null };
   }
-  async devolver(saleId: string, renglones: { linea_id: string; qty: number }[], motivo: string, autoriza?: { nombre: string; clave: string }) {
+  async devolver(saleId: string, renglones: { linea_id: string; qty: number }[], motivo: string, autoriza?: Autoriza) {
     this.exigirVentaReciente(saleId);
     const d = this.caja.devolver({ sale_id: saleId, renglones, motivo, cajero: this.actor.usuario, autoriza });
     const v = ventas(this.caja.opsVentas()).get(saleId)!;
