@@ -2,6 +2,7 @@ import { revisarReporteAnterior, idVentaHistorica } from '../ventas-historicas.t
 import { AGRUPACIONES, analizarVentas, type Agrupar } from '../analisis-ventas.ts';
 import { gastosPorCaja, retirosPorCaja, cortesPorCaja, descuentosPorCaja, dolaresPorCaja, reporteConsolidado, ventasPorCaja, ventasPorVendedora, type Filtro } from '../consultas.ts';
 import type { GastoRegistrado } from '../gastos.ts';
+import { DENOMS_FERIA, MINIMO_FERIA, estimarFeria } from '../feria.ts';
 import { DIAS_URGENTE, diasHasta, entradasDeArticulo, existenciaAlmacen, faltantes, recepcionesPendientes, recordatoriosPiso, reporteEntregas, revisarAlta, type AltaManual } from '../almacen.ts';
 import { DEPARTAMENTOS_BASE, resolverDepartamento } from '../departamentos.ts';
 import { formatoTasa } from '../dinero.ts';
@@ -192,6 +193,7 @@ export class ServicioCaja {
   /** Entrada extraordinaria de efectivo: la autoriza un supervisor con su clave, lleva motivo y referencia única. */
   entradaEfectivo(d: { monto: number; moneda?: 'MXN' | 'USD'; motivo?: string; ref?: string; clave?: string; sin_supervisor?: boolean }) {
     this.caja.registrarEntrada({ ref: String(d.ref ?? ''), monto: d.monto, moneda: d.moneda ?? 'MXN', motivo: String(d.motivo ?? ''), claveSupervisor: String(d.clave ?? ''), usuario: this.actor.usuario, sinSupervisor: !!d.sin_supervisor });
+    this.revisarFeria();
     return this.caja.corteEnVivo(fechaLocal(this.reloj.now()));
   }
   /** Entradas, retiros y ajustes administrativos de hoy en esta caja (el módulo de operaciones extraordinarias). */
@@ -207,10 +209,13 @@ export class ServicioCaja {
   /** Cuenta y confirma el fondo físico. La cajera no cambia el monto autorizado: solo registra lo que hay (con nota si no coincide). */
   confirmarFondo(denominaciones: Record<string, number>, nota?: string) {
     this.caja.confirmarFondo({ denominaciones, nota, usuario: this.actor.usuario });
+    this.revisarFeria();
     return this.corte(fechaLocal(this.reloj.now()));
   }
   registrarConteo(moneda: 'MXN' | 'USD', denominaciones: Record<string, number>, alcance?: 'ventas') {
-    return this.caja.registrarConteo({ moneda, denominaciones, usuario: this.actor.usuario, alcance });
+    const r = this.caja.registrarConteo({ moneda, denominaciones, usuario: this.actor.usuario, alcance });
+    this.revisarFeria();
+    return r;
   }
   registrarConteoUsd(denominaciones: Record<string, number>) {
     return this.registrarConteo('USD', denominaciones);
@@ -228,11 +233,15 @@ export class ServicioCaja {
   /** Registra el retiro y manda a imprimir sus datos. Una falla de impresión no deshace el retiro: se reimprime después. */
   async registrarRetiro(d: { retiro_id: string; mxn?: Record<string, number>; usd?: Record<string, number>; clave?: string }) {
     const retiro = this.caja.registrarRetiro({ ...d, usuario: this.actor.usuario });
+    this.revisarFeria();
     return { retiro, ...(await this.imprimirRetiro(retiro, 0)), estado: this.estadoRetiro() };
   }
   /** Gasto de caja (pago con efectivo del cajón): lo registra, imprime el recibo para firmar y queda en el corte. Una falla de impresión no lo deshace. */
+  /** Revisa la feria de la caja y avisa a Administración si empeoró (nunca interrumpe la operación). */
+  private revisarFeria() { this.caja.revisarFeria(); }
   async registrarGasto(d: { ref: string; monto: number; concepto: string; recibio: string; autoriza?: Autoriza }) {
     const gasto = this.caja.registrarGasto({ ...d, usuario: this.actor.usuario });
+    this.revisarFeria();
     return { gasto, ...(await this.imprimirGasto(gasto, 0)) };
   }
   async reimprimirGasto(gastoId: string) {
@@ -540,6 +549,7 @@ export class ServicioCaja {
     return this.finalizarCobro(this.caja.cobrarConTarjetaManual(cartId, d, this.actor.usuario));
   }
   private async finalizarCobro(venta: Venta, sinComprobanteDeCambio = false) {
+    this.revisarFeria();
     const yaImpreso = this.caja.impresionesDe(venta.sale_id).some((i) => i.resultado === 'ok');
     const cambio = this.cambioDe(venta);
     const imp = yaImpreso
@@ -1735,6 +1745,19 @@ export class ServicioAdmin {
       fecha: dia, hoy: fechaLocal(this.reloj.now()),
       tiendas: info.map((t) => ({ tienda: t.tienda, nombre: t.nombre, ...filaDe(t.tienda), cajas_con_corte: cortes.filter((o) => o.payload.tienda === t.tienda).length, cajas: this.cajas.filter((c) => c.tienda === t.tienda).length })),
       total: filaDe(null),
+    };
+  }
+  /**
+   * Estado de la feria (billetes y monedas de cambio) de cada caja en un día: estimado con lo más probable que entra y sale en cada venta, y exacto desde el
+   * conteo del cierre. `critico` = dos o más denominaciones agotadas; `bajo` = alguna agotada o por debajo de su mínimo.
+   */
+  feriaCajas(fecha?: string) {
+    const ops = this.fuente();
+    const dia = fecha || fechaLocal(this.reloj.now());
+    const nombres = new Map(this.tiendasInfo().map((t) => [t.tienda, t.nombre]));
+    return {
+      fecha: dia, hoy: fechaLocal(this.reloj.now()), denominaciones: [...DENOMS_FERIA], minimos: MINIMO_FERIA,
+      cajas: this.cajas.map((c) => ({ nombre: nombres.get(c.tienda) ?? c.tienda, ...estimarFeria(ops, c.tienda, c.caja, dia) })),
     };
   }
   /** Detalle de una venta de cualquier caja. Revertir y hacer cambios se hace en la caja donde se vendió. */

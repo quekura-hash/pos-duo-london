@@ -21,6 +21,10 @@ test('NT1 cada tipo de operación genera su aviso con título y texto claros', (
   assert.deepEqual([k.tipo, k.titulo, k.cuerpo], ['corte', 'Corte DÚO caja 1 · 21/10', '42 tickets · ventas $38,420.00 · efectivo $15,000.00 · tarjeta $23,420.00 · diferencia en efectivo −$50.00']);
   assert.equal(avisoDeOp(op('doc.perdida_posible', {}))!.tipo, 'alertas');
   assert.equal(avisoDeOp(op('alm.faltante', { tienda: 'DUO' }))!.tipo, 'alertas');
+  const feria = avisoDeOp(op('caja.alerta_feria', { tienda: 'LON', caja: 2, fecha: '2026-10-25', estado: 'bajo', agotadas: [2000], bajas: [500] }))!;
+  assert.deepEqual([feria.tipo, feria.titulo], ['alertas', 'London caja 2: faltará feria pronto']);
+  assert.match(feria.cuerpo, /Sin \$20.*Pocas de \$5/);
+  assert.equal(avisoDeOp(op('caja.alerta_feria', { tienda: 'DUO', caja: 1, fecha: '2026-10-25', estado: 'critico', agotadas: [2000, 500], bajas: [] }))!.titulo, 'DÚO caja 1: estado de feria CRÍTICO');
   assert.equal(avisoDeOp(op('inv.movement', {})), null);
   assert.equal(avisoDeOp(op('item.created', {})), null);
 });

@@ -90,6 +90,18 @@ export function avisoDeOp(op: OpMin, ctx: { venta?: VentaMin | null } = {}): Avi
       return { tipo: 'alertas', tienda: op.tienda, tag: `perdida:${op.op_id}`, url: './#cortes', titulo: `Posible pérdida de ventas ${nombreTienda(op.tienda)}`, cuerpo: `Caja ${op.caja ?? ''}: puede faltar información de ventas, pagos o folios. Revise en Administración.` };
     case 'alm.faltante':
       return { tipo: 'alertas', tienda: p.tienda ?? op.tienda, tag: `faltante:${op.op_id}`, url: './#almacen', titulo: 'Faltante de almacén', cuerpo: `Una entrega a ${nombreTienda(p.tienda ?? op.tienda)} reportó piezas faltantes. Revise Almacén.` };
+    case 'caja.alerta_feria': {
+      // La feria (billetes y monedas de cambio) de una caja empeoró: «va a faltar» (alguna denominación agotada o baja) o «crítico» (dos o más agotadas).
+      const pesos = (c: number) => `$${(c / 100).toLocaleString('es-MX')}`;
+      const agot = (p.agotadas ?? []) as number[];
+      const bajas = (p.bajas ?? []) as number[];
+      const critico = p.estado === 'critico';
+      return {
+        tipo: 'alertas', tienda: p.tienda, tag: `feria:${p.tienda}:${p.caja}:${p.estado}:${p.fecha}`, url: './#configuracion',
+        titulo: `${nombreTienda(p.tienda)} caja ${p.caja}: ${critico ? 'estado de feria CRÍTICO' : 'faltará feria pronto'}`,
+        cuerpo: `${agot.length ? `Sin ${agot.map(pesos).join(', ')}` : ''}${agot.length && bajas.length ? ' · ' : ''}${bajas.length ? `Pocas de ${bajas.map(pesos).join(', ')}` : ''} (estimado). Lleve cambio a la caja.`,
+      };
+    }
     default:
       return null;
   }

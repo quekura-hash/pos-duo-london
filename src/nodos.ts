@@ -7,6 +7,7 @@ export type Autoriza = { nombre: string; clave: string; sin_segundo?: boolean };
 import { adminProtegido, mezclarPerfil, claveAdminValida, claveValida, hashClave, nombreClave, supervisorPorClave, type Cajero, type Perfil, type RolAdmin, type Supervisor } from './supervisores.ts';
 import { correccionesEntradas } from './almacen.ts';
 import type { GastoRegistrado } from './gastos.ts';
+import { estimarFeria, type ReporteFeria } from './feria.ts';
 import { BILLETES_RETIRO_MXN, BILLETES_RETIRO_USD, efectivoDeVentaEnCaja, MINIMO_RETIRO, UMBRAL_AVISO_RETIRO, type RetiroRegistrado } from './retiros.ts';
 import { DESTINOS_FALTANTE_ESPECIALES, existenciaAlmacen, faltantes, fechaValida, recepcionesPendientes, type Faltante, type AltaManual, type RecepcionPendiente } from './almacen.ts';
 import { slug, validarCambioDepto, type CambioDepto, type ErrorDepto } from './departamentos.ts';
@@ -2662,6 +2663,25 @@ export class Caja {
       const op = this.emitir('cash.retiro', retiro, `retiro:${d.retiro_id}`);
       return { ...retiro, ocurrio_en: op.ocurrio_en };
     });
+  }
+  /** Estado de la feria (billetes y monedas de cambio) de esta caja hoy: estimado venta por venta y confirmado en el conteo del cierre. */
+  estadoFeria(fecha = fechaLocal(this.ctx.reloj.now())): ReporteFeria {
+    return estimarFeria(this.opsDe('cash.fondo', 'cash.conteo', 'cash.movement', 'cash.retiro', 'cash.ajuste_admin', 'sale.confirmed', 'sale.cancelled', 'return.registered'), this.tienda, this.caja, fecha);
+  }
+  /**
+   * Avisa a Administración (op `caja.alerta_feria`) cuando la feria EMPEORA: de bien a bajo, de bajo a crítico o de bien a crítico. Mejorar o seguir igual no
+   * repite el aviso; al recuperarse vuelve a poder avisar. Nunca interrumpe la operación de la caja.
+   */
+  revisarFeria(): void {
+    try {
+      const f = this.estadoFeria();
+      if (f.estado === 'sin_dato') return;
+      const rango = { bien: 0, bajo: 1, critico: 2, sin_dato: 0 } as const;
+      const llave = `feria:estado:${f.fecha}`;
+      const antes = (this.repo.kvGet<string>(llave) ?? 'bien') as keyof typeof rango;
+      this.repo.kvSet(llave, f.estado);
+      if (rango[f.estado] > rango[antes]) this.emitir('caja.alerta_feria', { tienda: this.tienda, caja: this.caja, fecha: f.fecha, estado: f.estado, agotadas: f.agotadas, bajas: f.bajas });
+    } catch { /* la feria es una ayuda: no debe frenar una venta */ }
   }
   /** Gastos de caja de una fecha en esta caja (los más recientes primero). */
   gastos(fecha: string): GastoRegistrado[] {

@@ -3611,7 +3611,7 @@ async function abrirPromo(p, preset) {
 
 // ── Configuración: Tiendas, Departamentos y Tipo de cambio en una sola entrada ──
 const cuerpoVista = () => $('#config-cuerpo') ?? $('#personal-cuerpo') ?? $('#vista');
-const TABS_CONFIG = [['tiendas', 'Tiendas', 'store'], ['departamentos', 'Departamentos', 'box'], ['tipo_cambio', 'Tipo de cambio', 'banknote'], ['cajas', 'Cajas', 'cash']];
+const TABS_CONFIG = [['tiendas', 'Tiendas', 'store'], ['departamentos', 'Departamentos', 'box'], ['tipo_cambio', 'Tipo de cambio', 'banknote'], ['cajas', 'Cajas', 'cash'], ['feria', 'Feria', 'banknote']];
 async function vistaConfiguracion(tab) {
   tab = tab ?? S.configTab ?? 'tiendas';
   S.configTab = tab;
@@ -3619,7 +3619,7 @@ async function vistaConfiguracion(tab) {
     <div class="filas" role="tablist" aria-label="Configuración" style="margin-bottom:12px">${TABS_CONFIG.map(([id, rotulo, icono]) => `<button class="btn" type="button" role="tab" id="cfg-tab-${id}" data-tab="${id}" aria-selected="${id === tab}" style="${id === tab ? 'background:var(--acento);color:var(--acento-texto);border-color:var(--acento)' : ''}">${ico(icono)}<span>${rotulo}</span></button>`).join('')}</div>
     <div id="config-cuerpo" role="tabpanel"></div>`;
   for (const b of $('#vista').querySelectorAll('[role="tab"]')) b.addEventListener('click', () => vistaConfiguracion(b.dataset.tab));
-  await ({ tiendas: vistaTiendas, departamentos: vistaDepartamentos, tipo_cambio: vistaTipoCambio, cajas: vistaCajasFondo })[tab]();
+  await ({ tiendas: vistaTiendas, departamentos: vistaDepartamentos, tipo_cambio: vistaTipoCambio, cajas: vistaCajasFondo, feria: vistaFeria })[tab]();
 }
 
 
@@ -3768,6 +3768,43 @@ async function vistaCajasFondo() {
     tr.querySelector('.cf-fondo').addEventListener('click', () => abrir(c, 'fondo'));
     tr.querySelector('.cf-ajuste').addEventListener('click', () => abrir(c, 'ajuste'));
   }
+  await montarInactividad();
+}
+
+// ── Feria: billetes y monedas de cambio de cada caja (estimado en el día, exacto desde el conteo del cierre) ──
+const denFeria = (c) => (c >= 2000 ? `Billete de ${mxn(c).replace('.00', '')}` : `Moneda de ${mxn(c).replace('.00', '')}`);
+const listaFeria = (d) => Object.keys(d).map(Number).sort((a, b) => b - a).map((k) => `${d[String(k)]} × ${mxn(k).replace('.00', '')}`).join(', ') || '—';
+const ESTADO_FERIA = {
+  bien: ['Feria suficiente', 'var(--ok, #1f7a4d)'], bajo: ['Va a faltar feria pronto', '#b8860b'], critico: ['Estado de feria CRÍTICO', '#b3261e'], sin_dato: ['Sin fondo contado hoy', '#6b7280'],
+};
+async function vistaFeria() {
+  const fecha = S.feriaFecha ?? '';
+  const j = await api(`/api/admin/feria${fecha ? `?fecha=${encodeURIComponent(fecha)}` : ''}`);
+  const orden = { critico: 0, bajo: 1, bien: 2, sin_dato: 3 };
+  const cajas = [...j.cajas].sort((a, b) => orden[a.estado] - orden[b.estado] || a.tienda.localeCompare(b.tienda) || a.caja - b.caja);
+  const hora = (iso) => new Date(Date.parse(iso) - 7 * 3600_000).toISOString().slice(11, 16);
+  const tarjeta = (c) => {
+    const [rotulo, color] = ESTADO_FERIA[c.estado];
+    const filas = c.estado === 'sin_dato' ? '' : j.denominaciones.map((d) => {
+      const n = c.inventario[String(d)] ?? 0, min = j.minimos[d];
+      const est = n === 0 ? ['Agotada', '#b3261e'] : n < min ? ['Baja', '#b8860b'] : ['OK', 'var(--ok, #1f7a4d)'];
+      return `<tr data-den="${d}"><td>${denFeria(d)}</td><td class="num"><b>${n}</b></td><td class="num">${min}</td><td><b style="color:${est[1]}">${est[0]}</b></td></tr>`;
+    }).join('');
+    const ev = c.eventos.slice().reverse();
+    return `<section class="panel" data-caja="${esc(c.tienda)}/${c.caja}" data-estado="${esc(c.estado)}" style="border-left:8px solid ${color}">
+      <div class="filas" style="align-items:center;justify-content:space-between"><h2 style="margin:0">${esc(c.nombre)} · Caja ${c.caja}</h2><b class="estado-feria" style="color:${color};font-size:1.1em">${rotulo}</b></div>
+      ${c.estado === 'sin_dato' ? '<p class="nota">La cajera todavía no cuenta y confirma el fondo de este día: sin ese conteo no hay punto de partida.</p>' : `
+      <p class="nota" style="margin:4px 0 8px">${c.estimado ? `<b>Estimado.</b> Último conteo confirmado a las ${hora(c.confirmado_en)}; desde entonces se supone lo más probable que entró y salió en cada operación.` : `<b>Confirmado</b> billete por billete y moneda por moneda a las ${hora(c.confirmado_en)}.`}${c.desfase ? ' <b style="color:#b3261e">La estimación no cuadró con lo que había: conviene contar la caja.</b>' : ''}</p>
+      <div class="tabla-cont"><table><thead><tr><th>Denominación</th><th class="num">Piezas</th><th class="num">Mínimo</th><th>Estado</th></tr></thead><tbody>${filas}</tbody></table></div>
+      <details style="margin-top:8px"><summary><b>Registro de feria del día</b> (${ev.length} movimientos)</summary>
+        <div class="tabla-cont"><table><thead><tr><th>Hora</th><th>Movimiento</th><th>Entra</th><th>Sale</th><th></th></tr></thead><tbody>${ev.map((e) => `<tr><td>${hora(e.ocurrio_en)}</td><td>${esc(e.descripcion)}</td><td>${listaFeria(e.entra)}</td><td>${listaFeria(e.sale)}</td><td>${e.estimado ? '<small>estimado</small>' : '<small><b>exacto</b></small>'}</td></tr>`).join('')}</tbody></table></div></details>`}
+    </section>`;
+  };
+  cuerpoVista().innerHTML = `<section class="panel"><div class="filas" style="align-items:flex-end;justify-content:space-between"><div><h2 style="margin:0 0 4px">Estado de la feria por caja</h2>
+      <p class="nota" style="margin:0">Billetes y monedas para dar cambio. Durante el día es un <b>estimado</b> (se supone lo más probable que entrega la clienta y que da la cajera); en el cierre se cuenta billete por billete y deja de ser estimación. <b>Crítico</b>: ya no hay al menos dos denominaciones. <b>Va a faltar</b>: alguna agotada o por debajo de su mínimo.</p></div>
+      <label>Día <input type="date" id="fe-fecha" value="${esc(j.fecha)}" max="${esc(j.hoy)}"></label></div></section>
+    ${cajas.map(tarjeta).join('')}`;
+  $('#fe-fecha').addEventListener('change', (ev) => { S.feriaFecha = ev.target.value === j.hoy ? '' : ev.target.value; vistaFeria(); });
   await montarInactividad();
 }
 
