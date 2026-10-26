@@ -22,9 +22,16 @@ test('NT1 cada tipo de operación genera su aviso con título y texto claros', (
   assert.equal(avisoDeOp(op('doc.perdida_posible', {}))!.tipo, 'alertas');
   assert.equal(avisoDeOp(op('alm.faltante', { tienda: 'DUO' }))!.tipo, 'alertas');
   const feria = avisoDeOp(op('caja.alerta_feria', { tienda: 'LON', caja: 2, fecha: '2026-10-25', estado: 'bajo', agotadas: [2000], bajas: [500] }))!;
-  assert.deepEqual([feria.tipo, feria.titulo], ['alertas', 'London caja 2: faltará feria pronto']);
+  assert.deepEqual([feria.tipo, feria.titulo], ['feria', 'London caja 2: faltará feria pronto']);
   assert.match(feria.cuerpo, /Sin \$20.*Pocas de \$5/);
   assert.equal(avisoDeOp(op('caja.alerta_feria', { tienda: 'DUO', caja: 1, fecha: '2026-10-25', estado: 'critico', agotadas: [2000, 500], bajas: [] }))!.titulo, 'DÚO caja 1: estado de feria CRÍTICO');
+  // su propio interruptor: apagar «Feria de las cajas» no apaga las demás alertas, y viceversa
+  const ahora = '2026-10-25T20:00:00.000Z';
+  assert.equal(debeEnviar({ feria: false }, feria, { ahora }), false);
+  assert.equal(debeEnviar({ alertas: false }, feria, { ahora }), true);
+  assert.equal(debeEnviar({ feria: false }, avisoDeOp(op('alm.faltante', { tienda: 'DUO' }))!, { ahora }), true);
+  assert.equal(sanearPrefs({ feria: false }).feria, false);
+  assert.equal(sanearPrefs({}).feria, true);
   assert.equal(avisoDeOp(op('inv.movement', {})), null);
   assert.equal(avisoDeOp(op('item.created', {})), null);
 });

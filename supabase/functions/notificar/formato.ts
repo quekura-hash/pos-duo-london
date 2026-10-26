@@ -15,12 +15,14 @@ export interface Prefs {
   retiro: boolean;
   /** Faltantes de almacén y posibles pérdidas de documentos. */
   alertas: boolean;
+  /** La feria (billetes y monedas de cambio) de una caja se está acabando. */
+  feria: boolean;
   /** Tiendas de las que se quiere saber. */
   tiendas: string[];
 }
-export type TipoAviso = 'venta' | 'corte' | 'resumen_dia' | 'devolucion' | 'cancelacion' | 'retiro' | 'alertas' | 'prueba';
+export type TipoAviso = 'venta' | 'corte' | 'resumen_dia' | 'devolucion' | 'cancelacion' | 'retiro' | 'alertas' | 'feria' | 'prueba';
 
-export const PREFS_OMISION: Prefs = { venta: true, venta_minima: 0, corte: true, resumen_dia: true, resumen_hora: '21:00', devolucion: true, cancelacion: true, retiro: true, alertas: true, tiendas: ['DUO', 'LON'] };
+export const PREFS_OMISION: Prefs = { venta: true, venta_minima: 0, corte: true, resumen_dia: true, resumen_hora: '21:00', devolucion: true, cancelacion: true, retiro: true, alertas: true, feria: true, tiendas: ['DUO', 'LON'] };
 
 export interface OpMin { op_id: string; tipo: string; tienda: string | null; caja: number | null; ocurrio_en: string; payload: any }
 export interface Aviso { tipo: TipoAviso; tienda: string | null; titulo: string; cuerpo: string; tag: string; url: string; monto?: number }
@@ -97,7 +99,7 @@ export function avisoDeOp(op: OpMin, ctx: { venta?: VentaMin | null } = {}): Avi
       const bajas = (p.bajas ?? []) as number[];
       const critico = p.estado === 'critico';
       return {
-        tipo: 'alertas', tienda: p.tienda, tag: `feria:${p.tienda}:${p.caja}:${p.estado}:${p.fecha}`, url: './#configuracion',
+        tipo: 'feria', tienda: p.tienda, tag: `feria:${p.tienda}:${p.caja}:${p.estado}:${p.fecha}`, url: './#configuracion',
         titulo: `${nombreTienda(p.tienda)} caja ${p.caja}: ${critico ? 'estado de feria CRÍTICO' : 'faltará feria pronto'}`,
         cuerpo: `${agot.length ? `Sin ${agot.map(pesos).join(', ')}` : ''}${agot.length && bajas.length ? ' · ' : ''}${bajas.length ? `Pocas de ${bajas.map(pesos).join(', ')}` : ''} (estimado). Lleve cambio a la caja.`,
       };
@@ -153,5 +155,5 @@ export function sanearPrefs(x: unknown): Prefs {
   const hora = typeof o.resumen_hora === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(o.resumen_hora) ? o.resumen_hora : PREFS_OMISION.resumen_hora;
   const minima = Number.isInteger(o.venta_minima) && (o.venta_minima as number) >= 0 && (o.venta_minima as number) <= 100_000_000 ? (o.venta_minima as number) : 0;
   const tiendas = Array.isArray(o.tiendas) ? o.tiendas.filter((t): t is string => t === 'DUO' || t === 'LON') : PREFS_OMISION.tiendas;
-  return { venta: b('venta'), venta_minima: minima, corte: b('corte'), resumen_dia: b('resumen_dia'), resumen_hora: hora, devolucion: b('devolucion'), cancelacion: b('cancelacion'), retiro: b('retiro'), alertas: b('alertas'), tiendas: [...new Set(tiendas)] };
+  return { venta: b('venta'), venta_minima: minima, corte: b('corte'), resumen_dia: b('resumen_dia'), resumen_hora: hora, devolucion: b('devolucion'), cancelacion: b('cancelacion'), retiro: b('retiro'), alertas: b('alertas'), feria: b('feria'), tiendas: [...new Set(tiendas)] };
 }

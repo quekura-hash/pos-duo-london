@@ -4340,7 +4340,7 @@ async function vistaDepartamentos() {
   $('#form-depto').addEventListener('submit', (ev) => { ev.preventDefault(); intentar({ nombre: $('#nd-nombre').value, alias: partir($('#nd-alias').value) }); });
 }
 // ── Avisos al teléfono: cada venta, corte, resumen del día… con interruptores y «no molestar» ──
-const AVISOS_TIPOS = [['venta', 'Cada venta', 'Un aviso por cada venta cobrada.'], ['corte', 'Corte de caja', 'Cuando una caja genera su corte.'], ['resumen_dia', 'Resumen de ventas del día', 'Un solo aviso con el total del día.'], ['devolucion', 'Devoluciones', 'Cuando se registra una devolución.'], ['cancelacion', 'Cancelaciones de venta', 'Cuando se cancela una venta.'], ['retiro', 'Retiros de efectivo', 'Cuando se saca efectivo de la caja.'], ['alertas', 'Alertas', 'Faltantes de almacén y posibles documentos perdidos.']];
+const AVISOS_TIPOS = [['venta', 'Cada venta', 'Un aviso por cada venta cobrada.'], ['corte', 'Corte de caja', 'Cuando una caja genera su corte.'], ['resumen_dia', 'Resumen de ventas del día', 'Un solo aviso con el total del día.'], ['devolucion', 'Devoluciones', 'Cuando se registra una devolución.'], ['cancelacion', 'Cancelaciones de venta', 'Cuando se cancela una venta.'], ['retiro', 'Retiros de efectivo', 'Cuando se saca efectivo de la caja.'], ['alertas', 'Alertas', 'Faltantes de almacén y posibles documentos perdidos.'], ['feria', 'Feria de las cajas', 'Cuando a una caja se le va acabando la feria (billetes y monedas de cambio) o ya está en estado crítico.']];
 async function vistaAvisos() {
   const N = window.__POS_NOTIF__;
   const e = await N.estado().catch(() => ({ soporte: false, instalada: false, permiso: 'default', vapid: false, suscrito: false, prefs: {}, pausa_hasta: null }));
