@@ -1162,7 +1162,6 @@ async function vistaCorte() {
     return `<li><button type="button" class="paso-btn ${n === paso ? 'activo' : ''} ${ok ? 'hecho' : ''}" data-paso="${n}" ${clic ? '' : 'disabled'} aria-current="${n === paso ? 'step' : 'false'}"><span class="paso-num">${ok ? ico('check') : n}</span><span>${n}. ${t}</span></button></li>`;
   }).join('')}</ol>`;
   const cab = `<div class="titulo-vista">${ico('register')}<h1>Cierre de caja — Caja ${v.caja} (${esc(v.tienda)}) · ${esc(v.fecha)}</h1></div>${pasos}
-    ${!cerrado && v.fondo_confirmado !== null ? `<div class="filas" style="justify-content:flex-end;margin:6px 0"><button class="btn btn-primario" id="btn-contar-fondo" type="button" style="width:auto;flex:none" title="Abre el cajón y cuenta billetes y monedas para rectificar la feria y el efectivo (queda registrado)">${ico('cash')}<span>Contar solo fondo</span></button></div>` : ''}
     ${v.perdida_documental_abierta.length ? '<div class="mensaje error" data-alerta="perdida-corte">Este corte puede estar incompleto: hay una posible pérdida de ventas, pagos o folios de esta caja sin resolver.</div>' : ''}
     ${j.cerrado && !cerrado ? `<div class="mensaje aviso" id="corte-reabierto">Ya se hizo un corte de arqueo a las ${horaCorte(j.cerrado_en)} con ${mxn(j.cerrado.ventas_mercancia)} de venta${j.cerrado.fondo_confirmado !== null ? ' y se confirmó fondo' : ''}. Hubo operaciones después: cuente de nuevo y cierre otra vez (el cierre cubre todo el día y deja anotado el corte anterior).</div>` : ''}
     ${cerrado ? `<div class="mensaje ok" id="corte-cerrado">Corte cerrado${j.cerrado.cerrado_por ? ` por ${esc(j.cerrado.cerrado_por)}` : ''}.</div>
@@ -1242,7 +1241,6 @@ async function vistaCorte() {
         <p class="nota">Corte en vivo: se calcula con las ventas de ESTA caja. Pesos y dólares se concilian por separado.</p></details></section>`;
   }
   // Para contar el fondo y el efectivo hay que abrir el cajón: «Empezar corte» lo abre (con la clave de quien cierra) y deja registrado el motivo. Cada cierre del día empieza así.
-  const enlazarContarFondo = () => $('#btn-contar-fondo')?.addEventListener('click', () => abrirContarFondo(() => vistaCorte()));
   const llaveCajon = `${v.fecha}:${j.cierres ?? 0}`;
   if (!cerrado && paso < 3 && S.cierreCajon !== llaveCajon) {
     $('#vista').innerHTML = `${cab}<section class="panel" id="paso-empezar"><h2 style="margin-top:0">Empezar corte</h2>
@@ -1251,7 +1249,6 @@ async function vistaCorte() {
       <div id="msg-empezar" class="mensaje" role="alert"></div>
       <button class="btn btn-primario" id="btn-empezar" type="button">${ico('cash')}<span>Empezar corte y abrir cajón</span></button></section>`;
     for (const b of $('#cierre-pasos').querySelectorAll('[data-paso]')) b.addEventListener('click', () => { S.cierrePaso = Number(b.dataset.paso); vistaCorte(); });
-    enlazarContarFondo();
     $('#btn-empezar').addEventListener('click', async () => {
       const m = $('#msg-empezar');
       if (j.pide_clave && !$('#empezar-clave').value) { m.className = 'mensaje error'; m.textContent = 'Teclee su clave.'; $('#empezar-clave').focus(); return; }
@@ -1267,7 +1264,6 @@ async function vistaCorte() {
   }
   $('#vista').innerHTML = `${cab}${cuerpo}`;
   for (const b of $('#cierre-pasos').querySelectorAll('[data-paso]')) b.addEventListener('click', () => { S.cierrePaso = Number(b.dataset.paso); vistaCorte(); });
-  enlazarContarFondo();
   if (paso === 1) {
     const total = () => {
       const { total: t } = leerDenominaciones('fondo', mxn);
@@ -2858,67 +2854,6 @@ function abrirMotivoApertura(pideClave) {
   });
   d.showModal();
   (pideClave ? $('#ac-clave') : d.querySelector('input[name="ac-motivo"]')).focus();
-}
-/** Contar el cajón a cualquier hora: abre el cajón (queda registrado como «Rectificar efectivo»), se cuentan billetes y monedas y «Confirmar fondo» guarda cómo quedaron. */
-async function abrirContarFondo(alTerminar) {
-  let e;
-  try { e = await api('/api/arqueo'); } catch (x) { return msg(x.message, 'error'); }
-  if (e.esperado === null) return msg('Primero cuente y confirme el fondo del día en el cierre de caja.', 'aviso');
-  const d = dialogo('dlg-contar-fondo');
-  d.setAttribute('aria-labelledby', 'cf-titulo');
-  d.innerHTML = `<h2 id="cf-titulo" style="margin-top:0">Contar fondo</h2>
-    <div id="cf-abrir"><p class="nota">Se abre el cajón (queda registrado como «Rectificar efectivo») para contar los billetes y monedas.</p>
-      ${e.pide_clave ? `<div class="campo"><label for="cf-clave">Su clave</label><input id="cf-clave" type="text" data-pin inputmode="numeric" autocomplete="off" placeholder="••••"></div>` : ''}
-      <div id="msg-cf-abrir" class="mensaje" role="alert"></div>
-      <div class="filas"><button class="btn" type="button" id="cf-cerrar-1">Cancelar</button><button class="btn btn-primario" type="button" id="cf-abrir-btn" style="width:auto;flex:1">${ico('cash')}<span>Abrir caja y contar</span></button></div></div>
-    <form id="cf-contar" autocomplete="off" hidden>
-      <p class="nota">Cuente todo lo que hay en el cajón. El sistema espera <b>${mxn(e.esperado)}</b> (fondo ${mxn(e.fondo)} + efectivo de ventas y movimientos).</p>
-      <div class="tabla-cont">${tablaDenominaciones('arq', FILAS_PESOS, mxn)}</div>
-      <p style="font-size:1.1em;margin:8px 0">Total contado: <b id="cf-total">${mxn(0)}</b> · <span id="cf-dif"></span></p>
-      <div class="campo" id="cf-nota-campo" hidden><label for="cf-nota">Nota de la diferencia (<span id="cf-nota-tipo"></span>)</label><input id="cf-nota" maxlength="300" placeholder="¿Por qué no coincide?"></div>
-      <div id="msg-cf" class="mensaje" role="alert"></div>
-      <div class="filas"><button class="btn" type="button" id="cf-cerrar-2">Cancelar</button><button class="btn btn-primario" type="submit" style="width:auto;flex:1">${ico('check')}<span>Confirmar fondo</span></button></div>
-    </form>`;
-  let claveConteo;
-  const cerrar = () => { d.close(); $('#scan')?.focus(); };
-  $('#cf-cerrar-1').addEventListener('click', cerrar);
-  $('#cf-cerrar-2').addEventListener('click', cerrar);
-  const total = () => {
-    const { total: t } = leerDenominaciones('arq', mxn, d);
-    const dif = t - e.esperado;
-    $('#cf-total').textContent = mxn(t);
-    $('#cf-dif').textContent = t === 0 ? '' : dif === 0 ? 'Cuadra con lo esperado' : dif < 0 ? `Faltan ${mxn(-dif)}` : `Sobran ${mxn(dif)}`;
-    $('#cf-dif').style.color = dif === 0 ? 'var(--ok,#0a7a4b)' : 'var(--error,#b3261e)';
-    $('#cf-nota-campo').hidden = dif === 0 || t === 0;
-    $('#cf-nota-tipo').textContent = dif < 0 ? 'faltante' : 'sobrante';
-    return t;
-  };
-  for (const i of d.querySelectorAll('[data-arq]')) i.addEventListener('input', total);
-  $('#cf-abrir-btn').addEventListener('click', async () => {
-    const m = $('#msg-cf-abrir');
-    if (e.pide_clave && !$('#cf-clave').value) { m.className = 'mensaje error'; m.textContent = 'Teclee su clave.'; $('#cf-clave').focus(); return; }
-    try {
-      await api('/api/caja/abrir', { motivo: 'Rectificar efectivo', ...(e.pide_clave ? { clave: $('#cf-clave').value } : {}) });
-      claveConteo = e.pide_clave ? $('#cf-clave').value : undefined; // la misma clave autoriza guardar el conteo
-      $('#cf-abrir').hidden = true; $('#cf-contar').hidden = false; total();
-      d.querySelector('[data-arq]').focus();
-      imprimirNavegador(comprobanteApertura(), { logo: false }).catch(() => {});
-    } catch (x) { m.className = 'mensaje error'; m.textContent = x.message; const c = $('#cf-clave'); if (c) c.value = ''; }
-  });
-  $('#cf-contar').addEventListener('submit', async (ev) => {
-    ev.preventDefault();
-    const m = $('#msg-cf');
-    const { den } = leerDenominaciones('arq', mxn, d);
-    try {
-      const r = await api('/api/arqueo', { denominaciones: den, nota: $('#cf-nota').value, ...(e.pide_clave ? { clave: claveConteo } : {}) });
-      d.close(); $('#scan')?.focus();
-      const a = r.arqueo;
-      if (alTerminar) await alTerminar();
-      msg(a.diferencia === 0 ? `Fondo confirmado: ${mxn(a.total)}. Cuadra y la feria quedó rectificada.` : `Fondo confirmado: ${mxn(a.total)} (${a.diferencia < 0 ? 'faltan' : 'sobran'} ${mxn(Math.abs(a.diferencia))}, anotado). La feria quedó rectificada.`);
-    } catch (x) { m.className = 'mensaje error'; m.textContent = x.message; }
-  });
-  d.showModal();
-  (e.pide_clave ? $('#cf-clave') : $('#cf-abrir-btn')).focus();
 }
 /** Cancelar la venta en curso (sin cobrar): solo pide confirmación, nunca clave. */
 function abrirCancelarVenta() {
