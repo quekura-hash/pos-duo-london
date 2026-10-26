@@ -42,7 +42,7 @@ export function sha256(texto: string): string {
 }
 
 /** Supervisor de caja: autoriza descuentos y cambios con su clave numérica y también puede iniciar sesión y cobrar en la caja. `solo_caja` (almacenista que también cobra): puede cobrar pero NO autoriza descuentos. */
-export interface Supervisor { id: string; nombre: string; activo: boolean; sal: string; hash: string; solo_caja?: boolean }
+export interface Supervisor { id: string; nombre: string; activo: boolean; sal: string; hash: string; solo_caja?: boolean; dueno?: boolean }
 export const hashClave = (sal: string, clave: string) => sha256(`${sal}:${clave}`);
 export const claveValida = (c: unknown): c is string => typeof c === 'string' && /^\d{4,8}$/.test(c);
 
@@ -91,6 +91,12 @@ export function adminProtegido(a: { nombre: string; perfil?: { nombres?: string;
   const completo = nombreClave(`${a.perfil?.nombres ?? ''} ${a.perfil?.apellidos ?? ''}`);
   const alias = nombreClave(a.nombre);
   return ADMINS_PROTEGIDOS.some((p) => completo === p || completo.startsWith(`${p} `) || alias === p);
+}
+/** El dueño del sistema (Edgardo Morales): en la caja su clave basta para todo, sin segunda persona. Las demás cuentas, aun siendo supervisores, no. */
+export function adminDueno(a: { nombre: string; perfil?: { nombres?: string; apellidos?: string } }): boolean {
+  const completo = nombreClave(`${a.perfil?.nombres ?? ''} ${a.perfil?.apellidos ?? ''}`);
+  const p = 'edgardo morales';
+  return completo === p || completo.startsWith(`${p} `) || nombreClave(a.nombre) === p;
 }
 export const claveAdminValida = (c: unknown): c is string => typeof c === 'string' && c.length >= 6 && c.length <= 40;
 /** Los nombres se comparan sin importar mayúsculas, acentos ni espacios de más. */

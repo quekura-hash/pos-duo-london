@@ -4,7 +4,7 @@ import { buscarRecompensa, esCodigoRecompensa, promoDeRecompensa, recompensasGan
 import { calcularDescuentos, esCanje, normCodigo, repartir, validarPromocion, type ErrorPromo, type Promocion, type ResultadoDescuentos } from './promociones.ts';
 /** Quien autoriza: otra persona (nombre + clave) o, si no hay nadie más, quien cobra con su propia clave (`sin_segundo`). */
 export type Autoriza = { nombre: string; clave: string; sin_segundo?: boolean };
-import { adminProtegido, mezclarPerfil, claveAdminValida, claveValida, hashClave, nombreClave, supervisorPorClave, type Cajero, type Perfil, type RolAdmin, type Supervisor } from './supervisores.ts';
+import { adminDueno, adminProtegido, mezclarPerfil, claveAdminValida, claveValida, hashClave, nombreClave, supervisorPorClave, type Cajero, type Perfil, type RolAdmin, type Supervisor } from './supervisores.ts';
 import { correccionesEntradas } from './almacen.ts';
 import type { GastoRegistrado } from './gastos.ts';
 import { estimarFeria, type ReporteFeria } from './feria.ts';
@@ -519,7 +519,7 @@ export class Central {
     return { ok: true };
   }
   /** Alta o edición de un supervisor que autoriza descuentos con clave numérica. La clave se guarda con sal y hash. */
-  guardarSupervisor(d: { id?: string; id_nuevo?: string; nombre?: string; clave?: string; activo?: boolean; solo_caja?: boolean }, por: string): { ok: true; supervisor: Omit<Supervisor, 'sal' | 'hash'> } | { ok: false; error: { codigo: 'DATOS_INVALIDOS' | 'CLAVE_REPETIDA' | 'NO_EXISTE'; mensaje: string } } {
+  guardarSupervisor(d: { id?: string; id_nuevo?: string; nombre?: string; clave?: string; activo?: boolean; solo_caja?: boolean; dueno?: boolean }, por: string): { ok: true; supervisor: Omit<Supervisor, 'sal' | 'hash'> } | { ok: false; error: { codigo: 'DATOS_INVALIDOS' | 'CLAVE_REPETIDA' | 'NO_EXISTE'; mensaje: string } } {
     const lista = supervisoresDe(this.repo.ops());
     const actual = d.id ? lista.find((s) => s.id === d.id) : undefined;
     if (d.id && !actual) return { ok: false, error: { codigo: 'NO_EXISTE', mensaje: 'el supervisor no existe' } };
@@ -537,7 +537,8 @@ export class Central {
     }
     const id = actual?.id ?? d.id_nuevo ?? `sup-${uuid().slice(0, 8)}`;
     const solo_caja = d.solo_caja ?? actual?.solo_caja;
-    this.emitirAdmin('supervisor.guardado', { id, nombre, activo, sal, hash, ...(solo_caja ? { solo_caja: true } : {}), por });
+    const dueno = d.dueno ?? actual?.dueno;
+    this.emitirAdmin('supervisor.guardado', { id, nombre, activo, sal, hash, ...(solo_caja ? { solo_caja: true } : {}), ...(dueno ? { dueno: true } : {}), por });
     return { ok: true, supervisor: { id, nombre, activo } };
   }
 
@@ -664,18 +665,18 @@ export class Central {
     if (!actual && lista.length === 0 && rol !== 'supervisor') return { ok: false, error: { codigo: 'DATOS_INVALIDOS', mensaje: 'el primer usuario de Administración debe ser supervisor: es quien crea a los demás' } };
     const supervisoresActivos = lista.filter((c) => c.id !== actual?.id && c.activo && (c.rol ?? 'supervisor') === 'supervisor').length + (rol === 'supervisor' && activo ? 1 : 0);
     if (supervisoresActivos === 0) return { ok: false, error: { codigo: 'ULTIMO_SUPERVISOR', mensaje: 'debe quedar al menos un supervisor activo (es quien administra a los demás)' } };
+    const pf = mezclarPerfil(actual?.perfil, d.perfil);
+    if (!pf.ok) return { ok: false, error: { codigo: 'DATOS_INVALIDOS', mensaje: pf.mensaje } };
     // Un supervisor también autoriza en la caja con una clave numérica: se registra (y se mantiene) como supervisor de caja con el mismo nombre.
     // La almacenista que también cobra recibe la misma clave de caja, pero no autoriza descuentos (`solo_caja`).
     {
       const enlazado = `sup-${id.slice(4)}`;
       const existe = supervisoresDe(ops).some((s) => s.id === enlazado);
       if (d.clave_caja || existe) {
-        const r = this.guardarSupervisor({ ...(existe ? { id: enlazado } : { id_nuevo: enlazado }), nombre, clave: d.clave_caja || undefined, activo, solo_caja: rol === 'almacenista' }, por);
+        const r = this.guardarSupervisor({ ...(existe ? { id: enlazado } : { id_nuevo: enlazado }), nombre, clave: d.clave_caja || undefined, activo, solo_caja: rol === 'almacenista', dueno: rol === 'supervisor' && adminDueno({ nombre, perfil: pf.perfil }) }, por);
         if (!r.ok) return { ok: false, error: { codigo: 'DATOS_INVALIDOS', mensaje: r.error.mensaje } };
       }
     }
-    const pf = mezclarPerfil(actual?.perfil, d.perfil);
-    if (!pf.ok) return { ok: false, error: { codigo: 'DATOS_INVALIDOS', mensaje: pf.mensaje } };
     this.emitirUna('admin.guardado', { id, nombre, activo, sal, hash, rol, ...(pf.perfil ? { perfil: pf.perfil } : {}), por }, `admin.guardado:${uuid()}`, false);
     return { ok: true, admin: { id, nombre, activo, rol, ...(pf.perfil ? { perfil: pf.perfil } : {}) } };
   }
@@ -1304,7 +1305,7 @@ export class Caja {
    */
   verificarAutorizador(usuarioActual: string, autoriza: Autoriza | undefined, permitirPropio = false): string | null {
     if (!this.controlesConClave()) return null; // sin cajeros registrados no hay a quién pedirle clave: la caja trabaja abierta
-    // Un supervisor con sesión iniciada no necesita a nadie más: autoriza con su PROPIA clave (sin leyenda de «sin segunda persona»).
+    // El dueño con sesión iniciada no necesita a nadie más: autoriza con su PROPIA clave (sin leyenda de «sin segunda persona»).
     if (this.esSupervisorActivo(usuarioActual) && autoriza?.clave && (autoriza.sin_segundo || !String(autoriza.nombre ?? '').trim() || nombreClave(String(autoriza.nombre)) === nombreClave(usuarioActual))) return this.verificarClaveCajero(usuarioActual, String(autoriza.clave)).nombre;
     // «No hay nadie más»: quien cobra autoriza con su PROPIA clave y queda anotado que no hubo segunda persona.
     if (autoriza?.sin_segundo) return `${this.verificarClaveCajero(usuarioActual, String(autoriza.clave ?? '')).nombre} (sin segunda persona)`;
@@ -1326,9 +1327,9 @@ export class Caja {
     this.repo.kvSet(llave, { n: 0, hasta: 0 });
     return sup.nombre;
   }
-  /** ¿Quien tiene la sesión es un supervisor activo (no solo almacenista con clave de caja)? Tiene autoridad plena en la caja. */
+  /** ¿Quien tiene la sesión es el dueño del sistema (Edgardo Morales, con clave de caja)? Solo él tiene autoridad plena en la caja; los demás supervisores siguen como antes. */
   esSupervisorActivo(usuario: string): boolean {
-    return !!usuario && this.idx.supervisores().some((s) => s.activo && nombreClave(s.nombre) === nombreClave(usuario));
+    return !!usuario && this.idx.supervisores().some((s) => s.activo && s.dueno && nombreClave(s.nombre) === nombreClave(usuario));
   }
   /** Quién puede autorizar al cajero actual: los demás cajeros activos y los supervisores activos. */
   autorizadoresPosibles(usuarioActual: string, incluirPropio = false): { nombre: string; tipo: 'cajero' | 'supervisor' }[] {
