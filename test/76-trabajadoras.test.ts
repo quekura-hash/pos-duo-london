@@ -98,9 +98,9 @@ porAlmacen('Trabajadoras: tienda donde trabajan, «vendió por» por tienda y ex
     await api(adm.url, '/api/admin/expediente/bloquear', {});
     assert.equal((await api(adm.url, '/api/admin/expediente/desbloquear', { clave: '2468' })).json.error.codigo, 'CLAVE_INVALIDA', 'la anterior ya no sirve');
     assert.equal((await api(adm.url, '/api/admin/expediente/desbloquear', { clave: '1357' })).status, 200);
-    // la clave corta también es la de supervisor de la caja: no se puede repetir la de otra persona
+    // la clave corta también es la de supervisor de la caja; repetir la de otra persona se permite (avisar «ya está usada» revelaría la clave ajena)
     await api(adm.url, '/api/admin/supervisores', { nombre: 'Karina', clave: '9753' });
-    assert.equal((await api(adm.url, '/api/admin/expediente/clave', { clave: '9753', actual: '1357' })).json.error.codigo, 'CLAVE_INVALIDA');
+    assert.equal((await api(adm.url, '/api/admin/expediente/clave', { clave: '9753', actual: '1357' })).status, 200);
   });
 
   it('TR4 guardar el expediente: fechas, recontratable, calificaciones 1 a 5 y notas; validaciones; la baja se anota sola', async (t) => {

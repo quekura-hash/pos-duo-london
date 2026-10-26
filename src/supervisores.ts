@@ -102,8 +102,12 @@ export const claveAdminValida = (c: unknown): c is string => typeof c === 'strin
 /** Los nombres se comparan sin importar mayúsculas, acentos ni espacios de más. */
 export const nombreClave = (n: string) => n.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
 
-/** El supervisor activo cuya clave coincide, o null. */
-export function supervisorPorClave(lista: Supervisor[], clave: string): Supervisor | null {
+/**
+ * El supervisor activo cuya clave coincide, o null. Dos personas pueden tener la misma clave (decirle a alguien que «ya la usa otro» revelaría la clave ajena):
+ * si coinciden varios, gana quien tiene la sesión (`preferido`, por nombre) y, si no es él, el primero.
+ */
+export function supervisorPorClave(lista: Supervisor[], clave: string, preferido = ''): Supervisor | null {
   if (!claveValida(clave)) return null;
-  return lista.find((s) => s.activo && s.hash === hashClave(s.sal, clave)) ?? null;
+  const coinciden = lista.filter((s) => s.activo && s.hash === hashClave(s.sal, clave));
+  return (preferido ? coinciden.find((s) => nombreClave(s.nombre) === nombreClave(preferido)) : undefined) ?? coinciden[0] ?? null;
 }

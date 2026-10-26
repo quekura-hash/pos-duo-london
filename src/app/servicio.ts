@@ -1445,7 +1445,7 @@ export class ServicioAdmin {
     const c = this.claveCortaPropia();
     if (c && c.activo) this.verificarClaveCorta(String(d.actual ?? ''));
     const r = this.central.guardarSupervisor(c ? { id: c.id, clave: String(d.clave ?? ''), activo: true } : { nombre: this.actor.usuario, clave: String(d.clave ?? '') }, this.actor.usuario);
-    if (!r.ok) throw new ErrorDominio('CLAVE_INVALIDA', r.error.codigo === 'CLAVE_REPETIDA' ? 'esa clave ya la usa otra persona: elija otra' : r.error.mensaje);
+    if (!r.ok) throw new ErrorDominio('CLAVE_INVALIDA', r.error.mensaje);
     this.expedienteHasta = this.ahoraMs() + 3 * 60_000;
     return { tiene: true, abierto: true };
   }

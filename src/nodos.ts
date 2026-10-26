@@ -531,9 +531,7 @@ export class Central {
     let sal = actual?.sal ?? uuid(), hash = actual?.hash ?? '';
     if (d.clave) {
       sal = uuid();
-      hash = hashClave(sal, d.clave);
-      const otro = supervisorPorClave(lista.filter((s) => s.id !== actual?.id), d.clave);
-      if (otro && activo) return { ok: false, error: { codigo: 'CLAVE_REPETIDA', mensaje: 'esa clave ya la usa otro supervisor' } };
+      hash = hashClave(sal, d.clave); // la misma clave puede repetirse entre personas: avisar «ya está usada» le diría a quien la teclea que otra persona la tiene
     }
     const id = actual?.id ?? d.id_nuevo ?? `sup-${uuid().slice(0, 8)}`;
     const solo_caja = d.solo_caja ?? actual?.solo_caja;
@@ -1691,7 +1689,7 @@ export class Caja {
   /** Un supervisor con su clave o, con `sinSupervisor`, quien cobra con la SUYA (queda anotado «supervisor ausente»). */
   private supervisorOPropio(clave: string, usuario: string, sinSupervisor: boolean | undefined, mensaje: string, codigo = 'CLAVE_INVALIDA'): { id: string; nombre: string } {
     if (sinSupervisor) { const cj = this.verificarClaveCajero(usuario, clave); return { id: cj.id, nombre: `${cj.nombre} (supervisor ausente)` }; }
-    const sup = supervisorPorClave(this.idx.supervisores(), clave);
+    const sup = supervisorPorClave(this.idx.supervisores(), clave, usuario);
     if (!sup) throw new ErrorDominio(codigo, mensaje);
     return sup;
   }
@@ -1704,7 +1702,7 @@ export class Caja {
     this.exigirAbierto(c);
     this.exigirSinCobroPendiente(c);
     // Autoriza un supervisor con su clave o, si no es la de un supervisor, quien tiene la sesión con la SUYA (Vendedora-Cajera o almacenista que cobra): queda anotado quién lo hizo.
-    const supClave = supervisorPorClave(this.idx.supervisores(), String(clave ?? ''));
+    const supClave = supervisorPorClave(this.idx.supervisores(), String(clave ?? ''), usuario);
     let sup: { id: string; nombre: string };
     if (supClave) sup = supClave;
     else if (usuario && this.idx.cajeros().some((x) => x.activo && nombreClave(x.nombre) === nombreClave(usuario))) { const cj = this.verificarClaveCajero(usuario, String(clave ?? '')); sup = { id: cj.id, nombre: cj.nombre }; }

@@ -258,9 +258,9 @@ porAlmacen('Promociones, cupones y descuentos con clave de supervisor en la caja
     assert.throws(() => a.guardarSupervisor({ nombre: 'Ana', clave: '12' }), { codigo: 'SUPERVISOR_INVALIDO' });
     assert.throws(() => a.guardarSupervisor({ nombre: '', clave: '1234' }), { codigo: 'SUPERVISOR_INVALIDO' });
     a.guardarSupervisor({ nombre: 'Ana Supervisora', clave: '4321' });
-    assert.throws(() => a.guardarSupervisor({ nombre: 'Otra', clave: '4321' }), (e: any) => e.detalle.motivo === 'CLAVE_REPETIDA');
+    a.guardarSupervisor({ nombre: 'Otra', clave: '4321' }); // la misma clave se permite: avisar «ya está usada» revelaría la clave de otra persona
     const lista = a.supervisores().supervisores;
-    assert.deepEqual(lista.map((x) => [x.nombre, x.activo]), [['Ana Supervisora', true]]);
+    assert.deepEqual(lista.map((x) => [x.nombre, x.activo]), [['Ana Supervisora', true], ['Otra', true]]);
     assert.equal(JSON.stringify(lista).includes('4321'), false, 'la clave no sale nunca de Administración');
     const opsSup = ctx.m.central.repo.ops().filter((o) => o.tipo === 'supervisor.guardado');
     assert.ok(opsSup.every((o) => !('clave' in o.payload) && /^[0-9a-f]{64}$/.test(o.payload.hash) && o.payload.hash !== '4321'), 'ni se guarda en claro: solo sal y hash');
@@ -289,6 +289,7 @@ porAlmacen('Promociones, cupones y descuentos con clave de supervisor en la caja
     assert.equal(venta.venta.folio, 1);
     // un supervisor desactivado ya no autoriza (tras sincronizar)
     a.guardarSupervisor({ id: lista[0]!.id, activo: false });
+    a.guardarSupervisor({ id: lista[1]!.id, activo: false }); // también «Otra», que comparte la misma clave
     ctx.m.pump();
     const c2 = s.svc.nuevaVenta();
     const e2 = s.svc.escanear(c2, '7501234567890') as any;
