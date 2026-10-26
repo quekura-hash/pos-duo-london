@@ -143,7 +143,7 @@ async function pintarEncabezado() {
     <div class="datos">
       <span class="chip-top" data-chip="tienda">${ico('store')}<span>Tienda: <b>${esc(e.negocio)}</b></span></span>
       <span class="chip-top" data-chip="caja">${ico('caja')}<span>CAJA <b>${e.caja}</b></span></span>
-      <span class="chip-top" data-chip="usuario">${ico('user')}<span>Vendedora-Cajera: <b>${esc(e.usuario)}</b></span></span>
+      <span class="chip-top" data-chip="usuario">${ico('user')}<span>${S.sesion?.supervisor ? 'Supervisor' : 'Vendedora-Cajera'}: <b>${esc(e.usuario)}</b></span></span>
       <span class="sincro ${sincro[0]}" data-chip="sincro">${sincro[1]}</span>
       <span class="chip-top" data-chip="fecha">${ico('calendar')}<b>${fechaCorta(e.ahora)}</b></span>
       ${S.sesion.requiere_login ? `<button class="btn" type="button" id="btn-salir" title="Cerrar la sesión">${ico('x')}<span>Cerrar sesión</span></button>` : ''}
