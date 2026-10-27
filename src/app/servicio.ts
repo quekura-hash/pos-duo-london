@@ -16,7 +16,7 @@ import { LOGOS_TICKET } from '../logos-ticket.ts';
 import { detalleHistorica, detalleDeVenta, validarDatosClienta, type DatosClienta } from '../detalle-venta.ts';
 import { aplicarDatosTienda, codigoTicket, interpretarFolio, construirTicket, construirTicketRegalo, formatoMXN, NEGOCIOS, renderTextoEscPos, renderTicketCancelacionTexto, renderTicketGastoTexto, renderTicketFirmaTexto, renderTicketDevolucionTexto, type ComprobanteClienta, renderTicketRetiroTexto, renderTicketEscPos, renderTicketCorteEscPos, renderTicketCorteTexto, renderTicketTexto, type NegocioCfg } from '../ticket.ts';
 import { promoDeRegla, type ReglaRecompensa } from '../recompensas.ts';
-import { adminProtegido, hashClave, nombreClave, supervisorPorClave, type Perfil, type RolAdmin } from '../supervisores.ts';
+import { adminDueno, adminProtegido, hashClave, nombreClave, supervisorPorClave, type Perfil, type RolAdmin } from '../supervisores.ts';
 import { LIMBO, type Actor, type Articulo, type Linea, type Op, type Venta } from '../tipos.ts';
 import { fechaLocal } from '../util.ts';
 
@@ -892,6 +892,7 @@ export class ServicioAdmin {
   private reloj: { now(): string };
   private fallos = new Map<string, { n: number; hasta: number }>();
   /** Hasta cuándo está abierto el expediente privado de las trabajadoras (se cierra solo a los 3 minutos sin usarlo). */
+  private adminId: string | null = null;
   private expedienteHasta = 0;
   private fuente: () => Op[];
   readonly cajas: { tienda: string; caja: number }[];
@@ -1321,7 +1322,11 @@ export class ServicioAdmin {
   }
   autenticada(): boolean {
     if (!this.requiereLogin()) return true;
-    if (this.autenticado && !this.nube && !administradoresDe(this.fuente()).some((a) => a.activo && nombreClave(a.nombre) === nombreClave(this.actor.usuario))) this.cerrarSesion();
+    if (this.autenticado && !this.nube) {
+      // La sesión sigue a la cuenta por su identificador: si la renombran con la sesión abierta, no se cierra y el nombre se actualiza; si la desactivan o eliminan, sí.
+      const a = this.adminActual();
+      if (!a || !a.activo) this.cerrarSesion(); else this.actor.usuario = a.nombre;
+    }
     const limite = configSesionDe(this.fuente()).admin_min * 60000;
     if (this.autenticado && limite > 0 && this.ahoraMs() - this.ultimaActividad > limite) this.cerrarSesion(); // inactividad
     return this.autenticado;
@@ -1359,6 +1364,7 @@ export class ServicioAdmin {
     }
     this.fallos.delete(llave);
     this.actor.usuario = a.nombre;
+    this.adminId = a.id;
     this.rolUsuario = a.rol ?? 'supervisor';
     this.autenticado = true;
     this.tocar();
@@ -1369,6 +1375,7 @@ export class ServicioAdmin {
     this.expedienteHasta = 0; // el expediente privado vuelve a quedar bajo llave
     this.autenticado = false;
     this.actor.usuario = this.usuarioInicial;
+    this.adminId = null;
     this.rolUsuario = null;
     const info = this.sesionInfo();
     if (estaba) this.nube?.alCerrar();
@@ -1393,7 +1400,7 @@ export class ServicioAdmin {
     const r = this.central.guardarAdmin(d, this.actor.usuario);
     if (!r.ok) throw new ErrorDominio(r.error.codigo === 'NO_EXISTE' ? 'NO_ENCONTRADO' : 'ADMIN_INVALIDO', r.error.mensaje, { motivo: r.error.codigo });
     // Quien crea al primer administrador desde la consola abierta queda dentro como ese administrador: no se queda fuera de su propia pantalla.
-    if (abierta && r.admin.activo) { this.autenticado = true; this.actor.usuario = r.admin.nombre; this.rolUsuario = r.admin.rol; this.tocar(); }
+    if (abierta && r.admin.activo) { this.autenticado = true; this.actor.usuario = r.admin.nombre; this.adminId = r.admin.id; this.rolUsuario = r.admin.rol; this.tocar(); }
     return this.administradores();
   }
   cajeros() {
@@ -1412,8 +1419,16 @@ export class ServicioAdmin {
     this.expedienteHasta = this.ahoraMs() + 3 * 60_000;
   }
   /** El registro de «clave corta» de quien tiene la sesión (es su clave de supervisor: abre las fichas y autoriza en la caja). */
+  /** El administrador de la sesión: por su identificador (aguanta que le cambien el nombre con la sesión abierta) y, si no, por su nombre. */
+  private adminActual() {
+    const lista = administradoresDe(this.fuente());
+    return (this.adminId ? lista.find((a) => a.id === this.adminId) : undefined) ?? lista.find((a) => nombreClave(a.nombre) === nombreClave(this.actor.usuario)) ?? null;
+  }
+  /** Su registro de supervisor de caja es el enlazado a su identificador (`sup-` + el de su cuenta), nunca uno nuevo por nombre: así no se duplica. */
   private claveCortaPropia() {
-    return supervisoresDe(this.fuente()).find((x) => nombreClave(x.nombre) === nombreClave(this.actor.usuario)) ?? null;
+    const a = this.adminActual();
+    const lista = supervisoresDe(this.fuente());
+    return (a ? lista.find((x) => x.id === `sup-${a.id.slice(4)}`) : undefined) ?? lista.find((x) => nombreClave(x.nombre) === nombreClave(this.actor.usuario)) ?? null;
   }
   /** ¿Quien tiene la sesión ya tiene su clave corta? */
   estadoClaveFicha() {
@@ -1444,7 +1459,8 @@ export class ServicioAdmin {
     if (!this.central) throw new ErrorDominio('SIN_CENTRAL', 'esta sesión no tiene acceso al servicio central');
     const c = this.claveCortaPropia();
     if (c && c.activo) this.verificarClaveCorta(String(d.actual ?? ''));
-    const r = this.central.guardarSupervisor(c ? { id: c.id, clave: String(d.clave ?? ''), activo: true } : { nombre: this.actor.usuario, clave: String(d.clave ?? '') }, this.actor.usuario);
+    const a = this.adminActual();
+    const r = this.central.guardarSupervisor(c ? { id: c.id, clave: String(d.clave ?? ''), activo: true } : { ...(a ? { id_nuevo: `sup-${a.id.slice(4)}`, dueno: adminDueno(a), foto: a.perfil?.foto ?? null } : {}), nombre: a?.nombre ?? this.actor.usuario, clave: String(d.clave ?? '') }, this.actor.usuario);
     if (!r.ok) throw new ErrorDominio('CLAVE_INVALIDA', r.error.mensaje);
     this.expedienteHasta = this.ahoraMs() + 3 * 60_000;
     return { tiene: true, abierto: true };

@@ -528,6 +528,7 @@ export class Central {
     if (!actual && !claveValida(d.clave)) return { ok: false, error: { codigo: 'DATOS_INVALIDOS', mensaje: 'la clave lleva de 4 a 8 dígitos' } };
     if (d.clave !== undefined && d.clave !== '' && !claveValida(d.clave)) return { ok: false, error: { codigo: 'DATOS_INVALIDOS', mensaje: 'la clave lleva de 4 a 8 dígitos' } };
     const activo = d.activo ?? actual?.activo ?? true;
+    if (actual?.dueno && !activo) return { ok: false, error: { codigo: 'DATOS_INVALIDOS', mensaje: 'la cuenta del dueño no se puede desactivar' } };
     let sal = actual?.sal ?? uuid(), hash = actual?.hash ?? '';
     if (d.clave) {
       sal = uuid();
@@ -586,7 +587,7 @@ export class Central {
     const lista = administradoresDe(ops);
     const a = lista.find((x) => x.id === id);
     if (!a) return { ok: false, error: { codigo: 'NO_EXISTE', mensaje: 'el usuario no existe' } };
-    if (adminProtegido(a)) return { ok: false, error: { codigo: 'PROTEGIDO', mensaje: `«${a.nombre}» es una cuenta protegida: no se puede eliminar` } };
+    if (adminProtegido(a) || this.esDueno(ops, a)) return { ok: false, error: { codigo: 'PROTEGIDO', mensaje: `«${a.nombre}» es una cuenta protegida: no se puede eliminar` } };
     if (nombreClave(a.nombre) === nombreClave(por)) return { ok: false, error: { codigo: 'PROPIO', mensaje: 'no puede eliminar su propio usuario' } };
     if ((a.rol ?? 'supervisor') === 'supervisor' && a.activo && !lista.some((x) => x.id !== id && x.activo && (x.rol ?? 'supervisor') === 'supervisor')) return { ok: false, error: { codigo: 'ULTIMO_SUPERVISOR', mensaje: 'debe quedar al menos un supervisor activo' } };
     this.emitirUna('admin.guardado', { id, nombre: a.nombre, activo: false, sal: a.sal, hash: a.hash, rol: a.rol ?? 'supervisor', eliminado: true, por }, `admin.guardado:${uuid()}`, false);
@@ -599,6 +600,7 @@ export class Central {
   eliminarSupervisorCaja(id: string, por: string): { ok: true } | { ok: false; error: { codigo: 'NO_EXISTE'; mensaje: string } } {
     const s = supervisoresDe(this.repo.ops()).find((x) => x.id === id);
     if (!s) return { ok: false, error: { codigo: 'NO_EXISTE', mensaje: 'el supervisor no existe' } };
+    if (s.dueno) return { ok: false, error: { codigo: 'NO_EXISTE', mensaje: 'la cuenta del dueño no se puede eliminar' } };
     this.emitirAdmin('supervisor.guardado', { id, nombre: s.nombre, activo: false, sal: s.sal, hash: s.hash, eliminado: true, por });
     return { ok: true };
   }
@@ -641,6 +643,10 @@ export class Central {
     return { ...nuevo, actualizado_en: op.ocurrio_en };
   }
 
+  /** ¿Es la cuenta del dueño? Por su perfil (Edgardo Morales) o porque su registro de caja ya lleva la marca de dueño: renombrarla o vaciar su perfil no se la quita. */
+  esDueno(ops: Op[], a: { id: string; nombre: string; perfil?: { nombres?: string; apellidos?: string } }): boolean {
+    return adminDueno(a) || !!supervisoresDe(ops).find((x) => x.id === `sup-${a.id.slice(4)}`)?.dueno;
+  }
   /**
    * Alta o edición de un administrador (contraseña de 6 a 40 caracteres). Solo vive en el central: no se reparte a las tiendas ni a las cajas.
    * Los nombres no se repiten entre administradores ni con los cajeros.
@@ -656,6 +662,7 @@ export class Central {
     if (!actual && !claveAdminValida(d.clave)) return { ok: false, error: { codigo: 'DATOS_INVALIDOS', mensaje: 'la contraseña lleva de 6 a 40 caracteres' } };
     if (d.clave !== undefined && d.clave !== '' && !claveAdminValida(d.clave)) return { ok: false, error: { codigo: 'DATOS_INVALIDOS', mensaje: 'la contraseña lleva de 6 a 40 caracteres' } };
     const activo = d.activo ?? actual?.activo ?? true;
+    if (actual && !activo && this.esDueno(ops, actual)) return { ok: false, error: { codigo: 'DATOS_INVALIDOS', mensaje: 'la cuenta del dueño no se puede desactivar' } };
     let sal = actual?.sal ?? uuid(), hash = actual?.hash ?? '';
     if (d.clave) { sal = uuid(); hash = hashClave(sal, d.clave); }
     const id = actual?.id ?? `adm-${uuid().slice(0, 8)}`;
@@ -672,7 +679,7 @@ export class Central {
       const enlazado = `sup-${id.slice(4)}`;
       const existe = supervisoresDe(ops).some((s) => s.id === enlazado);
       if (d.clave_caja || existe) {
-        const r = this.guardarSupervisor({ ...(existe ? { id: enlazado } : { id_nuevo: enlazado }), nombre, clave: d.clave_caja || undefined, activo, solo_caja: rol === 'almacenista', dueno: rol === 'supervisor' && adminDueno({ nombre, perfil: pf.perfil }), foto: pf.perfil?.foto ?? null }, por);
+        const r = this.guardarSupervisor({ ...(existe ? { id: enlazado } : { id_nuevo: enlazado }), nombre, clave: d.clave_caja || undefined, activo, solo_caja: rol === 'almacenista', dueno: rol === 'supervisor' && (adminDueno({ nombre, perfil: pf.perfil }) || (actual ? this.esDueno(ops, actual) : false)), foto: pf.perfil?.foto ?? null }, por);
         if (!r.ok) return { ok: false, error: { codigo: 'DATOS_INVALIDOS', mensaje: r.error.mensaje } };
       }
     }
