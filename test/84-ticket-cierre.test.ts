@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { writeFileSync } from 'node:fs';
 import { it } from 'node:test';
-import { renderTicketCorteEscPos, renderTicketCorteTexto, NEGOCIOS } from '../src/ticket.ts';
+import { lineasTicketCorte, renderTicketCorteEscPos, renderTicketCorteTexto, NEGOCIOS } from '../src/ticket.ts';
 import { api, appAdmin, appCajero } from './ayudas/app.ts';
 import { nuevoMundo, politica, porAlmacen } from './ayudas/comun.ts';
 
@@ -66,7 +66,9 @@ porAlmacen('Ticket de cierre de corte: 5 ventas (una con tarjeta), una devoluci�
     assert.match(ticket, /TOTAL EN TARJETA +\$899\.00/);
     assert.match(ticket, /Fondo autorizado +\$5,000\.00\nFondo confirmado +\$5,000\.00\nFondo completo/);
     assert.match(ticket, /Mercancía recibida a cambio +\$120\.00\nDiferencias cobradas en cambios +\$330\.00\nDevoluciones con reembolso +\$450\.00/);
-    assert.match(ticket, /VENTAS NETAS +\$3,498\.00/);
+    assert.match(ticket, /VENTAS NETAS\s+\$3,498\.00/);
+    const netas = lineasTicketCorte(k, NEGOCIOS.DUO).find((l) => l.texto.includes('3,498.00') && l.grande);
+    assert.ok(netas, 'el importe de VENTAS NETAS sale en doble tamaño');
     assert.match(ticket, /Efectivo de ventas esperado +\$2,599\.00/);
     assert.match(ticket, /DIFERENCIA +\+\$1\.00 SOBRANTE/);
     assert.doesNotMatch(ticket, /en el cajón|con fondo/, 'el fondo y las ventas son paquetes separados: no se suman en el ticket');

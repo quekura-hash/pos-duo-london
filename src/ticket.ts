@@ -595,7 +595,8 @@ export function lineasTicketCorte(k: DatosCorte, cfg: NegocioCfg = NEGOCIOS[k.ti
   // 4) cambios y devoluciones, y las ventas netas
   L.push(b('CAMBIOS Y DEVOLUCIONES'), t(dos('Mercancía recibida a cambio', dato(k.mercancia_recibida_por_cambio), c)), t(dos('Diferencias cobradas en cambios', dato(k.diferencias_cobradas_en_cambios), c)), t(dos('Devoluciones con reembolso', dato(k.devoluciones_con_reembolso), c)));
   if (k.tickets_cancelados) L.push(t(dos('Ventas canceladas', String(k.tickets_cancelados), c)));
-  L.push(t(regla), b(dos('VENTAS NETAS', formatoMXN(k.ventas_netas), c)), t(doble));
+  // VENTAS NETAS sobresale del resto: título en negritas y el importe en doble tamaño, como la venta total del día.
+  L.push(t(regla), { texto: centrar('VENTAS NETAS', c), negrita: true }, { texto: centrar(formatoMXN(k.ventas_netas), c), negrita: true, grande: true }, t(doble));
   // 5) conciliación del efectivo
   L.push(b('CONCILIACIÓN DEL EFECTIVO EN PESOS'), t(dos('Cobros recibidos', formatoMXN(m.cobros ?? 0), c)), t(dos('Cambio entregado', `-${formatoMXN(m.cambio ?? 0)}`, c)), t(dos('Devoluciones en efectivo', `-${formatoMXN(m.devoluciones ?? 0)}`, c)));
   if (m.cancelaciones) L.push(t(dos('Cancelaciones', `-${formatoMXN(m.cancelaciones)}`, c)));
