@@ -78,6 +78,7 @@ export function ventas(ops: Op[]): Map<string, Venta> {
         ...(p.vendedora !== undefined ? { vendedora_id: p.vendedora_id ?? null, vendedora: p.vendedora } : {}),
         ...(p.recompensas?.length ? { recompensas: p.recompensas } : {}),
         ...(p.empleada ? { empleada: p.empleada } : {}),
+        ...(p.vip ? { vip: p.vip } : {}),
       });
     }
   }
@@ -520,6 +521,20 @@ export const CONFIG_EMPLEADAS_INICIAL: ConfigEmpleadas = { pct: 15, pct_uniforme
 export function configEmpleadas(ops: Op[]): ConfigEmpleadas {
   const o = ops.filter((x) => x.tipo === 'empleadas.config').at(-1);
   return o ? { pct: o.payload.pct, pct_uniforme: o.payload.pct_uniforme } : CONFIG_EMPLEADAS_INICIAL;
+}
+// ── Clientes VIP: descuento especial por cliente, autorizado por Administración, con excepciones (marcas y departamentos) ──
+export interface ClienteVip { id: string; nombre: string; telefono: string; pct: number; activo: boolean; vigente_hasta: string | null }
+export interface ExcepcionesVip { marcas: string[]; departamentos: string[] }
+/** Clientes VIP: el último registro de cada uno (`vip.guardado`); los eliminados no aparecen. Ordenados por nombre. */
+export function clientesVip(ops: Op[]): ClienteVip[] {
+  const m = new Map<string, ClienteVip & { eliminado?: boolean }>();
+  for (const o of ops) if (o.tipo === 'vip.guardado') m.set(o.payload.id, { id: o.payload.id, nombre: o.payload.nombre, telefono: o.payload.telefono ?? '', pct: o.payload.pct, activo: o.payload.activo !== false, vigente_hasta: o.payload.vigente_hasta ?? null, eliminado: !!o.payload.eliminado });
+  return [...m.values()].filter((v) => !v.eliminado).map(({ eliminado: _e, ...v }) => v).sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
+}
+/** Lo que NO lleva descuento VIP: marcas y departamentos (el último `vip.excepciones`). Coincide si el nombre del artículo contiene el texto. */
+export function excepcionesVip(ops: Op[]): ExcepcionesVip {
+  const o = ops.filter((x) => x.tipo === 'vip.excepciones').at(-1);
+  return o ? { marcas: o.payload.marcas ?? [], departamentos: o.payload.departamentos ?? [] } : { marcas: [], departamentos: [] };
 }
 export interface MovimientoEmpleada {
   ocurrio_en: string;

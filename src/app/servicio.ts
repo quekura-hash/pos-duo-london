@@ -10,7 +10,7 @@ import { ErrorDominio } from '../errores.ts';
 import type { Impresora } from '../impresion.ts';
 import { DIAS_CONSULTA_HISTORICA, FONDO_AUTORIZADO_DEFECTO, type Autoriza, type Caja } from '../nodos.ts';
 import { estadoPromo, type Promocion } from '../promociones.ts';
-import { cuentasEmpleadas, configEmpleadas, CRITERIOS_EXPEDIENTE, expedientesDe, expedienteVacio, registradaEn, CAMPOS_EDITABLES, catalogo, historialArticulo, nombresTienda, datosTiendas, departamentos as proyDepartamentos, devoluciones, type Devolucion, promocionesDe, recompensasDe, supervisoresDe, cajerosDe, administradoresDe, configSesionDe, permisos as proyPermisos, tarjetasRegalo, tiposDeCambio, tipoCambioVigente, ventas, type TipoCambio } from '../proyecciones.ts';
+import { clientesVip, excepcionesVip, cuentasEmpleadas, configEmpleadas, CRITERIOS_EXPEDIENTE, expedientesDe, expedienteVacio, registradaEn, CAMPOS_EDITABLES, catalogo, historialArticulo, nombresTienda, datosTiendas, departamentos as proyDepartamentos, devoluciones, type Devolucion, promocionesDe, recompensasDe, supervisoresDe, cajerosDe, administradoresDe, configSesionDe, permisos as proyPermisos, tarjetasRegalo, tiposDeCambio, tipoCambioVigente, ventas, type TipoCambio } from '../proyecciones.ts';
 import { hojaAnalisis, hojaDetalleVentas, hojaResumenVentas, hojaDescuentos, hojaEntregas, hojaDolares, hojaInventario, leerInventario, PERFIL_CONFIRMADO, type Hoja } from '../inventario.ts';
 import { LOGOS_TICKET } from '../logos-ticket.ts';
 import { detalleHistorica, detalleDeVenta, validarDatosClienta, type DatosClienta } from '../detalle-venta.ts';
@@ -34,6 +34,8 @@ export type ActorCajero = Extract<Actor, { rol: 'cajero' }>;
 export interface VistaCarrito {
   /** Venta a empleada: quién es, los porcentajes que se aplican y cuánto crédito le queda (para mostrar). */
   empleada?: { id: string; nombre: string; pct: number; pct_uniforme: number; credito_disponible: number } | null;
+  /** Cliente VIP de la venta (su descuento compite con las promociones). */
+  vip?: { id: string; nombre: string; pct: number } | null;
   id: string;
   lineas: Linea[];
   piezas: number;
@@ -415,6 +417,7 @@ export class ServicioCaja {
       })() : null,
       vendedora: c.vendedora ?? null,
       empleada: c.empleada ? { ...c.empleada, ...this.caja.configEmpleadas(), credito_disponible: this.caja.cuentaEmpleada(c.empleada.id).disponible } : null,
+      vip: c.vip ? { id: c.vip.id, nombre: c.vip.nombre, pct: c.vip.pct } : null,
       promos: c.descuentos?.aplicadas ?? [], cupon: c.descuentos?.cupon ?? null,
       tasa: c.tasa ? { version: c.tasa.version, tasa: c.tasa.tasa, texto: formatoTasa(c.tasa.tasa), hay_nueva: (this.caja.tipoCambio()?.version ?? 0) > c.tasa.version } : null,
       existencias: Object.fromEntries(c.lineas.map((l) => { const e = this.caja.existenciaVerificada(l.item_id); return [l.item_id, { saldo: e.saldo, verificada: e.verificada, limbo: this.caja.saldoLimbo(l.item_id) }]; })),
@@ -433,6 +436,18 @@ export class ServicioCaja {
   /** Empleadas a quienes se puede vender y los porcentajes de descuento vigentes. */
   empleadas() {
     return { empleadas: this.caja.empleadasActivas(), config: this.caja.configEmpleadas(), yo: this.actor.usuario };
+  }
+  // ── clientes VIP: la caja solo los elige; el porcentaje y las excepciones los fija Administración ──
+  vips() {
+    return { vips: this.caja.vipsDisponibles().map(({ id, nombre, pct }) => ({ id, nombre, pct })), pide_clave: this.caja.controlesConClave(), excepciones: this.caja.excepcionesVip(), yo: this.actor.usuario };
+  }
+  asignarVip(cartId: string, d: { vip_id: string; clave?: string }) {
+    this.caja.asignarVip(cartId, { vip_id: String(d.vip_id ?? ''), clave: d.clave, usuario: this.actor.usuario });
+    return { carrito: this.vista(cartId) };
+  }
+  quitarVip(cartId: string) {
+    this.caja.quitarVip(cartId);
+    return { carrito: this.vista(cartId) };
   }
   asignarEmpleada(cartId: string, d: { empleada_id: string; clave: string; clave_supervisor?: string; sin_supervisor?: boolean }) {
     this.caja.asignarEmpleada(cartId, { empleada_id: d.empleada_id, clave: d.clave, claveSupervisor: d.clave_supervisor, usuario: this.actor.usuario, sinSupervisor: !!d.sin_supervisor });
@@ -898,7 +913,7 @@ export class ServicioAdmin {
   readonly cajas: { tienda: string; caja: number }[];
   private inv?: FuenteInventario;
   private central?: { fijarTipoCambio(tasa: number, usuario: string, versionBase: number, confirmarVariacion?: boolean): import('../nodos.ts').ResultadoTipoCambio; asignarPermiso(usuario: string, permiso: string, valor: boolean, por: string): Op; guardarDepto(c: import('../departamentos.ts').CambioDepto, por: string): { ok: true; op: Op } | { ok: false; error: import('../departamentos.ts').ErrorDepto };
-    guardarDatosTienda: import('../nodos.ts').Central['guardarDatosTienda']; editarArticulo: import('../nodos.ts').Central['editarArticulo']; guardarPromocion: import('../nodos.ts').Central['guardarPromocion'];  eliminarPromocion: import('../nodos.ts').Central['eliminarPromocion']; guardarRecompensa: import('../nodos.ts').Central['guardarRecompensa']; fijarFondoCaja: import('../nodos.ts').Central['fijarFondoCaja']; fijarConfigEmpleadas: import('../nodos.ts').Central['fijarConfigEmpleadas']; fijarLimiteEmpleada: import('../nodos.ts').Central['fijarLimiteEmpleada']; registrarMovimientoEmpleada: import('../nodos.ts').Central['registrarMovimientoEmpleada']; registrarAjusteCaja: import('../nodos.ts').Central['registrarAjusteCaja']; guardarSupervisor: import('../nodos.ts').Central['guardarSupervisor']; guardarCajero: import('../nodos.ts').Central['guardarCajero']; guardarAdmin: import('../nodos.ts').Central['guardarAdmin']; guardarConfigSesion: import('../nodos.ts').Central['guardarConfigSesion']; recordarSacarAPiso: import('../nodos.ts').Central['recordarSacarAPiso']; resolverFaltante: import('../nodos.ts').Central['resolverFaltante']; contarLimbo: import('../nodos.ts').Central['contarLimbo']; reubicarLimbo: import('../nodos.ts').Central['reubicarLimbo']; fijarExistencias: import('../nodos.ts').Central['fijarExistencias']; guardarExpediente: import('../nodos.ts').Central['guardarExpediente']; eliminarCajero: import('../nodos.ts').Central['eliminarCajero']; eliminarAdmin: import('../nodos.ts').Central['eliminarAdmin']; eliminarSupervisorCaja: import('../nodos.ts').Central['eliminarSupervisorCaja']; corregirEntrada: import('../nodos.ts').Central['corregirEntrada']; altaLote: import('../nodos.ts').Central['altaLote']; importarVentasHistoricas: import('../nodos.ts').Central['importarVentasHistoricas']; entregar: import('../nodos.ts').Central['entregar'] };
+    guardarDatosTienda: import('../nodos.ts').Central['guardarDatosTienda']; editarArticulo: import('../nodos.ts').Central['editarArticulo']; guardarPromocion: import('../nodos.ts').Central['guardarPromocion'];  eliminarPromocion: import('../nodos.ts').Central['eliminarPromocion']; guardarRecompensa: import('../nodos.ts').Central['guardarRecompensa']; fijarFondoCaja: import('../nodos.ts').Central['fijarFondoCaja']; fijarConfigEmpleadas: import('../nodos.ts').Central['fijarConfigEmpleadas']; guardarVip: import('../nodos.ts').Central['guardarVip']; eliminarVip: import('../nodos.ts').Central['eliminarVip']; fijarExcepcionesVip: import('../nodos.ts').Central['fijarExcepcionesVip']; fijarLimiteEmpleada: import('../nodos.ts').Central['fijarLimiteEmpleada']; registrarMovimientoEmpleada: import('../nodos.ts').Central['registrarMovimientoEmpleada']; registrarAjusteCaja: import('../nodos.ts').Central['registrarAjusteCaja']; guardarSupervisor: import('../nodos.ts').Central['guardarSupervisor']; guardarCajero: import('../nodos.ts').Central['guardarCajero']; guardarAdmin: import('../nodos.ts').Central['guardarAdmin']; guardarConfigSesion: import('../nodos.ts').Central['guardarConfigSesion']; recordarSacarAPiso: import('../nodos.ts').Central['recordarSacarAPiso']; resolverFaltante: import('../nodos.ts').Central['resolverFaltante']; contarLimbo: import('../nodos.ts').Central['contarLimbo']; reubicarLimbo: import('../nodos.ts').Central['reubicarLimbo']; fijarExistencias: import('../nodos.ts').Central['fijarExistencias']; guardarExpediente: import('../nodos.ts').Central['guardarExpediente']; eliminarCajero: import('../nodos.ts').Central['eliminarCajero']; eliminarAdmin: import('../nodos.ts').Central['eliminarAdmin']; eliminarSupervisorCaja: import('../nodos.ts').Central['eliminarSupervisorCaja']; corregirEntrada: import('../nodos.ts').Central['corregirEntrada']; altaLote: import('../nodos.ts').Central['altaLote']; importarVentasHistoricas: import('../nodos.ts').Central['importarVentasHistoricas']; entregar: import('../nodos.ts').Central['entregar'] };
   constructor(o: { actor: Extract<Actor, { rol: 'admin' }>; fuente: () => Op[]; cajas: { tienda: string; caja: number }[]; inventario?: FuenteInventario; central?: ServicioAdmin['central']; reloj?: { now(): string } }) {
     this.central = o.central;
     this.actor = o.actor;
@@ -1244,6 +1259,29 @@ export class ServicioAdmin {
       return { id: c.id, nombre: nombres.get(c.id) ?? c.id, cargos: suma('cargo') + suma('ajuste_cargo'), devoluciones: suma('devolucion') + suma('ajuste_abono'), abonos: suma('abono'), a_descontar: suma('cargo') + suma('ajuste_cargo') - suma('devolucion') - suma('ajuste_abono'), saldo: c.saldo };
     }).filter((f) => f.cargos || f.devoluciones || f.abonos || f.saldo).sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
     return { desde: d, hasta: h, filas, total: { cargos: filas.reduce((a, f) => a + f.cargos, 0), devoluciones: filas.reduce((a, f) => a + f.devoluciones, 0), abonos: filas.reduce((a, f) => a + f.abonos, 0), a_descontar: filas.reduce((a, f) => a + f.a_descontar, 0), saldo: filas.reduce((a, f) => a + f.saldo, 0) } };
+  }
+  // ── clientes VIP (descuento especial por cliente, con excepciones por marca y departamento) ──
+  vipAdmin() {
+    const ops = this.fuente();
+    return { clientes: clientesVip(ops), excepciones: excepcionesVip(ops), departamentos: proyDepartamentos(ops).filter((d) => d.activo !== false).map((d) => d.nombre) };
+  }
+  guardarVip(d: { id?: string; nombre?: string; telefono?: string; pct?: number; activo?: boolean; vigente_hasta?: string | null }) {
+    if (!this.central) throw new ErrorDominio('SIN_CENTRAL', 'esta sesión no tiene acceso al servicio central');
+    const r = this.central.guardarVip(d, this.actor.usuario);
+    if (!r.ok) throw new ErrorDominio(r.error.codigo === 'NO_EXISTE' ? 'NO_ENCONTRADO' : 'DATOS_INVALIDOS', r.error.mensaje);
+    return this.vipAdmin();
+  }
+  eliminarVip(id: string) {
+    if (!this.central) throw new ErrorDominio('SIN_CENTRAL', 'esta sesión no tiene acceso al servicio central');
+    const r = this.central.eliminarVip(String(id ?? ''), this.actor.usuario);
+    if (!r.ok) throw new ErrorDominio('NO_ENCONTRADO', r.error.mensaje);
+    return this.vipAdmin();
+  }
+  fijarExcepcionesVip(d: { marcas?: string[]; departamentos?: string[] }) {
+    if (!this.central) throw new ErrorDominio('SIN_CENTRAL', 'esta sesión no tiene acceso al servicio central');
+    const r = this.central.fijarExcepcionesVip(d, this.actor.usuario);
+    if (!r.ok) throw new ErrorDominio('DATOS_INVALIDOS', r.error.mensaje);
+    return this.vipAdmin();
   }
   fijarConfigEmpleadas(d: { pct: number; pct_uniforme: number }) {
     if (!this.central) throw new ErrorDominio('SIN_CENTRAL', 'esta sesión no tiene acceso al servicio central');

@@ -313,7 +313,7 @@ export function dolaresPorCaja(actor: Actor, ops: Op[], f: Filtro = {}): Reporte
 // ── promociones y descuentos autorizados ──
 export interface FilaDescuento {
   tienda: string; caja: number; folio: number; sale_id: string; fecha_local: string; hora: string; cajero: string;
-  tipo: 'promo' | 'cupon' | 'manual' | 'empleada';
+  tipo: 'promo' | 'cupon' | 'manual' | 'empleada' | 'vip';
   /** id de la promoción o cupón (o del supervisor, en un descuento manual). */
   ref: string;
   concepto: string;
@@ -329,7 +329,7 @@ export interface ReporteDescuentos {
   filas: FilaDescuento[];
   /** Totales SIN las ventas canceladas. */
   resumen: { tickets: number; monto: number; promo: { tickets: number; monto: number }; cupon: { tickets: number; monto: number }; manual: { tickets: number; monto: number } };
-  porPromocion: { tipo: 'promo' | 'cupon' | 'empleada'; ref: string; concepto: string; tickets: number; monto: number }[];
+  porPromocion: { tipo: 'promo' | 'cupon' | 'empleada' | 'vip'; ref: string; concepto: string; tickets: number; monto: number }[];
   porSupervisor: { supervisor: string; descuentos: number; tickets: number; monto: number; mayor_pct_bp: number; al_100: number }[];
 }
 /**

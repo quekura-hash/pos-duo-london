@@ -2764,12 +2764,66 @@ function pintarPromos() {
   for (const p of c.promos ?? []) li.push(`<li data-promo="${esc(p.promo_id)}"><span>${esc(p.nombre)}</span><b>-${mxn(p.monto)}</b></li>`);
   if (c.cupon?.aplicado) li.push(`<li data-cupon="${esc(c.cupon.codigo)}"><span>Cupón ${esc(c.cupon.codigo)} <button class="btn btn-icono" id="btn-quitar-cupon" type="button" title="Quitar cupón" aria-label="Quitar cupón">${ico('x')}</button></span><b>-${mxn(c.cupon.monto)}</b></li>`);
   else if (c.cupon) li.push(`<li class="aviso-promo" data-cupon-aviso="${esc(c.cupon.codigo)}"><span>Cupón ${esc(c.cupon.codigo)}: ${esc(c.cupon.motivo ?? 'no aplica')}</span></li>`);
+  if (c.vip) {
+    const mv = c.lineas.reduce((a, l) => a + (l.descuento_detalle ?? []).filter((x) => x.tipo === 'vip').reduce((b, x) => b + x.monto, 0), 0);
+    li.push(`<li data-vip-venta="${esc(c.vip.id)}"><span>Cliente VIP: ${esc(c.vip.nombre)} ${c.vip.pct}% <button class="btn btn-icono" id="btn-quitar-vip" type="button" title="Quitar cliente VIP" aria-label="Quitar cliente VIP">${ico('x')}</button>${mv ? '' : '<br><small>La promoción de la venta da más descuento: se aplica esa.</small>'}</span><b>${mv ? `-${mxn(mv)}` : '—'}</b></li>`);
+  }
   const manual = {};
   for (const l of c.lineas) for (const d of l.descuento_detalle ?? []) if (d.tipo === 'manual') manual[d.nombre] = (manual[d.nombre] ?? 0) + d.monto;
   for (const [n, m] of Object.entries(manual)) li.push(`<li data-manual><span>${esc(n)}</span><b>-${mxn(m)}</b></li>`);
   el.innerHTML = li.length ? `<ul class="lista-promos">${li.join('')}</ul>` : '';
+  $('#btn-quitar-vip')?.addEventListener('click', async () => { try { const r = await api('/api/venta/vip/quitar', { cart: S.cart }); S.carrito = r.carrito; pintarCarrito(); msg('Cliente VIP quitado.'); } catch (e) { msg(e.message, 'error'); } });
   const q = $('#btn-quitar-cupon');
   if (q) q.addEventListener('click', async () => { try { const r = await api('/api/venta/cupon/quitar', { cart: S.cart }); S.carrito = r.carrito; pintarCarrito(); msg('Cupón quitado.'); } catch (e) { msg(e.message, 'error'); } });
+}
+// ── Cliente VIP: el descuento especial lo fija Administración; la caja solo elige al cliente (con la clave de quien cobra) ──
+async function abrirVip() {
+  let j;
+  try { j = await api('/api/venta/vip'); } catch (e) { return msg(e.message, 'error'); }
+  if (!j.vips.length) return msg('No hay clientes VIP activos. Administración los da de alta en Configuración › Clientes VIP.', 'aviso');
+  const d = dialogo('dlg-vip');
+  d.setAttribute('aria-labelledby', 'vip-titulo');
+  const ex = [...(j.excepciones.marcas ?? []), ...(j.excepciones.departamentos ?? [])];
+  d.innerHTML = `<h2 id="vip-titulo" style="margin-top:0">Cliente VIP</h2>
+    <p class="nota">Elija al cliente: su descuento lo fijó Administración. <b>No se combina con promociones</b>: aplica el que más le convenga.${ex.length ? ` No aplica a: ${esc(ex.join(', '))}.` : ''}</p>
+    <form id="form-vip" autocomplete="off">
+      <div class="campo"><label for="vip-buscar">Buscar</label><input id="vip-buscar" type="search" class="texto" placeholder="Nombre del cliente" autocomplete="off"></div>
+      <div id="vip-lista" role="listbox" aria-label="Clientes VIP" style="max-height:240px;overflow:auto;border:1px solid var(--borde);border-radius:8px;margin:6px 0"></div>
+      <p id="vip-sel" class="nota" role="status" aria-live="polite">Toque al cliente de la lista.</p>
+      ${j.pide_clave ? '<div class="campo"><label for="vip-clave">Su clave (queda anotado quién lo aplicó)</label><input id="vip-clave" type="text" data-pin inputmode="numeric" autocomplete="off" placeholder="••••"></div>' : ''}
+      <div id="msg-vip" class="mensaje" role="alert"></div>
+      <div class="filas"><button class="btn" type="button" id="vip-cerrar">Cancelar</button><button class="btn btn-primario" type="submit" id="vip-aplicar" disabled style="width:auto;flex:1">${ico('check')}<span>Aplicar descuento VIP</span></button></div>
+    </form>`;
+  let elegido = null;
+  const norm = (t) => String(t ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+  const pintar = () => {
+    const q = norm($('#vip-buscar').value.trim());
+    const lista = j.vips.filter((v) => !q || norm(v.nombre).includes(q));
+    $('#vip-lista').innerHTML = lista.length ? lista.map((v) => `<button type="button" role="option" class="btn" data-vip="${esc(v.id)}" aria-selected="${elegido?.id === v.id}" style="display:flex;justify-content:space-between;width:100%;border:0;border-radius:0;${elegido?.id === v.id ? 'background:var(--acento-suave);font-weight:700' : ''}"><span>${esc(v.nombre)}</span><b>${v.pct}%</b></button>`).join('') : '<p class="nota" style="padding:8px">Sin coincidencias.</p>';
+    for (const b of $('#vip-lista').querySelectorAll('[data-vip]')) b.addEventListener('click', () => {
+      elegido = j.vips.find((v) => v.id === b.dataset.vip);
+      $('#vip-sel').textContent = `Elegido: ${elegido.nombre} · ${elegido.pct}%`;
+      $('#vip-aplicar').disabled = false; pintar();
+      ($('#vip-clave') ?? $('#vip-aplicar')).focus();
+    });
+  };
+  $('#vip-buscar').addEventListener('input', pintar);
+  pintar();
+  $('#vip-cerrar').addEventListener('click', () => d.close());
+  $('#form-vip').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const m = $('#msg-vip');
+    if (!elegido) { m.className = 'mensaje error'; m.textContent = 'Elija al cliente VIP.'; return; }
+    if (j.pide_clave && !$('#vip-clave').value) { m.className = 'mensaje error'; m.textContent = 'Teclee su clave.'; $('#vip-clave').focus(); return; }
+    try {
+      const r = await api('/api/venta/vip', { cart: S.cart, vip_id: elegido.id, ...(j.pide_clave ? { clave: $('#vip-clave').value } : {}) });
+      S.carrito = r.carrito; d.close(); pintarCarrito();
+      const aplicado = r.carrito.lineas.some((l) => (l.descuento_detalle ?? []).some((x) => x.tipo === 'vip'));
+      msg(aplicado ? `Descuento VIP aplicado: ${elegido.nombre} ${elegido.pct}%.` : `Cliente VIP ${elegido.nombre}: la promoción de la venta da más descuento, así que se queda esa.`, aplicado ? 'ok' : 'aviso');
+    } catch (e) { m.className = 'mensaje error'; m.textContent = e.message; const c = $('#vip-clave'); if (c) c.value = ''; }
+  });
+  d.showModal();
+  $('#vip-buscar').focus();
 }
 async function aplicarCuponCodigo(codigo) {
   try {
@@ -2969,6 +3023,7 @@ function abrirDescuento() {
   d.innerHTML = `<h2 id="desc-titulo" style="margin-top:0">Aplicar descuento</h2>
     <p class="nota">Lo autoriza con su clave quien atiende la venta (o un supervisor). Queda anotado quién lo hizo, en la venta y en el ticket.</p>
     <form id="form-descuento" autocomplete="off">
+      <button class="btn" type="button" id="desc-vip" style="width:100%;margin:4px 0">${ico('user')}<span>Cliente VIP</span></button>
       <fieldset style="border:1px solid var(--borde);border-radius:8px;margin:8px 0"><legend>Aplicar a</legend>
         <label style="display:block"><input type="radio" name="desc-alcance" value="linea" ${sel ? 'checked' : 'disabled'}> Solo el artículo seleccionado${sel ? `: ${esc(sel.descripcion)} ${esc(sel.marca)}` : ' (seleccione uno en la lista)'}</label>
         <label style="display:block"><input type="radio" name="desc-alcance" value="venta" ${sel ? '' : 'checked'}> Toda la venta</label></fieldset>
@@ -2983,6 +3038,7 @@ function abrirDescuento() {
       <div class="filas"><button class="btn" type="button" id="desc-cerrar">Cancelar</button>${hayManual ? `<button class="btn btn-peligro" type="button" id="desc-quitar">Quitar descuentos</button>` : ''}<button class="btn btn-primario" type="submit" id="desc-aplicar" style="width:auto;flex:1">${ico('check')}<span>Autorizar y aplicar</span></button></div>
     </form>`;
   $('#desc-cerrar').addEventListener('click', () => d.close());
+  $('#desc-vip').addEventListener('click', () => { d.close(); abrirVip(); });
   // «Precio final»: se escribe lo que debe costar la prenda (por pieza) y el descuento se calcula solo; vale para el artículo seleccionado.
   const alPrecioFinal = () => {
     const pf = d.querySelector('input[name="desc-tipo"]:checked').value === 'precio_final';
@@ -3674,7 +3730,7 @@ async function abrirPromo(p, preset) {
 
 // ── Configuración: Tiendas, Departamentos y Tipo de cambio en una sola entrada ──
 const cuerpoVista = () => $('#config-cuerpo') ?? $('#personal-cuerpo') ?? $('#vista');
-const TABS_CONFIG = [['tiendas', 'Tiendas', 'store'], ['departamentos', 'Departamentos', 'box'], ['tipo_cambio', 'Tipo de cambio', 'banknote'], ['cajas', 'Cajas', 'cash'], ['feria', 'Feria', 'banknote']];
+const TABS_CONFIG = [['tiendas', 'Tiendas', 'store'], ['departamentos', 'Departamentos', 'box'], ['tipo_cambio', 'Tipo de cambio', 'banknote'], ['cajas', 'Cajas', 'cash'], ['feria', 'Feria', 'banknote'], ['vip', 'Clientes VIP', 'user']];
 async function vistaConfiguracion(tab) {
   tab = tab ?? S.configTab ?? 'tiendas';
   S.configTab = tab;
@@ -3682,9 +3738,67 @@ async function vistaConfiguracion(tab) {
     <div class="filas" role="tablist" aria-label="Configuración" style="margin-bottom:12px">${TABS_CONFIG.map(([id, rotulo, icono]) => `<button class="btn" type="button" role="tab" id="cfg-tab-${id}" data-tab="${id}" aria-selected="${id === tab}" style="${id === tab ? 'background:var(--acento);color:var(--acento-texto);border-color:var(--acento)' : ''}">${ico(icono)}<span>${rotulo}</span></button>`).join('')}</div>
     <div id="config-cuerpo" role="tabpanel"></div>`;
   for (const b of $('#vista').querySelectorAll('[role="tab"]')) b.addEventListener('click', () => vistaConfiguracion(b.dataset.tab));
-  await ({ tiendas: vistaTiendas, departamentos: vistaDepartamentos, tipo_cambio: vistaTipoCambio, cajas: vistaCajasFondo, feria: vistaFeria })[tab]();
+  await ({ tiendas: vistaTiendas, departamentos: vistaDepartamentos, tipo_cambio: vistaTipoCambio, cajas: vistaCajasFondo, feria: vistaFeria, vip: vistaVip })[tab]();
 }
 
+
+// ── Clientes VIP (Administración): descuento especial por cliente y excepciones por marca o departamento ──
+async function vistaVip() {
+  let j = await api('/api/admin/vip');
+  const cuerpo = $('#config-cuerpo');
+  const pintar = () => {
+    const filas = j.clientes.map((v) => `<tr data-vip="${esc(v.id)}"><td><b>${esc(v.nombre)}</b></td><td>${esc(v.telefono) || '<span class="nota">—</span>'}</td><td class="num"><b>${v.pct}%</b></td><td>${esc(v.vigente_hasta ?? 'sin límite')}</td><td>${v.activo ? '<b style="color:var(--ok,#1f7a4d)">Activo</b>' : 'Inactivo'}</td>
+      <td class="filas" style="flex-wrap:nowrap"><button class="btn v-editar" type="button">${ico('pencil')}<span>Editar</span></button><button class="btn v-activo" type="button">${v.activo ? 'Desactivar' : 'Activar'}</button><button class="btn btn-peligro v-eliminar" type="button" aria-label="Eliminar a ${esc(v.nombre)}">${ico('trash')}</button></td></tr>`).join('');
+    cuerpo.innerHTML = `<section class="panel"><h2 style="margin-top:0">Clientes VIP</h2>
+      <p class="nota">Cada cliente lleva su porcentaje de descuento, que usted fija. En la caja se elige con la clave de quien cobra, <b>no se combina con promociones</b> (aplica el que más le convenga) y deja de funcionar en cuanto lo desactiva o vence. Vale en las dos tiendas.</p>
+      <div class="tabla-cont"><table id="tabla-vip"><thead><tr><th>Nombre completo</th><th>Teléfono</th><th class="num">Descuento</th><th>Vigente hasta</th><th>Estado</th><th></th></tr></thead><tbody>${filas || '<tr><td colspan="6" class="nota">Todavía no hay clientes VIP.</td></tr>'}</tbody></table></div>
+      <form id="form-vip-alta" autocomplete="off" style="margin-top:12px"><h3 id="vip-form-titulo" style="margin:0 0 6px">Nuevo cliente VIP</h3>
+        <div class="filas" style="align-items:flex-end;flex-wrap:wrap;gap:8px">
+          <div class="campo" style="flex:2;min-width:220px"><label for="vipa-nombre">Nombre completo</label><input id="vipa-nombre" class="texto" maxlength="80" placeholder="Nombre y apellidos"></div>
+          <div class="campo" style="flex:1;min-width:150px"><label for="vipa-tel">Teléfono</label><input id="vipa-tel" class="texto" inputmode="tel" maxlength="20" placeholder="686 123 4567"></div>
+          <div class="campo" style="width:110px"><label for="vipa-pct">Descuento %</label><input id="vipa-pct" class="texto" inputmode="numeric" maxlength="3" placeholder="15"></div>
+          <div class="campo" style="width:170px"><label for="vipa-hasta">Vigente hasta (opcional)</label><input id="vipa-hasta" type="date" class="texto"></div>
+          <button class="btn btn-primario" type="submit" id="vipa-guardar" style="width:auto">${ico('check')}<span>Guardar</span></button><button class="btn" type="button" id="vipa-cancelar" hidden>Cancelar edición</button>
+        </div></form>
+      <div id="msg-vip-admin" class="mensaje" role="status" aria-live="polite"></div></section>
+    <section class="panel" style="margin-top:12px"><h2 style="margin-top:0">Excepciones: lo que NO lleva descuento VIP</h2>
+      <p class="nota">Aplican a todos los clientes VIP. Basta con que el nombre de la marca o del departamento <b>contenga</b> el texto: «victoria» cubre «Victoria's Secret»; «noche» cubre «Accesorios de noche».</p>
+      <form id="form-vip-ex" autocomplete="off">
+        <div class="campo"><label for="vipx-marcas">Marcas (una por renglón)</label><textarea id="vipx-marcas" rows="4" class="texto" placeholder="Victoria's Secret">${esc((j.excepciones.marcas ?? []).join('\n'))}</textarea></div>
+        <div class="campo"><label for="vipx-deptos">Departamentos (uno por renglón)</label><textarea id="vipx-deptos" rows="4" class="texto" placeholder="Accesorios de noche">${esc((j.excepciones.departamentos ?? []).join('\n'))}</textarea>
+          ${j.departamentos.length ? `<small class="nota">Departamentos que existen: ${esc(j.departamentos.join(', '))}</small>` : ''}</div>
+        <button class="btn btn-primario" type="submit" style="width:auto">${ico('check')}<span>Guardar excepciones</span></button></form></section>`;
+    const aviso = (t, tipo = 'error') => { const m = $('#msg-vip-admin'); m.className = `mensaje ${tipo}`; m.textContent = t; };
+    let editando = null;
+    const limpiarForm = () => { editando = null; $('#vip-form-titulo').textContent = 'Nuevo cliente VIP'; for (const id of ['#vipa-nombre', '#vipa-tel', '#vipa-pct', '#vipa-hasta']) $(id).value = ''; $('#vipa-cancelar').hidden = true; };
+    $('#vipa-cancelar').addEventListener('click', limpiarForm);
+    $('#form-vip-alta').addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      try {
+        j = await api('/api/admin/vip', { ...(editando ? { id: editando } : {}), nombre: $('#vipa-nombre').value, telefono: $('#vipa-tel').value, pct: Number($('#vipa-pct').value), vigente_hasta: $('#vipa-hasta').value || null });
+        pintar(); $('#msg-vip-admin').className = 'mensaje ok'; $('#msg-vip-admin').textContent = 'Cliente VIP guardado. Llega a las cajas en cuanto sincronizan.';
+      } catch (e) { aviso(e.message); }
+    });
+    for (const tr of $('#tabla-vip').querySelectorAll('tr[data-vip]')) {
+      const v = j.clientes.find((x) => x.id === tr.dataset.vip);
+      tr.querySelector('.v-editar').addEventListener('click', () => {
+        editando = v.id; $('#vip-form-titulo').textContent = `Editar: ${v.nombre}`;
+        $('#vipa-nombre').value = v.nombre; $('#vipa-tel').value = v.telefono; $('#vipa-pct').value = v.pct; $('#vipa-hasta').value = v.vigente_hasta ?? ''; $('#vipa-cancelar').hidden = false; $('#vipa-nombre').focus();
+      });
+      tr.querySelector('.v-activo').addEventListener('click', async () => { try { j = await api('/api/admin/vip', { id: v.id, activo: !v.activo }); pintar(); } catch (e) { aviso(e.message); } });
+      tr.querySelector('.v-eliminar').addEventListener('click', async () => { if (!confirm(`¿Eliminar a ${v.nombre}? Sus ventas anteriores conservan su nombre.`)) return; try { j = await api('/api/admin/vip/eliminar', { id: v.id }); pintar(); } catch (e) { aviso(e.message); } });
+    }
+    $('#form-vip-ex').addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const lineas = (t) => t.split('\n').map((x) => x.trim()).filter(Boolean);
+      try {
+        j = await api('/api/admin/vip/excepciones', { marcas: lineas($('#vipx-marcas').value), departamentos: lineas($('#vipx-deptos').value) });
+        pintar(); $('#msg-vip-admin').className = 'mensaje ok'; $('#msg-vip-admin').textContent = 'Excepciones guardadas.';
+      } catch (e) { aviso(e.message); }
+    });
+  };
+  pintar();
+}
 
 // ── Empleadas (Administración): porcentajes de descuento, límite de crédito, cuenta, abonos de nómina y reporte para la nómina ──
 // ── Personal: perfiles, descuento y crédito, nómina y horarios ──

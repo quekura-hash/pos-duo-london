@@ -91,7 +91,7 @@ export interface LineaTicket {
   descuento: number;
   importe: number;
   /** Origen del descuento (promoción, cupón o descuento autorizado). */
-  descuentos?: { tipo: 'manual' | 'promo' | 'cupon' | 'empleada'; nombre: string; monto: number }[];
+  descuentos?: { tipo: 'manual' | 'promo' | 'cupon' | 'empleada' | 'vip'; nombre: string; monto: number }[];
   /** Venta o recarga de tarjeta de regalo: no lleva Item #, marca, estilo ni lote. */
   tarjeta_regalo?: boolean;
 }
@@ -112,6 +112,8 @@ export interface Ticket {
   cambio?: CambioTicket;
   /** Venta a una empleada; `credito` = se cargó a su cuenta (se descuenta de su nómina) y el ticket lleva su firma. */
   empleada?: { nombre: string; credito: boolean };
+  /** Venta con descuento de cliente VIP. */
+  vip?: { nombre: string; pct: number };
   /** Cupones de recompensa que se imprimen al final (cada uno con su QR). */
   recompensas?: import('./recompensas.ts').RecompensaEmitida[];
   /** Quién atendió la venta (no se imprime si fue «Autocompra» o no se registró). */
@@ -162,6 +164,7 @@ export function construirTicket(v: Venta, cfg: NegocioCfg = NEGOCIOS[v.tienda]!,
     total: v.total,
     ...(cambio ? { cambio: cambioDeTicket(v, cambio.dev, cambio.origen, negocios) } : {}),
     ...(v.empleada ? { empleada: { nombre: v.empleada.nombre, credito: v.pagos.some((p) => p.metodo === 'credito_empleada') } } : {}),
+    ...(v.vip ? { vip: { nombre: v.vip.nombre, pct: v.vip.pct } } : {}),
     pagos: v.pagos.filter((p) => !(cambio && p.metodo === 'credito_cambio')).map((p) => ({ etiqueta: p.metodo === 'efectivo' ? 'Efectivo MXN' : p.metodo === 'efectivo_usd' ? 'Efectivo (dólares)' : p.metodo === 'tarjeta_regalo' ? 'Tarjeta de regalo' : p.metodo === 'credito_empleada' ? 'Crédito de empleada (nómina)' : p.metodo === 'credito_cambio' ? `Mercancía recibida a cambio (folio ${String(p.folio_origen ?? 0).padStart(6, '0')})` : 'Tarjeta', monto: p.monto, recibido: p.recibido, cambio: p.cambio, tarjeta: p.tarjeta, saldo_despues: p.saldo_despues, autorizacion: p.autorizacion, marca: p.marca, ultimos4: p.ultimos4, dolares: p.metodo === 'efectivo_usd' ? { usd: p.usd!, tasa: p.tasa!, version: p.tasa_version!, equivalente: p.equivalente!, pesos: p.pesos_recibidos!, cambio: p.cambio_mxn! } : undefined })),
     encabezado: encabezadoDe(cfg), telefono: cfg.telefono ?? '', leyendas: cfg.leyendas, columnas: cfg.columnas, reimpresion,
   };
@@ -265,6 +268,7 @@ export function renderTicketTexto(t: Ticket): string {
   L.push(centrar(`Tienda ${t.tienda} - Caja ${t.caja}`, c));
   L.push(`Vendedora-Cajera: ${t.cajero}`.slice(0, c), ...(t.vendio ? [`Vendió: ${t.vendio}`.slice(0, c)] : []), `Fecha: ${t.fecha}  Hora: ${t.hora}`, `Folio: ${String(t.folio).padStart(6, '0')}`);
   if (t.empleada) L.push(`Empleada: ${t.empleada.nombre}`.slice(0, c));
+  if (t.vip) L.push(`Cliente VIP: ${t.vip.nombre}`.slice(0, c));
   if (t.reimpresion > 0) L.push(centrar(`*** REIMPRESIÓN ${t.reimpresion} ***`, c));
   L.push(regla);
   if (t.cambio) L.push('ARTÍCULO NUEVO:');

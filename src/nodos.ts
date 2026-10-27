@@ -1,7 +1,7 @@
 import type { BusquedaVentas, VentaLocalizada } from './consultas.ts';
 import { ErrorDominio } from './errores.ts';
 import { buscarRecompensa, esCodigoRecompensa, promoDeRecompensa, recompensasGanadas, reglasVigentes, validarRegla, type EstadoRecompensa, type ReglaRecompensa } from './recompensas.ts';
-import { calcularDescuentos, esCanje, aPesosEnteros, normCodigo, repartir, repartirPesos, validarPromocion, type ErrorPromo, type Promocion, type ResultadoDescuentos } from './promociones.ts';
+import { calcularDescuentos, type ConfigVip, esCanje, aPesosEnteros, normCodigo, repartir, repartirPesos, validarPromocion, type ErrorPromo, type Promocion, type ResultadoDescuentos } from './promociones.ts';
 /** Quien autoriza: otra persona (nombre + clave) o, si no hay nadie más, quien cobra con su propia clave (`sin_segundo`). */
 export type Autoriza = { nombre: string; clave: string; sin_segundo?: boolean };
 import { adminDueno, adminProtegido, mezclarPerfil, claveAdminValida, claveValida, hashClave, nombreClave, supervisorPorClave, type Cajero, type Perfil, type RolAdmin, type Supervisor } from './supervisores.ts';
@@ -15,7 +15,7 @@ import { DENOMINACIONES_USD, esImporteEnBilletesUsd, superaUmbralTasa, totalDeno
 import { TASA_SIN_VERIFICAR_OMISION, type Politicas } from './politicas.ts';
 import { Indice } from './indice.ts';
 import { localizarVentas } from './consultas.ts';
-import { CRITERIOS_EXPEDIENTE, expedientesDe, expedienteVacio, type Expediente } from './proyecciones.ts';
+import { CRITERIOS_EXPEDIENTE, expedientesDe, expedienteVacio, clientesVip, excepcionesVip, type ClienteVip, type ExcepcionesVip, type Expediente } from './proyecciones.ts';
 import { type ConfigEmpleadas, type CuentaEmpleada, configEmpleadas, cuentasEmpleadas, CAMPOS_EDITABLES, CAMPOS_TIENDA, type CampoEditable, departamentos, promocionesDe, recompensasDe, supervisoresDe, cajerosDe, administradoresDe, efectivoDeVenta, movimientosCaja, tipoCambioVigente, catalogo, devoluciones, devueltoPorLinea, existenciaVerificada, intentos, perdidasDocumentales, stock, ventas, type Devolucion, type ExistenciaVerificada, type Intento, type PerdidaDocumental, type TarjetaRegalo, type TipoCambio } from './proyecciones.ts';
 import type { Repo } from './repo.ts';
 import { validarOpEntrante } from './reglas.ts';
@@ -104,7 +104,7 @@ const esMovimientoLimbo = (op: Op) => op.tipo === 'inv.movement' && op.payload.t
 const esAjusteAdmin = (op: Op) => (op.tipo === 'inv.movement' && op.payload.tipo === 'ajuste_admin') || (op.tipo === 'inv.conteo' && op.payload.admin === true);
 const BROADCAST_TIENDA = new Set(['cajero.ubicacion', 'alm.recibida', 'inv.movement', 'inv.conteo', 'inv.verificacion_pendiente', 'doc.perdida_posible', 'item.created', 'item.item_no_assigned', 'giftcard.emitida', 'giftcard.recarga', 'giftcard.uso', 'giftcard.reintegro']);
 // Lo que el central baja a hubs y cajas (catálogo y resoluciones administrativas).
-const CATALOGO = new Set(['cajero.ubicacion', 'item.created', 'item.item_no_assigned', 'item.codigo_corregido', 'doc.perdida_resuelta', 'giftcard.emitida', 'giftcard.recarga', 'giftcard.uso', 'giftcard.reintegro', 'config.tipo_cambio', 'permiso.asignado', 'depto.alta', 'depto.editado', 'alm.entrega', 'alm.faltante', 'promo.guardada', 'recompensa.guardada', 'supervisor.guardado', 'cajero.guardado', 'config.sesion', 'config.negocio', 'item.editado', 'caja.fondo_autorizado', 'cash.ajuste_admin', 'empleadas.config', 'empleada.credito', 'empleada.movimiento', 'venta.consulta', 'folio.continuacion']);
+const CATALOGO = new Set(['cajero.ubicacion', 'item.created', 'item.item_no_assigned', 'item.codigo_corregido', 'doc.perdida_resuelta', 'giftcard.emitida', 'giftcard.recarga', 'giftcard.uso', 'giftcard.reintegro', 'config.tipo_cambio', 'permiso.asignado', 'depto.alta', 'depto.editado', 'alm.entrega', 'alm.faltante', 'promo.guardada', 'recompensa.guardada', 'supervisor.guardado', 'cajero.guardado', 'config.sesion', 'config.negocio', 'item.editado', 'caja.fondo_autorizado', 'cash.ajuste_admin', 'empleadas.config', 'empleada.credito', 'empleada.movimiento', 'venta.consulta', 'folio.continuacion', 'vip.guardado', 'vip.excepciones']);
 /** Días de ventas del POS anterior que las cajas conservan para consulta. */
 export const DIAS_CONSULTA_HISTORICA = 60;
 /** Fondo fijo de cada caja mientras Administración no asigne otro (centavos). */
@@ -468,6 +468,38 @@ export class Central {
     return { ok: true, regla: v.regla };
   }
   /** Porcentajes del descuento de empleada (solo Administración). */
+  /** Alta o cambio de un cliente VIP (nombre completo, teléfono opcional, su porcentaje de descuento, si está activo y hasta cuándo vale). Solo Administración. */
+  guardarVip(d: { id?: string; nombre?: string; telefono?: string; pct?: number; activo?: boolean; vigente_hasta?: string | null }, por: string): { ok: true; vip: ClienteVip } | { ok: false; error: { codigo: 'DATOS_INVALIDOS' | 'NO_EXISTE'; mensaje: string } } {
+    const lista = clientesVip(this.repo.ops());
+    const actual = d.id ? lista.find((v) => v.id === d.id) : undefined;
+    if (d.id && !actual) return { ok: false, error: { codigo: 'NO_EXISTE', mensaje: 'el cliente VIP no existe' } };
+    const nombre = String(d.nombre ?? actual?.nombre ?? '').trim().replace(/\s+/g, ' ');
+    if (nombre.length < 5 || !nombre.includes(' ')) return { ok: false, error: { codigo: 'DATOS_INVALIDOS', mensaje: 'escriba el nombre completo del cliente (nombre y apellido)' } };
+    const telefono = String(d.telefono ?? actual?.telefono ?? '').replace(/[^\d+]/g, '');
+    if (telefono && !/^\+?\d{7,15}$/.test(telefono)) return { ok: false, error: { codigo: 'DATOS_INVALIDOS', mensaje: 'el teléfono lleva de 7 a 15 dígitos' } };
+    const pct = d.pct ?? actual?.pct;
+    if (!Number.isInteger(pct) || pct! < 1 || pct! > 100) return { ok: false, error: { codigo: 'DATOS_INVALIDOS', mensaje: 'el descuento es un porcentaje entero de 1 a 100' } };
+    const vigente_hasta = d.vigente_hasta === undefined ? (actual?.vigente_hasta ?? null) : (d.vigente_hasta || null);
+    if (vigente_hasta !== null && !fechaValida(vigente_hasta)) return { ok: false, error: { codigo: 'DATOS_INVALIDOS', mensaje: 'la vigencia debe ser una fecha válida (AAAA-MM-DD)' } };
+    const id = actual?.id ?? `vip-${uuid().slice(0, 8)}`;
+    const activo = d.activo ?? actual?.activo ?? true;
+    this.emitirAdmin('vip.guardado', { id, nombre, telefono, pct, activo, vigente_hasta, por });
+    return { ok: true, vip: { id, nombre, telefono, pct: pct!, activo, vigente_hasta } };
+  }
+  eliminarVip(id: string, por: string): { ok: true } | { ok: false; error: { codigo: 'NO_EXISTE'; mensaje: string } } {
+    const v = clientesVip(this.repo.ops()).find((x) => x.id === id);
+    if (!v) return { ok: false, error: { codigo: 'NO_EXISTE', mensaje: 'el cliente VIP no existe' } };
+    this.emitirAdmin('vip.guardado', { id, nombre: v.nombre, telefono: v.telefono, pct: v.pct, activo: false, vigente_hasta: v.vigente_hasta, eliminado: true, por });
+    return { ok: true };
+  }
+  /** Lo que NO lleva descuento VIP: marcas y departamentos (basta con que el nombre del artículo contenga el texto). Aplica a todos los clientes VIP. */
+  fijarExcepcionesVip(d: { marcas?: string[]; departamentos?: string[] }, por: string): { ok: true; excepciones: ExcepcionesVip } | { ok: false; error: { codigo: 'DATOS_INVALIDOS'; mensaje: string } } {
+    const limpiar = (xs: unknown) => [...new Set((Array.isArray(xs) ? xs : []).map((x) => String(x ?? '').trim().replace(/\s+/g, ' ')).filter((x) => x.length > 0))];
+    const marcas = limpiar(d.marcas), departamentos = limpiar(d.departamentos);
+    if ([...marcas, ...departamentos].some((x) => x.length < 2 || x.length > 60)) return { ok: false, error: { codigo: 'DATOS_INVALIDOS', mensaje: 'cada excepción lleva de 2 a 60 caracteres' } };
+    this.emitirAdmin('vip.excepciones', { marcas, departamentos, por });
+    return { ok: true, excepciones: { marcas, departamentos } };
+  }
   fijarConfigEmpleadas(d: { pct: number; pct_uniforme: number }, por: string): { ok: true } | { ok: false; error: { codigo: 'DATOS_INVALIDOS'; mensaje: string } } {
     const mal = (mensaje: string) => ({ ok: false as const, error: { codigo: 'DATOS_INVALIDOS' as const, mensaje } });
     for (const [n, v] of [['el descuento de empleada', d.pct], ['el descuento de uniformes', d.pct_uniforme]] as const) if (!Number.isInteger(v) || v < 1 || v > 100) return mal(`${n} es un porcentaje entero de 1 a 100`);
@@ -1026,6 +1058,8 @@ interface Carrito {
   vendedora?: { id: string | null; alias: string };
   /** Venta a una empleada: descuento de empleada (15 %, o 30 % en uniformes) y, si quiere, cargo a su cuenta. Se confirma con la clave de la empleada. */
   empleada?: { id: string; nombre: string; sin_supervisor?: boolean };
+  /** Cliente VIP elegido en la venta (su porcentaje queda fijo en esta venta) y quién lo aplicó con su clave. */
+  vip?: { id: string; nombre: string; pct: number; aplico: string };
   /** Cambio en curso: piezas que la clienta regresa de una venta anterior; su importe es un crédito que se descuenta de lo que se lleve en ESTA venta. */
   cambio?: CambioEnCurso;
   /** Venta en espera: el cliente se fue un momento y la caja atiende a otro. No reserva existencias; se recalcula al retomarla. */
@@ -1488,7 +1522,7 @@ export class Caja {
   private recalcular(c: Carrito): void {
     let promos = this.idx.promociones();
     const conDetalle = c.lineas.some((l) => l.descuento_detalle !== undefined);
-    if (!promos.length && !c.cupon && !conDetalle && !c.empleada) { delete c.descuentos; return; }
+    if (!promos.length && !c.cupon && !conDetalle && !c.empleada && !c.vip) { delete c.descuentos; return; }
     const hoy = fechaLocal(this.ctx.reloj.now());
     // Un cupón de recompensa (RC-…) se arma con lo que se sabe de su emisión: vale una sola vez y solo en la tienda que lo regaló.
     const rc = c.cupon && esCodigoRecompensa(c.cupon) ? this.estadoRecompensa(c.cupon) : null;
@@ -1501,7 +1535,7 @@ export class Caja {
       for (const v of ventas(this.opsVentas()).values()) if (v.estado === 'confirmada' && v.lineas.some((l) => l.descuento_detalle?.some((d) => d.tipo === 'cupon' && d.ref === p.id))) n++;
       return n;
     };
-    const r = calcularDescuentos(c.lineas, promos, c.cupon ?? null, hoy, usos, this.tienda, c.empleada ? this.configEmpleadas() : null);
+    const r = calcularDescuentos(c.lineas, promos, c.cupon ?? null, hoy, usos, this.tienda, c.empleada ? this.configEmpleadas() : null, this.vipDeCarrito(c));
     c.lineas = r.lineas;
     c.descuentos = { aplicadas: r.aplicadas, cupon: r.cupon };
   }
@@ -1744,6 +1778,40 @@ export class Caja {
   /** Empleadas a quienes se puede vender (las Vendedoras-Cajeras activas). */
   empleadasActivas(): { id: string; nombre: string }[] {
     return this.idx.cajeros().filter((c) => c.activo).map((c) => ({ id: c.id, nombre: c.nombre })).sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
+  }
+  // ── Clientes VIP: descuento especial fijado por Administración, con excepciones; la caja solo lo elige (con la clave de quien cobra) ──
+  /** Clientes VIP que se pueden elegir hoy: activos y dentro de su vigencia. */
+  vipsDisponibles(): ClienteVip[] {
+    const hoy = fechaLocal(this.ctx.reloj.now());
+    return clientesVip(this.opsDe('vip.guardado')).filter((v) => v.activo && (!v.vigente_hasta || hoy <= v.vigente_hasta));
+  }
+  excepcionesVip(): ExcepcionesVip {
+    return excepcionesVip(this.opsDe('vip.excepciones'));
+  }
+  /** El cliente VIP de la venta con las excepciones de hoy (para calcular el descuento). */
+  private vipDeCarrito(c: Carrito): ConfigVip | null {
+    return c.vip ? { id: c.vip.id, nombre: c.vip.nombre, pct: c.vip.pct, ...this.excepcionesVip() } : null;
+  }
+  /** Aplica el descuento de un cliente VIP a la venta: pide la clave de quien cobra (queda anotado) y compite con las promociones (aplica el que más le convenga a la clienta). */
+  asignarVip(cartId: string, d: { vip_id: string; clave?: string; usuario: string }): NonNullable<Carrito['vip']> {
+    const c = this.cartGet(cartId);
+    this.exigirAbierto(c);
+    this.exigirSinCobroPendiente(c);
+    const v = this.vipsDisponibles().find((x) => x.id === d.vip_id);
+    if (!v) throw new ErrorDominio('VIP_INEXISTENTE', 'ese cliente VIP no está activo');
+    if (this.controlesConClave()) this.verificarClaveCajero(d.usuario, String(d.clave ?? ''));
+    c.vip = { id: v.id, nombre: v.nombre, pct: v.pct, aplico: d.usuario };
+    this.recalcular(c);
+    this.repo.kvSet(`cart:${cartId}`, c);
+    return c.vip;
+  }
+  quitarVip(cartId: string): void {
+    const c = this.cartGet(cartId);
+    this.exigirAbierto(c);
+    this.exigirSinCobroPendiente(c);
+    delete c.vip;
+    this.recalcular(c);
+    this.repo.kvSet(`cart:${cartId}`, c);
   }
   /**
    * Marca la venta como venta a una empleada: ella confirma con SU clave. Una cajera no puede venderse a sí misma sin que un supervisor lo autorice
@@ -2191,6 +2259,7 @@ export class Caja {
         sale_id: c.id, tienda: this.tienda, caja: this.caja, folio, cajero, lineas, total, pagos,
         ...(recompensas.length ? { recompensas } : {}),
         ...(c.empleada ? { empleada: c.empleada } : {}),
+        ...(c.vip ? { vip: c.vip } : {}),
         ...(c.cambio ? { cambio_de: { sale_id: c.cambio.sale_id, folio: c.cambio.folio_origen } } : {}),
         ...(c.vendedora ? { vendedora_id: c.vendedora.id, vendedora: c.vendedora.alias } : {}),
       }, `sale:${c.id}`);

@@ -62,6 +62,9 @@ export async function atender(o: { cajero?: ServicioCaja; admin?: ServicioAdmin 
       case 'GET /api/empleadas': return ok(exigirCajero().empleadas());
       case 'POST /api/venta/empleada': return ok(exigirCajero().asignarEmpleada(b.cart, { empleada_id: String(b.empleada_id ?? ''), clave: String(b.clave ?? ''), clave_supervisor: b.clave_supervisor, sin_supervisor: !!b.sin_supervisor }));
       case 'POST /api/venta/empleada/quitar': return ok(exigirCajero().quitarEmpleada(b.cart));
+      case 'GET /api/venta/vip': return ok(exigirCajero().vips());
+      case 'POST /api/venta/vip': return ok(exigirCajero().asignarVip(b.cart, { vip_id: String(b.vip_id ?? ''), clave: b.clave === undefined ? undefined : String(b.clave) }));
+      case 'POST /api/venta/vip/quitar': return ok(exigirCajero().quitarVip(b.cart));
       case 'POST /api/venta/uniforme': return ok(exigirCajero().marcarUniforme(b.cart, String(b.linea_id ?? ''), !!b.uniforme));
       case 'POST /api/venta/cobrar-credito-empleada': return ok(await exigirCajero().cobrarCreditoEmpleada(b.cart));
       case 'POST /api/venta/cupon': return ok(exigirCajero().aplicarCupon(b.cart, String(b.codigo ?? '')));
@@ -146,6 +149,10 @@ export async function atender(o: { cajero?: ServicioCaja; admin?: ServicioAdmin 
       case 'GET /api/admin/empleadas': return ok(exigirAdmin().empleadasCuentas());
       case 'GET /api/admin/empleadas/movimientos': return ok(exigirAdmin().empleadaMovimientos(q.get('id') ?? ''));
       case 'GET /api/admin/empleadas/nomina': return ok(exigirAdmin().nominaEmpleadas(q.get('desde') || undefined, q.get('hasta') || undefined));
+      case 'GET /api/admin/vip': return ok(exigirAdmin().vipAdmin());
+      case 'POST /api/admin/vip': return ok(exigirAdmin().guardarVip({ id: b.id, nombre: b.nombre, telefono: b.telefono, pct: b.pct === undefined ? undefined : Number(b.pct), activo: b.activo === undefined ? undefined : !!b.activo, vigente_hasta: b.vigente_hasta }));
+      case 'POST /api/admin/vip/eliminar': return ok(exigirAdmin().eliminarVip(b.id));
+      case 'POST /api/admin/vip/excepciones': return ok(exigirAdmin().fijarExcepcionesVip({ marcas: b.marcas, departamentos: b.departamentos }));
       case 'POST /api/admin/empleadas/config': return ok(exigirAdmin().fijarConfigEmpleadas({ pct: Number(b.pct), pct_uniforme: Number(b.pct_uniforme) }));
       case 'POST /api/admin/empleadas/limite': return ok(exigirAdmin().fijarLimiteEmpleada({ empleada_id: b.empleada_id, limite: Number(b.limite), motivo: b.motivo }));
       case 'POST /api/admin/empleadas/movimiento': return ok(exigirAdmin().movimientoEmpleada({ empleada_id: b.empleada_id, tipo: b.tipo, monto: Number(b.monto), motivo: b.motivo, periodo: b.periodo, ref: b.ref }));

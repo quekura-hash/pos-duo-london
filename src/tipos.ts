@@ -66,7 +66,7 @@ export interface Linea {
   descuento: number;
   importe: number;
   /** De dónde sale `descuento`: manual (autorizado por un supervisor), promoción o cupón. `descuento` es la suma. */
-  descuento_detalle?: { tipo: 'manual' | 'promo' | 'cupon' | 'empleada'; ref: string; nombre: string; monto: number }[];
+  descuento_detalle?: { tipo: 'manual' | 'promo' | 'cupon' | 'empleada' | 'vip'; ref: string; nombre: string; monto: number }[];
   /** Vendida mientras su código estaba duplicado: la elección fue provisional y queda para revisión administrativa. */
   ambiguo?: { codigo: string; candidatos: string[] };
   /** Renglón de venta o recarga de una tarjeta de regalo: no es mercancía (sin inventario ni existencia). */
@@ -95,6 +95,8 @@ export interface Venta {
   vendedora?: string;
   /** Venta a una empleada (descuento de empleada; puede pagarse a crédito de su cuenta). */
   empleada?: { id: string; nombre: string; sin_supervisor?: boolean };
+  /** Venta con descuento de cliente VIP: quién es, su porcentaje y quién lo aplicó en la caja. */
+  vip?: { id: string; nombre: string; pct: number; aplico: string };
   /** Cupones de recompensa regalados en este ticket (cada uno con su código único). */
   recompensas?: import('./recompensas.ts').RecompensaEmitida[];
   /** Avisos del arbitraje del hub al confirmar (p. ej. sobreventa). No forman parte de la operación persistida. */
