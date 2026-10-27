@@ -834,24 +834,22 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     // tarjeta por el total
     assert.equal(await page.isDisabled('[data-forma="tarjeta"]'), false);
     await page.click('[data-forma="tarjeta"]');
-    assert.equal(await page.isDisabled('#btn-cobrar'), true, 'sin autorización no se puede cobrar');
-    await page.fill('#tj-aut', '12');
-    assert.equal(await page.isDisabled('#btn-cobrar'), true, 'autorización demasiado corta');
-    await page.fill('#tj-aut', 'ab1234');
-    await page.selectOption('#tj-marca', 'Visa');
-    await page.locator('#tj-ult4').pressSequentially('43x2a1');
-    assert.equal(await page.inputValue('#tj-ult4'), '4321', 'solo acepta dígitos');
-    await page.screenshot({ path: join(RAIZ, 'docs', 'capturas', '38-tarjeta-manual.png') });
+    // ya no se captura el número de autorización: el botón confirma que la terminal aprobó
+    assert.equal(await page.locator('#tj-aut').count(), 0, 'no hay campo de autorización');
+    assert.equal((await page.textContent('#txt-cobrar'))!.trim(), 'TRANSACCIÓN CONFIRMADA');
     assert.equal(await page.isDisabled('#btn-cobrar'), false);
+    await page.screenshot({ path: join(RAIZ, 'docs', 'capturas', '38-tarjeta-manual.png') });
+    await page.keyboard.press('Enter'); // Enter no confirma una tarjeta: hay que tocar el botón a propósito
+    assert.equal(await page.locator('#dlg-ticket[open]').count(), 0);
     await page.click('#btn-cobrar');
     await page.waitForSelector('#dlg-ticket[open]');
-    assert.match((await page.textContent('#ticket-texto'))!, /Aut\. AB1234\s+VISA \*\*\*\*4321/);
+    assert.doesNotMatch((await page.textContent('#ticket-texto'))!, /Aut\./);
+    assert.match((await page.textContent('#ticket-texto'))!, /Tarjeta\s+\$899\.00/);
     await page.click('#btn-nueva');
     // mixto: tarjeta parcial + resto en efectivo
     await escanear('0002026090782');
     await page.waitForSelector('#cuerpo tr[data-linea]');
     await page.click('[data-forma="mixto"]');
-    await page.fill('#tj-aut', '998877');
     assert.equal(await page.isDisabled('#btn-cobrar'), true, 'sin monto de tarjeta no se puede cobrar');
     await page.fill('#tj-monto', '999999');
     assert.equal(await page.isDisabled('#btn-cobrar'), true, 'el monto no puede exceder el total');
@@ -863,7 +861,6 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     const tk = (await page.textContent('#ticket-texto'))!;
     assert.match(tk, /Tarjeta\s+\$100\.00/);
     assert.match(tk, /Efectivo MXN/);
-    assert.match(tk, /Aut\. 998877/);
     assert.deepEqual(errores, []);
   });
 

@@ -33,7 +33,7 @@ porAlmacen('Tarjeta con captura manual del comprobante', (alm) => {
     assert.equal(r.venta.pagos.reduce((a, p) => a + p.monto, 0), total);
   });
 
-  it('TM3 validaciones: autorización, últimos 4, importes, caja sin terminal; los rechazos no dejan cobros pendientes', async (t) => {
+  it('TM3 validaciones: autorización (si viene), últimos 4, importes, caja sin terminal; los rechazos no dejan cobros pendientes', async (t) => {
     const ctx = nuevoMundo(alm, politica());
     t.after(ctx.limpiar);
     const s = servicioDe(ctx, 'DUO', 1, 'Ana');
@@ -41,7 +41,6 @@ porAlmacen('Tarjeta con captura manual del comprobante', (alm) => {
     await assert.rejects(() => s.svc.cobrarTarjetaManual(c, { autorizacion: '123456' }), { codigo: 'CARRITO_VACIO' });
     s.svc.escanear(c, '0002026090782');
     const total = s.svc.vista(c).total;
-    await assert.rejects(() => s.svc.cobrarTarjetaManual(c, { autorizacion: '' }), { codigo: 'DATOS_REQUERIDOS' });
     await assert.rejects(() => s.svc.cobrarTarjetaManual(c, { autorizacion: '12' }), { codigo: 'DATOS_REQUERIDOS' });
     await assert.rejects(() => s.svc.cobrarTarjetaManual(c, { autorizacion: '123456', ultimos4: '12' }), { codigo: 'DATOS_REQUERIDOS' });
     await assert.rejects(() => s.svc.cobrarTarjetaManual(c, { autorizacion: '123456', importe: total + 1 }), { codigo: 'PAGO_INVALIDO' });

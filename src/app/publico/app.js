@@ -588,17 +588,14 @@ function elegirForma(f) {
   for (const b of $('#formas').querySelectorAll('button[data-forma]')) b.setAttribute('aria-pressed', String(b.dataset.forma === f));
   pintarPago();
   recalcular();
-  $(f === 'regalo' ? '#codigo-regalo' : f === 'tarjeta' ? '#tj-aut' : f === 'mixto' ? '#tj-monto' : f === 'credito' ? '#btn-cobrar' : '#recibido')?.focus();
+  $(f === 'regalo' ? '#codigo-regalo' : f === 'tarjeta' ? '#scan' : f === 'mixto' ? '#tj-monto' : f === 'credito' ? '#btn-cobrar' : '#recibido')?.focus();
 }
 
-/** Tarjeta con captura manual: se cobra en la terminal bancaria y aquí se teclea lo que dice el comprobante. */
+/** Tarjeta: se cobra en la terminal bancaria y, cuando esta imprime la autorización, quien cobra toca «Transacción confirmada» (no se captura ningún número). */
 function htmlTarjeta(mixto) {
-  return `<p class="nota" style="margin:0 0 8px">Cobre en la terminal bancaria y, cuando la apruebe, capture aquí los datos del comprobante.</p>
+  return `<p class="nota" style="margin:0 0 8px">Cobre en la terminal bancaria. Cuando la terminal <b>imprima la autorización</b>, toque <b>«Transacción confirmada»</b>.</p>
     ${mixto ? `<div class="campo"><label for="tj-monto">Monto cobrado con tarjeta (MXN)</label><input id="tj-monto" inputmode="decimal" autocomplete="off" placeholder="0.00"></div>
-    <div class="saldo-tarjeta" id="tj-resto" role="status" aria-live="polite">El resto se cobra en efectivo: <b id="tj-resto-monto">$0.00</b></div>` : ''}
-    <div class="campo"><label for="tj-aut">Autorización del comprobante</label><input id="tj-aut" class="texto" autocomplete="off" spellcheck="false" maxlength="12" placeholder="Ej. 123456"></div>
-    <div class="campo"><label for="tj-marca">Marca (opcional)</label><select id="tj-marca" class="texto"><option value="">—</option><option>Visa</option><option>Mastercard</option><option>American Express</option><option>Otra</option></select></div>
-    <div class="campo"><label for="tj-ult4">Últimos 4 dígitos (opcional)</label><input id="tj-ult4" inputmode="numeric" autocomplete="off" maxlength="4" placeholder="1234"></div>`;
+    <div class="saldo-tarjeta" id="tj-resto" role="status" aria-live="polite">El resto se cobra en efectivo: <b id="tj-resto-monto">$0.00</b></div>` : ''}`;
 }
 /** Importe de tarjeta y resto en efectivo de la venta en pantalla (null si el monto del mixto no es válido). */
 function repartoTarjeta() {
@@ -669,8 +666,7 @@ function pintarPago() {
   const p = $('#pago');
   if (S.forma === 'tarjeta' || S.forma === 'mixto') {
     p.innerHTML = htmlTarjeta(S.forma === 'mixto');
-    for (const id of ['#tj-aut', '#tj-monto', '#tj-ult4', '#tj-marca']) $(id)?.addEventListener('input', recalcular);
-    $('#tj-ult4').addEventListener('input', () => { $('#tj-ult4').value = $('#tj-ult4').value.replace(/\D/g, ''); });
+    $('#tj-monto')?.addEventListener('input', recalcular);
     return;
   }
   if (S.forma === 'credito') {
@@ -853,7 +849,7 @@ function recalcular() {
   if (S.forma === 'tarjeta' || S.forma === 'mixto') {
     const r = repartoTarjeta();
     if ($('#tj-resto-monto')) $('#tj-resto-monto').textContent = mxn(r.resto);
-    ok = hay && r.valido && /^[A-Za-z0-9]{4,12}$/.test($('#tj-aut').value.trim()) && (!$('#tj-ult4').value || /^\d{4}$/.test($('#tj-ult4').value));
+    ok = hay && r.valido;
     if ($('#linea-cambio')) $('#linea-cambio').classList.remove('falta');
     if ($('#lbl-cambio')) { $('#lbl-cambio').textContent = 'Cambio'; $('#cambio').textContent = mxn(0); }
   } else if (S.forma === 'credito') {
@@ -886,7 +882,7 @@ function recalcular() {
   const saldo = S.carrito.cambio?.saldo_favor ?? 0; // con saldo a favor no se cobra: se agregan artículos o se devuelve el dinero
   $('#btn-cobrar').disabled = !ok || saldo > 0 || (hay && exigeVendedora());
   pintarVendedora();
-  $('#txt-cobrar').textContent = S.carrito.cambio && hay && total === 0 && saldo === 0 ? 'CONFIRMAR CAMBIO' : hay && total === 0 && S.forma !== 'regalo' ? 'REGISTRAR VENTA SIN COBRO' : `COBRAR ${mxn(total)}`;
+  $('#txt-cobrar').textContent = S.carrito.cambio && hay && total === 0 && saldo === 0 ? 'CONFIRMAR CAMBIO' : hay && total === 0 && S.forma !== 'regalo' ? 'REGISTRAR VENTA SIN COBRO' : hay && (S.forma === 'tarjeta' || S.forma === 'mixto') ? 'TRANSACCIÓN CONFIRMADA' : `COBRAR ${mxn(total)}`;
 }
 
 async function escanear() {
@@ -1004,7 +1000,7 @@ async function cobrar() {
     let r;
     if (S.forma === 'tarjeta' || S.forma === 'mixto') {
       const t = repartoTarjeta();
-      r = await api('/api/venta/cobrar-tarjeta', { cart: S.cart, ...(S.forma === 'mixto' ? { importe: t.importe } : {}), autorizacion: $('#tj-aut').value.trim(), marca: $('#tj-marca').value, ultimos4: $('#tj-ult4').value });
+      r = await api('/api/venta/cobrar-tarjeta', { cart: S.cart, ...(S.forma === 'mixto' ? { importe: t.importe } : {}) });
     } else if (S.forma === 'credito') {
       r = await api('/api/venta/cobrar-credito-empleada', { cart: S.cart });
     } else if (S.forma === 'regalo') {
@@ -4751,6 +4747,7 @@ iniciarCamposObligatorios();
 // Con el botón COBRAR encendido, Enter cobra (solo desde los campos de pago o sin ningún campo enfocado: nunca desde el escáner ni un botón).
 document.addEventListener('keydown', (ev) => {
   if (ev.key !== 'Enter' || ev.isComposing || ev.repeat || S.vista !== 'venta' || document.querySelector('dialog[open]')) return;
+  if (S.forma === 'tarjeta' || S.forma === 'mixto') return; // «Transacción confirmada» se toca a propósito, después de que la terminal imprima la autorización
   const t = ev.target;
   if (t instanceof HTMLElement && t !== document.body) {
     const campoDePago = t.tagName === 'INPUT' && (t.id === 'recibido' || t.id === 'usd' || t.id.startsWith('tj-'));

@@ -26,6 +26,8 @@ export interface Pago {
   autorizacion?: string;
   marca?: string;
   ultimos4?: string;
+  /** Tarjeta sin número de autorización: quien cobra confirmó que la terminal bancaria aprobó y ya imprimió su comprobante. */
+  confirmada?: boolean;
   /** Solo tarjeta de regalo: código de la tarjeta y saldo que le queda después de este pago. */
   tarjeta?: string;
   saldo_despues?: number;

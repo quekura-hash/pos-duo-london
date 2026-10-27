@@ -2285,11 +2285,12 @@ export class Caja {
    * comprobante. Crea el intento y lo resuelve como aprobado en un solo paso, así nunca queda un cobro pendiente por una captura a medias.
    * El resto (si el importe de tarjeta es menor al total) se cobra en efectivo exacto.
    */
-  cobrarConTarjetaManual(cartId: string, d: { importe?: number; autorizacion: string; marca?: string; ultimos4?: string }, cajero = 'cajero'): Venta {
+  cobrarConTarjetaManual(cartId: string, d: { importe?: number; autorizacion?: string; marca?: string; ultimos4?: string }, cajero = 'cajero'): Venta {
     const previa = this.repo.getOp(`sale:${cartId}`);
     if (previa) return ventas([previa]).get(cartId)!;
+    // El número de autorización ya no se captura: quien cobra confirma que la terminal aprobó. Si viene, se valida y se guarda (ventas con número, de antes).
     const autorizacion = (d.autorizacion ?? '').trim().toUpperCase();
-    if (!/^[A-Z0-9]{4,12}$/.test(autorizacion)) throw new ErrorDominio('DATOS_REQUERIDOS', 'la autorización del comprobante debe tener de 4 a 12 letras o números');
+    if (autorizacion && !/^[A-Z0-9]{4,12}$/.test(autorizacion)) throw new ErrorDominio('DATOS_REQUERIDOS', 'la autorización del comprobante debe tener de 4 a 12 letras o números');
     const ultimos4 = (d.ultimos4 ?? '').trim();
     if (ultimos4 && !/^\d{4}$/.test(ultimos4)) throw new ErrorDominio('DATOS_REQUERIDOS', 'los últimos 4 dígitos de la tarjeta deben ser 4 números');
     const marca = (d.marca ?? '').trim().slice(0, 20) || undefined;
@@ -2302,7 +2303,7 @@ export class Caja {
     if (!Number.isInteger(importe) || importe <= 0 || importe > total) throw new ErrorDominio('PAGO_INVALIDO', 'el importe de la tarjeta debe ser mayor que 0 y no exceder el total');
     const { intento } = this.iniciarCobroTarjeta(cartId, importe);
     try {
-      const v = this.resolverIntento(intento.intent_id, { resultado: 'aprobado', autorizacion, marca, ultimos4: ultimos4 || undefined, efectivo_adicional: total - importe }, cajero);
+      const v = this.resolverIntento(intento.intent_id, { resultado: 'aprobado', autorizacion: autorizacion || undefined, confirmada: !autorizacion, marca, ultimos4: ultimos4 || undefined, efectivo_adicional: total - importe }, cajero);
       return v!;
     } catch (e) {
       this.resolverIntento(intento.intent_id, { resultado: 'no_cobrado' }, cajero);
@@ -2314,7 +2315,7 @@ export class Caja {
     return [...intentos(this.opsDe('card.intent', 'card.intent_resuelto')).values()].filter((i) => i.tienda === this.tienda && i.caja === this.caja && (i.estado === 'iniciado' || i.estado === 'desconocido'));
   }
 
-  resolverIntento(intentId: string, r: { resultado: 'aprobado' | 'no_cobrado' | 'desconocido'; autorizacion?: string; marca?: string; ultimos4?: string; efectivo_adicional?: number }, cajero = 'cajero'): Venta | null {
+  resolverIntento(intentId: string, r: { resultado: 'aprobado' | 'no_cobrado' | 'desconocido'; autorizacion?: string; confirmada?: boolean; marca?: string; ultimos4?: string; efectivo_adicional?: number }, cajero = 'cajero'): Venta | null {
     const i = intentos(this.opsDe('card.intent', 'card.intent_resuelto')).get(intentId);
     if (!i || i.tienda !== this.tienda || i.caja !== this.caja) throw new ErrorDominio('INTENTO_INEXISTENTE', intentId);
     if (i.estado === 'aprobado') {
@@ -2327,11 +2328,11 @@ export class Caja {
     }
     const c = this.cartGet(i.cart_id);
     if (r.resultado === 'aprobado') {
-      if (!r.autorizacion) throw new ErrorDominio('DATOS_REQUERIDOS', 'falta autorización del comprobante');
+      if (!r.autorizacion && !r.confirmada) throw new ErrorDominio('DATOS_REQUERIDOS', 'falta autorización del comprobante');
       const total = this.totalNeto(c);
       const extra = r.efectivo_adicional ?? 0;
       if (i.importe + extra !== total) throw new ErrorDominio('PAGO_INVALIDO', 'tarjeta + efectivo no suman el total');
-      const pagos: Pago[] = [{ metodo: 'tarjeta', monto: i.importe, autorizacion: r.autorizacion, marca: r.marca, ultimos4: r.ultimos4 }];
+      const pagos: Pago[] = [{ metodo: 'tarjeta', monto: i.importe, ...(r.autorizacion ? { autorizacion: r.autorizacion } : { confirmada: true }), marca: r.marca, ultimos4: r.ultimos4 }];
       if (extra > 0) pagos.push({ metodo: 'efectivo', monto: extra });
       // El dinero ya se cobró: completar la venta no se frena por P-01 ni por existencia (P-02).
       return this.repo.tx(() => {

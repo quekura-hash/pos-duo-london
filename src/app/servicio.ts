@@ -556,7 +556,7 @@ export class ServicioCaja {
     return this.finalizarCobro(this.caja.cobrarConTarjetaRegalo(cartId, codigo, recibido, this.actor.usuario, usd));
   }
   /** Tarjeta con captura manual del comprobante (la terminal bancaria aún no está integrada). */
-  async cobrarTarjetaManual(cartId: string, d: { importe?: number; autorizacion: string; marca?: string; ultimos4?: string }) {
+  async cobrarTarjetaManual(cartId: string, d: { importe?: number; autorizacion?: string; marca?: string; ultimos4?: string }) {
     return this.finalizarCobro(this.caja.cobrarConTarjetaManual(cartId, d, this.actor.usuario));
   }
   private async finalizarCobro(venta: Venta, sinComprobanteDeCambio = false) {
