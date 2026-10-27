@@ -379,3 +379,7 @@ input[data-pin] { -webkit-text-security: disc; text-security: disc; }
 .btn-camara { flex: none; width: auto; min-width: 44px; padding: 6px 10px; }
 .buscador-piso:has(.btn-camara) { display: flex; gap: 8px; align-items: center; }
 .buscador-piso:has(.btn-camara) input { flex: 1; min-width: 0; }
+
+/* foto de una persona ampliada */
+#dlg-foto-grande { width: min(92vw, 520px); padding: 12px; text-align: center; }
+.foto-grande { width: 100%; max-height: 75vh; object-fit: contain; border-radius: 12px; display: block; cursor: zoom-out; }

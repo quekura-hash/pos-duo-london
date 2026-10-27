@@ -3881,13 +3881,25 @@ async function vistaFeria() {
   await montarInactividad();
 }
 
+// Toda foto de una persona (lista de personal, ficha, formulario) se amplía al tocarla.
+document.addEventListener('click', (ev) => {
+  const img = ev.target.closest?.('img[data-ampliar]');
+  if (!img) return;
+  ev.preventDefault(); ev.stopPropagation(); // no abre además la fila o la ficha que la contiene
+  const d = dialogo('dlg-foto-grande');
+  d.setAttribute('aria-label', 'Foto ampliada');
+  d.innerHTML = `<img src="${esc(img.getAttribute('src'))}" alt="${esc(img.getAttribute('alt') ?? 'Foto')}" class="foto-grande"><div class="filas" style="margin-top:10px"><button class="btn btn-primario" type="button" id="fg-cerrar">${ico('check')}<span>Cerrar</span></button></div>`;
+  $('#fg-cerrar').addEventListener('click', () => d.close());
+  d.addEventListener('click', (e) => { if (e.target === d || e.target.classList.contains('foto-grande')) d.close(); }); // tocar fuera o la propia foto la cierra
+  d.showModal();
+}, true);
 // ── Registro de empleadas: alias (el «Usuario»), datos completos y foto con la cámara de la PC ──
 /** Avatar de quien tiene la sesión en la barra azul: tan grande como cabe sin agrandar la barra (64 px menos su relleno = 48 px). Sin foto, su inicial. */
 const avatarBarra = (nombre, foto) => (foto
   ? `<img class="avatar-barra" src="${esc(foto)}" alt="Foto de ${esc(nombre)}">`
   : `<span class="avatar-barra avatar-inicial" aria-hidden="true">${esc(String(nombre ?? '?').trim().slice(0, 1).toUpperCase() || '?')}</span>`);
 const avatar = (x, tam = 44) => (x.perfil?.foto
-  ? `<img src="${esc(x.perfil.foto)}" alt="Foto de ${esc(x.nombre)}" style="width:${tam}px;height:${tam}px;border-radius:50%;object-fit:cover;flex:none">`
+  ? `<img data-ampliar src="${esc(x.perfil.foto)}" alt="Foto de ${esc(x.nombre)}" title="Ver la foto grande" style="width:${tam}px;height:${tam}px;border-radius:50%;object-fit:cover;flex:none;cursor:zoom-in">`
   : `<span aria-hidden="true" style="width:${tam}px;height:${tam}px;border-radius:50%;background:var(--superficie-2);display:inline-flex;align-items:center;justify-content:center;flex:none">${ico('user')}</span>`);
 const nombreCompleto = (x) => [x.perfil?.nombres, x.perfil?.apellidos].filter(Boolean).join(' ');
 const celdaPersona = (x) => `<div style="display:flex;gap:10px;align-items:center">${avatar(x)}<div><b data-alias>${esc(x.nombre)}</b><br><small data-nombre-completo>${nombreCompleto(x) ? esc(nombreCompleto(x)) : '<span class="nota">sin datos completos</span>'}</small>${x.perfil?.telefono ? `<br><small>${esc(x.perfil.telefono)}</small>` : ''}</div></div>`;
@@ -3903,7 +3915,7 @@ function perfilEnlazar(p, inicial) {
   let foto = v.foto ?? null;
   let cambio = false;
   const pintar = () => {
-    $(`#${p}-foto-img`).innerHTML = foto ? `<img id="${p}-foto" src="${esc(foto)}" alt="Foto tomada" style="width:56px;height:56px;border-radius:50%;object-fit:cover">` : '';
+    $(`#${p}-foto-img`).innerHTML = foto ? `<img data-ampliar id="${p}-foto" src="${esc(foto)}" alt="Foto tomada" title="Ver la foto grande" style="width:56px;height:56px;border-radius:50%;object-fit:cover;cursor:zoom-in">` : '';
     $(`#${p}-foto-btn span`).textContent = foto ? 'Cambiar foto' : 'Tomar foto';
   };
   pintar();
@@ -3913,7 +3925,7 @@ function perfilEnlazar(p, inicial) {
     completo: () => !!$(`#${p}-nombres`).value.trim() && !!$(`#${p}-apellidos`).value.trim(),
   };
 }
-/** Foto con la cámara de la PC; si no hay cámara o no se autoriza, se elige un archivo. Devuelve un JPEG de 240×240 (data URL) o null. */
+/** Foto con la cámara de la PC; si no hay cámara o no se autoriza, se elige un archivo. Devuelve un JPEG de 400×400 (data URL) o null. */
 function tomarFoto() {
   return new Promise((fin) => {
     const d = dialogo('dlg-foto');
@@ -3933,9 +3945,9 @@ function tomarFoto() {
     let resultado = null;
     const recortar = (fuente, ancho, alto) => {
       const c = document.createElement('canvas');
-      c.width = c.height = 240;
+      c.width = c.height = 400; // las fotos nuevas se guardan a 400×400 (unos 40-60 KB) para que se vean bien al ampliarlas
       const lado = Math.min(ancho, alto);
-      c.getContext('2d').drawImage(fuente, (ancho - lado) / 2, (alto - lado) / 2, lado, lado, 0, 0, 240, 240);
+      c.getContext('2d').drawImage(fuente, (ancho - lado) / 2, (alto - lado) / 2, lado, lado, 0, 0, 400, 400);
       return c.toDataURL('image/jpeg', 0.8);
     };
     const mostrar = (url) => { resultado = url; $('#foto-previa').src = url; $('#foto-previa').hidden = false; $('#foto-capturar').hidden = true; $('#foto-usar').hidden = false; $('#foto-repetir').hidden = false; };
@@ -4042,7 +4054,7 @@ function abrirExpediente(x, recargar) {
     d.innerHTML = `<div id="perfil-ficha" class="perfil">
       <button class="pf-candado btn" type="button" id="exp-cerrar" aria-label="Bloquear y cerrar" title="Bloquear y cerrar">${ico('lock')}</button>
       <div class="pf-cab">
-        ${pf.foto ? `<img class="pf-avatar" src="${esc(pf.foto)}" alt="Foto de ${esc(nombreCompleto)}">` : `<div class="pf-avatar pf-iniciales" aria-hidden="true">${esc(iniciales(nombreCompleto))}</div>`}
+        ${pf.foto ? `<img data-ampliar class="pf-avatar" src="${esc(pf.foto)}" alt="Foto de ${esc(nombreCompleto)}" title="Ver la foto grande" style="cursor:zoom-in">` : `<div class="pf-avatar pf-iniciales" aria-hidden="true">${esc(iniciales(nombreCompleto))}</div>`}
         <div class="pf-quien"><h2 id="exp-titulo" class="pf-nombre">${esc(nombreCompleto)}</h2><div class="pf-alias">@${esc(x.nombre)}</div>
           <div class="pf-chips"><span class="pf-chip ${j.cajero.activo ? 'ok' : 'baja'}">${j.cajero.activo ? 'Activa' : 'Inactiva'}</span><span class="pf-chip">${esc(NOM_TIENDA_TRAB[j.cajero.tienda ?? ''] ?? j.cajero.tienda)}</span><span class="pf-chip rec-${rec[0]}">${rec[1]}</span></div></div>
       </div>
