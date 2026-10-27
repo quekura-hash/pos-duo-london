@@ -43,16 +43,22 @@ it('LC1 los buscadores de artículos de Administración tienen un botón de cám
   assert.equal(await page.locator('.btn-camara').count(), 0, 'sin la librería de lectura no hay botón');
   await page.addScriptTag({ path: join(RAIZ, 'node_modules', '@zxing', 'library', 'umd', 'index.min.js') });
   await page.click('#nav button[data-vista="almacen"]');
-  await page.waitForSelector('#alm-q-m');
+  await page.waitForSelector('#alm-q-m', { state: 'attached' });
   await page.click('#nav button[data-vista="inventario"]');
   await page.waitForSelector('#inv-q + .btn-camara');
+  // el botón queda en la misma fila, pegado al borde del buscador (no como una caja aparte)
+  const caja = (await page.locator('#inv-q').boundingBox())!, boton = (await page.locator('#inv-q + .btn-camara').boundingBox())!;
+  assert.ok(boton.x >= caja.x + caja.width - 1 && Math.abs(boton.y - caja.y) < 8 && boton.height < 60, `botón junto al buscador: ${JSON.stringify({ caja, boton })}`);
+  // pitido de lector al leer: se cuentan los osciladores que arma el audio
+  await page.evaluate(() => { (window as any).__pitidos = 0; const A = window.AudioContext; const crear = A.prototype.createOscillator; A.prototype.createOscillator = function (this: AudioContext) { (window as any).__pitidos++; return crear.call(this); }; });
   // lectura: se abre la cámara, lee el código y lo escribe en el buscador
   await page.click('#inv-q + .btn-camara');
   await page.waitForSelector('#dlg-escaner[open]');
   await page.waitForFunction(() => (document.querySelector('#inv-q') as HTMLInputElement).value === '8342509102', undefined, { timeout: 20_000 });
   assert.equal(await page.locator('#dlg-escaner[open]').count(), 0, 'al leer, la cámara se cierra');
+  assert.ok((await page.evaluate(() => (window as any).__pitidos)) >= 1, 'al leer suena el pitido');
   // el buscador de Almacén también lo tiene
   await page.click('#nav button[data-vista="almacen"]');
-  await page.waitForSelector('#alm-q-m + .btn-camara, #alm-q + .btn-camara');
+  await page.waitForSelector('#alm-q-m + .btn-camara, #alm-q + .btn-camara', { state: 'attached' });
   assert.deepEqual(errores, []);
 });

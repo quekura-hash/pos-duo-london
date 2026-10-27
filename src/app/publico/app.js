@@ -4752,8 +4752,24 @@ async function iniciar() {
 }
 // ── Lector de códigos de barras con la cámara (solo Administración en el teléfono): un botón junto a cada buscador de artículos ──
 const camaraDisponible = () => !!(window.ZXing && navigator.mediaDevices?.getUserMedia);
+// Pitido corto de lector de código de barras (WebAudio: sin archivos). El audio se crea al tocar el botón de la cámara, que es el gesto que Safari exige.
+let audioEscaner = null;
+function pitidoEscaner() {
+  try {
+    const A = audioEscaner;
+    if (!A) return;
+    const t = A.currentTime;
+    for (const [i, f] of [[0, 2400], [0.09, 2400]]) {
+      const o = A.createOscillator(), g = A.createGain();
+      o.type = 'square'; o.frequency.value = f;
+      g.gain.setValueAtTime(0.0001, t + i); g.gain.exponentialRampToValueAtTime(0.25, t + i + 0.005); g.gain.exponentialRampToValueAtTime(0.0001, t + i + 0.07);
+      o.connect(g).connect(A.destination); o.start(t + i); o.stop(t + i + 0.08);
+    }
+  } catch { /* sin audio: queda la vibración */ }
+}
 function abrirEscaner(alLeer) {
   const Z = window.ZXing;
+  try { audioEscaner ??= new (window.AudioContext || window.webkitAudioContext)(); audioEscaner.resume?.(); } catch { audioEscaner = null; }
   const d = dialogo('dlg-escaner');
   d.setAttribute('aria-labelledby', 'esc-titulo');
   d.innerHTML = `<h2 id="esc-titulo" style="margin-top:0">Leer código con la cámara</h2>
@@ -4793,7 +4809,7 @@ function abrirEscaner(alLeer) {
         try {
           const res = lector.decode(new Z.BinaryBitmap(new Z.HybridBinarizer(new Z.HTMLCanvasElementLuminanceSource(lienzo))));
           const texto = String(res.getText()).trim();
-          if (texto) { navigator.vibrate?.(60); d.close(); alLeer(texto); return; }
+          if (texto) { pitidoEscaner(); navigator.vibrate?.(60); d.close(); alLeer(texto); return; }
         } catch { /* en este cuadro no hay un código legible: se intenta con el siguiente */ }
       }
       vuelta = setTimeout(paso, 150);
@@ -4809,7 +4825,11 @@ function ponerBotonesCamara() {
     b.type = 'button'; b.className = 'btn btn-camara'; b.setAttribute('aria-label', 'Leer el código con la cámara'); b.title = 'Leer el código de la etiqueta con la cámara';
     b.innerHTML = ico('camera');
     b.addEventListener('click', () => abrirEscaner((codigo) => { inp.value = codigo; inp.dispatchEvent(new Event('input', { bubbles: true })); }));
-    inp.insertAdjacentElement('afterend', b);
+    // el botón va pegado al borde del buscador: ambos dentro de una envoltura de una sola fila
+    const caja = document.createElement('span');
+    caja.className = 'con-camara';
+    inp.replaceWith(caja);
+    caja.append(inp, b);
   }
 }
 { let pendiente = false; new MutationObserver(() => { if (pendiente) return; pendiente = true; requestAnimationFrame(() => { pendiente = false; ponerBotonesCamara(); }); }).observe(document.body, { childList: true, subtree: true }); }

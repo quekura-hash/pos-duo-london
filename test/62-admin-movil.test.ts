@@ -103,7 +103,7 @@ describe('[iPhone] Administración en el teléfono', { timeout: 180_000, skip: c
     // Orden y filtros por campo: lo más nuevo primero; «Lote= 20261015» filtra por lote.
     const caja = await page.locator('#inv-q').boundingBox();
     assert.ok(caja!.height >= 40 && caja!.height <= 56, `el buscador mide ${caja!.height}px de alto (no debe crecer)`);
-    assert.ok(caja!.width >= 300, 'y ocupa todo el ancho');
+    assert.ok(caja!.width >= 220, `y ocupa el ancho (menos el botón de cámara): ${caja!.width}`);
     assert.equal(await page.inputValue('#inv-orden'), 'nuevo');
     assert.equal(await filas.first().locator('.fi-desc').textContent(), 'FALDA', 'más nuevo primero');
     await page.selectOption('#inv-orden', 'cara');
