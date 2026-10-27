@@ -1883,7 +1883,7 @@ async function vistaInventario() {
       </div>
       <p class="nota">La existencia es la que conoce el central (lo ya sincronizado). Las cantidades de prueba están marcadas como tales en los movimientos.</p>
       <h2>Todos los artículos</h2>
-      <div class="filas barra-busqueda-inv" style="align-items:center"><input id="inv-q" type="search" class="texto" placeholder="Buscar… (ej. Lote=202610)" value="${esc(S.inv.q)}" style="padding:6px 8px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie);min-width:320px" autocapitalize="none" autocorrect="off" spellcheck="false">
+      <div class="filas barra-busqueda-inv" style="align-items:center"><input id="inv-q" data-camara type="search" class="texto" placeholder="Buscar… (ej. Lote=202610)" value="${esc(S.inv.q)}" style="padding:6px 8px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie);min-width:320px" autocapitalize="none" autocorrect="off" spellcheck="false">
         <label class="orden-inv" for="inv-orden"><span>Ordenar por</span><select id="inv-orden" style="padding:6px 8px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie)">${ORDENES_INV.map(([v, t]) => `<option value="${v}" ${S.inv.orden === v ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
         <button class="btn btn-primario" id="inv-sel-modo" type="button" aria-pressed="false" style="width:auto">${ico('check')}<span>Seleccionar</span></button></div>
       <p class="nota" id="inv-nota">Toque un artículo para editarlo, ver su historial o crearle una promoción. Para filtrar por un campo escriba, por ejemplo, <b>Lote=202610</b>, <b>Lote=0</b> (sin lote), <b>Marca=levis</b>, <b>Estilo=123L</b>, <b>Depto=dama</b>, <b>Precio&gt;200</b> o <b>Limbo&gt;0</b> (con piezas en El Limbo); se pueden combinar con palabras. Con <b>Seleccionar</b> puede marcar varios artículos y darles su ubicación real.</p>
@@ -3150,12 +3150,12 @@ async function vistaAlmacen() {
   S.alm = { ...(S.alm ?? { q: '', solo: true }), tiendas: j.tiendas, items: j.items, hoy: j.hoy };
   pintarAvisoPiso(j.avisos, j.aviso_faltantes);
   $('#vista').innerHTML = `<div class="titulo-vista">${ico('warehouse')}<h1>Almacén</h1></div>
-    <div class="solo-movil buscador-piso"><input id="alm-q-m" type="search" inputmode="search" enterkeyhint="search" autocomplete="off" autocapitalize="off" placeholder="Estilo, código o texto (ej. 123L)" aria-label="Buscar en el almacén" value="${esc(S.alm.q)}"></div>
+    <div class="solo-movil buscador-piso"><input id="alm-q-m" data-camara type="search" inputmode="search" enterkeyhint="search" autocomplete="off" autocapitalize="off" placeholder="Estilo, código o texto (ej. 123L)" aria-label="Buscar en el almacén" value="${esc(S.alm.q)}"></div>
     <section class="panel" id="panel-alm-acciones"><div class="filas" style="align-items:center">
       <button class="btn btn-primario" id="btn-alta-lote" type="button" style="width:auto">${ico('upload')}<span>Alta Lote de inventario</span></button>
       <button class="btn" id="btn-alta-manual" type="button">${ico('plus')}<span>Alta manual</span></button>
       <button class="btn" id="btn-reporte-entregas" type="button">${ico('chart')}<span>Reporte de entregas</span></button>
-      <label class="solo-escritorio" style="margin-left:auto">${ico('search')} <input class="texto" id="alm-q" placeholder="Buscar por código, Item #, texto…" value="${esc(S.alm.q)}" style="padding:6px 8px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie)"></label>
+      <label class="solo-escritorio" style="margin-left:auto">${ico('search')} <input class="texto" id="alm-q" data-camara placeholder="Buscar por código, Item #, texto…" value="${esc(S.alm.q)}" style="padding:6px 8px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie)"></label>
       <label><input type="checkbox" id="alm-solo" ${S.alm.solo ? 'checked' : ''}> Solo con piezas en el almacén o por confirmar</label></div>
       <p class="nota solo-escritorio">Las piezas llegan aquí sin etiquetar y sin existencia en tienda. Confirme las etiquetas, anote cuántas va a cada tienda y entregue: la tienda confirma la recepción al escanear el artículo por primera vez.</p>
       <div id="msg-alm" class="mensaje" role="status" aria-live="polite"></div></section>
@@ -3568,7 +3568,7 @@ async function abrirPromo(p, preset) {
         <div class="filas" data-tipo="paquete"><div class="campo" style="flex:1"><label for="pr-lleva2">Lleva (piezas)</label><input id="pr-lleva2" type="number" min="2" class="texto" value="${q.lleva ?? 4}"></div><div class="campo" style="flex:1"><label for="pr-precio">Paga en total ($)</label><input id="pr-precio" class="texto" inputmode="decimal" value="${centavosAPesos(q.precio ?? 18500)}"></div></div>
         <p class="nota" data-tipo="nxm">De cada grupo, las piezas más baratas salen gratis. Este tipo necesita al menos un artículo elegido (o un departamento o palabras de la descripción).</p>
         <p class="nota" data-tipo="paquete">Cada grupo completo se cobra al precio del paquete; 5 piezas de un paquete de 4 son un paquete más una suelta a precio normal. Este tipo necesita elegir uno o varios artículos.</p>
-        <div class="campo"><label for="pr-buscar">Artículos de la promoción: busque por código, Item #, descripción o marca</label><input id="pr-buscar" class="texto" placeholder="Ej. accesorio popular"></div>
+        <div class="campo"><label for="pr-buscar">Artículos de la promoción: busque por código, Item #, descripción o marca</label><input id="pr-buscar" data-camara class="texto" placeholder="Ej. accesorio popular"></div>
         <div id="pr-resultados" class="tabla-cont" style="max-height:20vh;overflow:auto"></div>
         <div id="pr-items" class="filas" style="gap:6px;margin:6px 0"></div>
         <details><summary>También por departamento o palabras de la descripción</summary>
@@ -4628,6 +4628,69 @@ async function iniciar() {
   if (S.sesion.requiere_login && !S.sesion.autenticado) return pintarLogin();
   await ir(S.sesion.nav[0]);
 }
+// ── Lector de códigos de barras con la cámara (solo Administración en el teléfono): un botón junto a cada buscador de artículos ──
+const camaraDisponible = () => !!(window.ZXing && navigator.mediaDevices?.getUserMedia);
+function abrirEscaner(alLeer) {
+  const Z = window.ZXing;
+  const d = dialogo('dlg-escaner');
+  d.setAttribute('aria-labelledby', 'esc-titulo');
+  d.innerHTML = `<h2 id="esc-titulo" style="margin-top:0">Leer código con la cámara</h2>
+    <div class="escaner-visor"><video id="esc-video" autoplay playsinline muted></video><div class="escaner-marco" aria-hidden="true"></div></div>
+    <p id="esc-msg" class="nota" role="status" aria-live="polite">Apunte la cámara al código de barras de la etiqueta, con buena luz y sin acercarla demasiado.</p>
+    <div class="filas"><button class="btn" type="button" id="esc-cancelar">${ico('x')}<span>Cancelar</span></button></div>`;
+  let flujo = null, listo = false, pista = 0, vuelta = 0;
+  const parar = () => { listo = true; clearTimeout(pista); clearTimeout(vuelta); flujo?.getTracks().forEach((t) => t.stop()); flujo = null; };
+  d.addEventListener('close', parar, { once: true });
+  $('#esc-cancelar').addEventListener('click', () => d.close());
+  d.showModal();
+  const falla = (e) => {
+    const nombre = e?.name ?? '';
+    $('#esc-msg').className = 'mensaje error';
+    $('#esc-msg').textContent = nombre === 'NotAllowedError' || nombre === 'SecurityError'
+      ? 'No hay permiso para usar la cámara. En el iPhone: Ajustes › Safari › Cámara (o la de esta app) y elija «Preguntar» o «Permitir». Luego vuelva a intentar.'
+      : nombre === 'NotFoundError' || nombre === 'OverconstrainedError' ? 'Este equipo no tiene una cámara disponible.' : `No se pudo abrir la cámara${e?.message ? `: ${e.message}` : ''}.`;
+  };
+  const B = Z.BarcodeFormat;
+  const lector = new Z.MultiFormatReader();
+  lector.setHints(new Map([[Z.DecodeHintType.POSSIBLE_FORMATS, [B.CODE_128, B.EAN_13, B.EAN_8, B.UPC_E, B.CODE_39, B.ITF, B.QR_CODE]], [Z.DecodeHintType.TRY_HARDER, true]]));
+  navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false }).then(async (st) => {
+    if (listo) { st.getTracks().forEach((t) => t.stop()); return; }
+    flujo = st;
+    const video = $('#esc-video');
+    video.srcObject = st;
+    await video.play().catch(() => {});
+    const lienzo = document.createElement('canvas');
+    const g = lienzo.getContext('2d', { willReadFrequently: true });
+    pista = setTimeout(() => { if (!listo) $('#esc-msg').textContent = 'Si no lee: acerque o aleje un poco la etiqueta, busque más luz y mantenga el teléfono quieto.'; }, 8000);
+    // Cada ~150 ms se toma un cuadro del video y se busca un código en él (la lectura es local: nada sale del teléfono).
+    const paso = () => {
+      if (listo) return;
+      if (video.videoWidth) {
+        lienzo.width = video.videoWidth; lienzo.height = video.videoHeight;
+        g.drawImage(video, 0, 0);
+        try {
+          const res = lector.decode(new Z.BinaryBitmap(new Z.HybridBinarizer(new Z.HTMLCanvasElementLuminanceSource(lienzo))));
+          const texto = String(res.getText()).trim();
+          if (texto) { navigator.vibrate?.(60); d.close(); alLeer(texto); return; }
+        } catch { /* en este cuadro no hay un código legible: se intenta con el siguiente */ }
+      }
+      vuelta = setTimeout(paso, 150);
+    };
+    paso();
+  }).catch(falla);
+}
+function ponerBotonesCamara() {
+  if (!camaraDisponible()) return;
+  for (const inp of document.querySelectorAll('input[data-camara]:not([data-camara-lista])')) {
+    inp.dataset.camaraLista = '1';
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'btn btn-camara'; b.setAttribute('aria-label', 'Leer el código con la cámara'); b.title = 'Leer el código de la etiqueta con la cámara';
+    b.innerHTML = ico('camera');
+    b.addEventListener('click', () => abrirEscaner((codigo) => { inp.value = codigo; inp.dispatchEvent(new Event('input', { bubbles: true })); }));
+    inp.insertAdjacentElement('afterend', b);
+  }
+}
+{ let pendiente = false; new MutationObserver(() => { if (pendiente) return; pendiente = true; requestAnimationFrame(() => { pendiente = false; ponerBotonesCamara(); }); }).observe(document.body, { childList: true, subtree: true }); }
 window.POS_UI = { iniciar, ir };
 // ── cierre por inactividad: la pantalla avisa que la persona sigue ahí (latido) y muestra el aviso antes de que se cierre la sesión ──
 let actividadPendiente = false;

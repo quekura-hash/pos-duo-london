@@ -21,6 +21,7 @@ const r = await build({
 });
 const seguro = (t) => t.replace(/<\/script/gi, '<\\/script');
 const bundle = seguro(r.outputFiles[0].text);
+const zxing = seguro(readFileSync(join(raiz, 'node_modules/@zxing/library/umd/index.min.js'), 'utf8')); // lector de códigos de barras con la cámara (ZXing, licencia MIT)
 const exceljs = seguro(readFileSync(join(raiz, 'node_modules/exceljs/dist/exceljs.min.js'), 'utf8'));
 const logo = (n) => 'data:image/png;base64,' + readFileSync(join(raiz, 'src/app/publico', n)).toString('base64');
 const logos = JSON.stringify({ DUO: logo('logo-duo.png'), LON: logo('logo-london.png') });
@@ -93,6 +94,9 @@ ${marcado}
 <script>window.__POS_MANUAL__ = true; window.__POS_VERSION__ = ${JSON.stringify(VERSION)}; window.__POS_CENTRAL__ = ${JSON.stringify(CENTRAL)}; window.__POS_LOGOS__ = ${logos}; window.__POS_LOGOS_TICKET__ = ${logosTicket};</script>
 <script>
 ${qr}
+</script>
+<script>
+${zxing}
 </script>
 <script>
 ${movilJs}
