@@ -18,7 +18,7 @@ export function detectar(ops: Op[]): Incidencia[] {
   const porFolio = new Map<string, Set<string>>();
   for (const o of ops) {
     // Ventas y devoluciones comparten la serie de folios de la caja (P-08).
-    if ((o.tipo !== 'sale.confirmed' && o.tipo !== 'return.registered') || o.payload.folio == null) continue;
+    if ((o.tipo !== 'sale.confirmed' && o.tipo !== 'return.registered') || o.payload.folio == null || o.payload.serie) continue; // las compras a crédito de empleada (serie CR) llevan su propia numeración
     const k = `${o.payload.tienda}/${o.payload.caja}#${o.payload.folio}`;
     (porFolio.get(k) ?? porFolio.set(k, new Set()).get(k)!).add(o.payload.sale_id && o.tipo === 'sale.confirmed' ? o.payload.sale_id : o.payload.devolucion_id);
   }
@@ -27,7 +27,7 @@ export function detectar(ops: Op[]): Incidencia[] {
   // huecos de folio no explicados por un folio.gap documentado
   const series = new Map<string, number[]>();
   for (const o of ops) {
-    if ((o.tipo !== 'sale.confirmed' && o.tipo !== 'return.registered') || o.payload.folio == null) continue;
+    if ((o.tipo !== 'sale.confirmed' && o.tipo !== 'return.registered') || o.payload.folio == null || o.payload.serie) continue; // las compras a crédito de empleada (serie CR) llevan su propia numeración
     const k = `${o.payload.tienda}/${o.payload.caja}`;
     (series.get(k) ?? series.set(k, []).get(k)!).push(o.payload.folio);
   }

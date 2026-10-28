@@ -12,6 +12,9 @@ export interface DetalleVenta {
   tienda: string;
   caja: number;
   folio: number;
+  serie?: 'CR';
+  /** Solo compra a crédito de empleada: cuenta al cobrar (límite, saldo, disponible, últimos abonos). */
+  credito?: { limite: number; saldo: number; disponible: number; abonos: { fecha: string; monto: number }[] };
   ocurrio_en: string;
   fecha_local: string;
   /** HH:MM, hora de Hermosillo. */
@@ -48,7 +51,7 @@ export function detalleDeVenta(ops: Op[], saleId: string): DetalleVenta | null {
   }));
   const conTarjetaRegalo = lineas.some((l) => l.tarjeta_regalo);
   return {
-    sale_id: v.sale_id, tienda: v.tienda, caja: v.caja, folio: v.folio, ocurrio_en: v.ocurrio_en, fecha_local: fechaLocal(v.ocurrio_en), hora: hora(v.ocurrio_en),
+    sale_id: v.sale_id, tienda: v.tienda, caja: v.caja, folio: v.folio, ...(v.serie ? { serie: v.serie } : {}), ...(v.credito ? { credito: v.credito } : {}), ocurrio_en: v.ocurrio_en, fecha_local: fechaLocal(v.ocurrio_en), hora: hora(v.ocurrio_en),
     cajero: v.cajero, vendedora: v.vendedora ?? '', estado: v.estado, total: v.total, lineas, pagos: v.pagos,
     cancelacion: canc
       ? { ocurrio_en: canc.ocurrio_en, motivo: String(canc.payload.motivo ?? ''), cancelo: String(canc.payload.cancelo ?? ''), autorizado_por: canc.payload.autorizado_por ?? null, clienta: canc.payload.clienta ?? null }

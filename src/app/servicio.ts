@@ -33,7 +33,7 @@ export type ActorCajero = Extract<Actor, { rol: 'cajero' }>;
 
 export interface VistaCarrito {
   /** Venta a empleada: quién es, los porcentajes que se aplican y cuánto crédito le queda (para mostrar). */
-  empleada?: { id: string; nombre: string; pct: number; pct_uniforme: number; credito_disponible: number } | null;
+  empleada?: { id: string; nombre: string; pct: number; pct_uniforme: number; credito_disponible: number; credito_limite: number; credito_saldo: number; abonos_recientes: { fecha: string; monto: number }[] } | null;
   /** Cliente VIP de la venta (su descuento compite con las promociones). */
   vip?: { id: string; nombre: string; pct: number } | null;
   id: string;
@@ -356,7 +356,7 @@ export class ServicioCaja {
     this.exigirVentaReciente(saleId);
     const d = detalleDeVenta(this.caja.opsDe('sale.confirmed', 'sale.cancelled', 'return.registered'), saleId);
     if (!d || d.tienda !== this.caja.tienda || d.caja !== this.caja.caja) throw new ErrorDominio('PROHIBIDO', 'solo se consultan ventas de la propia caja');
-    return { detalle: { ...d, codigo_ticket: codigoTicket(d.tienda, d.caja, d.folio) }, ticket_texto: this.ticketTexto(saleId) };
+    return { detalle: { ...d, codigo_ticket: codigoTicket(d.tienda, d.caja, d.folio, undefined, d.serie) }, ticket_texto: this.ticketTexto(saleId) };
   }
   /** Quién puede autorizar una cancelación o una devolución (otro cajero o un supervisor) y si hace falta pedir la clave. */
   autorizadores() {
@@ -416,7 +416,7 @@ export class ServicioCaja {
         return { sale_id: c.cambio.sale_id, folio_origen: c.cambio.folio_origen, credito: c.cambio.credito, aplicado: Math.min(c.cambio.credito, bruto), saldo_favor: Math.max(0, c.cambio.credito - bruto), lineas: c.cambio.lineas };
       })() : null,
       vendedora: c.vendedora ?? null,
-      empleada: c.empleada ? { ...c.empleada, ...this.caja.configEmpleadas(), credito_disponible: this.caja.cuentaEmpleada(c.empleada.id).disponible } : null,
+      empleada: c.empleada ? { ...c.empleada, ...this.caja.configEmpleadas(), credito_disponible: this.caja.cuentaEmpleada(c.empleada.id).disponible, credito_limite: this.caja.cuentaEmpleada(c.empleada.id).limite, credito_saldo: this.caja.cuentaEmpleada(c.empleada.id).saldo, abonos_recientes: this.caja.abonosRecientes(c.empleada.id, 5) } : null,
       vip: c.vip ? { id: c.vip.id, nombre: c.vip.nombre, pct: c.vip.pct } : null,
       promos: c.descuentos?.aplicadas ?? [], cupon: c.descuentos?.cupon ?? null,
       tasa: c.tasa ? { version: c.tasa.version, tasa: c.tasa.tasa, texto: formatoTasa(c.tasa.tasa), hay_nueva: (this.caja.tipoCambio()?.version ?? 0) > c.tasa.version } : null,
@@ -632,7 +632,7 @@ export class ServicioCaja {
    */
   buscarVentas(q: { fecha?: string; desde?: string; hasta?: string; item_id?: string; codigo?: string; folio?: number | string }) {
     // El folio se acepta como lo imprime el ticket (D2-000003) o suelto (3, 000003).
-    let folio: number | undefined, cajaBuscada: number | undefined;
+    let folio: number | undefined, cajaBuscada: number | undefined, serieBuscada: 'CR' | undefined;
     if (q.folio !== undefined && q.folio !== null && String(q.folio).trim() !== '') {
       const f = interpretarFolio(q.folio, this.negociosVivos());
       if (!f) throw new ErrorDominio('DATOS_INVALIDOS', 'el folio no es válido: escriba el número o el código del ticket (por ejemplo D2-000003)');
@@ -640,7 +640,7 @@ export class ServicioCaja {
         const n = this.negociosVivos()[f.tienda]?.nombre ?? f.tienda;
         return { hub: true, articulo: null, aviso: `Ese ticket es de ${n}, Caja ${f.caja}. Realice la operación en esa tienda y caja.`, resultados: [] as never[] };
       }
-      folio = f.folio; cajaBuscada = f.caja;
+      folio = f.folio; cajaBuscada = f.caja; serieBuscada = f.serie;
     }
     // Un día a la vez y dentro de los últimos 2 meses. Un folio o un artículo escaneado es una búsqueda puntual (no un listado por periodo): solo devuelve lo reciente.
     if (q.fecha) this.exigirFechaReciente(q.fecha);
@@ -655,7 +655,7 @@ export class ServicioCaja {
     const aUtc = (hhmm: string) => new Date(Date.parse(`${q.fecha}T${hhmm}:00Z`) + 7 * 3600_000).toISOString();
     const desde = q.fecha ? aUtc(q.desde || '00:00') : undefined;
     const hasta = q.fecha ? aUtc(q.hasta || '23:59').replace(':00.000Z', ':59.999Z') : undefined;
-    const r = this.caja.buscarVentas({ desde, hasta, item_id, folio });
+    const r = this.caja.buscarVentas({ desde, hasta, item_id, folio, serie: serieBuscada });
     if (cajaBuscada !== undefined) r.resultados = r.resultados.filter((v) => v.caja === cajaBuscada);
     const limite = this.limiteHistorial();
     r.resultados = r.resultados.filter((v) => fechaLocal(v.ocurrio_en) >= limite);
@@ -663,7 +663,7 @@ export class ServicioCaja {
     return {
       hub: r.hub, aviso: null as string | null, articulo: art ? { descripcion: art.descripcion, marca: art.marca, item_no: art.item_no } : null,
       resultados: r.resultados.map((v) => ({
-        sale_id: v.sale_id, caja: v.caja, folio: v.folio, propia: v.propia, codigo_ticket: codigoTicket(v.tienda, v.caja, v.folio, this.negociosVivos()),
+        sale_id: v.sale_id, caja: v.caja, folio: v.folio, ...(v.serie ? { serie: v.serie } : {}), propia: v.propia, codigo_ticket: codigoTicket(v.tienda, v.caja, v.folio, this.negociosVivos(), v.serie),
         ocurrio_en: v.ocurrio_en, total: v.total ?? null,
         lineas: (v.lineas_detalle ?? v.lineas).map((l: any) => ({ linea_id: l.linea_id, item_id: l.item_id, descripcion: l.descripcion, qty: l.qty, devuelto: l.devuelto ?? null, importe: l.importe ?? null, marca: l.marca ?? null, item_no: l.item_no ?? null, codigo: l.codigo ?? null, tarjeta_regalo: !!l.tarjeta_regalo })),
       })),
@@ -811,7 +811,7 @@ export class ServicioCaja {
   ventasDelDia(fecha: string) {
     this.exigirFechaReciente(fecha);
     return ventasPorCaja(this.actor, this.caja.opsVentas(), { desde: fecha, hasta: fecha }).map((r) => ({
-      ...r, codigo_ticket: codigoTicket(r.tienda, r.caja, r.folio, this.negociosVivos()), impresiones: this.caja.impresionesDe(r.sale_id).length,
+      ...r, codigo_ticket: codigoTicket(r.tienda, r.caja, r.folio, this.negociosVivos(), r.serie), impresiones: this.caja.impresionesDe(r.sale_id).length,
       ultima_impresion: this.caja.impresionesDe(r.sale_id).at(-1)?.resultado ?? null,
     }));
   }
@@ -1247,7 +1247,10 @@ export class ServicioAdmin {
   }
   empleadaMovimientos(id: string) {
     const c = cuentasEmpleadas(this.fuente()).get(id);
-    return { id, movimientos: c?.movimientos ?? [], saldo: c?.saldo ?? 0 };
+    // Del más antiguo al más reciente se va llevando el saldo; se entrega del más reciente al más antiguo, cada movimiento con el saldo en que dejó la cuenta.
+    let saldo = 0;
+    const conSaldo = [...(c?.movimientos ?? [])].reverse().map((m) => { saldo += ['cargo', 'ajuste_cargo'].includes(m.tipo) ? m.monto : -m.monto; return { ...m, saldo_despues: saldo }; }).reverse();
+    return { id, movimientos: conSaldo, saldo: c?.saldo ?? 0, limite: c?.limite ?? 0, disponible: c?.disponible ?? 0, abonado: (c?.abonos ?? 0) + (c?.ajustes_abono ?? 0) };
   }
   /** Para la nómina: por empleada, lo cargado a crédito (menos devoluciones) y lo abonado en el periodo, y su saldo actual. */
   nominaEmpleadas(desde?: string, hasta?: string) {
@@ -1767,8 +1770,9 @@ export class ServicioAdmin {
     if (texto !== undefined && texto !== '' && !buscado) throw new ErrorDominio('DATOS_INVALIDOS', 'el folio no es válido: escriba el número o el código del ticket (por ejemplo D2-000003)');
     const filas = this.reporte({ ...filtro, historicas: origen !== 'nuevo' }).filas
       .filter((r) => (origen === 'anterior' ? r.historico : true))
-      .filter((r) => !buscado || (r.folio === buscado.folio && (!buscado.tienda || (!r.historico && r.tienda === buscado.tienda)) && (buscado.caja === undefined || r.caja === buscado.caja)))
-      .map((r) => ({ ...r, codigo_ticket: r.historico ? null : codigoTicket(r.tienda, r.caja, r.folio) }));
+      
+      .filter((r) => !buscado || (r.folio === buscado.folio && (buscado.serie === 'CR') === !!r.serie && (!buscado.tienda || (!r.historico && r.tienda === buscado.tienda)) && (buscado.caja === undefined || r.caja === buscado.caja)))
+      .map((r) => ({ ...r, codigo_ticket: r.historico ? null : codigoTicket(r.tienda, r.caja, r.folio, undefined, r.serie) }));
     const ordenadas = [...filas].sort((a, b) => `${b.fecha_local} ${b.hora}`.localeCompare(`${a.fecha_local} ${a.hora}`) || b.folio - a.folio);
     // Los retiros de efectivo del mismo periodo y cajas (no se filtran por folio ni por origen: no son ventas).
     const retiros = buscado || origen === 'anterior' ? [] : retirosPorCaja(this.actor, this.fuente(), filtro);
@@ -1840,7 +1844,7 @@ export class ServicioAdmin {
     const negocios = Object.fromEntries(Object.entries(NEGOCIOS).map(([t, c]) => [t, aplicarDatosTienda(c, datos.get(t))])) as Record<string, NegocioCfg>;
     const v = ventas(ops).get(saleId)!;
     const cfg = negocios[v.tienda];
-    return { detalle: { ...d, codigo_ticket: codigoTicket(d.tienda, d.caja, d.folio) }, ticket_texto: cfg ? renderTicketTexto(construirTicket(v, cfg, 0, negocios, cambioDeVenta(ops, v))) : '' };
+    return { detalle: { ...d, codigo_ticket: codigoTicket(d.tienda, d.caja, d.folio, undefined, d.serie) }, ticket_texto: cfg ? renderTicketTexto(construirTicket(v, cfg, 0, negocios, cambioDeVenta(ops, v))) : '' };
   }
   /** Ventas por vendedora con su nombre completo (el alias es lo que se ve en caja; aquí también nombres y apellidos). */
   reporteVendedoras(f: Filtro = {}) {

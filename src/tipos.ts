@@ -84,6 +84,10 @@ export interface Venta {
   tienda: string;
   caja: number;
   folio: number;
+  /** `CR`: compra a crédito de una empleada. Lleva su propia serie de folios (por caja), aparte de la de ventas: ese dinero nunca entra a la caja. */
+  serie?: 'CR';
+  /** Solo en una compra a crédito: cómo quedó la cuenta de la empleada al cobrar (límite, saldo, disponible y sus últimos abonos). No cambia al reimprimir. */
+  credito?: { limite: number; saldo: number; disponible: number; abonos: { fecha: string; monto: number }[] };
   cajero: string;
   ocurrio_en: string;
   lineas: Linea[];

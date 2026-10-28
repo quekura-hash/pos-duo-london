@@ -21,6 +21,8 @@ export interface FilaVenta {
   tienda: string;
   caja: number;
   folio: number; // folio ORIGINAL de la serie: nunca se renumera
+  /** `CR`: compra a crédito de empleada (serie propia de folios). */
+  serie?: 'CR';
   sale_id: string;
   fecha_local: string;
   cajero: string;
@@ -112,7 +114,7 @@ export function ventasPorCaja(actor: Actor, ops: Op[], f: Filtro = {}): FilaVent
     if (f.tiendas && !f.tiendas.includes(v.tienda)) continue;
     if (!enPeriodo(v.ocurrio_en, f)) continue;
     filas.push({
-      tienda: v.tienda, caja: v.caja, folio: v.folio, sale_id: v.sale_id,
+      tienda: v.tienda, caja: v.caja, folio: v.folio, ...(v.serie ? { serie: v.serie } : {}), sale_id: v.sale_id,
       fecha_local: fechaLocal(v.ocurrio_en), cajero: v.cajero, vendedora: v.vendedora === undefined ? '' : v.vendedora_id ? v.vendedora : 'Autocompra', total: v.total, total_mercancia: v.lineas.filter((l) => !l.tarjeta_regalo).reduce((a, l) => a + l.importe, 0), estado: v.estado,
       piezas: v.lineas.filter((l) => !l.tarjeta_regalo).reduce((a, l) => a + l.qty, 0), pago: etiquetaPago((v.pagos ?? []).map((x: { metodo: string }) => x.metodo)), tipo_ticket: 'venta', historico: false,
       hora: new Date(Date.parse(v.ocurrio_en) - 7 * 3600_000).toISOString().slice(11, 16),
@@ -134,7 +136,7 @@ export function ventasPorCaja(actor: Actor, ops: Op[], f: Filtro = {}): FilaVent
     }
   }
   // Orden estable por serie y folio: se ordena, pero nunca se asigna un número nuevo.
-  return filas.sort((a, b) => a.tienda.localeCompare(b.tienda) || a.caja - b.caja || Number(a.historico) - Number(b.historico) || a.folio - b.folio);
+  return filas.sort((a, b) => a.tienda.localeCompare(b.tienda) || a.caja - b.caja || Number(a.historico) - Number(b.historico) || Number(!!a.serie) - Number(!!b.serie) || a.folio - b.folio);
 }
 
 export interface Consolidado {
@@ -219,7 +221,7 @@ export function cortesPorCaja(actor: Actor, ops: Op[], f: Filtro = {}): FilaCort
 /** Filas listas para Excel: códigos/lotes como texto, importes como texto decimal exacto. */
 export function aFilasExportables(filas: FilaVenta[]) {
   return filas.map((r) => ({
-    Tienda: r.tienda, Caja: r.caja, Folio: r.folio, Fecha: r.fecha_local,
+    Tienda: r.tienda, Caja: r.caja, Folio: r.serie ? `CR-${String(r.folio).padStart(6, '0')}` : r.folio, Fecha: r.fecha_local,
     'Vendedora-Cajera': r.cajero, 'Total MXN': aMXN(r.total), Estado: r.estado,
   }));
 }
@@ -230,6 +232,8 @@ export interface BusquedaVentas {
   hasta?: string;
   item_id?: string;
   folio?: number;
+  /** Con un folio: `CR` busca solo compras a crédito de empleada; sin serie, solo ventas. */
+  serie?: 'CR';
 }
 /** Lo que se muestra de una venta de OTRA caja para localizarla: nunca importes, pagos ni cajero. */
 export interface VentaLocalizada {
@@ -237,6 +241,7 @@ export interface VentaLocalizada {
   tienda: string;
   caja: number;
   folio: number;
+  serie?: 'CR';
   ocurrio_en: string;
   lineas: { linea_id: string; item_id: string; descripcion: string; qty: number }[];
 }
@@ -247,10 +252,10 @@ export function localizarVentas(ops: Op[], tienda: string, q: BusquedaVentas): V
     if (v.tienda !== tienda || v.estado !== 'confirmada') continue;
     if (q.desde && v.ocurrio_en < q.desde) continue;
     if (q.hasta && v.ocurrio_en > q.hasta) continue;
-    if (q.folio != null && v.folio !== q.folio) continue;
+    if (q.folio != null && (v.folio !== q.folio || (q.serie === 'CR') !== !!v.serie)) continue;
     if (q.item_id && !v.lineas.some((l) => l.item_id === q.item_id)) continue;
     out.push({
-      sale_id: v.sale_id, tienda: v.tienda, caja: v.caja, folio: v.folio, ocurrio_en: v.ocurrio_en,
+      sale_id: v.sale_id, tienda: v.tienda, caja: v.caja, folio: v.folio, ...(v.serie ? { serie: v.serie } : {}), ocurrio_en: v.ocurrio_en,
       lineas: v.lineas.map((l) => ({ linea_id: l.linea_id, item_id: l.item_id, descripcion: l.descripcion, qty: l.qty })),
     });
   }

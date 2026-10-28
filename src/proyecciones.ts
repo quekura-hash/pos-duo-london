@@ -74,7 +74,7 @@ export function ventas(ops: Op[]): Map<string, Venta> {
     if (o.tipo === 'sale.confirmed') {
       const p = o.payload;
       m.set(p.sale_id, {
-        sale_id: p.sale_id, tienda: p.tienda, caja: p.caja, folio: p.folio, cajero: p.cajero,
+        sale_id: p.sale_id, tienda: p.tienda, caja: p.caja, folio: p.folio, ...(p.serie ? { serie: p.serie } : {}), ...(p.credito ? { credito: p.credito } : {}), cajero: p.cajero,
         ocurrio_en: o.ocurrio_en, lineas: p.lineas, total: p.total, pagos: p.pagos, estado: 'confirmada',
         ...(p.vendedora !== undefined ? { vendedora_id: p.vendedora_id ?? null, vendedora: p.vendedora } : {}),
         ...(p.recompensas?.length ? { recompensas: p.recompensas } : {}),
@@ -553,6 +553,8 @@ export interface MovimientoEmpleada {
   detalle: string;
   tienda?: string;
   folio?: number;
+  /** `CR` si el cargo es una compra a crédito (serie propia de folios). */
+  serie?: 'CR';
   sale_id?: string;
   por?: string;
   periodo?: string;
@@ -589,7 +591,7 @@ export function cuentasEmpleadas(ops: Op[]): Map<string, CuentaEmpleada> {
       if (p.metodo !== 'credito_empleada' || !p.empleada_id) continue;
       const c = de(p.empleada_id);
       c.cargos += p.monto;
-      c.movimientos.push({ ocurrio_en: v.ocurrio_en, fecha: fechaLocal(v.ocurrio_en), tipo: 'cargo', monto: p.monto, detalle: `Venta a crédito ${v.tienda}-${v.caja} folio ${String(v.folio).padStart(6, '0')}`, tienda: v.tienda, folio: v.folio, sale_id: v.sale_id });
+      c.movimientos.push({ ocurrio_en: v.ocurrio_en, fecha: fechaLocal(v.ocurrio_en), tipo: 'cargo', monto: p.monto, detalle: `Compra a crédito folio ${v.serie ? 'CR-' : ''}${String(v.folio).padStart(6, '0')} · ${v.tienda} caja ${v.caja}`, tienda: v.tienda, folio: v.folio, ...(v.serie ? { serie: v.serie } : {}), sale_id: v.sale_id });
     }
   }
   for (const d of devoluciones(ops)) {
@@ -600,7 +602,7 @@ export function cuentasEmpleadas(ops: Op[]): Map<string, CuentaEmpleada> {
     if (monto <= 0) continue;
     const c = de(pago.empleada_id!);
     c.devoluciones += monto;
-    c.movimientos.push({ ocurrio_en: d.ocurrio_en, fecha: fechaLocal(d.ocurrio_en), tipo: 'devolucion', monto, detalle: `Devolución de la venta folio ${String(v.folio).padStart(6, '0')}`, tienda: v.tienda, folio: v.folio, sale_id: v.sale_id });
+    c.movimientos.push({ ocurrio_en: d.ocurrio_en, fecha: fechaLocal(d.ocurrio_en), tipo: 'devolucion', monto, detalle: `Devolución de la compra a crédito ${v.serie ? 'CR-' : ''}${String(v.folio).padStart(6, '0')}`, tienda: v.tienda, folio: v.folio, ...(v.serie ? { serie: v.serie } : {}), sale_id: v.sale_id });
   }
   for (const o of ops) {
     if (o.tipo !== 'empleada.movimiento') continue;

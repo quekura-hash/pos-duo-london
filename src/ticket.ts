@@ -52,31 +52,35 @@ export const NEGOCIOS: Record<string, NegocioCfg> = {
 };
 
 /** Código que identifica la venta sin ambigüedad entre las cuatro series: tienda + caja + folio. */
-export function codigoTicket(tienda: string, caja: number, folio: number, negocios = NEGOCIOS): string {
+export function codigoTicket(tienda: string, caja: number, folio: number, negocios = NEGOCIOS, serie?: 'CR'): string {
   const letra = negocios[tienda]?.letra;
   if (!letra) throw new Error(`tienda sin letra de ticket: ${tienda}`);
-  return `${letra}${caja}-${String(folio).padStart(6, '0')}`;
+  return `${serie ? 'CR-' : ''}${letra}${caja}-${String(folio).padStart(6, '0')}`;
 }
+/** Folio tal como se imprime: ventas `000123`; compras a crédito de empleada `CR-000123` (serie aparte). */
+export const folioImpreso = (folio: number | null | undefined, serie?: 'CR'): string => `${serie ? 'CR-' : ''}${String(folio ?? 0).padStart(6, '0')}`;
 
 /** Interpreta un código escaneado de un ticket. Un folio suelto (tickets antiguos) NO se interpreta: falta el contexto. */
-export function interpretarCodigoTicket(texto: string, negocios = NEGOCIOS): { tienda: string; caja: number; folio: number } | null {
-  const m = /^([A-Z])(\d)-(\d{6,})$/.exec(texto.trim());
+export function interpretarCodigoTicket(texto: string, negocios = NEGOCIOS): { tienda: string; caja: number; folio: number; serie?: 'CR' } | null {
+  const m = /^(CR-)?([A-Z])(\d)-(\d{6,})$/.exec(texto.trim());
   if (!m) return null;
-  const tienda = Object.keys(negocios).find((t) => negocios[t]!.letra === m[1]);
-  return tienda ? { tienda, caja: Number(m[2]), folio: Number(m[3]) } : null;
+  const tienda = Object.keys(negocios).find((t) => negocios[t]!.letra === m[2]);
+  return tienda ? { tienda, caja: Number(m[3]), folio: Number(m[4]), ...(m[1] ? { serie: 'CR' as const } : {}) } : null;
 }
 
 /**
  * Lo que alguien teclea para buscar un ticket: el código impreso (D2-000003, D2000003) o solo el folio (3, 000003).
  * Con el código se sabe de qué tienda y caja es; con el folio suelto no. null = no es un folio.
  */
-export function interpretarFolio(texto: unknown, negocios = NEGOCIOS): { folio: number; tienda?: string; caja?: number } | null {
+export function interpretarFolio(texto: unknown, negocios = NEGOCIOS): { folio: number; tienda?: string; caja?: number; serie?: 'CR' } | null {
   const t = String(texto ?? '').trim();
   if (/^\d{1,9}$/.test(t)) return Number(t) > 0 ? { folio: Number(t) } : null;
-  const m = /^([A-Za-z])\s*(\d)\s*-?\s*(\d{1,9})$/.exec(t);
+  const cr = /^CR\s*-?\s*(\d{1,9})$/i.exec(t); // «CR-000012»: solo el folio de crédito (de cualquier caja)
+  if (cr) return Number(cr[1]) > 0 ? { folio: Number(cr[1]), serie: 'CR' } : null;
+  const m = /^(CR\s*-?\s*)?([A-Za-z])\s*(\d)\s*-?\s*(\d{1,9})$/i.exec(t);
   if (!m) return null;
-  const tienda = Object.keys(negocios).find((k) => negocios[k]!.letra === m[1]!.toUpperCase());
-  return tienda && Number(m[3]) > 0 ? { folio: Number(m[3]), tienda, caja: Number(m[2]) } : null;
+  const tienda = Object.keys(negocios).find((k) => negocios[k]!.letra === m[2]!.toUpperCase());
+  return tienda && Number(m[4]) > 0 ? { folio: Number(m[4]), tienda, caja: Number(m[3]), ...(m[1] ? { serie: 'CR' as const } : {}) } : null;
 }
 
 export interface LineaTicket {
@@ -125,6 +129,10 @@ export interface Ticket {
   fecha: string; // DD/MM/YYYY (America/Hermosillo)
   hora: string; // HH:MM
   folio: number;
+  /** `CR`: compra a crédito de empleada (folio de su propia serie, no de ventas). */
+  serie?: 'CR';
+  /** Cuenta de la empleada al cobrar: no cambia al reimprimir. */
+  credito?: { limite: number; saldo: number; disponible: number; abonos: { fecha: string; monto: number }[] };
   codigo_ticket: string;
   lineas: LineaTicket[];
   total: number;
@@ -156,7 +164,7 @@ export function construirTicket(v: Venta, cfg: NegocioCfg = NEGOCIOS[v.tienda]!,
   const [y, mo, d] = fechaLocal(v.ocurrio_en).split('-');
   return {
     negocio: cfg.nombre, tienda: v.tienda, caja: v.caja, cajero: v.cajero, vendio: v.vendedora_id ? v.vendedora : undefined, recompensas: v.recompensas,
-    fecha: `${d}/${mo}/${y}`, hora: local.slice(11, 16), folio: v.folio, codigo_ticket: codigoTicket(v.tienda, v.caja, v.folio, negocios),
+    fecha: `${d}/${mo}/${y}`, hora: local.slice(11, 16), folio: v.folio, ...(v.serie ? { serie: v.serie } : {}), ...(v.credito ? { credito: v.credito } : {}), codigo_ticket: codigoTicket(v.tienda, v.caja, v.folio, negocios, v.serie),
     lineas: v.lineas.map((l) => ({
       item_no: l.item_no, codigo: l.codigo, descripcion: l.descripcion, marca: l.marca, estilo: l.estilo, lote: l.lote,
       qty: l.qty, precio_unit: l.precio_unit, descuento: l.descuento, importe: l.importe, descuentos: l.descuento_detalle?.map((d) => ({ tipo: d.tipo, nombre: d.nombre, monto: d.monto })), tarjeta_regalo: l.tarjeta_regalo ? true : undefined,
@@ -172,7 +180,7 @@ export function construirTicket(v: Venta, cfg: NegocioCfg = NEGOCIOS[v.tienda]!,
 
 function cambioDeTicket(v: Venta, dev: Devolucion, origen: Venta, negocios: Record<string, NegocioCfg>): CambioTicket {
   return {
-    origen: codigoTicket(origen.tienda, origen.caja, origen.folio, negocios),
+    origen: codigoTicket(origen.tienda, origen.caja, origen.folio, negocios, origen.serie),
     recibidas: dev.lineas.map((dl) => {
       const l = origen.lineas.find((x) => x.linea_id === dl.linea_id)!;
       return { qty: dl.qty, descripcion: l.descripcion, marca: l.marca, estilo: l.estilo, item_no: l.item_no, codigo: l.codigo, precio_unit: l.precio_unit, importe: dl.importe };
@@ -266,7 +274,8 @@ export function renderTicketTexto(t: Ticket): string {
   L.push(centrar(t.negocio, c));
   for (const x of t.encabezado) L.push(...envolver(x, c).map((y) => centrar(y, c)));
   L.push(centrar(`Tienda ${t.tienda} - Caja ${t.caja}`, c));
-  L.push(`Vendedora-Cajera: ${t.cajero}`.slice(0, c), ...(t.vendio ? [`Vendió: ${t.vendio}`.slice(0, c)] : []), `Fecha: ${t.fecha}  Hora: ${t.hora}`, `Folio: ${String(t.folio).padStart(6, '0')}`);
+  L.push(`Vendedora-Cajera: ${t.cajero}`.slice(0, c), ...(t.vendio ? [`Vendió: ${t.vendio}`.slice(0, c)] : []), `Fecha: ${t.fecha}  Hora: ${t.hora}`, `Folio: ${folioImpreso(t.folio, t.serie)}`);
+  if (t.serie === 'CR') L.push(centrar('COMPRA A CRÉDITO DE EMPLEADA', c));
   if (t.empleada) L.push(`Empleada: ${t.empleada.nombre}`.slice(0, c));
   if (t.vip) L.push(`Cliente VIP: ${t.vip.nombre}`.slice(0, c));
   if (t.reimpresion > 0) L.push(centrar(`*** REIMPRESIÓN ${t.reimpresion} ***`, c));
@@ -313,6 +322,13 @@ export function renderTicketTexto(t: Ticket): string {
   }
   L.push(regla);
   if (t.empleada?.credito) L.push(...envolver('Cargo a la cuenta de la empleada: se descuenta de su nómina.', c), '', '', '_'.repeat(Math.min(c, 32)), `Firma: ${t.empleada.nombre}`.slice(0, c), regla);
+  if (t.empleada?.credito && t.credito) {
+    const fe = (f: string) => { const [y, m, d] = f.split('-'); return `${d}/${m}/${y}`; };
+    L.push(dos('Límite de crédito', formatoMXN(t.credito.limite), c), dos('Saldo después de esta compra', formatoMXN(t.credito.saldo), c), dos('Crédito disponible', formatoMXN(t.credito.disponible), c));
+    L.push(t.credito.abonos.length ? 'Últimos abonos de nómina:' : 'Sin abonos registrados.');
+    for (const a of t.credito.abonos) L.push(dos(`  ${fe(a.fecha)}`, formatoMXN(a.monto), c));
+    L.push(regla);
+  }
   if (t.telefono) L.push('', centrar(`TELÉFONO ${t.telefono}`, c));
   if (t.leyendas.length) L.push('');
   for (const leyenda of t.leyendas) L.push(...envolver(leyenda, c).map((x) => centrar(x, c)));
@@ -402,7 +418,7 @@ export function renderTicketDevolucionTexto(d: Devolucion, v: Venta, cfg: Negoci
   const [y, mo, dd] = fechaLocal(d.ocurrio_en).split('-');
   const L: string[] = [centrar(cfg.nombre, c), ...encabezadoDe(cfg).flatMap((x) => envolver(x, c).map((y) => centrar(y, c))), centrar(`Tienda ${d.tienda} - Caja ${d.caja}`, c), centrar(d.por_cambio && d.venta_cambio ? TITULO_COMPROBANTE.cambio : TITULO_COMPROBANTE.devolucion, c)];
   L.push(`Vendedora-Cajera: ${d.cajero}`.slice(0, c), `Fecha: ${dd}/${mo}/${y}  Hora: ${local.slice(11, 16)}`, `Folio: ${String(d.folio ?? 0).padStart(6, '0')}`);
-  L.push(`Venta original: ${codigoTicket(v.tienda, v.caja, v.folio, negocios)}`, regla);
+  L.push(`Venta original: ${codigoTicket(v.tienda, v.caja, v.folio, negocios, v.serie)}`, regla);
   for (const dl of d.lineas) {
     const l = v.lineas.find((x) => x.linea_id === dl.linea_id)!;
     L.push(...renglonArticulo({ ...l, qty: dl.qty, tarjeta_regalo: !!l.tarjeta_regalo }, c));
@@ -448,7 +464,7 @@ export function renderTicketCancelacionTexto(x: ComprobanteClienta, cfg: Negocio
   const local = new Date(Date.parse(x.ocurrio_en) - 7 * 3600_000).toISOString();
   const [y, mo, dd] = fechaLocal(x.ocurrio_en).split('-');
   const L: string[] = [centrar(cfg.nombre, c), ...encabezadoDe(cfg).flatMap((t) => envolver(t, c).map((u) => centrar(u, c))), centrar(`Tienda ${x.tienda} - Caja ${x.caja}`, c), centrar(TITULO_COMPROBANTE.cancelacion, c)];
-  L.push(`Vendedora-Cajera: ${x.cajero}`.slice(0, c), `Fecha: ${dd}/${mo}/${y}  Hora: ${local.slice(11, 16)}`, `Venta cancelada: ${codigoTicket(x.venta.tienda, x.venta.caja, x.venta.folio, negocios)}`, regla);
+  L.push(`Vendedora-Cajera: ${x.cajero}`.slice(0, c), `Fecha: ${dd}/${mo}/${y}  Hora: ${local.slice(11, 16)}`, `Venta cancelada: ${codigoTicket(x.venta.tienda, x.venta.caja, x.venta.folio, negocios, x.venta.serie)}`, regla);
   for (const dl of x.lineas) {
     const l = x.venta.lineas.find((q) => q.linea_id === dl.linea_id)!;
     L.push(...renglonArticulo({ ...l, qty: dl.qty, tarjeta_regalo: !!l.tarjeta_regalo }, c));
@@ -458,7 +474,7 @@ export function renderTicketCancelacionTexto(x: ComprobanteClienta, cfg: Negocio
   for (const r of x.reembolsos) L.push(dos(textoReembolso(r), formatoMXN(r.monto), c));
   if (x.motivo) L.push(...envolver(`Motivo: ${x.motivo}`, c));
   if (x.autorizado_por) L.push(...envolver(`Autorizó: ${x.autorizado_por}`, c));
-  L.push(regla, centrar(codigoTicket(x.venta.tienda, x.venta.caja, x.venta.folio, negocios), c));
+  L.push(regla, centrar(codigoTicket(x.venta.tienda, x.venta.caja, x.venta.folio, negocios, x.venta.serie), c));
   return L.join('\n') + '\n';
 }
 
@@ -469,7 +485,7 @@ export function renderTicketFirmaTexto(x: ComprobanteClienta, cfg: NegocioCfg = 
   const local = new Date(Date.parse(x.ocurrio_en) - 7 * 3600_000).toISOString();
   const [y, mo, dd] = fechaLocal(x.ocurrio_en).split('-');
   const L: string[] = [centrar(cfg.nombre, c), centrar(`Tienda ${x.tienda} - Caja ${x.caja}`, c), centrar(TITULO_COMPROBANTE[x.tipo], c), centrar('COPIA PARA LA TIENDA (FIRMA)', c)];
-  L.push(`Fecha: ${dd}/${mo}/${y}  Hora: ${local.slice(11, 16)}`, `Folio: ${String(x.folio).padStart(6, '0')}`, `Venta original: ${codigoTicket(x.venta.tienda, x.venta.caja, x.venta.folio, negocios)}`, `Vendedora-Cajera: ${x.cajero}`.slice(0, c));
+  L.push(`Fecha: ${dd}/${mo}/${y}  Hora: ${local.slice(11, 16)}`, `Folio: ${String(x.folio).padStart(6, '0')}`, `Venta original: ${codigoTicket(x.venta.tienda, x.venta.caja, x.venta.folio, negocios, x.venta.serie)}`, `Vendedora-Cajera: ${x.cajero}`.slice(0, c));
   if (x.autorizado_por) L.push(...envolver(`Autorizó: ${x.autorizado_por}`, c));
   L.push(regla);
   if (x.clienta) L.push(...envolver(`Clienta: ${x.clienta.nombre}`, c), `Teléfono: ${x.clienta.telefono}`.slice(0, c));

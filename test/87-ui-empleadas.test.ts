@@ -49,6 +49,7 @@ describe('[navegador real] Ventas a empleadas: caja y Administración', { timeou
     await page.waitForSelector('#bloque-empleada:not([hidden])');
     assert.match((await page.textContent('#mensaje'))!, /15% ya se aplicó a toda la venta[\s\S]*Marcar como uniforme/);
     assert.match((await page.textContent('#bloque-empleada'))!, /Venta a empleada: Rosa[\s\S]*15%[\s\S]*Crédito disponible: \$1,000\.00/);
+    assert.match((await page.textContent('#abonos-recientes'))!, /Sin abonos de nómina registrados/);
     // 899 + 120 = 1,019 − 15 % = 866.00
     await page.waitForFunction(() => document.querySelector('#total')!.textContent === '$866.00');
     // la mascada (120) es uniforme: 30 %
@@ -64,6 +65,9 @@ describe('[navegador real] Ventas a empleadas: caja y Administración', { timeou
     await page.waitForSelector('#dlg-ticket[open] #ticket-texto');
     const tk = (await page.textContent('#ticket-texto'))!;
     assert.match(tk, /Empleada: Rosa[\s\S]*Descuento de empleada 15%[\s\S]*Descuento de empleada 30% \(uniforme\)[\s\S]*Crédito de empleada \(nómina\) +\$848\.00[\s\S]*Firma: Rosa/);
+    assert.match(tk, /Folio: CR-000001[\s\S]*COMPRA A CRÉDITO DE EMPLEADA/);
+    assert.match(tk, /Límite de crédito +\$1,000\.00[\s\S]*Crédito disponible +\$152\.00[\s\S]*Sin abonos registrados/);
+    assert.match((await page.textContent('#dlg-ticket'))!, /CR-000001/);
 
     // Administración
     ctx.m.pump(); ctx.m.pump(); ctx.m.pump();
@@ -87,7 +91,12 @@ describe('[navegador real] Ventas a empleadas: caja y Administración', { timeou
     // movimientos y reporte de nómina del día
     await a.click(`${fila} .em-mov`);
     await a.waitForSelector('#tabla-emp-mov');
-    assert.match((await a.textContent('#tabla-emp-mov'))!, /Venta a crédito[\s\S]*Abono de nómina[\s\S]*octubre, 1ª quincena/);
+    assert.match((await a.textContent('#emp-resumen'))!, /Límite \$1,000\.00[\s\S]*Debe \$548\.00[\s\S]*Crédito disponible \$452\.00[\s\S]*Abonado en total \$300\.00/);
+    await a.click('#emp-ver-abonos');
+    assert.equal(await a.locator('#tabla-emp-mov tbody tr').count(), 1);
+    assert.match((await a.textContent('#tabla-emp-mov'))!, /Abono de nómina/);
+    await a.click('#emp-ver-todo');
+    assert.match((await a.textContent('#tabla-emp-mov'))!, /Compra a crédito[\s\S]*Abono de nómina[\s\S]*octubre, 1ª quincena/);
     await a.click('#per-tab-nomina');
     await a.fill('#nom-desde', '2026-10-01'); await a.fill('#nom-hasta', '2026-10-01');
     await a.click('#form-nomina button[type="submit"]');

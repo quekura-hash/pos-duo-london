@@ -298,6 +298,8 @@ const MOTIVO_FOLIOS = {
 };
 const EVIDENCIAS_FOLIO = [['ticket_impreso', 'Último ticket impreso'], ['libreta', 'Libreta o bitácora de la caja'], ['reporte_hub', 'Reporte del hub o del central'], ['otra', 'Otra']];
 const folio6 = (n) => String(n).padStart(6, '0');
+/** Folio como se imprime: una compra a crédito de empleada lleva su propia serie («CR-000012»). */
+const folioDe = (x) => `${x.serie ? 'CR-' : ''}${String(x.folio).padStart(6, '0')}`;
 // Lo que se teclea para buscar un ticket: el código impreso (D2-000003, D2000003) o el folio suelto (3, 000003).
 const LETRAS_TIENDA = { DUO: 'D', LON: 'L' };
 const letraTienda = (t) => LETRAS_TIENDA[t] ?? '';
@@ -1011,7 +1013,7 @@ async function cobrar() {
       const c = calcEfectivo(S.carrito.total);
       r = await api('/api/venta/cobrar-efectivo', { cart: S.cart, recibido: c.pesos, ...(c.usd > 0 ? { usd: c.usd } : {}) });
     }
-    S.ultimoFolio = r.venta.folio;
+    if (!r.venta.serie) S.ultimoFolio = r.venta.folio; // el chip es de la serie de ventas; el folio CR sale en el resumen del cobro
     mostrarTicket(r);
     await pintarEncabezado();
   } catch (e) {
@@ -1042,7 +1044,7 @@ function mostrarTicket(r) {
   const regalo = r.venta.pagos.find((p) => p.metodo === 'tarjeta_regalo');
   dlg.innerHTML = `
     <h2 id="dlg-titulo" style="margin:0 0 4px">Venta guardada</h2>
-    <p style="margin:0" id="resumen-venta">Folio <b>${String(r.venta.folio).padStart(6, '0')}</b> · ticket <b>${esc(r.codigo_ticket)}</b> · cambio <b id="dlg-cambio">${mxn(r.cambio)}</b>${r.venta.pagos.some((p) => p.metodo === 'efectivo_usd') ? ` · dólares recibidos <b id="dlg-usd">${usd(r.venta.pagos.find((p) => p.metodo === 'efectivo_usd').usd)}</b>` : ''}${regalo ? ` · saldo de la tarjeta <b id="dlg-saldo-regalo">${mxn(regalo.saldo_despues ?? 0)}</b>` : ''}</p>
+    <p style="margin:0" id="resumen-venta">Folio <b>${folioDe(r.venta)}</b> · ticket <b>${esc(r.codigo_ticket)}</b> · cambio <b id="dlg-cambio">${mxn(r.cambio)}</b>${r.venta.pagos.some((p) => p.metodo === 'efectivo_usd') ? ` · dólares recibidos <b id="dlg-usd">${usd(r.venta.pagos.find((p) => p.metodo === 'efectivo_usd').usd)}</b>` : ''}${regalo ? ` · saldo de la tarjeta <b id="dlg-saldo-regalo">${mxn(regalo.saldo_despues ?? 0)}</b>` : ''}</p>
     <div id="estado-impresion" class="mensaje ${imp.ok ? 'ok' : 'error'}" role="status">${imp.ok ? 'Ticket enviado a la impresora.' : `La impresora falló: ${esc(imp.error)}. La venta SÍ quedó guardada; reintente la impresión.`}</div>
     ${(r.avisos ?? []).length ? `<div class="mensaje aviso" id="avisos-venta">${r.avisos.map((a) => esc(/^cambio_excede_efectivo_mxn:/.test(a) ? `Advertencia: el cambio entregado superó en ${mxn(Number(a.split(':')[1]))} los pesos que se sabía que había en la caja: revise el efectivo.` : a)).join(' · ')}</div>` : ''}
     ${logoTicketHtml()}<pre class="ticket" id="ticket-texto" tabindex="0">${esc(r.ticket_texto)}</pre>
@@ -1446,7 +1448,7 @@ async function abrirRevertirVenta(det, alTerminar) {
   const d = dialogo('dlg-revertir');
   d.setAttribute('aria-labelledby', 'rv-titulo');
   d.innerHTML = `<h2 id="rv-titulo" style="margin-top:0">Revertir venta</h2>
-    <p id="rv-texto" style="margin-top:0">Folio <b>${String(det.folio).padStart(6, '0')}</b> · <b>${mxn(det.total)}</b>. Se cancela la venta completa, las prendas regresan al inventario y el dinero se regresa a la clienta.</p>
+    <p id="rv-texto" style="margin-top:0">Folio <b>${folioDe(det)}</b> · <b>${mxn(det.total)}</b>. Se cancela la venta completa, las prendas regresan al inventario y el dinero se regresa a la clienta.</p>
     <form id="form-revertir" autocomplete="off">${camposClienta('rv', 'Motivo de la cancelación')}
       ${a.pide_clave ? `<p class="nota">La cancelación la autoriza otra Vendedora-Cajera o un supervisor con su clave.</p>
       <div class="campo"><label for="rv-quien">Autoriza</label><select id="rv-quien" style="width:100%;padding:10px;border:2px solid var(--borde);border-radius:10px;background:var(--superficie)">${a.autorizadores.map((x) => `<option value="${esc(x.nombre)}">${esc(x.nombre)}${x.tipo === 'supervisor' ? ' (supervisor)' : ''}</option>`).join('')}</select></div>
@@ -1834,7 +1836,7 @@ async function vistaReportes() {
     const { reporte: r } = await api('/api/admin/reporte', { cajas: sel, desde: $('#desde').value, hasta: $('#hasta').value, historicas: $('#hist').checked });
     $('#resultado').innerHTML = `<div class="panel"><p class="nota">Cada venta conserva tienda, caja y folio originales; el reporte no renumera.</p>
       <div class="tabla-cont"><table id="tabla-reporte"><thead><tr><th>Tienda</th><th>Caja</th><th>Folio</th><th>Fecha</th><th>Vendedora-Cajera</th><th class="num">Total</th><th>Estado</th><th class="num">Piezas</th><th>Forma de pago</th><th>Origen</th></tr></thead><tbody>
-      ${r.filas.map((f) => `<tr${f.historico ? ' class="fila-hist"' : ''}><td>${esc(f.tienda)}</td><td>${f.caja}</td><td>${f.historico ? f.folio : String(f.folio).padStart(6, '0')}</td><td>${esc(f.fecha_local)}</td><td>${esc(f.cajero)}</td><td class="num">${mxn(f.total)}</td><td>${esc(f.estado)}</td><td class="num">${f.piezas}</td><td>${esc(f.pago)}</td><td>${f.historico ? `POS anterior${f.tipo_ticket === 'venta' ? '' : ` · ${f.tipo_ticket === 'fee' ? 'fee por daño' : 'cambio'}`}` : 'POS nuevo'}</td></tr>`).join('') || '<tr><td colspan="10" class="vacio">Sin ventas en el periodo.</td></tr>'}</tbody></table></div>
+      ${r.filas.map((f) => `<tr${f.historico ? ' class="fila-hist"' : ''}><td>${esc(f.tienda)}</td><td>${f.caja}</td><td>${f.historico ? f.folio : folioDe(f)}</td><td>${esc(f.fecha_local)}</td><td>${esc(f.cajero)}</td><td class="num">${mxn(f.total)}</td><td>${esc(f.estado)}</td><td class="num">${f.piezas}</td><td>${esc(f.pago)}</td><td>${f.historico ? `POS anterior${f.tipo_ticket === 'venta' ? '' : ` · ${f.tipo_ticket === 'fee' ? 'fee por daño' : 'cambio'}`}` : 'POS nuevo'}</td></tr>`).join('') || '<tr><td colspan="10" class="vacio">Sin ventas en el periodo.</td></tr>'}</tbody></table></div>
       <h2>Desglose por caja</h2><table id="tabla-por-caja"><thead><tr><th>Tienda</th><th>Caja</th><th class="num">Tickets</th><th class="num">Total</th></tr></thead><tbody>
       ${r.porCaja.map((c) => `<tr><td>${esc(c.tienda)}</td><td>${c.caja}${c.historico ? ' <small>(histórico)</small>' : ''}</td><td class="num">${c.tickets}</td><td class="num">${mxn(c.total)}</td></tr>`).join('')}
       <tr><th colspan="3" scope="row">Total consolidado</th><td class="num" id="total-consolidado"><b>${mxn(r.total)}</b></td></tr></tbody></table>
@@ -2471,7 +2473,7 @@ async function vistaDolares() {
     const { reporte: r } = await api(`/api/admin/dolares?${q}`);
     $('#resultado-usd').innerHTML = `<div class="panel"><p class="nota" style="margin-top:0">Dólares FÍSICOS recibidos. El equivalente en MXN usa la tasa de cada operación, no la última del día. El cambio se entrega en pesos.</p>
       <div class="tabla-cont"><table id="tabla-dolares"><thead><tr><th>Tienda</th><th>Caja</th><th>Folio</th><th>Fecha</th><th>Vendedora-Cajera</th><th class="num">USD</th><th class="num">Tasa</th><th class="num">Equivalente MXN</th><th class="num">Pesos recibidos</th><th class="num">Cambio MXN</th><th>Estado</th></tr></thead><tbody>
-      ${r.filas.map((f) => `<tr data-folio="${f.folio}"><td>${esc(f.tienda)}</td><td>${f.caja}</td><td>${String(f.folio).padStart(6, '0')}</td><td>${esc(f.fecha_local)} ${esc(f.hora)}</td><td>${esc(f.cajero)}</td><td class="num">${usd(f.usd)}</td><td class="num">${(f.tasa / 10000).toFixed(2)} (v${f.tasa_version})</td><td class="num">${mxn(f.equivalente)}</td><td class="num">${mxn(f.pesos_recibidos)}</td><td class="num">${mxn(f.cambio_mxn)}</td><td>${esc(f.estado)}</td></tr>`).join('') || '<tr><td colspan="11" class="vacio">Sin cobros con dólares en el periodo.</td></tr>'}</tbody></table></div>
+      ${r.filas.map((f) => `<tr data-folio="${f.folio}"><td>${esc(f.tienda)}</td><td>${f.caja}</td><td>${folioDe(f)}</td><td>${esc(f.fecha_local)} ${esc(f.hora)}</td><td>${esc(f.cajero)}</td><td class="num">${usd(f.usd)}</td><td class="num">${(f.tasa / 10000).toFixed(2)} (v${f.tasa_version})</td><td class="num">${mxn(f.equivalente)}</td><td class="num">${mxn(f.pesos_recibidos)}</td><td class="num">${mxn(f.cambio_mxn)}</td><td>${esc(f.estado)}</td></tr>`).join('') || '<tr><td colspan="11" class="vacio">Sin cobros con dólares en el periodo.</td></tr>'}</tbody></table></div>
       <h2>Por caja</h2><table id="tabla-dolares-caja"><thead><tr><th>Tienda</th><th>Caja</th><th class="num">Cobros</th><th class="num">USD físicos</th><th class="num">Equivalente histórico MXN</th></tr></thead><tbody>
       ${r.porCaja.map((c) => `<tr><td>${esc(c.tienda)}</td><td>${c.caja}</td><td class="num">${c.cobros}</td><td class="num">${usd(c.usd)}</td><td class="num">${mxn(c.equivalente_historico)}</td></tr>`).join('')}
       <tr><th colspan="3" scope="row">Total</th><td class="num" id="total-usd"><b>${usd(r.usd)}</b></td><td class="num" id="total-equivalente"><b>${mxn(r.equivalente_historico)}</b></td></tr></tbody></table></div>`;
@@ -2743,7 +2745,7 @@ async function vistaDescuentos() {
         <table id="tabla-desc-promos"><thead><tr><th>Tipo</th><th>Nombre</th><th class="num">Tickets</th><th class="num">Monto</th></tr></thead><tbody>
         ${r.porPromocion.map((x) => `<tr data-ref="${esc(x.ref)}"><td>${NOM_TIPO_DESC[x.tipo]}</td><td>${esc(x.concepto)}</td><td class="num">${x.tickets}</td><td class="num">${mxn(x.monto)}</td></tr>`).join('') || '<tr><td colspan="4" class="vacio">Sin promociones ni cupones aplicados en el periodo.</td></tr>'}</tbody></table></div>
       <div class="panel" style="margin-top:12px"><h2 style="margin-top:0">Detalle por ticket</h2><div class="tabla-cont"><table id="tabla-desc-detalle"><thead><tr><th>Tienda</th><th>Caja</th><th>Folio</th><th>Fecha</th><th>Vendedora-Cajera</th><th>Tipo</th><th>Concepto</th><th>Autorizó</th><th class="num">Venta</th><th class="num">Descuento</th><th class="num">% venta</th><th>Estado</th></tr></thead><tbody>
-        ${r.filas.map((f) => `<tr data-folio="${f.folio}" data-tipo="${f.tipo}"><td>${esc(f.tienda)}</td><td>${f.caja}</td><td>${String(f.folio).padStart(6, '0')}</td><td>${esc(f.fecha_local)} ${esc(f.hora)}</td><td>${esc(f.cajero)}</td><td>${NOM_TIPO_DESC[f.tipo]}</td><td>${esc(f.concepto)}</td><td>${esc(f.supervisor ?? '')}</td><td class="num">${mxn(f.importe_venta)}</td><td class="num">${mxn(f.monto)}</td><td class="num">${pctBp(f.pct_bp)}</td><td>${f.estado === 'cancelada' ? '<span class="insignia cancelada">cancelada</span>' : 'confirmada'}</td></tr>`).join('') || '<tr><td colspan="12" class="vacio">Sin descuentos en el periodo.</td></tr>'}</tbody></table></div></div>`;
+        ${r.filas.map((f) => `<tr data-folio="${f.folio}" data-tipo="${f.tipo}"><td>${esc(f.tienda)}</td><td>${f.caja}</td><td>${folioDe(f)}</td><td>${esc(f.fecha_local)} ${esc(f.hora)}</td><td>${esc(f.cajero)}</td><td>${NOM_TIPO_DESC[f.tipo]}</td><td>${esc(f.concepto)}</td><td>${esc(f.supervisor ?? '')}</td><td class="num">${mxn(f.importe_venta)}</td><td class="num">${mxn(f.monto)}</td><td class="num">${pctBp(f.pct_bp)}</td><td>${f.estado === 'cancelada' ? '<span class="insignia cancelada">cancelada</span>' : 'confirmada'}</td></tr>`).join('') || '<tr><td colspan="12" class="vacio">Sin descuentos en el periodo.</td></tr>'}</tbody></table></div></div>`;
   };
   $('#btn-volver-promos').addEventListener('click', () => ir('promociones'));
   $('#filtros-desc').addEventListener('submit', async (ev) => { ev.preventDefault(); await consultar(); });
@@ -2962,7 +2964,7 @@ function pintarEmpleada() {
   const b = $('#bloque-empleada');
   if (b) {
     b.hidden = !e;
-    if (e) b.innerHTML = `<b>Venta a empleada: ${esc(e.nombre)}</b><br><small>Descuento ${e.pct}% (uniformes ${e.pct_uniforme}%) · no se combina con promociones: aplica el que más le conviene. Crédito disponible: <b id="credito-disponible">${mxn(e.credito_disponible)}</b></small><br><button class="btn" type="button" id="btn-quitar-empleada">${ico('x')}<span>Quitar empleada</span></button>`;
+    if (e) b.innerHTML = `<b>Venta a empleada: ${esc(e.nombre)}</b><br><small>Descuento ${e.pct}% (uniformes ${e.pct_uniforme}%) · no se combina con promociones: aplica el que más le conviene. Crédito disponible: <b id="credito-disponible">${mxn(e.credito_disponible)}</b>${e.credito_limite ? ` de ${mxn(e.credito_limite)} (debe ${mxn(e.credito_saldo)})` : ' (sin crédito autorizado)'}<br><span id="abonos-recientes">${(e.abonos_recientes ?? []).length ? `Últimos abonos de nómina: ${e.abonos_recientes.map((a) => `${a.fecha.split('-').reverse().join('/')} ${mxn(a.monto)}`).join(' · ')}` : 'Sin abonos de nómina registrados.'}</span></small><br><button class="btn" type="button" id="btn-quitar-empleada">${ico('x')}<span>Quitar empleada</span></button>`;
     $('#btn-quitar-empleada')?.addEventListener('click', quitarEmpleada);
   }
   const f = $('#formas')?.querySelector('button[data-forma="credito"]');
@@ -3877,8 +3879,13 @@ async function vistaDescuentoCredito() {
     tr.querySelector('.em-ajuste').addEventListener('click', () => abrir(e, 'ajuste'));
     tr.querySelector('.em-mov').addEventListener('click', async () => {
       const r = await api(`/api/admin/empleadas/movimientos?id=${encodeURIComponent(e.id)}`);
-      const NOM = { cargo: 'Venta a crédito', devolucion: 'Devolución', abono: 'Abono de nómina', ajuste_cargo: 'Ajuste (cargo)', ajuste_abono: 'Ajuste (a favor)' };
-      $('#emp-movimientos').innerHTML = `<h3>Movimientos de ${esc(e.nombre)}</h3><div class="tabla-cont"><table id="tabla-emp-mov"><thead><tr><th>Fecha</th><th>Movimiento</th><th>Detalle</th><th class="num">Monto</th></tr></thead><tbody>${r.movimientos.map((m) => `<tr><td>${esc(m.fecha.split('-').reverse().join('/'))}</td><td>${NOM[m.tipo]}</td><td>${esc(m.detalle)}${m.periodo ? ` · ${esc(m.periodo)}` : ''}${m.por ? ` · ${esc(m.por)}` : ''}</td><td class="num">${['cargo', 'ajuste_cargo'].includes(m.tipo) ? '' : '-'}${mxn(m.monto)}</td></tr>`).join('') || '<tr><td colspan="4" class="vacio">Sin movimientos.</td></tr>'}</tbody></table></div>`;
+      const NOM = { cargo: 'Compra a crédito', devolucion: 'Devolución', abono: 'Abono de nómina', ajuste_cargo: 'Ajuste (cargo)', ajuste_abono: 'Ajuste (a favor)' };
+      const filas = (solo) => r.movimientos.filter((m) => !solo || m.tipo === 'abono' || m.tipo === 'ajuste_abono').map((m) => `<tr><td>${esc(m.fecha.split('-').reverse().join('/'))}</td><td>${NOM[m.tipo]}</td><td>${esc(m.detalle)}${m.periodo ? ` · ${esc(m.periodo)}` : ''}${m.por ? ` · ${esc(m.por)}` : ''}</td><td class="num">${['cargo', 'ajuste_cargo'].includes(m.tipo) ? '' : '-'}${mxn(m.monto)}</td><td class="num">${mxn(m.saldo_despues)}</td></tr>`).join('') || '<tr><td colspan="5" class="vacio">Sin movimientos.</td></tr>';
+      $('#emp-movimientos').innerHTML = `<h3>Cuenta de ${esc(e.nombre)}</h3>
+        <p id="emp-resumen" class="nota">Límite <b>${mxn(r.limite)}</b> · Debe <b>${mxn(r.saldo)}</b> · <b>Crédito disponible ${mxn(r.disponible)}</b> · Abonado en total ${mxn(r.abonado)}</p>
+        <div class="filas"><button class="btn" type="button" id="emp-ver-todo" aria-pressed="true">Todos los movimientos</button><button class="btn" type="button" id="emp-ver-abonos" aria-pressed="false">Solo abonos</button></div>
+        <div class="tabla-cont"><table id="tabla-emp-mov"><thead><tr><th>Fecha</th><th>Movimiento</th><th>Detalle</th><th class="num">Monto</th><th class="num">Debe después</th></tr></thead><tbody>${filas(false)}</tbody></table></div>`;
+      for (const [id, solo] of [['#emp-ver-todo', false], ['#emp-ver-abonos', true]]) $(id).addEventListener('click', () => { $('#tabla-emp-mov tbody').innerHTML = filas(solo); $('#emp-ver-todo').setAttribute('aria-pressed', String(!solo)); $('#emp-ver-abonos').setAttribute('aria-pressed', String(solo)); });
     });
   }
 }

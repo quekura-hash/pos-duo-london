@@ -128,7 +128,7 @@ export function folioMaximoConocido(ops: Op[], tienda: string, caja: number): nu
   for (const op of ops) {
     if (op.tipo === 'folio.continuacion') { if (op.payload.tienda === tienda && op.payload.caja === caja) maximo = Math.max(maximo, Number(op.payload.hasta) || 0); continue; }
     if (op.tienda !== tienda || op.caja !== caja) continue;
-    if (op.tipo === 'sale.confirmed') maximo = Math.max(maximo, Number(op.payload.folio) || 0);
+    if (op.tipo === 'sale.confirmed') { if (!op.payload.serie) maximo = Math.max(maximo, Number(op.payload.folio) || 0); }
     else if (op.tipo === 'folio.gap') maximo = Math.max(maximo, Number(op.payload.hasta) || 0);
   }
   return maximo;
@@ -276,7 +276,7 @@ export class Hub {
 
   hwm(caja: number): number {
     let m = 0;
-    for (const o of this.repo.opsDeTipos(['sale.confirmed', 'return.registered'])) if (o.payload.tienda === this.tienda && o.payload.caja === caja && o.payload.folio != null) m = Math.max(m, o.payload.folio);
+    for (const o of this.repo.opsDeTipos(['sale.confirmed', 'return.registered'])) if (o.payload.tienda === this.tienda && o.payload.caja === caja && o.payload.folio != null && !o.payload.serie) m = Math.max(m, o.payload.folio);
     return m;
   }
   anclas(caja: number): Anclas {
@@ -993,7 +993,7 @@ export class Central {
     let hwm = 0;
     for (const o of this.repo.ops()) {
       if (o.tipo === 'folio.lease_granted' && o.payload.tienda === tienda && o.payload.caja === caja) ceiling = Math.max(ceiling ?? 0, o.payload.techo);
-      if ((o.tipo === 'sale.confirmed' || o.tipo === 'return.registered') && o.payload.tienda === tienda && o.payload.caja === caja && o.payload.folio != null) hwm = Math.max(hwm, o.payload.folio);
+      if ((o.tipo === 'sale.confirmed' || o.tipo === 'return.registered') && o.payload.tienda === tienda && o.payload.caja === caja && o.payload.folio != null && !o.payload.serie) hwm = Math.max(hwm, o.payload.folio);
     }
     return { ceiling, hwm, fuente: 'central' };
   }
@@ -1186,6 +1186,28 @@ export class Caja {
       if (nuevo != null) this.repo.kvSet('folio:techo', nuevo);
     }
   }
+  /**
+   * Folio de una compra a crédito de empleada: serie CR propia de ESTA caja (cada caja tiene su contador; el código del ticket lleva tienda y caja, así que
+   * no se repite entre cajas). Nunca baja del mayor CR que la caja ya conoce (p. ej. tras restaurar el equipo y sincronizar).
+   */
+  private siguienteFolioCredito(): number {
+    const st = this.estadoFolios();
+    if (st.estado !== 'activa') throw new ErrorDominio('FOLIO_BLOQUEADO', `emisión bloqueada (${st.motivo}); resolver la recuperación`);
+    const conocido = this.repo.opsDeTipos(['sale.confirmed']).reduce((m, o) => (o.payload.serie === 'CR' && o.payload.tienda === this.tienda && o.payload.caja === this.caja ? Math.max(m, Number(o.payload.folio) || 0) : m), 0);
+    const n = Math.max(this.repo.kvGet<number>('foliocr:ultimo') ?? 0, conocido) + 1;
+    this.repo.kvSet('foliocr:ultimo', n);
+    return n;
+  }
+  /** Cómo queda la cuenta de la empleada tras este cargo: límite, saldo, disponible y sus últimos abonos (queda en la venta, para el ticket y su reimpresión). */
+  private resumenCreditoTras(empleadaId: string, cargo: number) {
+    const cuenta = this.cuentaEmpleada(empleadaId);
+    const saldo = cuenta.saldo + cargo;
+    return { limite: cuenta.limite, saldo, disponible: Math.max(0, cuenta.limite - saldo), abonos: this.abonosRecientes(empleadaId, 3) };
+  }
+  /** Últimos abonos de nómina de una empleada (el más reciente primero). */
+  abonosRecientes(empleadaId: string, n = 5): { fecha: string; monto: number }[] {
+    return this.cuentaEmpleada(empleadaId).movimientos.filter((m) => m.tipo === 'abono').slice(0, n).map((m) => ({ fecha: m.fecha, monto: m.monto }));
+  }
   private siguienteFolio(): number {
     const st = this.estadoFolios();
     if (st.estado !== 'activa') throw new ErrorDominio('FOLIO_BLOQUEADO', `emisión bloqueada (${st.motivo}); resolver la recuperación`);
@@ -1247,8 +1269,8 @@ export class Caja {
   }
 
   /** Cerco: un ticket de esta serie con folio mayor al contador prueba que el contador está atrasado. */
-  registrarTicketEscaneado(t: { tienda: string; caja: number; folio: number }) {
-    if (t.tienda !== this.tienda || t.caja !== this.caja) return { ok: true };
+  registrarTicketEscaneado(t: { tienda: string; caja: number; folio: number; serie?: 'CR' }) {
+    if (t.tienda !== this.tienda || t.caja !== this.caja || t.serie) return { ok: true }; // la serie CR (crédito de empleada) no es la de ventas
     const st = this.estadoFolios();
     if (t.folio > st.ultimo) {
       this.repo.tx(() => {
@@ -2252,16 +2274,19 @@ export class Caja {
     // El crédito del cambio liquida parte (o todo) el total como un pago más; el resto lo paga la clienta con los pagos recibidos.
     const credito = c.cambio ? Math.min(c.cambio.credito, total) : 0;
     if (credito > 0) pagos = [{ metodo: 'credito_cambio', monto: credito, folio_origen: c.cambio!.folio_origen }, ...pagos];
+    // Compra a crédito de una empleada: no entra dinero, así que NO consume folio de venta; lleva su propia serie (CR) por caja.
+    const esCredito = !!c.empleada && pagos.length > 0 && pagos.every((p) => p.metodo === 'credito_empleada');
     return this.repo.tx(() => {
-      const folio = this.siguienteFolio();
+      const folio = esCredito ? this.siguienteFolioCredito() : this.siguienteFolio();
+      const resumenCredito = esCredito ? this.resumenCreditoTras(c.empleada!.id, total) : null;
       this.ctx.fallo?.('tras_folio');
       const limbo = this.repartoLimbo(c.lineas);
       const lineas = c.lineas.map((l) => (limbo.get(l.linea_id) ? { ...l, de_limbo: limbo.get(l.linea_id) } : l));
       // Recompensas: con lo que la clienta PAGA (mercancía, ya con descuentos y crédito de cambio) se gana el cupón impreso al final del ticket.
       const pagadoMerc = Math.max(0, c.lineas.filter((l) => !l.tarjeta_regalo).reduce((a, l) => a + l.importe, 0) - credito);
-      const recompensas = recompensasGanadas(reglasVigentes(this.idx.recompensas(), this.idx.promociones()), this.tienda, this.caja, folio, fechaLocal(this.ctx.reloj.now()), pagadoMerc);
+      const recompensas = esCredito ? [] : recompensasGanadas(reglasVigentes(this.idx.recompensas(), this.idx.promociones()), this.tienda, this.caja, folio, fechaLocal(this.ctx.reloj.now()), pagadoMerc);
       const op = this.emitir('sale.confirmed', {
-        sale_id: c.id, tienda: this.tienda, caja: this.caja, folio, cajero, lineas, total, pagos,
+        sale_id: c.id, tienda: this.tienda, caja: this.caja, folio, ...(esCredito ? { serie: 'CR', credito: resumenCredito } : {}), cajero, lineas, total, pagos,
         ...(recompensas.length ? { recompensas } : {}),
         ...(c.empleada ? { empleada: c.empleada } : {}),
         ...(c.vip ? { vip: c.vip } : {}),
@@ -2964,7 +2989,7 @@ export class Caja {
     const anuladas = ops.filter((o) => o.tipo === 'sale.voided' && propia(o.payload.tienda, o.payload.caja) && fechaLocal(o.ocurrio_en) === fecha);
     const rechazados = ops.filter((o) => o.tipo === 'cash.billete_rechazado' && propia(o.payload.tienda, o.payload.caja) && o.payload.fecha === fecha);
     // Las devoluciones también consumen folio de la serie (P-08).
-    const folios = [...vs.map((v) => v.folio), ...devs.map((d) => d.folio).filter((f): f is number => f != null)];
+    const folios = [...vs.filter((v) => !v.serie).map((v) => v.folio), ...devs.map((d) => d.folio).filter((f): f is number => f != null)];
     const ventasMercancia = suma(mercancia.map((l) => l.importe));
     return {
       tienda: this.tienda, caja: this.caja, fecha, tickets: confirmadas.length,
