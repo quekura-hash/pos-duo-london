@@ -1,6 +1,7 @@
 import type { Articulo, Op, Venta } from './tipos.ts';
 import { aplicarOpDepto, copiarBase, type Departamento } from './departamentos.ts';
 import { fechaLocal } from './util.ts';
+import { nombreClave } from './supervisores.ts';
 
 // Proyecciones puras sobre la bitácora. El estado derivado nunca se sincroniza: se recalcula.
 
@@ -357,6 +358,13 @@ export function configSesionDe(ops: Op[]): ConfigSesion {
   const c = { ...CONFIG_SESION_INICIAL };
   for (const o of ops) if (o.tipo === 'config.sesion') { c.caja_min = o.payload.caja_min; c.admin_min = o.payload.admin_min; }
   return c;
+}
+/** Quienes pueden comprar como empleadas: las Vendedoras-Cajeras y también los supervisores (con su mismo id), igual que la caja los lista. */
+export function personalConCuenta(ops: Op[]): { id: string; nombre: string; tienda?: string }[] {
+  const cajeras = cajerosDe(ops);
+  const nombres = new Set(cajeras.map((c) => nombreClave(c.nombre)));
+  const sups = supervisoresDe(ops).filter((s) => s.activo && !nombres.has(nombreClave(s.nombre)));
+  return [...cajeras.map(({ id, nombre, tienda }) => ({ id, nombre, tienda })), ...sups.map(({ id, nombre }) => ({ id, nombre }))];
 }
 export function administradoresDe(ops: Op[]): import('./supervisores.ts').Administrador[] {
   const m = new Map<string, import('./supervisores.ts').Administrador>();

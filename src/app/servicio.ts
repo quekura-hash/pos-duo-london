@@ -10,7 +10,7 @@ import { ErrorDominio } from '../errores.ts';
 import type { Impresora } from '../impresion.ts';
 import { DIAS_CONSULTA_HISTORICA, FONDO_AUTORIZADO_DEFECTO, type Autoriza, type Caja } from '../nodos.ts';
 import { estadoPromo, type Promocion } from '../promociones.ts';
-import { clientesVip, excepcionesVip, cuentasEmpleadas, configEmpleadas, CRITERIOS_EXPEDIENTE, expedientesDe, expedienteVacio, registradaEn, CAMPOS_EDITABLES, catalogo, historialArticulo, nombresTienda, datosTiendas, departamentos as proyDepartamentos, devoluciones, type Devolucion, promocionesDe, recompensasDe, supervisoresDe, cajerosDe, administradoresDe, configSesionDe, permisos as proyPermisos, tarjetasRegalo, tiposDeCambio, tipoCambioVigente, ventas, type TipoCambio } from '../proyecciones.ts';
+import { personalConCuenta, clientesVip, excepcionesVip, cuentasEmpleadas, configEmpleadas, CRITERIOS_EXPEDIENTE, expedientesDe, expedienteVacio, registradaEn, CAMPOS_EDITABLES, catalogo, historialArticulo, nombresTienda, datosTiendas, departamentos as proyDepartamentos, devoluciones, type Devolucion, promocionesDe, recompensasDe, supervisoresDe, cajerosDe, administradoresDe, configSesionDe, permisos as proyPermisos, tarjetasRegalo, tiposDeCambio, tipoCambioVigente, ventas, type TipoCambio } from '../proyecciones.ts';
 import { hojaAnalisis, hojaDetalleVentas, hojaResumenVentas, hojaDescuentos, hojaEntregas, hojaDolares, hojaInventario, leerInventario, PERFIL_CONFIRMADO, type Hoja } from '../inventario.ts';
 import { LOGOS_TICKET } from '../logos-ticket.ts';
 import { detalleHistorica, detalleDeVenta, validarDatosClienta, type DatosClienta } from '../detalle-venta.ts';
@@ -1235,7 +1235,9 @@ export class ServicioAdmin {
     const cuentas = cuentasEmpleadas(ops);
     const nombres = new Map<string, { nombre: string; activo: boolean; tienda?: string }>();
     for (const o of ops) if (o.tipo === 'cajero.guardado') nombres.set(o.payload.id, { nombre: o.payload.nombre, activo: !o.payload.eliminado && o.payload.activo !== false, tienda: o.payload.tienda });
-    const vivas = new Set(cajerosDe(ops).map((c) => c.id));
+    const personal = personalConCuenta(ops);
+    for (const c of personal) if (!nombres.has(c.id)) nombres.set(c.id, { nombre: c.nombre, activo: true, tienda: c.tienda });
+    const vivas = new Set(personal.map((c) => c.id));
     const filas = [...new Set([...vivas, ...[...cuentas.keys()]])].map((id) => {
       const c = cuentas.get(id);
       const n = nombres.get(id);

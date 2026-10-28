@@ -16,7 +16,7 @@ import { TASA_SIN_VERIFICAR_OMISION, type Politicas } from './politicas.ts';
 import { Indice } from './indice.ts';
 import { localizarVentas } from './consultas.ts';
 import { CRITERIOS_EXPEDIENTE, expedientesDe, expedienteVacio, clientesVip, excepcionesVip, type ClienteVip, type ExcepcionesVip, type Expediente } from './proyecciones.ts';
-import { type ConfigEmpleadas, type CuentaEmpleada, configEmpleadas, cuentasEmpleadas, CAMPOS_EDITABLES, CAMPOS_TIENDA, type CampoEditable, departamentos, promocionesDe, recompensasDe, supervisoresDe, cajerosDe, administradoresDe, efectivoDeVenta, movimientosCaja, tipoCambioVigente, catalogo, devoluciones, devueltoPorLinea, existenciaVerificada, intentos, perdidasDocumentales, stock, ventas, type Devolucion, type ExistenciaVerificada, type Intento, type PerdidaDocumental, type TarjetaRegalo, type TipoCambio } from './proyecciones.ts';
+import { type ConfigEmpleadas, type CuentaEmpleada, configEmpleadas, cuentasEmpleadas, CAMPOS_EDITABLES, CAMPOS_TIENDA, type CampoEditable, departamentos, promocionesDe, recompensasDe, supervisoresDe, cajerosDe, personalConCuenta, administradoresDe, efectivoDeVenta, movimientosCaja, tipoCambioVigente, catalogo, devoluciones, devueltoPorLinea, existenciaVerificada, intentos, perdidasDocumentales, stock, ventas, type Devolucion, type ExistenciaVerificada, type Intento, type PerdidaDocumental, type TarjetaRegalo, type TipoCambio } from './proyecciones.ts';
 import type { Repo } from './repo.ts';
 import { validarOpEntrante } from './reglas.ts';
 import { LIMBO, type Articulo, type CajaCfg, type Linea, type Op, type Pago, type Venta } from './tipos.ts';
@@ -509,7 +509,7 @@ export class Central {
   /** Límite de crédito de una empleada (0 = sin crédito). Solo Administración. */
   fijarLimiteEmpleada(d: { empleada_id: string; limite: number; motivo: string }, por: string): { ok: true } | { ok: false; error: { codigo: 'DATOS_INVALIDOS'; mensaje: string } } {
     const mal = (mensaje: string) => ({ ok: false as const, error: { codigo: 'DATOS_INVALIDOS' as const, mensaje } });
-    if (!cajerosDe(this.repo.ops()).some((c) => c.id === d.empleada_id)) return mal('esa empleada no existe');
+    if (!personalConCuenta(this.repo.ops()).some((c) => c.id === d.empleada_id)) return mal('esa empleada no existe');
     if (!Number.isInteger(d.limite) || d.limite < 0) return mal('el límite es un importe en pesos (0 = sin crédito)');
     if (String(d.motivo ?? '').trim().length < 3) return mal('escriba el motivo del cambio de límite');
     this.emitirAdmin('empleada.credito', { empleada_id: d.empleada_id, limite: d.limite, motivo: String(d.motivo).trim(), por });
@@ -518,7 +518,7 @@ export class Central {
   /** Abono de nómina o ajuste en la cuenta de una empleada (con motivo y referencia única: reintentar no lo duplica). Solo Administración. */
   registrarMovimientoEmpleada(d: { empleada_id: string; tipo: 'abono' | 'ajuste_cargo' | 'ajuste_abono'; monto: number; motivo: string; periodo?: string; ref: string }, por: string): { ok: true } | { ok: false; error: { codigo: 'DATOS_INVALIDOS'; mensaje: string } } {
     const mal = (mensaje: string) => ({ ok: false as const, error: { codigo: 'DATOS_INVALIDOS' as const, mensaje } });
-    if (!cajerosDe(this.repo.ops()).some((c) => c.id === d.empleada_id)) return mal('esa empleada no existe');
+    if (!personalConCuenta(this.repo.ops()).some((c) => c.id === d.empleada_id)) return mal('esa empleada no existe');
     if (!['abono', 'ajuste_cargo', 'ajuste_abono'].includes(d.tipo)) return mal('indique si es un abono de nómina o un ajuste');
     if (!Number.isInteger(d.monto) || d.monto <= 0) return mal('el monto es un importe en pesos mayor que 0');
     if (String(d.motivo ?? '').trim().length < 3) return mal('escriba el motivo');
