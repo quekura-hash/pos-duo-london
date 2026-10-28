@@ -205,7 +205,7 @@ function descuentoDe(p: Promocion, merc: Linea[], restante: (l: Linea) => number
  */
 /** Id del «descuento de empleada» entre las candidatas: compite con las promociones y cupones (aplica el que más le convenga, no se combinan). */
 export const ID_DESCUENTO_EMPLEADA = 'descuento-empleada';
-export interface ConfigEmpleada { pct: number; pct_uniforme: number }
+export interface ConfigEmpleada { pct: number; pct_uniforme: number; marcas?: string[]; departamentos?: string[] }
 /** Id del «descuento VIP» entre las candidatas: compite con las promociones, cupones y el de empleada (aplica el que más le convenga, no se combinan). */
 export const ID_DESCUENTO_VIP = 'descuento-vip';
 /** Cliente VIP de la venta: su porcentaje y lo que queda fuera (marcas y departamentos cuyo nombre contenga el texto). */
@@ -229,7 +229,9 @@ export function calcularDescuentos(lineas: Linea[], promos: Promocion[], codigoC
   // venta a empleada: su descuento (15 %, o 30 % en uniformes) compite con las promociones y cupones
   if (empleada) {
     const por: Reparto = new Map();
+    const fuera = { marcas: empleada.marcas ?? [], departamentos: empleada.departamentos ?? [] };
     for (const l of merc) {
+      if (excluidoDelVip(l, fuera)) continue; // marca o departamento excluido del descuento de empleada (p. ej. Skincare, Victoria's Secret)
       const m = Math.min(aPesosEnteros((restante(l) * (l.uniforme ? empleada.pct_uniforme : empleada.pct)) / 100), restante(l));
       if (m > 0) por.set(l, m);
     }

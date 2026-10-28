@@ -523,12 +523,12 @@ export function recompensasDe(ops: Op[]): import('./recompensas.ts').ReglaRecomp
 }
 
 // ── Empleadas: descuento de empleada y crédito (cuenta por cobrar que se descuenta de la nómina) ──
-export interface ConfigEmpleadas { pct: number; pct_uniforme: number }
-export const CONFIG_EMPLEADAS_INICIAL: ConfigEmpleadas = { pct: 15, pct_uniforme: 30 };
+export interface ConfigEmpleadas { pct: number; pct_uniforme: number; marcas: string[]; departamentos: string[] }
+export const CONFIG_EMPLEADAS_INICIAL: ConfigEmpleadas = { pct: 15, pct_uniforme: 30, marcas: [], departamentos: [] };
 /** Porcentajes del descuento de empleada (el último `empleadas.config` de Administración; sin registro, 15 % y 30 % en uniformes). */
 export function configEmpleadas(ops: Op[]): ConfigEmpleadas {
   const o = ops.filter((x) => x.tipo === 'empleadas.config').at(-1);
-  return o ? { pct: o.payload.pct, pct_uniforme: o.payload.pct_uniforme } : CONFIG_EMPLEADAS_INICIAL;
+  return o ? { pct: o.payload.pct, pct_uniforme: o.payload.pct_uniforme, marcas: o.payload.marcas ?? [], departamentos: o.payload.departamentos ?? [] } : CONFIG_EMPLEADAS_INICIAL;
 }
 // ── Clientes VIP: descuento especial por cliente, autorizado por Administración, con excepciones (marcas y departamentos) ──
 export interface ClienteVip { id: string; nombre: string; telefono: string; pct: number; activo: boolean; vigente_hasta: string | null }

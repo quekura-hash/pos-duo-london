@@ -3825,6 +3825,11 @@ async function vistaDescuentoCredito() {
         <div class="campo" style="margin:0"><label for="ec-pct">Mercancía regular (%)</label><input id="ec-pct" type="number" min="1" max="100" value="${j.config.pct}" style="width:90px"></div>
         <div class="campo" style="margin:0"><label for="ec-uni">Uniformes (%)</label><input id="ec-uni" type="number" min="1" max="100" value="${j.config.pct_uniforme}" style="width:90px"></div>
         <button class="btn btn-primario" type="submit" style="width:auto">${ico('check')}<span>Guardar porcentajes</span></button></form>
+      <form id="form-emp-ex" autocomplete="off" style="margin-top:12px;border-top:1px solid var(--borde);padding-top:10px"><h3 style="margin:0 0 4px">Lo que NO lleva descuento de empleada</h3>
+        <p class="nota">Por ejemplo Skincare, Bolsos de dama o Victoria's Secret. Basta con que el nombre de la marca o del departamento <b>contenga</b> el texto. Esos artículos se pueden vender a la empleada (y a crédito), pero a precio normal.</p>
+        <div class="campo"><label for="ex-marcas">Marcas (una por renglón)</label><textarea id="ex-marcas" rows="3" class="texto" placeholder="Victoria's Secret">${esc((j.config.marcas ?? []).join('\n'))}</textarea></div>
+        <div class="campo"><label for="ex-deptos">Departamentos (uno por renglón)</label><textarea id="ex-deptos" rows="3" class="texto" placeholder="Skincare">${esc((j.config.departamentos ?? []).join('\n'))}</textarea>${(j.departamentos ?? []).length ? `<small class="nota">Departamentos que existen: ${esc(j.departamentos.join(', '))}</small>` : ''}</div>
+        <button class="btn btn-primario" type="submit" style="width:auto">${ico('check')}<span>Guardar excepciones</span></button></form>
       <div id="msg-emp-admin" class="mensaje" role="status" aria-live="polite"></div></section>
     <section class="panel" style="margin-top:12px"><h2 style="margin-top:0">Cuentas de crédito</h2>
       <p class="nota">El crédito no es dinero cobrado: la venta cuenta en la venta del día y baja el inventario, pero no entra al corte ni al efectivo. Aquí queda lo que cada empleada debe; los abonos se registran cuando se le descuenta de la nómina. <b>Total por cobrar: <span id="emp-total">${mxn(j.total_por_cobrar)}</span></b></p>
@@ -3837,6 +3842,12 @@ async function vistaDescuentoCredito() {
   $('#form-emp-config').addEventListener('submit', async (ev) => {
     ev.preventDefault();
     try { await api('/api/admin/empleadas/config', { pct: Number($('#ec-pct').value), pct_uniforme: Number($('#ec-uni').value) }); msg('Porcentajes guardados. Las cajas los reciben al sincronizar.', 'ok'); }
+    catch (e) { msg(e.message); }
+  });
+  $('#form-emp-ex').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const lineas = (t) => t.split('\n').map((x) => x.trim()).filter(Boolean);
+    try { await api('/api/admin/empleadas/config', { marcas: lineas($('#ex-marcas').value), departamentos: lineas($('#ex-deptos').value) }); msg('Excepciones guardadas. Las cajas las reciben al sincronizar.', 'ok'); }
     catch (e) { msg(e.message); }
   });
   const abrir = (e, tipo) => {

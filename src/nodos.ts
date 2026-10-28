@@ -500,10 +500,15 @@ export class Central {
     this.emitirAdmin('vip.excepciones', { marcas, departamentos, por });
     return { ok: true, excepciones: { marcas, departamentos } };
   }
-  fijarConfigEmpleadas(d: { pct: number; pct_uniforme: number }, por: string): { ok: true } | { ok: false; error: { codigo: 'DATOS_INVALIDOS'; mensaje: string } } {
+  /** Porcentajes del descuento de empleada y artículos que NO lo llevan (por marca o departamento). Lo que no se manda se conserva como estaba. */
+  fijarConfigEmpleadas(d: { pct?: number; pct_uniforme?: number; marcas?: string[]; departamentos?: string[] }, por: string): { ok: true } | { ok: false; error: { codigo: 'DATOS_INVALIDOS'; mensaje: string } } {
     const mal = (mensaje: string) => ({ ok: false as const, error: { codigo: 'DATOS_INVALIDOS' as const, mensaje } });
-    for (const [n, v] of [['el descuento de empleada', d.pct], ['el descuento de uniformes', d.pct_uniforme]] as const) if (!Number.isInteger(v) || v < 1 || v > 100) return mal(`${n} es un porcentaje entero de 1 a 100`);
-    this.emitirAdmin('empleadas.config', { pct: d.pct, pct_uniforme: d.pct_uniforme, por });
+    const actual = configEmpleadas(this.repo.ops());
+    const pct = d.pct ?? actual.pct, pctU = d.pct_uniforme ?? actual.pct_uniforme;
+    for (const [n, v] of [['el descuento de empleada', pct], ['el descuento de uniformes', pctU]] as const) if (!Number.isInteger(v) || v < 1 || v > 100) return mal(`${n} es un porcentaje entero de 1 a 100`);
+    const limpia = (l: unknown) => [...new Set((Array.isArray(l) ? l : []).map((x) => String(x ?? '').trim()).filter(Boolean))].slice(0, 100);
+    const marcas = d.marcas === undefined ? actual.marcas : limpia(d.marcas), departamentos = d.departamentos === undefined ? actual.departamentos : limpia(d.departamentos);
+    this.emitirAdmin('empleadas.config', { pct, pct_uniforme: pctU, marcas, departamentos, por });
     return { ok: true };
   }
   /** Límite de crédito de una empleada (0 = sin crédito). Solo Administración. */

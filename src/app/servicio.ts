@@ -1243,7 +1243,7 @@ export class ServicioAdmin {
       const n = nombres.get(id);
       return { id, nombre: n?.nombre ?? id, activa: vivas.has(id) && (n?.activo ?? true), tienda: n?.tienda ?? null, limite: c?.limite ?? 0, cargos: c?.cargos ?? 0, devoluciones: c?.devoluciones ?? 0, abonos: c?.abonos ?? 0, ajustes: (c?.ajustes_cargo ?? 0) - (c?.ajustes_abono ?? 0), saldo: c?.saldo ?? 0, disponible: c?.disponible ?? 0 };
     }).filter((f) => f.activa || f.saldo !== 0).sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
-    return { config: configEmpleadas(ops), empleadas: filas, total_por_cobrar: filas.reduce((a, f) => a + f.saldo, 0) };
+    return { config: configEmpleadas(ops), departamentos: proyDepartamentos(ops).filter((d) => d.activo !== false).map((d) => d.nombre), empleadas: filas, total_por_cobrar: filas.reduce((a, f) => a + f.saldo, 0) };
   }
   empleadaMovimientos(id: string) {
     const c = cuentasEmpleadas(this.fuente()).get(id);
@@ -1285,9 +1285,9 @@ export class ServicioAdmin {
     if (!r.ok) throw new ErrorDominio('DATOS_INVALIDOS', r.error.mensaje);
     return this.vipAdmin();
   }
-  fijarConfigEmpleadas(d: { pct: number; pct_uniforme: number }) {
+  fijarConfigEmpleadas(d: { pct?: number; pct_uniforme?: number; marcas?: string[]; departamentos?: string[] }) {
     if (!this.central) throw new ErrorDominio('SIN_CENTRAL', 'esta sesión no tiene acceso al servicio central');
-    const r = this.central.fijarConfigEmpleadas({ pct: Number(d.pct), pct_uniforme: Number(d.pct_uniforme) }, this.actor.usuario);
+    const r = this.central.fijarConfigEmpleadas({ pct: d.pct === undefined ? undefined : Number(d.pct), pct_uniforme: d.pct_uniforme === undefined ? undefined : Number(d.pct_uniforme), marcas: d.marcas, departamentos: d.departamentos }, this.actor.usuario);
     if (!r.ok) throw new ErrorDominio('DATOS_INVALIDOS', r.error.mensaje);
     return this.empleadasCuentas();
   }
