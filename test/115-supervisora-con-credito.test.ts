@@ -4,6 +4,8 @@ import { describe, it } from 'node:test';
 import { chromium } from 'playwright-core';
 import { api, appAdmin, appCajero } from './ayudas/app.ts';
 import { detectar } from '../src/incidencias.ts';
+import { correoDelReporte, reporteDeCaja } from '../src/reporte-contadora.ts';
+import { fechaLocal } from '../src/util.ts';
 import { ALMACENES, nuevoMundo, politica } from './ayudas/comun.ts';
 
 const chromiumPath = [process.env.POS_CHROMIUM, '/opt/pw-browsers/chromium-1194/chrome-linux/chrome', '/opt/pw-browsers/chromium/chrome-linux/chrome'].find((p) => p && existsSync(p));
@@ -150,5 +152,43 @@ describe('[sqlite] Una supervisora también es empleada con crédito', () => {
     assert.ok(hist.movimientos.some((m: { detalle: string }) => /CR-000001/.test(m.detalle)));
     assert.deepEqual(detectar(ctx.m.central.repo.ops()).filter((i) => i.tipo.startsWith('folio')), [], 'la serie CR no cuenta como hueco ni duplicado de folios de venta');
     void hoy;
+  });
+  it('SC5 el reporte mensual a la contadora trae la compra a crédito con folio CR, aparte de lo cobrado', async (t) => {
+    const ctx = nuevoMundo(sqlite, politica());
+    const adm = await appAdmin(ctx);
+    const caja = await appCajero(ctx, 'DUO', 1, 'Lupe');
+    t.after(async () => { await adm.cerrar(); await caja.cerrar(); ctx.limpiar(); });
+    await api(adm.url, '/api/admin/cajeros', { nombre: 'Lupe', clave: '4321' });
+    await api(adm.url, '/api/admin/cajeros', { nombre: 'Rosa', clave: '8765' });
+    ctx.m.pump(); ctx.m.pump(); ctx.m.pump();
+    await api(caja.url, '/api/login', { usuario: 'Lupe', clave: '4321' });
+    const rosa = ((await api(caja.url, '/api/empleadas')).json.empleadas as { id: string; nombre: string }[]).find((e) => e.nombre === 'Rosa')!.id;
+    await api(adm.url, '/api/admin/empleadas/limite', { empleada_id: rosa, limite: 100000, motivo: 'alta de crédito' });
+    for (let i = 0; i < 4; i++) ctx.m.pump();
+    const c1 = (await api(caja.url, '/api/venta/nueva', {})).json.cart;
+    await api(caja.url, '/api/venta/escanear', { cart: c1, codigo: '7501234567890' }); // $120
+    const v = (await api(caja.url, '/api/venta/cobrar-efectivo', { cart: c1, recibido: 100000 })).json.venta;
+    const c2 = (await api(caja.url, '/api/venta/nueva', {})).json.cart;
+    await api(caja.url, '/api/venta/escanear', { cart: c2, codigo: '7501234567890' });
+    await api(caja.url, '/api/venta/empleada', { cart: c2, empleada_id: rosa, clave: '8765' });
+    const cr = (await api(caja.url, '/api/venta/cobrar-credito-empleada', { cart: c2 })).json.venta;
+    for (let i = 0; i < 4; i++) ctx.m.pump();
+    const periodo = fechaLocal(v.ocurrio_en).slice(0, 7);
+    const rep = reporteDeCaja(ctx.m.central.repo.ops(), 'DUO', 1, periodo);
+    const detalle = rep.hojas[0]!;
+    const folios = detalle.filas.map((f) => f[1]);
+    assert.deepEqual(folios, [1, 'CR-000001'], 'la venta con su número y la compra a crédito con folio CR (no se confunden)');
+    assert.deepEqual(detalle.filas.map((f) => f[2]), ['Venta', 'Compra a crédito (empleada)']);
+    assert.deepEqual(detalle.filas.map((f) => f[5]), ['Efectivo', 'Crédito de empleada']);
+    // lo cobrado no incluye el crédito, que va en su propio renglón (y su propia columna del resumen por día)
+    assert.equal(rep.tickets, 2);
+    assert.equal(rep.credito_empleadas, cr.total);
+    const mail = correoDelReporte(rep);
+    assert.match(mail.texto, new RegExp(`Total cobrado: \\$${(v.total / 100).toFixed(2).replace('.', '\\.')}`));
+    assert.match(mail.texto, /Compras a crédito de empleadas \(1, folios CR; no es dinero cobrado, se descuenta de nómina\)/);
+    const resumen = rep.hojas[1]!;
+    assert.ok(resumen.encabezados.includes('Crédito de empleadas (no es cobro)'));
+    const i = resumen.encabezados.indexOf('Crédito de empleadas (no es cobro)');
+    assert.equal(resumen.filas[0]![i], cr.total / 100);
   });
 });

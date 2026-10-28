@@ -45,8 +45,8 @@ export interface FilaVenta {
   /** Cuánto se cobró por cada forma de pago (centavos MXN). `mixto` = pago mixto de una venta histórica sin desglose. */
   montos: MontosPago;
 }
-export interface MontosPago { efectivo: number; tarjeta: number; dolares: number; tarjeta_regalo: number; otro: number; mixto: number }
-const sinMontos = (): MontosPago => ({ efectivo: 0, tarjeta: 0, dolares: 0, tarjeta_regalo: 0, otro: 0, mixto: 0 });
+export interface MontosPago { efectivo: number; tarjeta: number; dolares: number; tarjeta_regalo: number; otro: number; mixto: number; /** Compra a crédito de empleada: no es dinero cobrado (se descuenta de su nómina). */ credito: number }
+const sinMontos = (): MontosPago => ({ efectivo: 0, tarjeta: 0, dolares: 0, tarjeta_regalo: 0, otro: 0, mixto: 0, credito: 0 });
 
 const ETIQUETA_PAGO: Record<string, string> = { efectivo: 'Efectivo', tarjeta: 'Tarjeta', efectivo_usd: 'Dólares', tarjeta_regalo: 'Tarjeta de regalo', credito_cambio: 'Mercancía recibida a cambio', credito_empleada: 'Crédito de empleada', mixto: 'Mixto', sin_pago: 'Sin pago' };
 /** Una sola forma de pago → su nombre; varias distintas → «Mixto». */
@@ -118,7 +118,7 @@ export function ventasPorCaja(actor: Actor, ops: Op[], f: Filtro = {}): FilaVent
       fecha_local: fechaLocal(v.ocurrio_en), cajero: v.cajero, vendedora: v.vendedora === undefined ? '' : v.vendedora_id ? v.vendedora : 'Autocompra', total: v.total, total_mercancia: v.lineas.filter((l) => !l.tarjeta_regalo).reduce((a, l) => a + l.importe, 0), estado: v.estado,
       piezas: v.lineas.filter((l) => !l.tarjeta_regalo).reduce((a, l) => a + l.qty, 0), pago: etiquetaPago((v.pagos ?? []).map((x: { metodo: string }) => x.metodo)), tipo_ticket: 'venta', historico: false,
       hora: new Date(Date.parse(v.ocurrio_en) - 7 * 3600_000).toISOString().slice(11, 16),
-      montos: (v.pagos ?? []).reduce((m: MontosPago, x: { metodo: string; monto: number }) => { const k = x.metodo === 'efectivo' ? 'efectivo' : x.metodo === 'tarjeta' ? 'tarjeta' : x.metodo === 'efectivo_usd' ? 'dolares' : x.metodo === 'tarjeta_regalo' ? 'tarjeta_regalo' : 'otro'; m[k] += x.monto; return m; }, sinMontos()),
+      montos: (v.pagos ?? []).reduce((m: MontosPago, x: { metodo: string; monto: number }) => { const k = x.metodo === 'efectivo' ? 'efectivo' : x.metodo === 'tarjeta' ? 'tarjeta' : x.metodo === 'efectivo_usd' ? 'dolares' : x.metodo === 'tarjeta_regalo' ? 'tarjeta_regalo' : x.metodo === 'credito_empleada' ? 'credito' : 'otro'; m[k] += x.monto; return m; }, sinMontos()),
     });
   }
   if (actor.rol === 'admin' && f.historicas !== false) {

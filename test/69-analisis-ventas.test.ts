@@ -10,7 +10,7 @@ import { nuevoMundo, politica, porAlmacen, vender } from './ayudas/comun.ts';
 let n = 0;
 const fila = (fecha: string, hora: string, pesos: number, piezas = 1, o: Partial<FilaVenta> = {}): FilaVenta => ({
   tienda: 'DUO', caja: 1, folio: ++n, sale_id: `s${n}`, fecha_local: fecha, cajero: 'Ana', vendedora: '', total: pesos * 100, total_mercancia: pesos * 100, estado: 'confirmada', piezas, pago: 'Efectivo',
-  tipo_ticket: 'venta', historico: false, hora, montos: { efectivo: pesos * 100, tarjeta: 0, dolares: 0, tarjeta_regalo: 0, otro: 0, mixto: 0 }, ...o,
+  tipo_ticket: 'venta', historico: false, hora, montos: { efectivo: pesos * 100, tarjeta: 0, dolares: 0, tarjeta_regalo: 0, otro: 0, mixto: 0, credito: 0 }, ...o,
 });
 
 it('AN1 calendario: día de la semana, días entre fechas y semana ISO (incluye el cambio de año)', () => {
