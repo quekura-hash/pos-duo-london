@@ -108,11 +108,11 @@ porAlmacen('Reporte para la contadora: Excel con detalle y resumen por día, his
     assert.deepEqual([det[6]![2], det[6]![4]], ['Cambio', 0]);
     assert.equal(det[7]![4], -150, 'el fee negativo conserva su signo');
     const res = leidas[1]!.filas;
-    assert.deepEqual(res[0], ['Fecha', 'Tienda', 'Tickets', 'Piezas', 'Efectivo', 'Tarjeta', 'Dólares (equivalente MXN)', 'Tarjeta de regalo', 'Otros', 'Mixto (sin desglose)', 'Fees por daño', 'Total']);
+    assert.deepEqual(res[0], ['Fecha', 'Tienda', 'Tickets', 'Piezas', 'Efectivo', 'Tarjeta', 'Dólares (equivalente MXN)', 'Tarjeta de regalo', 'Otros', 'Mixto (sin desglose)', 'Crédito de empleadas (no es cobro)', 'Fees por daño', 'Total']);
     const dia14 = res.find((f) => String(f[0]).startsWith('2026-09-14'))!;
-    assert.deepEqual([dia14[2], dia14[3], dia14[4], dia14[10], dia14[11]], [2, 0, -150, -150, -150], '14/09: un cambio de $0 y un fee de −$150');
+    assert.deepEqual([dia14[2], dia14[3], dia14[4], dia14[11], dia14[12]], [2, 0, -150, -150, -150], '14/09: un cambio de $0 y un fee de −$150');
     const total = res.find((f) => f[0] === 'TOTAL')!;
-    assert.deepEqual([total[2], total[3], total[4], total[5], total[9], total[10], total[11]], [8, 9, 203 + 30 - 150, 549 + 1698 + 399, 654, 30 - 150, 3383], 'tickets, piezas, efectivo, tarjeta, mixto, fees y total del periodo');
+    assert.deepEqual([total[2], total[3], total[4], total[5], total[9], total[11], total[12]], [8, 9, 203 + 30 - 150, 549 + 1698 + 399, 654, 30 - 150, 3383], 'tickets, piezas, efectivo, tarjeta, mixto, fees y total del periodo');
 
     // Una venta nueva de la caja (hoy) entra al mismo reporte, con su hora y su forma de pago, y se distingue del histórico.
     const v = vender(ctx.m, 'DUO', 1, ctx.items[2]!.item_id).venta;
