@@ -191,7 +191,7 @@ describe('[navegador real] Cierre de caja guiado por pasos', { timeout: 240_000,
     await page.waitForSelector('#lg-usuario');
     assert.deepEqual(errores.filter((e) => !/401|403|Failed to load resource/.test(e)), []);
   });
-  it('UC4 capturar cantidades como en Excel: al entrar a la celda todo queda seleccionado y las flechas pasan a la siguiente celda', async (t) => {
+  it('UC4 capturar cantidades como en Excel: al entrar a la celda todo queda seleccionado, Enter baja de celda y las flechas ajustan la cantidad', async (t) => {
     const browser = await chromium.launch({ executablePath: chromiumPath, args: ['--no-sandbox'] });
     const ctx = nuevoMundo(sqlite, politica());
     const adm = await appAdmin(ctx);
@@ -211,21 +211,25 @@ describe('[navegador real] Cierre de caja guiado por pasos', { timeout: 240_000,
     await celdas.nth(0).click();
     await page.keyboard.type('12');
     assert.equal(await celdas.nth(0).inputValue(), '12');
-    // flecha abajo: siguiente celda, ya seleccionada; las flechas no suben ni bajan el número
-    await page.keyboard.press('ArrowDown');
-    assert.equal(await celdas.nth(0).inputValue(), '12', 'la flecha no cambió el número');
+    // Enter baja a la siguiente celda, ya seleccionada: lo que se escribe reemplaza
+    await page.keyboard.press('Enter');
     await page.keyboard.type('6');
-    await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('Enter');
     await page.keyboard.type('9');
     assert.deepEqual([await celdas.nth(0).inputValue(), await celdas.nth(1).inputValue(), await celdas.nth(2).inputValue()], ['12', '6', '9']);
-    // flecha arriba regresa y reemplaza lo que había
+    // las flechas ↑ ↓ ajustan la cantidad de la celda (no cambian de celda), sin bajar de 0
     await page.keyboard.press('ArrowUp');
+    await page.keyboard.press('ArrowUp');
+    assert.equal(await celdas.nth(2).inputValue(), '11');
+    await page.keyboard.press('ArrowDown');
+    assert.equal(await celdas.nth(2).inputValue(), '10');
+    for (let n = 0; n < 12; n++) await page.keyboard.press('ArrowDown');
+    assert.equal(await celdas.nth(2).inputValue(), '0', 'no baja de cero');
+    assert.equal(await celdas.nth(1).inputValue(), '6', 'las flechas no tocaron otras celdas');
+    // Shift+Enter regresa a la celda de arriba (seleccionada)
+    await page.keyboard.press('Shift+Enter');
     await page.keyboard.type('7');
     assert.equal(await celdas.nth(1).inputValue(), '7');
-    // Enter también baja a la siguiente celda sin enviar nada
-    await page.keyboard.press('Enter');
-    await page.keyboard.type('3');
-    assert.equal(await celdas.nth(2).inputValue(), '3');
     assert.deepEqual(errores.filter((e) => !/401|403|Failed to load resource/.test(e)), []);
   });
 });
