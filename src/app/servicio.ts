@@ -18,7 +18,8 @@ import { aplicarDatosTienda, codigoTicket, interpretarFolio, construirTicket, co
 import { promoDeRegla, type ReglaRecompensa } from '../recompensas.ts';
 import { adminDueno, adminProtegido, hashClave, nombreClave, supervisorPorClave, type Perfil, type RolAdmin } from '../supervisores.ts';
 import { LIMBO, type Actor, type Articulo, type Linea, type Op, type Venta } from '../tipos.ts';
-import { fechaLocal } from '../util.ts';
+import { fechaLocal, addDias } from '../util.ts';
+import { avanceMetas, CONFIG_METAS_INICIAL, diasDelPeriodo, lunesDe, metasDias, metasPublicadas, totalesPorDia, type AvancePeriodo, type PeriodoMeta } from '../metas.ts';
 
 export interface Conexion {
   hubAlcanzable(): boolean;
@@ -438,6 +439,11 @@ export class ServicioCaja {
     return { empleadas: this.caja.empleadasActivas(), config: this.caja.configEmpleadas(), yo: this.actor.usuario };
   }
   // ── clientes VIP: la caja solo los elige; el porcentaje y las excepciones los fija Administración ──
+  /** Barra de metas de la tienda: solo porcentaje y color (las cantidades son de Administración). `activa` = false si no hay metas publicadas para esta tienda. */
+  metas() {
+    const p = this.caja.metasAvance();
+    return p ? { activa: true, tienda: this.caja.tienda, periodos: p } : { activa: false, tienda: this.caja.tienda, periodos: null };
+  }
   vips() {
     return { vips: this.caja.vipsDisponibles().map(({ id, nombre, pct }) => ({ id, nombre, pct })), pide_clave: this.caja.controlesConClave(), excepciones: this.caja.excepcionesVip(), yo: this.actor.usuario };
   }
@@ -913,7 +919,7 @@ export class ServicioAdmin {
   readonly cajas: { tienda: string; caja: number }[];
   private inv?: FuenteInventario;
   private central?: { fijarTipoCambio(tasa: number, usuario: string, versionBase: number, confirmarVariacion?: boolean): import('../nodos.ts').ResultadoTipoCambio; asignarPermiso(usuario: string, permiso: string, valor: boolean, por: string): Op; guardarDepto(c: import('../departamentos.ts').CambioDepto, por: string): { ok: true; op: Op } | { ok: false; error: import('../departamentos.ts').ErrorDepto };
-    guardarDatosTienda: import('../nodos.ts').Central['guardarDatosTienda']; editarArticulo: import('../nodos.ts').Central['editarArticulo']; guardarPromocion: import('../nodos.ts').Central['guardarPromocion'];  eliminarPromocion: import('../nodos.ts').Central['eliminarPromocion']; guardarRecompensa: import('../nodos.ts').Central['guardarRecompensa']; fijarFondoCaja: import('../nodos.ts').Central['fijarFondoCaja']; fijarConfigEmpleadas: import('../nodos.ts').Central['fijarConfigEmpleadas']; guardarVip: import('../nodos.ts').Central['guardarVip']; eliminarVip: import('../nodos.ts').Central['eliminarVip']; fijarExcepcionesVip: import('../nodos.ts').Central['fijarExcepcionesVip']; fijarLimiteEmpleada: import('../nodos.ts').Central['fijarLimiteEmpleada']; registrarMovimientoEmpleada: import('../nodos.ts').Central['registrarMovimientoEmpleada']; registrarAjusteCaja: import('../nodos.ts').Central['registrarAjusteCaja']; guardarSupervisor: import('../nodos.ts').Central['guardarSupervisor']; guardarCajero: import('../nodos.ts').Central['guardarCajero']; guardarAdmin: import('../nodos.ts').Central['guardarAdmin']; guardarConfigSesion: import('../nodos.ts').Central['guardarConfigSesion']; recordarSacarAPiso: import('../nodos.ts').Central['recordarSacarAPiso']; resolverFaltante: import('../nodos.ts').Central['resolverFaltante']; contarLimbo: import('../nodos.ts').Central['contarLimbo']; reubicarLimbo: import('../nodos.ts').Central['reubicarLimbo']; fijarExistencias: import('../nodos.ts').Central['fijarExistencias']; guardarExpediente: import('../nodos.ts').Central['guardarExpediente']; eliminarCajero: import('../nodos.ts').Central['eliminarCajero']; eliminarAdmin: import('../nodos.ts').Central['eliminarAdmin']; eliminarSupervisorCaja: import('../nodos.ts').Central['eliminarSupervisorCaja']; corregirEntrada: import('../nodos.ts').Central['corregirEntrada']; altaLote: import('../nodos.ts').Central['altaLote']; importarVentasHistoricas: import('../nodos.ts').Central['importarVentasHistoricas']; entregar: import('../nodos.ts').Central['entregar'] };
+    guardarDatosTienda: import('../nodos.ts').Central['guardarDatosTienda']; editarArticulo: import('../nodos.ts').Central['editarArticulo']; guardarPromocion: import('../nodos.ts').Central['guardarPromocion'];  eliminarPromocion: import('../nodos.ts').Central['eliminarPromocion']; guardarRecompensa: import('../nodos.ts').Central['guardarRecompensa']; fijarFondoCaja: import('../nodos.ts').Central['fijarFondoCaja']; fijarConfigEmpleadas: import('../nodos.ts').Central['fijarConfigEmpleadas']; guardarVip: import('../nodos.ts').Central['guardarVip']; eliminarVip: import('../nodos.ts').Central['eliminarVip']; fijarExcepcionesVip: import('../nodos.ts').Central['fijarExcepcionesVip']; guardarMetas: import('../nodos.ts').Central['guardarMetas']; publicarMetas: import('../nodos.ts').Central['publicarMetas']; metasNecesitanPublicar: import('../nodos.ts').Central['metasNecesitanPublicar']; fijarLimiteEmpleada: import('../nodos.ts').Central['fijarLimiteEmpleada']; registrarMovimientoEmpleada: import('../nodos.ts').Central['registrarMovimientoEmpleada']; registrarAjusteCaja: import('../nodos.ts').Central['registrarAjusteCaja']; guardarSupervisor: import('../nodos.ts').Central['guardarSupervisor']; guardarCajero: import('../nodos.ts').Central['guardarCajero']; guardarAdmin: import('../nodos.ts').Central['guardarAdmin']; guardarConfigSesion: import('../nodos.ts').Central['guardarConfigSesion']; recordarSacarAPiso: import('../nodos.ts').Central['recordarSacarAPiso']; resolverFaltante: import('../nodos.ts').Central['resolverFaltante']; contarLimbo: import('../nodos.ts').Central['contarLimbo']; reubicarLimbo: import('../nodos.ts').Central['reubicarLimbo']; fijarExistencias: import('../nodos.ts').Central['fijarExistencias']; guardarExpediente: import('../nodos.ts').Central['guardarExpediente']; eliminarCajero: import('../nodos.ts').Central['eliminarCajero']; eliminarAdmin: import('../nodos.ts').Central['eliminarAdmin']; eliminarSupervisorCaja: import('../nodos.ts').Central['eliminarSupervisorCaja']; corregirEntrada: import('../nodos.ts').Central['corregirEntrada']; altaLote: import('../nodos.ts').Central['altaLote']; importarVentasHistoricas: import('../nodos.ts').Central['importarVentasHistoricas']; entregar: import('../nodos.ts').Central['entregar'] };
   constructor(o: { actor: Extract<Actor, { rol: 'admin' }>; fuente: () => Op[]; cajas: { tienda: string; caja: number }[]; inventario?: FuenteInventario; central?: ServicioAdmin['central']; reloj?: { now(): string } }) {
     this.central = o.central;
     this.actor = o.actor;
@@ -1266,6 +1272,39 @@ export class ServicioAdmin {
     return { desde: d, hasta: h, filas, total: { cargos: filas.reduce((a, f) => a + f.cargos, 0), devoluciones: filas.reduce((a, f) => a + f.devoluciones, 0), abonos: filas.reduce((a, f) => a + f.abonos, 0), a_descontar: filas.reduce((a, f) => a + f.a_descontar, 0), saldo: filas.reduce((a, f) => a + f.saldo, 0) } };
   }
   // ── clientes VIP (descuento especial por cliente, con excepciones por marca y departamento) ──
+  // ── Metas de venta (Administración): configuración y reporte completo con cantidades ──
+  /**
+   * Configuración de las metas y, por tienda, el avance del día, la semana y el mes con cantidades reales, más el mes día por día.
+   * Si las metas publicadas ya no cubren el mes actual y el siguiente, las vuelve a publicar (así las cajas siempre tienen la meta de hoy).
+   */
+  metasAdmin() {
+    const ahora = this.reloj.now();
+    const fecha = fechaLocal(ahora), hora = new Date(Date.parse(ahora) - 7 * 3600_000).toISOString().slice(11, 16);
+    let pub = metasPublicadas(this.fuente());
+    if (this.central && this.central.metasNecesitanPublicar(fecha)) {
+      this.central.publicarMetas(pub?.config ?? CONFIG_METAS_INICIAL, this.actor.usuario);
+      pub = metasPublicadas(this.fuente());
+    }
+    const config = pub?.config ?? CONFIG_METAS_INICIAL;
+    const ops = this.fuente();
+    const NOMBRES: Record<string, string> = { DUO: 'DÚO New York', LON: 'London Love' };
+    const desde = lunesDe(`${fecha.slice(0, 7)}-01`), hasta = diasDelPeriodo('mes', fecha).at(-1)!;
+    const DIAS = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+    const tiendas = Object.entries(config.tiendas).map(([t, c]) => {
+      const totales = totalesPorDia(ops, t);
+      const metas = metasDias(totales, c.incremento_pct, desde, addDias(hasta, 7));
+      const periodos = avanceMetas({ tienda: t, fecha, hora, config, metas, totales });
+      const dias = diasDelPeriodo('mes', fecha).map((f) => ({ fecha: f, dia_semana: DIAS[new Date(`${f}T12:00:00Z`).getUTCDay()]!, meta: metas[f] ?? 0, ano_pasado: totales.get(addDias(f, -364)) ?? 0, vendido: f <= fecha ? (totales.get(f) ?? 0) : 0, futuro: f > fecha }));
+      return { tienda: t, nombre: NOMBRES[t] ?? t, ...c, sin_historial: Object.keys(metasDias(totales, 0, desde, hasta)).length === 0, periodos, dias };
+    });
+    return { config, fecha, hora, publicada: pub ? { desde: pub.desde, hasta: pub.hasta, generado_en: pub.generado_en } : null, tiendas };
+  }
+  guardarMetas(d: { tiendas?: Record<string, { activa?: boolean; incremento_pct?: number; apertura?: string; cierre?: string }>; verde_pct?: number; amarillo_pct?: number }) {
+    if (!this.central) throw new ErrorDominio('SIN_CENTRAL', 'esta sesión no tiene acceso al servicio central');
+    const r = this.central.guardarMetas(d, this.actor.usuario);
+    if (!r.ok) throw new ErrorDominio('DATOS_INVALIDOS', r.error.mensaje);
+    return this.metasAdmin();
+  }
   vipAdmin() {
     const ops = this.fuente();
     return { clientes: clientesVip(ops), excepciones: excepcionesVip(ops), departamentos: proyDepartamentos(ops).filter((d) => d.activo !== false).map((d) => d.nombre) };

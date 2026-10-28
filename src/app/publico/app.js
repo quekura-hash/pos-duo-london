@@ -131,12 +131,15 @@ async function pintarEncabezado() {
       <span class="chip-top" data-chip="alcance">${ico('store')}<span>Una, varias o todas las cajas</span></span>${S.sesion.requiere_login ? `<button class="btn" type="button" id="btn-salir" title="Cerrar la sesión">${ico('x')}<span>Cerrar sesión</span></button>` : ''}</div>`;
     pie.innerHTML = `<span>Usuario: ${esc(S.sesion.usuario)}</span><span>Administración · consolida cajas y tiendas</span><span>Precios en MXN</span>`;
     await pintarTipoCambio();
+    // Una vez por sesión: si las metas publicadas ya no cubren el mes (o aún no hay), se publican a las cajas.
+    if (!S.metasRevisadas) { S.metasRevisadas = true; api('/api/admin/metas?pasivo=1').catch(() => {}); }
     window.__POS_PINTAR_ESTADO__?.();
     return;
   }
   const { estado: e } = await api('/api/estado?pasivo=1');
   S.estado = e;
   pintarTipoCambio();
+  pintarMetas();
   const c = e.conexion;
   const sincro = !c.hub ? ['mal', 'Sin hub'] : c.pendientes > 0 ? ['pendiente', `${c.pendientes} por sincronizar`] : ['', 'Sincronizado'];
   h.innerHTML = `
@@ -1015,6 +1018,7 @@ async function cobrar() {
       const c = calcEfectivo(S.carrito.total);
       r = await api('/api/venta/cobrar-efectivo', { cart: S.cart, recibido: c.pesos, ...(c.usd > 0 ? { usd: c.usd } : {}) });
     }
+    pintarMetas().catch(() => {});
     if (!r.venta.serie) S.ultimoFolio = r.venta.folio; // el chip es de la serie de ventas; el folio CR sale en el resumen del cobro
     mostrarTicket(r);
     await pintarEncabezado();
@@ -2422,6 +2426,32 @@ function mostrarDevolucionEfectivo(r) {
 }
 
 // ── tipo de cambio del dólar (barra izquierda) ──
+// ── Meta de venta de la tienda (solo porcentaje): barra bajo el tipo de cambio, con día / semana / mes ──
+const ETIQ_META = { dia: 'Meta del día', semana: 'Meta de la semana', mes: 'Meta del mes' };
+async function pintarMetas() {
+  if (!S.sesion || S.sesion.rol === 'admin') return;
+  const tc = $('#tc-barra');
+  if (!tc) return;
+  let el = $('#metas-barra');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'metas-barra'; el.className = 'metas'; el.setAttribute('aria-label', 'Meta de venta de la tienda'); el.hidden = true;
+    tc.insertAdjacentElement('afterend', el);
+    setInterval(() => { pintarMetas().catch(() => {}); }, 60_000);
+  }
+  let m;
+  try { m = await api('/api/metas?pasivo=1'); } catch { return; }
+  if (!m.activa) { el.hidden = true; return; }
+  const per = ['dia', 'semana', 'mes'].filter((k) => m.periodos[k]);
+  if (!per.length) { el.hidden = true; return; }
+  if (!per.includes(S.metasPeriodo)) S.metasPeriodo = per[0];
+  const a = m.periodos[S.metasPeriodo];
+  el.hidden = false;
+  el.innerHTML = `<div class="metas-linea"><span data-metas="titulo">${ETIQ_META[S.metasPeriodo]}</span><b data-metas="pct">${a.pct}%</b></div>
+    <div class="metas-pista" role="progressbar" aria-label="${ETIQ_META[S.metasPeriodo]}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.min(100, a.pct)}"><div class="metas-relleno ${a.color}" data-metas="relleno" style="width:${Math.min(100, Math.max(0, a.pct))}%"></div></div>
+    <div class="metas-tabs" role="group" aria-label="Periodo de la meta">${per.map((k) => `<button type="button" data-metas-periodo="${k}" aria-pressed="${k === S.metasPeriodo}">${{ dia: 'Día', semana: 'Semana', mes: 'Mes' }[k]}</button>`).join('')}</div>`;
+  for (const b of el.querySelectorAll('[data-metas-periodo]')) b.addEventListener('click', () => { S.metasPeriodo = b.dataset.metasPeriodo; pintarMetas(); });
+}
 async function pintarTipoCambio() {
   const el = $('#tc-barra');
   if (!el || !S.sesion) return;
@@ -3791,7 +3821,7 @@ async function abrirPromo(p, preset) {
 
 // ── Configuración: Tiendas, Departamentos y Tipo de cambio en una sola entrada ──
 const cuerpoVista = () => $('#config-cuerpo') ?? $('#personal-cuerpo') ?? $('#vista');
-const TABS_CONFIG = [['tiendas', 'Tiendas', 'store'], ['departamentos', 'Departamentos', 'box'], ['tipo_cambio', 'Tipo de cambio', 'banknote'], ['cajas', 'Cajas', 'cash'], ['feria', 'Feria', 'banknote'], ['vip', 'Clientes VIP', 'user']];
+const TABS_CONFIG = [['tiendas', 'Tiendas', 'store'], ['departamentos', 'Departamentos', 'box'], ['tipo_cambio', 'Tipo de cambio', 'banknote'], ['cajas', 'Cajas', 'cash'], ['feria', 'Feria', 'banknote'], ['vip', 'Clientes VIP', 'user'], ['metas', 'Metas de venta', 'chart']];
 async function vistaConfiguracion(tab) {
   tab = tab ?? S.configTab ?? 'tiendas';
   S.configTab = tab;
@@ -3799,10 +3829,57 @@ async function vistaConfiguracion(tab) {
     <div class="filas" role="tablist" aria-label="Configuración" style="margin-bottom:12px">${TABS_CONFIG.map(([id, rotulo, icono]) => `<button class="btn" type="button" role="tab" id="cfg-tab-${id}" data-tab="${id}" aria-selected="${id === tab}" style="${id === tab ? 'background:var(--acento);color:var(--acento-texto);border-color:var(--acento)' : ''}">${ico(icono)}<span>${rotulo}</span></button>`).join('')}</div>
     <div id="config-cuerpo" role="tabpanel"></div>`;
   for (const b of $('#vista').querySelectorAll('[role="tab"]')) b.addEventListener('click', () => vistaConfiguracion(b.dataset.tab));
-  await ({ tiendas: vistaTiendas, departamentos: vistaDepartamentos, tipo_cambio: vistaTipoCambio, cajas: vistaCajasFondo, feria: vistaFeria, vip: vistaVip })[tab]();
+  await ({ tiendas: vistaTiendas, departamentos: vistaDepartamentos, tipo_cambio: vistaTipoCambio, cajas: vistaCajasFondo, feria: vistaFeria, vip: vistaVip, metas: vistaMetas })[tab]();
 }
 
 
+// ── Metas de venta (Administración): incremento sobre el año pasado, horario y colores por tienda, y el reporte completo con cantidades ──
+async function vistaMetas() {
+  let j = await api('/api/admin/metas');
+  const cuerpo = $('#config-cuerpo');
+  const COLOR = { verde: ['Vamos bien', '#1d7a46'], amarillo: ['Un poco abajo', '#9a6b00'], rojo: ['Muy abajo', '#b3261e'] };
+  const fechaC = (f) => f.split('-').reverse().join('/');
+  const bloque = (rotulo, a) => a ? `<div class="kpi" data-meta-periodo="${rotulo}"><span class="kpi-rotulo">${rotulo.toUpperCase()}</span>
+      <span>Meta <b>${mxn(a.meta)}</b></span><span>Vendido <b>${mxn(a.vendido)}</b></span>
+      <span>${a.vendido >= a.meta ? 'Excedente' : 'Falta'} <b>${mxn(Math.abs(a.meta - a.vendido))}</b></span>
+      <span>Esperado a esta hora <b>${mxn(a.esperado)}</b></span>
+      <b style="font-size:22px;color:${COLOR[a.color][1]}" data-meta-pct>${Math.round(a.pct)}%</b><span style="color:${COLOR[a.color][1]};font-weight:700">${COLOR[a.color][0]}</span></div>`
+    : `<div class="kpi" data-meta-periodo="${rotulo}"><span class="kpi-rotulo">${rotulo.toUpperCase()}</span><span class="nota">Sin meta</span></div>`;
+  const pintar = () => {
+    cuerpo.innerHTML = `<section class="panel"><h2 style="margin-top:0">Metas de venta</h2>
+      <p class="nota">La meta de cada día es lo que se vendió el <b>mismo día de la semana hace 52 semanas</b> (364 días antes; el viernes 30 de octubre de 2026 se compara con el viernes 31 de octubre de 2025) más el incremento que pongas aquí. Cuenta el total de todos los tickets de la tienda. La caja solo ve el porcentaje y el color; aquí están las cantidades. Una tienda sin ventas del año pasado no tiene meta ni barra.</p>
+      <form id="form-metas" autocomplete="off">
+        <div class="tabla-cont"><table id="tabla-metas-config"><thead><tr><th>Tienda</th><th>Meta activa</th><th>Incremento vs. año pasado (%)</th><th>Abre</th><th>Cierra</th></tr></thead><tbody>
+          ${j.tiendas.map((t) => `<tr data-tienda="${esc(t.tienda)}"><td><b>${esc(t.nombre)}</b></td><td><input type="checkbox" class="mt-activa" ${t.activa ? 'checked' : ''} aria-label="Meta activa de ${esc(t.nombre)}"></td>
+            <td><input type="number" class="mt-inc" step="0.5" min="-90" max="500" value="${t.incremento_pct}" style="width:90px" aria-label="Incremento de ${esc(t.nombre)}"></td>
+            <td><input type="time" class="mt-abre" value="${esc(t.apertura)}"></td><td><input type="time" class="mt-cierra" value="${esc(t.cierre)}"></td></tr>`).join('')}</tbody></table></div>
+        <div class="filas" style="align-items:flex-end;flex-wrap:wrap;gap:12px;margin-top:10px">
+          <div class="campo" style="margin:0"><label for="mt-verde">Verde si va al ritmo en… (%) o más</label><input id="mt-verde" type="number" min="2" max="200" step="1" value="${j.config.verde_pct}" style="width:90px"></div>
+          <div class="campo" style="margin:0"><label for="mt-amarillo">Amarillo desde… (%); menos es rojo</label><input id="mt-amarillo" type="number" min="1" max="199" step="1" value="${j.config.amarillo_pct}" style="width:90px"></div>
+          <button class="btn btn-primario" type="submit" style="width:auto">${ico('check')}<span>Guardar metas</span></button></div>
+        <p class="nota">El <b>ritmo</b> compara lo vendido contra lo que ya se debería llevar a esta hora (el horario de la tienda reparte el día; la semana y el mes pesan cada día por su meta). Ejemplo: verde 90 y amarillo 60 = verde si va al 90 % del ritmo o más, amarillo del 60 al 89 %, rojo menos de 60 %.</p>
+        <div id="msg-metas" class="mensaje" role="status" aria-live="polite"></div></form></section>
+      ${j.tiendas.map((t) => `<section class="panel" style="margin-top:12px" data-reporte-meta="${esc(t.tienda)}"><h2 style="margin-top:0">Reporte de meta · ${esc(t.nombre)}</h2>
+        ${!t.activa ? '<p class="nota">La meta de esta tienda está desactivada.</p>' : t.sin_historial ? '<p class="nota">Esta tienda no tiene ventas del año pasado en el sistema: todavía no hay meta ni barra en sus cajas. Cuando se importen sus ventas anteriores aparecerá sola.</p>' : `
+        <div class="kpi-grid">${bloque('día', t.periodos.dia)}${bloque('semana', t.periodos.semana)}${bloque('mes', t.periodos.mes)}</div>
+        <h3 style="margin:12px 0 4px">${fechaC(j.fecha.slice(0, 7) + '-01')} al ${fechaC(t.dias.at(-1).fecha)}, día por día</h3>
+        <div class="tabla-cont"><table class="tabla-meta-dias"><thead><tr><th>Fecha</th><th>Día</th><th class="num">Año pasado (mismo día)</th><th class="num">Meta</th><th class="num">Vendido</th><th class="num">% de la meta</th></tr></thead><tbody>
+          ${t.dias.map((d) => `<tr style="${d.fecha === j.fecha ? 'font-weight:700;' : ''}${d.futuro ? 'opacity:.55' : ''}"><td>${fechaC(d.fecha)}</td><td>${esc(d.dia_semana)}</td><td class="num">${d.ano_pasado ? mxn(d.ano_pasado) : '—'}</td><td class="num">${d.meta ? mxn(d.meta) : '—'}</td><td class="num">${d.futuro ? '—' : mxn(d.vendido)}</td><td class="num">${d.meta && !d.futuro ? `${Math.round((d.vendido / d.meta) * 100)}%` : '—'}</td></tr>`).join('')}</tbody></table></div>`}
+      </section>`).join('')}
+      <p class="nota" style="margin-top:8px">${j.publicada ? `Metas publicadas a las cajas: del ${fechaC(j.publicada.desde)} al ${fechaC(j.publicada.hasta)} (se renuevan solas al abrir esta pantalla).` : 'Todavía no se publican metas a las cajas.'}</p>`;
+    $('#form-metas').addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const tiendas = {};
+      for (const tr of cuerpo.querySelectorAll('#tabla-metas-config tr[data-tienda]')) tiendas[tr.dataset.tienda] = { activa: tr.querySelector('.mt-activa').checked, incremento_pct: Number(tr.querySelector('.mt-inc').value || 0), apertura: tr.querySelector('.mt-abre').value, cierre: tr.querySelector('.mt-cierra').value };
+      const m = $('#msg-metas');
+      try {
+        j = await api('/api/admin/metas', { tiendas, verde_pct: Number($('#mt-verde').value), amarillo_pct: Number($('#mt-amarillo').value) });
+        pintar(); const mm = $('#msg-metas'); mm.className = 'mensaje ok'; mm.textContent = 'Metas guardadas y publicadas a las cajas.';
+      } catch (e) { m.className = 'mensaje error'; m.textContent = e.message; }
+    });
+  };
+  pintar();
+}
 // ── Clientes VIP (Administración): descuento especial por cliente y excepciones por marca o departamento ──
 async function vistaVip() {
   let j = await api('/api/admin/vip');

@@ -149,6 +149,15 @@ pre.ticket { background: #fff; color: #111; border: 1px dashed #888; padding: 12
 .tc-estado::before { content: "● "; color: #9fb3c8; } .tc-estado.ok::before { color: #4ade80; } .tc-estado.mal::before { color: #fca5a5; } .tc-estado.mal { color: #fecaca; }
 .tc-lapiz { background: none; border: 1px solid rgba(255,255,255,.25); color: inherit; border-radius: 6px; padding: 3px; cursor: pointer; display: inline-flex; }
 .tc-lapiz:hover { background: rgba(255,255,255,.12); }
+/* ── meta de venta (barra bajo el dólar) ── */
+.metas { margin: 8px 12px 0; padding: 10px; border-radius: 8px; background: var(--marino-2); color: var(--marino-texto); display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+.metas-linea { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; } .metas-linea b { font-size: 18px; font-variant-numeric: tabular-nums; }
+.metas-pista { height: 12px; border-radius: 999px; background: rgba(255,255,255,.16); overflow: hidden; }
+.metas-relleno { height: 100%; border-radius: 999px; transition: width .4s ease, background-color .4s ease; min-width: 4px; }
+.metas-relleno.verde { background: #34c26e; } .metas-relleno.amarillo { background: #f2b705; } .metas-relleno.rojo { background: #e5484d; }
+.metas-tabs { display: flex; gap: 4px; } .metas-tabs button { flex: 1; font: inherit; font-size: 12px; padding: 3px 0; border-radius: 6px; border: 1px solid rgba(255,255,255,.25); background: none; color: inherit; cursor: pointer; }
+.metas-tabs button[aria-pressed="true"] { background: rgba(255,255,255,.2); font-weight: 700; }
+@media (max-width: 1280px) { .metas { margin: 6px 4px 0; padding: 6px 4px; font-size: 11px; } .metas-linea { flex-direction: column; align-items: center; gap: 0; } .metas-linea b { font-size: 14px; } .metas-tabs { flex-direction: column; } }
 @media (max-width: 1280px) { .tc { margin: 0 4px; padding: 6px 2px; align-items: center; font-size: 11px; } .tc .det { display: none; } .tc-linea { flex-direction: column; } .tc b { font-size: 12px; } }
 .calc-usd { margin: 6px 0; display: grid; grid-template-columns: 1fr auto; gap: 4px 8px; font-size: 14px; } .calc-usd dt { color: var(--texto-2); } .calc-usd dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
 .cambio.falta { color: var(--error); } .cambio.falta b { font-weight: 800; }

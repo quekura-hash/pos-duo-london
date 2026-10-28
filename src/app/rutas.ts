@@ -62,6 +62,7 @@ export async function atender(o: { cajero?: ServicioCaja; admin?: ServicioAdmin 
       case 'GET /api/empleadas': return ok(exigirCajero().empleadas());
       case 'POST /api/venta/empleada': return ok(exigirCajero().asignarEmpleada(b.cart, { empleada_id: String(b.empleada_id ?? ''), clave: String(b.clave ?? ''), clave_supervisor: b.clave_supervisor, sin_supervisor: !!b.sin_supervisor }));
       case 'POST /api/venta/empleada/quitar': return ok(exigirCajero().quitarEmpleada(b.cart));
+      case 'GET /api/metas': return ok(exigirCajero().metas());
       case 'GET /api/venta/vip': return ok(exigirCajero().vips());
       case 'POST /api/venta/vip': return ok(exigirCajero().asignarVip(b.cart, { vip_id: String(b.vip_id ?? ''), clave: b.clave === undefined ? undefined : String(b.clave) }));
       case 'POST /api/venta/vip/quitar': return ok(exigirCajero().quitarVip(b.cart));
@@ -149,6 +150,8 @@ export async function atender(o: { cajero?: ServicioCaja; admin?: ServicioAdmin 
       case 'GET /api/admin/empleadas': return ok(exigirAdmin().empleadasCuentas());
       case 'GET /api/admin/empleadas/movimientos': return ok(exigirAdmin().empleadaMovimientos(q.get('id') ?? ''));
       case 'GET /api/admin/empleadas/nomina': return ok(exigirAdmin().nominaEmpleadas(q.get('desde') || undefined, q.get('hasta') || undefined));
+      case 'GET /api/admin/metas': return ok(exigirAdmin().metasAdmin());
+      case 'POST /api/admin/metas': return ok(exigirAdmin().guardarMetas({ tiendas: b.tiendas, verde_pct: b.verde_pct === undefined ? undefined : Number(b.verde_pct), amarillo_pct: b.amarillo_pct === undefined ? undefined : Number(b.amarillo_pct) }));
       case 'GET /api/admin/vip': return ok(exigirAdmin().vipAdmin());
       case 'POST /api/admin/vip': return ok(exigirAdmin().guardarVip({ id: b.id, nombre: b.nombre, telefono: b.telefono, pct: b.pct === undefined ? undefined : Number(b.pct), activo: b.activo === undefined ? undefined : !!b.activo, vigente_hasta: b.vigente_hasta }));
       case 'POST /api/admin/vip/eliminar': return ok(exigirAdmin().eliminarVip(b.id));

@@ -55,6 +55,9 @@ export class EnlaceHttp implements Enlace {
   buscarVentas(q: BusquedaVentas): VentaLocalizada[] | null {
     return this.rpc<VentaLocalizada[]>('buscarVentas', [q]).valor;
   }
+  totalesVentas(desde: string, hasta: string): Record<string, number> | null {
+    return this.rpc<Record<string, number>>('totalesVentas', [desde, hasta]).valor;
+  }
   liberar(ref: string): void {
     this.rpc('liberar', [ref]);
   }

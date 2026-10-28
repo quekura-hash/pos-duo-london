@@ -15,6 +15,8 @@ import { DENOMINACIONES_USD, esImporteEnBilletesUsd, superaUmbralTasa, totalDeno
 import { TASA_SIN_VERIFICAR_OMISION, type Politicas } from './politicas.ts';
 import { Indice } from './indice.ts';
 import { localizarVentas } from './consultas.ts';
+import { addDias } from './util.ts';
+import { avanceMetas, CONFIG_METAS_INICIAL, horaValida, lunesDe, metasDias, metasPublicadas, totalesPorDia, type AvancePeriodo, type ConfigMetas, type MetaTienda, type MetasPublicadas, type PeriodoMeta } from './metas.ts';
 import { CRITERIOS_EXPEDIENTE, expedientesDe, expedienteVacio, clientesVip, excepcionesVip, type ClienteVip, type ExcepcionesVip, type Expediente } from './proyecciones.ts';
 import { type ConfigEmpleadas, type CuentaEmpleada, configEmpleadas, cuentasEmpleadas, CAMPOS_EDITABLES, CAMPOS_TIENDA, type CampoEditable, departamentos, promocionesDe, recompensasDe, supervisoresDe, cajerosDe, personalConCuenta, administradoresDe, efectivoDeVenta, movimientosCaja, tipoCambioVigente, catalogo, devoluciones, devueltoPorLinea, existenciaVerificada, intentos, perdidasDocumentales, stock, ventas, type Devolucion, type ExistenciaVerificada, type Intento, type PerdidaDocumental, type TarjetaRegalo, type TipoCambio } from './proyecciones.ts';
 import type { Repo } from './repo.ts';
@@ -56,6 +58,8 @@ export interface Enlace {
   liberar(ref: string): void;
   /** Ventas de la tienda (todas sus cajas) para localizar en qué caja se hizo una; null = sin hub. */
   buscarVentas(q: BusquedaVentas): VentaLocalizada[] | null;
+  /** Total vendido por día de la tienda (las dos cajas), entre dos fechas AAAA-MM-DD. Opcional: sin hub se usa solo lo de esta caja. */
+  totalesVentas?(desde: string, hasta: string): Record<string, number> | null;
   /** Fija el tipo de cambio global en el servicio central. null = sin conexión con el central. */
   fijarTipoCambio(tasa: number, usuario: string, versionBase: number, confirmarVariacion?: boolean): ResultadoTipoCambio | null;
 }
@@ -104,7 +108,7 @@ const esMovimientoLimbo = (op: Op) => op.tipo === 'inv.movement' && op.payload.t
 const esAjusteAdmin = (op: Op) => (op.tipo === 'inv.movement' && op.payload.tipo === 'ajuste_admin') || (op.tipo === 'inv.conteo' && op.payload.admin === true);
 const BROADCAST_TIENDA = new Set(['cajero.ubicacion', 'alm.recibida', 'inv.movement', 'inv.conteo', 'inv.verificacion_pendiente', 'doc.perdida_posible', 'item.created', 'item.item_no_assigned', 'giftcard.emitida', 'giftcard.recarga', 'giftcard.uso', 'giftcard.reintegro']);
 // Lo que el central baja a hubs y cajas (catálogo y resoluciones administrativas).
-const CATALOGO = new Set(['cajero.ubicacion', 'item.created', 'item.item_no_assigned', 'item.codigo_corregido', 'doc.perdida_resuelta', 'giftcard.emitida', 'giftcard.recarga', 'giftcard.uso', 'giftcard.reintegro', 'config.tipo_cambio', 'permiso.asignado', 'depto.alta', 'depto.editado', 'alm.entrega', 'alm.faltante', 'promo.guardada', 'recompensa.guardada', 'supervisor.guardado', 'cajero.guardado', 'config.sesion', 'config.negocio', 'item.editado', 'caja.fondo_autorizado', 'cash.ajuste_admin', 'empleadas.config', 'empleada.credito', 'empleada.movimiento', 'venta.consulta', 'folio.continuacion', 'vip.guardado', 'vip.excepciones']);
+const CATALOGO = new Set(['cajero.ubicacion', 'item.created', 'item.item_no_assigned', 'item.codigo_corregido', 'doc.perdida_resuelta', 'giftcard.emitida', 'giftcard.recarga', 'giftcard.uso', 'giftcard.reintegro', 'config.tipo_cambio', 'permiso.asignado', 'depto.alta', 'depto.editado', 'alm.entrega', 'alm.faltante', 'promo.guardada', 'recompensa.guardada', 'supervisor.guardado', 'cajero.guardado', 'config.sesion', 'config.negocio', 'item.editado', 'caja.fondo_autorizado', 'cash.ajuste_admin', 'empleadas.config', 'empleada.credito', 'empleada.movimiento', 'venta.consulta', 'folio.continuacion', 'vip.guardado', 'vip.excepciones', 'metas.config']);
 /** Días de ventas del POS anterior que las cajas conservan para consulta. */
 export const DIAS_CONSULTA_HISTORICA = 60;
 /** Fondo fijo de cada caja mientras Administración no asigne otro (centavos). */
@@ -510,6 +514,54 @@ export class Central {
     const marcas = d.marcas === undefined ? actual.marcas : limpia(d.marcas), departamentos = d.departamentos === undefined ? actual.departamentos : limpia(d.departamentos);
     this.emitirAdmin('empleadas.config', { pct, pct_uniforme: pctU, marcas, departamentos, por });
     return { ok: true };
+  }
+  // ── Metas de venta por tienda: el incremento sobre el año pasado y los límites de color los fija Administración; la meta de cada día se publica a las cajas ──
+  /** Configuración y metas publicadas vigentes (null si Administración aún no publica nada). */
+  metasVigentes(): MetasPublicadas | null {
+    return metasPublicadas(this.repo.ops());
+  }
+  /** ¿Las metas publicadas cubren desde el lunes del mes actual hasta el fin del mes siguiente? Si no, hay que volver a publicarlas. */
+  metasNecesitanPublicar(hoy: string): boolean {
+    const pub = this.metasVigentes();
+    const { desde, hasta } = this.ventanaMetas(hoy);
+    return !pub || pub.desde > desde || pub.hasta < hasta;
+  }
+  private ventanaMetas(hoy: string): { desde: string; hasta: string } {
+    const [y, m] = hoy.split('-').map(Number) as [number, number];
+    const finSiguiente = new Date(Date.UTC(y, m + 1, 0)).toISOString().slice(0, 10); // último día del mes siguiente
+    return { desde: lunesDe(`${hoy.slice(0, 7)}-01`), hasta: addDias(lunesDe(finSiguiente), 6) };
+  }
+  /** Calcula la meta de cada día de cada tienda (año pasado + incremento) y la publica con la configuración. Las tiendas sin historial quedan sin meta. */
+  publicarMetas(config: ConfigMetas, por: string): MetasPublicadas {
+    const ahora = this.ctx.reloj.now();
+    const { desde, hasta } = this.ventanaMetas(fechaLocal(ahora));
+    const ops = this.repo.ops();
+    const dias: Record<string, Record<string, number>> = {};
+    for (const [t, c] of Object.entries(config.tiendas)) {
+      if (!c.activa) continue;
+      const d = metasDias(totalesPorDia(ops, t), c.incremento_pct, desde, hasta);
+      if (Object.keys(d).length) dias[t] = d;
+    }
+    this.emitirAdmin('metas.config', { config, desde, hasta, generado_en: ahora, dias, por });
+    return { config, desde, hasta, generado_en: ahora, dias };
+  }
+  /** Cambia el incremento, el horario o los colores de las metas y las vuelve a publicar. Lo que no se manda se conserva. */
+  guardarMetas(d: { tiendas?: Record<string, Partial<MetaTienda>>; verde_pct?: number; amarillo_pct?: number }, por: string): { ok: true; metas: MetasPublicadas } | { ok: false; error: { codigo: 'DATOS_INVALIDOS'; mensaje: string } } {
+    const mal = (mensaje: string) => ({ ok: false as const, error: { codigo: 'DATOS_INVALIDOS' as const, mensaje } });
+    const actual = this.metasVigentes()?.config ?? CONFIG_METAS_INICIAL;
+    const tiendas: Record<string, MetaTienda> = JSON.parse(JSON.stringify(actual.tiendas));
+    for (const [t, c] of Object.entries(d.tiendas ?? {})) {
+      const base = tiendas[t] ?? { activa: true, incremento_pct: 0, apertura: '10:00', cierre: '20:00' };
+      const nuevo = { ...base, ...c } as MetaTienda;
+      if (typeof nuevo.activa !== 'boolean') return mal(`indique si la meta de ${t} está activa`);
+      if (typeof nuevo.incremento_pct !== 'number' || !Number.isFinite(nuevo.incremento_pct) || nuevo.incremento_pct < -90 || nuevo.incremento_pct > 500) return mal(`el incremento de ${t} es un porcentaje entre -90 y 500`);
+      if (!horaValida(nuevo.apertura) || !horaValida(nuevo.cierre)) return mal(`el horario de ${t} se escribe como 10:00 y 20:00`);
+      if (nuevo.apertura.padStart(5, '0') >= nuevo.cierre.padStart(5, '0')) return mal(`en ${t} la hora de cierre debe ser después de la de apertura`);
+      tiendas[t] = nuevo;
+    }
+    const verde = d.verde_pct ?? actual.verde_pct, amarillo = d.amarillo_pct ?? actual.amarillo_pct;
+    if (![verde, amarillo].every((x) => Number.isInteger(x) && x >= 1 && x <= 200) || amarillo >= verde) return mal('los límites de color son porcentajes enteros: verde debe ser mayor que amarillo');
+    return { ok: true, metas: this.publicarMetas({ tiendas, verde_pct: verde, amarillo_pct: amarillo }, por) };
   }
   /** Límite de crédito de una empleada (0 = sin crédito). Solo Administración. */
   fijarLimiteEmpleada(d: { empleada_id: string; limite: number; motivo: string }, por: string): { ok: true } | { ok: false; error: { codigo: 'DATOS_INVALIDOS'; mensaje: string } } {
@@ -1805,6 +1857,26 @@ export class Caja {
   /** Empleadas a quienes se puede vender (las Vendedoras-Cajeras activas). */
   empleadasActivas(): { id: string; nombre: string }[] {
     return this.idx.cajeros().filter((c) => c.activo).map((c) => ({ id: c.id, nombre: c.nombre })).sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
+  }
+  // ── Metas de venta: la caja solo ve el porcentaje y el color de su tienda (las cantidades son de Administración) ──
+  /** Avance de la tienda contra su meta del día, la semana y el mes. null = no hay metas publicadas para esta tienda (la barra no se muestra). */
+  metasAvance(): Record<PeriodoMeta, { pct: number; color: AvancePeriodo['color'] } | null> | null {
+    const pub = metasPublicadas(this.opsDe('metas.config'));
+    const conf = pub?.config.tiendas[this.tienda];
+    const metas = pub?.dias[this.tienda];
+    if (!pub || !conf?.activa || !metas) return null;
+    const ahora = this.ctx.reloj.now();
+    const fecha = fechaLocal(ahora);
+    const hora = new Date(Date.parse(ahora) - 7 * 3600_000).toISOString().slice(11, 16);
+    const desde = [lunesDe(fecha), `${fecha.slice(0, 7)}-01`].sort()[0]!;
+    // Las dos cajas de la tienda suman juntas: se toma lo que sabe el hub y, por si aún no llegó una venta de esta caja, lo de esta caja (lo mayor de cada día).
+    const totales = totalesPorDia(this.opsDe('sale.confirmed', 'sale.cancelled'), this.tienda);
+    const remotos = this.enlace.totalesVentas?.(desde, fecha) ?? null;
+    for (const [f, v] of Object.entries(remotos ?? {})) totales.set(f, Math.max(totales.get(f) ?? 0, v));
+    const a = avanceMetas({ tienda: this.tienda, fecha, hora, config: pub.config, metas, totales });
+    const r = {} as Record<PeriodoMeta, { pct: number; color: AvancePeriodo['color'] } | null>;
+    for (const p of ['dia', 'semana', 'mes'] as const) r[p] = a[p] ? { pct: Math.round(a[p]!.pct), color: a[p]!.color } : null;
+    return r;
   }
   // ── Clientes VIP: descuento especial fijado por Administración, con excepciones; la caja solo lo elige (con la clave de quien cobra) ──
   /** Clientes VIP que se pueden elegir hoy: activos y dentro de su vigencia. */

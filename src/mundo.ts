@@ -1,6 +1,7 @@
 import { copyFileSync, existsSync, mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { localizarVentas } from './consultas.ts';
+import { totalesPorDia } from './metas.ts';
 import { Caja, Central, Hub, type Anclas, type Ctx, type Enlace } from './nodos.ts';
 import type { Politicas } from './politicas.ts';
 import { devueltoPorLinea, ventas } from './proyecciones.ts';
@@ -179,6 +180,10 @@ export class Mundo {
         return null;
       },
       fijarTipoCambio: (tasa, usuario, base, confirmar) => (w.centralArriba(t, n) ? w.central.fijarTipoCambio(tasa, usuario, base, confirmar) : null),
+      totalesVentas: (desde, hasta) => {
+        if (!w.hubArriba(t, n)) return null;
+        return Object.fromEntries([...totalesPorDia(w.hub(t).repo.ops(), t)].filter(([f]) => f >= desde && f <= hasta));
+      },
       buscarVentas: (q) => {
         if (!w.hubArriba(t, n)) return null;
         const a = localizarVentas(w.hub(t).repo.ops(), t, q);
