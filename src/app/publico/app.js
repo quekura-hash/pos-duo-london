@@ -1113,9 +1113,10 @@ const FILAS_CORTE = [
 // ── Cierre de caja guiado: 1 Fondo · 2 Efectivo de ventas · 3 Revisar y cerrar ──
 // Lo contable no cambia: el esperado sale del libro de movimientos. El fondo fijo se separa y se cuenta aparte (no es venta ni movimiento de efectivo).
 // Pesos: la clave es el valor en centavos. $20 existe como moneda y como billete: son dos renglones con la misma clave y se suman al enviar.
+// Fondo: primero las monedas (de la $20 a la $1) y luego los billetes de menor a mayor, como se cuenta en la caja.
 const FILAS_PESOS = [
   ['m2000', 2000, 'Moneda $20'], ['m1000', 1000, 'Moneda $10'], ['m500', 500, 'Moneda $5'], ['m200', 200, 'Moneda $2'], ['m100', 100, 'Moneda $1'],
-  ['b100000', 100000, 'Billete $1,000'], ['b50000', 50000, 'Billete $500'], ['b20000', 20000, 'Billete $200'], ['b10000', 10000, 'Billete $100'], ['b5000', 5000, 'Billete $50'], ['b2000', 2000, 'Billete $20'],
+  ['b2000', 2000, 'Billete $20'], ['b5000', 5000, 'Billete $50'], ['b10000', 10000, 'Billete $100'], ['b20000', 20000, 'Billete $200'], ['b50000', 50000, 'Billete $500'], ['b100000', 100000, 'Billete $1,000'],
 ];
 // Efectivo de las ventas: se cuenta de billete más chico a más grande y al final las monedas (también de menor a mayor).
 const FILAS_PESOS_VENTA = [
@@ -1169,7 +1170,7 @@ function tablaDenominaciones(prefijo, filas, fmt, previos = {}) {
       const nombre = id.startsWith('m') ? 'm' : 'b';
       const cant = (!usadas.has(k) && previos[k] && (nombre === 'b' || !filas.some((f) => String(f[3] ?? f[1]) === k && f[0].startsWith('b')))) ? previos[k] : 0;
       if (cant) usadas.add(k);
-      return `<tr><th scope="row">${rotulo}</th><td class="num"><input type="number" min="0" step="1" value="${cant}" data-${prefijo}="${id}" data-unidad="${unidad}" data-clave="${k}" aria-label="Cantidad de ${esc(rotulo)}" style="width:80px;text-align:right;padding:4px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie)"></td><td class="num" data-imp-${prefijo}="${id}">${fmt(unidad * cant)}</td></tr>`;
+      return `<tr><th scope="row">${rotulo}</th><td class="num"><input type="number" min="0" step="1" value="${cant}" data-${prefijo}="${id}" data-unidad="${unidad}" data-clave="${k}" aria-label="Cantidad de ${esc(rotulo)}" class="cant-denom"></td><td class="num" data-imp-${prefijo}="${id}">${fmt(unidad * cant)}</td></tr>`;
     }).join('')}</tbody></table>`;
 }
 /** Suma lo capturado: devuelve { total, den } con las cantidades por clave (las dos filas de $20 se suman). */
@@ -1212,7 +1213,7 @@ async function vistaCorte() {
   let cuerpo = '';
   if (paso === 1) {
     const prev = (j.cerrado && !cerrado) ? {} : (v.fondo_denominaciones ?? v.fondo_referencia?.denominaciones ?? {}); // al reabrir, se cuenta de nuevo desde cero
-    cuerpo = `<section class="panel" id="paso-fondo"><h2 style="margin-top:0">Paso 1: Contar y completar fondo</h2>
+    cuerpo = `<section class="panel conteo-central" id="paso-fondo"><h2 style="margin-top:0">Paso 1: Contar y completar fondo</h2>
       <p class="nota">Primero separe el fondo fijo autorizado por Administración. La cajera cuenta el fondo, pero no modifica el importe autorizado. Separarlo del cajón no es una venta ni un ingreso.</p>
       <div class="mensaje" id="fondo-autorizado" style="background:var(--superficie-2,#eef6fb)">Fondo autorizado por Administración: <b>${mxn(v.fondo_autorizado)}</b></div>
       ${v.fondo_referencia && v.fondo_confirmado === null ? `<p class="nota" id="fondo-referencia">Composición del último fondo confirmado (${esc(v.fondo_referencia.fecha)}): ${mxn(v.fondo_referencia.total)}. <button class="btn" type="button" id="fondo-usar-anterior">Usar esa composición</button></p>` : ''}

@@ -253,6 +253,15 @@ describe('[navegador real] Cierre de caja guiado por pasos', { timeout: 240_000,
     await page.click('#nav button[data-vista="corte"]');
     await empezarCorte(page);
     await page.waitForSelector('#paso-fondo');
+    // orden del fondo: monedas de la $20 a la $1 y luego billetes del $20 al $1,000
+    assert.deepEqual(await page.$$eval('#paso-fondo .tabla-denom tbody th', (e) => e.map((x) => x.textContent!.trim())),
+      ['Moneda $20', 'Moneda $10', 'Moneda $5', 'Moneda $2', 'Moneda $1', 'Billete $20', 'Billete $50', 'Billete $100', 'Billete $200', 'Billete $500', 'Billete $1,000']);
+    // una sola tarjeta central: tabla y botón del mismo ancho, centrados en la pantalla, con las tres columnas juntas
+    const tarjeta = (await page.locator('#paso-fondo').boundingBox())!, tabla = (await page.locator('#paso-fondo .tabla-denom').boundingBox())!, boton = (await page.locator('#btn-fondo').boundingBox())!;
+    assert.ok(tarjeta.width <= 642, `tarjeta central angosta: ${tarjeta.width}`);
+    assert.ok(Math.abs(tabla.width - boton.width) <= 2 && Math.abs(tabla.x - boton.x) <= 2, `tabla y botón del mismo ancho: ${tabla.width} vs ${boton.width}`);
+    const alto = (await page.locator('#paso-fondo .tabla-denom tbody tr').first().boundingBox())!.height;
+    assert.ok(alto >= 44, `renglones altos: ${alto}`);
     const poner = async (k: string, n: number) => page.fill(`[data-fondo="${k}"]`, String(n));
     // 3,489 contados y luego 4 billetes de $500: ya se pasó $489
     for (const [k, n] of [['m100', 4], ['m500', 1], ['m1000', 1], ['b2000', 1], ['b5000', 1], ['b20000', 2], ['b100000', 3]] as const) await poner(k, n);
@@ -270,8 +279,8 @@ describe('[navegador real] Cierre de caja guiado por pasos', { timeout: 240_000,
     await page.waitForSelector('#paso-ventas');
     assert.deepEqual(await page.$$eval('#paso-ventas .tabla-denom tbody th', (e) => e.map((x) => x.textContent!.trim())),
       ['Billete $20', 'Billete $50', 'Billete $100', 'Billete $200', 'Billete $500', 'Billete $1,000', 'Moneda $1', 'Moneda $2', 'Moneda $5', 'Moneda $10', 'Moneda $20']);
-    const th = (await page.locator('#paso-ventas .tabla-denom tbody th').first().boundingBox())!, celda = (await page.locator('#paso-ventas .tabla-denom tbody input').first().boundingBox())!;
-    assert.ok(celda.x - (th.x + th.width) < 40, `la cantidad queda junto a la denominación (${celda.x - (th.x + th.width)} px)`);
+    const caben = await page.$$eval('#paso-ventas .tabla-denom', (ts) => ts.every((t) => (t.parentElement as HTMLElement).scrollWidth <= (t.parentElement as HTMLElement).clientWidth + 1));
+    assert.equal(caben, true, 'la tabla del paso 2 cabe sin desbordarse');
     assert.deepEqual(errores.filter((e) => !/401|403|Failed to load resource/.test(e)), []);
   });
 });

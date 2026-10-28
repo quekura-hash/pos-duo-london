@@ -332,15 +332,26 @@ input[data-pin] { -webkit-text-security: disc; text-security: disc; }
 .paso-btn.hecho .paso-num { background: var(--acento); color: #fff; }
 .paso-num { display: inline-flex; width: 28px; height: 28px; border-radius: 50%; align-items: center; justify-content: center; background: var(--borde); font-weight: 700; flex: none; }
 .paso-num svg { width: 16px; height: 16px; }
-.tabla-denom { width: auto; min-width: 420px; border-collapse: collapse; }
-.tabla-denom th, .tabla-denom td { padding: 4px 8px; border-bottom: 1px solid var(--borde); text-align: left; }
-.tabla-denom tbody th { width: 120px; white-space: nowrap; }
-.tabla-denom tbody td:nth-child(2) { text-align: left; width: 1%; }
-.tabla-denom thead th:nth-child(2) { text-align: left; }
-.tabla-denom .num { text-align: right; }
-/* la cantidad queda pegada a su denominación y el renglón donde está el cursor se resalta para no perderse */
-.tabla-denom tbody tr:focus-within { background: var(--acento-suave, rgba(46, 196, 182, .18)); }
+/* Conteo de billetes y monedas: las tres columnas juntas y parejas, renglones altos y el renglón con el cursor resaltado */
+.tabla-denom { width: 100%; table-layout: fixed; border-collapse: separate; border-spacing: 0; border: 1px solid var(--borde); border-radius: 12px; overflow: hidden; background: var(--superficie); }
+.tabla-denom th, .tabla-denom td { padding: 9px 14px; border-bottom: 1px solid var(--borde); text-align: left; vertical-align: middle; }
+.tabla-denom thead th { background: var(--superficie-2); font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--texto-2); }
+.tabla-denom thead th:nth-child(1), .tabla-denom tbody th { width: 38%; }
+.tabla-denom thead th:nth-child(2), .tabla-denom tbody td:nth-child(2) { width: 28%; text-align: center; }
+.tabla-denom thead th:nth-child(3), .tabla-denom tbody td:nth-child(3) { width: 34%; text-align: right; }
+.tabla-denom tbody th { white-space: nowrap; font-size: 16px; }
+.tabla-denom tbody td { font-size: 17px; font-variant-numeric: tabular-nums; }
+.tabla-denom tbody tr:last-child th, .tabla-denom tbody tr:last-child td { border-bottom: 0; }
+.tabla-denom tbody tr:nth-child(even) { background: color-mix(in srgb, var(--superficie-2) 55%, transparent); }
+.tabla-denom .cant-denom { width: 100%; max-width: 110px; box-sizing: border-box; text-align: center; font-size: 19px; font-weight: 700; padding: 7px 6px; border: 2px solid var(--borde); border-radius: 10px; background: var(--superficie); color: var(--texto); }
+.tabla-denom .cant-denom:focus { border-color: var(--acento); outline: none; }
+.tabla-denom tbody tr:focus-within { background: var(--acento-suave); }
 .tabla-denom tbody tr:focus-within th { font-weight: 800; }
+/* El conteo del fondo vive en una sola tarjeta central: tabla, totales, aviso y botón del mismo ancho */
+.conteo-central { max-width: 640px; margin-left: auto; margin-right: auto; }
+.conteo-central .tabla-cont { overflow: visible; }
+.conteo-central #fondo-resumen, .conteo-central #fondo-asistente { text-align: center; }
+.conteo-central #btn-fondo { display: flex; width: 100%; justify-content: center; padding-block: 14px; font-size: 17px; }
 
 /* Cierre: jerarquía de totales */
 .kpi-grande { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 16px; margin: 8px 0 12px; border-radius: 14px; background: var(--marino); color: var(--marino-texto); }
