@@ -3,7 +3,7 @@ import type { RetiroRegistrado } from './retiros.ts';
 import type { GastoRegistrado } from './gastos.ts';
 import type { Venta } from './tipos.ts';
 import { formatoTasa } from './dinero.ts';
-import { fechaLocal } from './util.ts';
+import { fechaLocal, hora12 } from './util.ts';
 
 /** MXN desde centavos enteros, sin coma flotante: 123450 -> "$1,234.50". */
 export function formatoMXN(centavos: number): string {
@@ -274,7 +274,7 @@ export function renderTicketTexto(t: Ticket): string {
   L.push(centrar(t.negocio, c));
   for (const x of t.encabezado) L.push(...envolver(x, c).map((y) => centrar(y, c)));
   L.push(centrar(`Tienda ${t.tienda} - Caja ${t.caja}`, c));
-  L.push(`Vendedora-Cajera: ${t.cajero}`.slice(0, c), ...(t.vendio ? [`Vendió: ${t.vendio}`.slice(0, c)] : []), `Fecha: ${t.fecha}  Hora: ${t.hora}`, `Folio: ${folioImpreso(t.folio, t.serie)}`);
+  L.push(`Vendedora-Cajera: ${t.cajero}`.slice(0, c), ...(t.vendio ? [`Vendió: ${t.vendio}`.slice(0, c)] : []), `Fecha: ${t.fecha}  Hora: ${hora12(t.hora)}`, `Folio: ${folioImpreso(t.folio, t.serie)}`);
   if (t.serie === 'CR') L.push(centrar('COMPRA A CRÉDITO DE EMPLEADA', c));
   if (t.empleada) L.push(`Empleada: ${t.empleada.nombre}`.slice(0, c));
   if (t.vip) L.push(`Cliente VIP: ${t.vip.nombre}`.slice(0, c));
@@ -417,7 +417,7 @@ export function renderTicketDevolucionTexto(d: Devolucion, v: Venta, cfg: Negoci
   const local = new Date(Date.parse(d.ocurrio_en) - 7 * 3600_000).toISOString();
   const [y, mo, dd] = fechaLocal(d.ocurrio_en).split('-');
   const L: string[] = [centrar(cfg.nombre, c), ...encabezadoDe(cfg).flatMap((x) => envolver(x, c).map((y) => centrar(y, c))), centrar(`Tienda ${d.tienda} - Caja ${d.caja}`, c), centrar(d.por_cambio && d.venta_cambio ? TITULO_COMPROBANTE.cambio : TITULO_COMPROBANTE.devolucion, c)];
-  L.push(`Vendedora-Cajera: ${d.cajero}`.slice(0, c), `Fecha: ${dd}/${mo}/${y}  Hora: ${local.slice(11, 16)}`, `Folio: ${String(d.folio ?? 0).padStart(6, '0')}`);
+  L.push(`Vendedora-Cajera: ${d.cajero}`.slice(0, c), `Fecha: ${dd}/${mo}/${y}  Hora: ${hora12(local.slice(11, 16))}`, `Folio: ${String(d.folio ?? 0).padStart(6, '0')}`);
   L.push(`Venta original: ${codigoTicket(v.tienda, v.caja, v.folio, negocios, v.serie)}`, regla);
   for (const dl of d.lineas) {
     const l = v.lineas.find((x) => x.linea_id === dl.linea_id)!;
@@ -464,7 +464,7 @@ export function renderTicketCancelacionTexto(x: ComprobanteClienta, cfg: Negocio
   const local = new Date(Date.parse(x.ocurrio_en) - 7 * 3600_000).toISOString();
   const [y, mo, dd] = fechaLocal(x.ocurrio_en).split('-');
   const L: string[] = [centrar(cfg.nombre, c), ...encabezadoDe(cfg).flatMap((t) => envolver(t, c).map((u) => centrar(u, c))), centrar(`Tienda ${x.tienda} - Caja ${x.caja}`, c), centrar(TITULO_COMPROBANTE.cancelacion, c)];
-  L.push(`Vendedora-Cajera: ${x.cajero}`.slice(0, c), `Fecha: ${dd}/${mo}/${y}  Hora: ${local.slice(11, 16)}`, `Venta cancelada: ${codigoTicket(x.venta.tienda, x.venta.caja, x.venta.folio, negocios, x.venta.serie)}`, regla);
+  L.push(`Vendedora-Cajera: ${x.cajero}`.slice(0, c), `Fecha: ${dd}/${mo}/${y}  Hora: ${hora12(local.slice(11, 16))}`, `Venta cancelada: ${codigoTicket(x.venta.tienda, x.venta.caja, x.venta.folio, negocios, x.venta.serie)}`, regla);
   for (const dl of x.lineas) {
     const l = x.venta.lineas.find((q) => q.linea_id === dl.linea_id)!;
     L.push(...renglonArticulo({ ...l, qty: dl.qty, tarjeta_regalo: !!l.tarjeta_regalo }, c));
@@ -485,7 +485,7 @@ export function renderTicketFirmaTexto(x: ComprobanteClienta, cfg: NegocioCfg = 
   const local = new Date(Date.parse(x.ocurrio_en) - 7 * 3600_000).toISOString();
   const [y, mo, dd] = fechaLocal(x.ocurrio_en).split('-');
   const L: string[] = [centrar(cfg.nombre, c), centrar(`Tienda ${x.tienda} - Caja ${x.caja}`, c), centrar(TITULO_COMPROBANTE[x.tipo], c), centrar('COPIA PARA LA TIENDA (FIRMA)', c)];
-  L.push(`Fecha: ${dd}/${mo}/${y}  Hora: ${local.slice(11, 16)}`, `Folio: ${String(x.folio).padStart(6, '0')}`, `Venta original: ${codigoTicket(x.venta.tienda, x.venta.caja, x.venta.folio, negocios, x.venta.serie)}`, `Vendedora-Cajera: ${x.cajero}`.slice(0, c));
+  L.push(`Fecha: ${dd}/${mo}/${y}  Hora: ${hora12(local.slice(11, 16))}`, `Folio: ${String(x.folio).padStart(6, '0')}`, `Venta original: ${codigoTicket(x.venta.tienda, x.venta.caja, x.venta.folio, negocios, x.venta.serie)}`, `Vendedora-Cajera: ${x.cajero}`.slice(0, c));
   if (x.autorizado_por) L.push(...envolver(`Autorizó: ${x.autorizado_por}`, c));
   L.push(regla);
   if (x.clienta) L.push(...envolver(`Clienta: ${x.clienta.nombre}`, c), `Teléfono: ${x.clienta.telefono}`.slice(0, c));
@@ -529,7 +529,7 @@ export function renderTicketRetiroTexto(r: RetiroRegistrado, cfg: NegocioCfg, re
   for (const x of encabezadoDe(cfg)) L.push(...envolver(x, c).map((y2) => centrar(y2, c)));
   L.push(centrar(`Tienda ${r.tienda} - Caja ${r.caja}`, c), '', centrar('*** RETIRO DE EFECTIVO ***', c));
   if (reimpresion > 0) L.push(centrar(`REIMPRESIÓN ${reimpresion}`, c));
-  L.push('', `Retiro: ${r.folio_retiro}`, `Fecha: ${dd}/${mo}/${y}  ${local.slice(11, 16)}`, `Vendedora-Cajera: ${r.usuario}`.slice(0, c), regla);
+  L.push('', `Retiro: ${r.folio_retiro}`, `Fecha: ${dd}/${mo}/${y}  ${hora12(local.slice(11, 16))}`, `Vendedora-Cajera: ${r.usuario}`.slice(0, c), regla);
   const denoms = (d: Record<string, number>, valor: (k: number) => number, fmt: (v: number) => string) => Object.keys(d).map(Number).sort((a, b) => b - a)
     .map((k) => dos(`${d[String(k)]} x ${fmt(valor(k))}`, fmt(valor(k) * d[String(k)]!), c));
   if (r.mxn.total > 0) L.push('PESOS', ...denoms(r.mxn.denominaciones, (k) => k, formatoMXN), dos('Total pesos', formatoMXN(r.mxn.total), c));
@@ -553,7 +553,7 @@ export function renderTicketGastoTexto(g: GastoRegistrado, cfg: NegocioCfg, reim
   for (const x of encabezadoDe(cfg)) L.push(...envolver(x, c).map((y2) => centrar(y2, c)));
   L.push(centrar(`Tienda ${g.tienda} - Caja ${g.caja}`, c), '', centrar('*** GASTO DE CAJA ***', c), centrar('RECIBO', c));
   if (reimpresion > 0) L.push(centrar(`REIMPRESIÓN ${reimpresion}`, c));
-  L.push('', `Folio: ${g.folio_gasto}`, `Fecha: ${dd}/${mo}/${y}  ${local.slice(11, 16)}`, regla);
+  L.push('', `Folio: ${g.folio_gasto}`, `Fecha: ${dd}/${mo}/${y}  ${hora12(local.slice(11, 16))}`, regla);
   L.push(...envolver(`Concepto: ${g.concepto}`, c), ...envolver(`Recibe: ${g.recibio}`, c), regla, dos('IMPORTE', formatoMXN(g.monto), c), regla);
   L.push(...envolver(`Recibí de ${cfg.nombre} la cantidad de ${formatoMXN(g.monto)} por el concepto indicado.`, c));
   L.push('', '', '_'.repeat(c), 'Firma de quien recibe', ...envolver(g.recibio, c));
@@ -590,7 +590,7 @@ export function lineasTicketCorte(k: DatosCorte, cfg: NegocioCfg = NEGOCIOS[k.ti
   L.push(t(`Fecha: ${dd}/${mo}/${y}`), ...(k.cerrado_por ? [t(`Cerró: ${k.cerrado_por}`.slice(0, c))] : []), t(`Folios: ${k.folio_inicial ? `${String(k.folio_inicial).padStart(6, '0')} al ${String(k.folio_final).padStart(6, '0')}` : 'sin movimientos'}`), t(doble));
   // Cortes de arqueo (revisión) hechos antes durante el día: este cierre cubre TODO el día y los anota.
   for (const x of (Array.isArray(k.cierres_previos) ? k.cierres_previos : []) as { cerrado_en: string; ventas: number; fondo_confirmado: boolean; fondo_estado?: string | null; fondo_diferencia?: number }[]) {
-    const hora = new Date(Date.parse(x.cerrado_en) - 7 * 3600_000).toISOString().slice(11, 16);
+    const hora = hora12(new Date(Date.parse(x.cerrado_en) - 7 * 3600_000).toISOString().slice(11, 16));
     for (const z of envolver(`Se hizo un corte de arqueo a las ${hora} con ${formatoMXN(x.ventas)} de venta${x.fondo_confirmado ? ' y se confirmó fondo' : ''}${x.fondo_estado === 'faltante' ? ` con faltante de ${formatoMXN(-(x.fondo_diferencia ?? 0))}` : x.fondo_estado === 'sobrante' ? ` con sobrante de ${formatoMXN(x.fondo_diferencia ?? 0)}` : ''}.`, c)) L.push(t(z));
   }
   // 1) LO MÁS IMPORTANTE: la venta total del día

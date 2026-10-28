@@ -18,6 +18,13 @@ export class Reloj {
 }
 
 /** America/Hermosillo = UTC-7 fijo (sin horario de verano). Devuelve YYYY-MM-DD local. */
+/** Hora en formato de 12 horas: «20:06» → «8:06 PM». Lo que no es HH:MM se devuelve igual. */
+export function hora12(hhmm: string | null | undefined): string {
+  const m = /^(\d{1,2}):(\d{2})/.exec(String(hhmm ?? ''));
+  if (!m) return String(hhmm ?? '');
+  const h = Number(m[1]);
+  return `${h % 12 || 12}:${m[2]} ${h >= 12 ? 'PM' : 'AM'}`;
+}
 export function fechaLocal(iso: string): string {
   return new Date(Date.parse(iso) - 7 * 3600_000).toISOString().slice(0, 10);
 }

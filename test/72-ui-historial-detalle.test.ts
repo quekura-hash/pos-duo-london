@@ -47,7 +47,7 @@ describe('[navegador real] Historial con detalle de venta y «Revertir venta»',
     await page.waitForSelector('#dlg-detalle-venta[open]');
     assert.match((await page.textContent('#dv-titulo'))!, /Venta D1-000001/);
     assert.match((await page.textContent('#dv-datos'))!, /Vendedora-Cajera\s*Lupe/);
-    assert.match((await page.textContent('#dv-resumen'))!, /Caja 1[\s\S]*\d\d\/\d\d\/\d{4} \d\d:\d\d/);
+    assert.match((await page.textContent('#dv-resumen'))!, /Caja 1[\s\S]*\d\d\/\d\d\/\d{4} \d{1,2}:\d\d (AM|PM)/);
     assert.match((await page.textContent('#dv-lineas'))!, /\$899\.00/);
     assert.equal(await page.locator('#dv-cambio').count(), 1);
     assert.equal(await page.locator('#dv-revertir').count(), 1);

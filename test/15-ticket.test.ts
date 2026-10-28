@@ -56,7 +56,7 @@ describe('[memoria — lógica pura] Ticket: contenido, MXN, sin impuestos, ESC/
     assert.match(txt, /DÚO New York/);
     assert.match(txt, /Tienda DUO - Caja 2/);
     assert.match(txt, /Vendedora-Cajera: Ana Pérez/);
-    assert.match(txt, /Fecha: 16\/10\/2026  Hora: 14:32/, 'hora de Hermosillo (UTC-7)');
+    assert.match(txt, /Fecha: 16\/10\/2026  Hora: 2:32 PM/, 'hora de Hermosillo (UTC-7)');
     assert.match(txt, /Folio: 000012/);
     assert.match(txt, /No hacemos devoluciones de efectivo/);
     assert.equal(t.codigo_ticket, 'D2-000012');

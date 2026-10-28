@@ -48,7 +48,7 @@ describe('[navegador real — Chromium con Playwright, UI sobre SQLite]', { time
     assert.match(await chip('tienda'), /^DÚO New York$/);
     assert.equal(await chip('caja'), '1');
     assert.equal(await chip('usuario'), 'Ana');
-    assert.equal(await chip('fecha'), '01 oct 2026 · 08:00');
+    assert.equal(await chip('fecha'), '01 oct 2026 · 8:00 AM');
     assert.equal(await page.locator('[data-chip="folio"]').isHidden(), true, 'sin venta cobrada no hay línea de folio');
     assert.doesNotMatch((await page.textContent('#vista'))!, /Nueva venta|folio al cobrar/);
     assert.equal(await chip('hub'), 'Conectado');
@@ -547,7 +547,7 @@ describe('[navegador real — Chromium con Playwright, UI sobre SQLite]', { time
     await page.waitForSelector('[data-tc="tasa"]');
     // barra izquierda: tasa, fecha/hora, versión y estado de verificación; lápiz solo con permiso
     assert.match((await page.textContent('[data-tc="tasa"]'))!, /Dólar: \$18\.00 MXN/);
-    assert.match((await page.textContent('[data-tc="fecha"]'))!, /Actualizado 01 oct 2026 · 08:00 · v1 · Gerencia/);
+    assert.match((await page.textContent('[data-tc="fecha"]'))!, /Actualizado 01 oct 2026 · 8:00 AM · v1 · Gerencia/);
     assert.match((await page.textContent('[data-tc="estado"]'))!, /Sincronizado/);
     assert.equal(await page.locator('#btn-editar-tc').count(), 1);
     const p2 = (await pagina(browser, app2.url, 1440, 900)).page;
@@ -719,7 +719,7 @@ describe('[navegador real — Chromium con Playwright, UI sobre SQLite]', { time
     await page.click('#filtros-usd button[type="submit"]');
     await page.waitForSelector('#tabla-dolares tbody tr[data-folio]');
     assert.deepEqual(await page.$$eval('#tabla-dolares tbody tr', (r) => r.map((x) => [...x.querySelectorAll('td')].map((c) => c.textContent))),
-      [['DUO', '1', '000001', '2026-10-01 08:00', 'Ana', 'US$50.00', '18.00 (v1)', '$900.00', '$200.00', '$201.00', 'confirmada'], ['LON', '2', '000001', '2026-10-01 08:00', 'Luis', 'US$10.00', '19.00 (v2)', '$190.00', '$0.00', '$70.00', 'confirmada']]);
+      [['DUO', '1', '000001', '2026-10-01 8:00 AM', 'Ana', 'US$50.00', '18.00 (v1)', '$900.00', '$200.00', '$201.00', 'confirmada'], ['LON', '2', '000001', '2026-10-01 8:00 AM', 'Luis', 'US$10.00', '19.00 (v2)', '$190.00', '$0.00', '$70.00', 'confirmada']]);
     assert.deepEqual([await page.textContent('#total-usd'), await page.textContent('#total-equivalente')], ['US$60.00', '$1,090.00']);
     await page.screenshot({ path: join(CAPTURAS, '19-dolares-recibidos-administracion.png') });
     const [descarga] = await Promise.all([page.waitForEvent('download'), page.click('#btn-exportar-dolares')]);

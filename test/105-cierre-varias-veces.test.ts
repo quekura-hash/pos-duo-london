@@ -40,7 +40,7 @@ porAlmacen('Cierre de caja más de una vez al día: el último cubre todo el dí
     assert.equal(segundo.corte.cierres_previos!.length, 1);
     assert.equal(segundo.corte.cierres_previos![0].ventas, 12000);
     assert.equal(segundo.corte.cierres_previos![0].fondo_confirmado, true);
-    assert.match(segundo.ticket_texto!.replace(/\s+/g, ' '), /Se hizo un corte de arqueo a las \d\d:\d\d con \$120\.00 de venta y se confirmó fondo\./);
+    assert.match(segundo.ticket_texto!.replace(/\s+/g, ' '), /Se hizo un corte de arqueo a las \d{1,2}:\d\d (AM|PM) con \$120\.00 de venta y se confirmó fondo\./);
     assert.equal(segundo.corte.fondo_estado, 'faltante');
     assert.equal(segundo.corte.fondo_confirmado, 330000);
     // cerrado y sin operaciones nuevas: otro intento devuelve el mismo y no imprime

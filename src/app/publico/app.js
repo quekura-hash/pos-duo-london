@@ -28,8 +28,10 @@ async function api(ruta, cuerpo) {
 }
 
 const S = { sesion: null, vista: null, cart: null, carrito: null, sel: null, estado: null, ultimoFolio: null, reloj: null };
-const hora = (iso) => new Date(Date.parse(iso) - 7 * 3600e3).toISOString().slice(11, 16); // America/Hermosillo (UTC-7)
-const fechaHora = (iso) => { const l = new Date(Date.parse(iso) - 7 * 3600e3).toISOString(); return `${l.slice(8, 10)}/${l.slice(5, 7)}/${l.slice(0, 4)} ${l.slice(11, 16)}`; };
+/** Hora de 12 horas: «20:06» → «8:06 PM». */
+const h12 = (hhmm) => { const m = /^(\d{1,2}):(\d{2})/.exec(String(hhmm ?? '')); if (!m) return String(hhmm ?? ''); const h = Number(m[1]); return `${h % 12 || 12}:${m[2]} ${h >= 12 ? 'PM' : 'AM'}`; };
+const hora = (iso) => h12(new Date(Date.parse(iso) - 7 * 3600e3).toISOString().slice(11, 16)); // America/Hermosillo (UTC-7)
+const fechaHora = (iso) => { const l = new Date(Date.parse(iso) - 7 * 3600e3).toISOString(); return `${l.slice(8, 10)}/${l.slice(5, 7)}/${l.slice(0, 4)} ${h12(l.slice(11, 16))}`; };
 
 
 // ── iconos (SVG en línea, trazo heredado del texto: siguen el color del botón y del tema) ──
@@ -89,7 +91,7 @@ const parseTasa = (t) => {
 /** Misma regla que el servidor: al centavo, mitad hacia arriba. Solo para mostrar; el servidor recalcula y manda lo que guarda. */
 const usdAMxn = (usdC, tasa) => Math.floor((usdC * tasa + 5000) / 10000);
 const MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
-const fechaCorta = (iso) => { const l = new Date(Date.parse(iso) - 7 * 3600e3).toISOString(); return `${l.slice(8, 10)} ${MESES[Number(l.slice(5, 7)) - 1]} ${l.slice(0, 4)} · ${l.slice(11, 16)}`; };
+const fechaCorta = (iso) => { const l = new Date(Date.parse(iso) - 7 * 3600e3).toISOString(); return `${l.slice(8, 10)} ${MESES[Number(l.slice(5, 7)) - 1]} ${l.slice(0, 4)} · ${h12(l.slice(11, 16))}`; };
 const logoDe = (t) => window.__POS_LOGOS__?.[t] ?? (t === 'DUO' ? 'logo-duo.png' : 'logo-london.png');
 const NOMBRE_METODO = { efectivo: 'Efectivo', tarjeta: 'Tarjeta', tarjeta_regalo: 'Tarjeta de regalo' };
 
@@ -115,7 +117,7 @@ function comprobanteApertura() {
   const c = 42, centro = (t) => ' '.repeat(Math.max(0, Math.floor((c - t.length) / 2))) + t;
   const f = new Date();
   const dd = (n) => String(n).padStart(2, '0');
-  return [centro('APERTURA DE CAJA'), centro(`Tienda ${S.sesion.tienda} - Caja ${S.sesion.caja}`), `Usuario: ${S.sesion.usuario ?? ''}`, `Fecha: ${dd(f.getDate())}/${dd(f.getMonth() + 1)}/${f.getFullYear()}  Hora: ${dd(f.getHours())}:${dd(f.getMinutes())}`].join('\n');
+  return [centro('APERTURA DE CAJA'), centro(`Tienda ${S.sesion.tienda} - Caja ${S.sesion.caja}`), `Usuario: ${S.sesion.usuario ?? ''}`, `Fecha: ${dd(f.getDate())}/${dd(f.getMonth() + 1)}/${f.getFullYear()}  Hora: ${h12(`${dd(f.getHours())}:${dd(f.getMinutes())}`)}`].join('\n');
 }
 
 // ── barra superior y pie ──
@@ -1141,7 +1143,7 @@ function leerDenominaciones(prefijo, fmt, raiz = document) {
   }
   return { total, den };
 }
-const horaCorte = (iso) => new Date(Date.parse(iso) - 7 * 3600000).toISOString().slice(11, 16);
+const horaCorte = (iso) => h12(new Date(Date.parse(iso) - 7 * 3600000).toISOString().slice(11, 16));
 const dif$ = (c, f = mxn) => (c === 0 ? f(0) : `${c < 0 ? '-' : '+'}${f(Math.abs(c))}`);
 
 async function vistaCorte() {
@@ -1508,7 +1510,7 @@ async function abrirDetalleVenta(saleId, { acciones, ruta, alCambiar } = {}) {
     ? `<h3 style="margin:10px 0 4px">Cambios y devoluciones</h3><ul id="dv-devoluciones" style="margin:0;padding-left:18px">${v.devoluciones.map((x) => `<li>${esc(fechaHora(x.ocurrio_en))} · ${x.piezas} pieza${x.piezas === 1 ? '' : 's'} · ${x.por_cambio ? 'cambio' : 'devolución'} · ${mxn(x.importe)} · ${esc(x.motivo)} · ${cli(x.clienta)}</li>`).join('')}</ul>`
     : '';
   d.innerHTML = `<h2 id="dv-titulo" style="margin:0 0 4px">Venta ${folio}</h2>
-    <p id="dv-resumen" style="margin:0 0 8px"><span class="insignia ${esc(v.estado)}">${esc(v.estado)}</span> · ${esc(v.tienda)} · Caja ${v.caja} · <b>${esc(v.fecha_local.split('-').reverse().join('/'))} ${esc(v.hora)}</b></p>
+    <p id="dv-resumen" style="margin:0 0 8px"><span class="insignia ${esc(v.estado)}">${esc(v.estado)}</span> · ${esc(v.tienda)} · Caja ${v.caja} · <b>${esc(v.fecha_local.split('-').reverse().join('/'))} ${esc(h12(v.hora))}</b></p>
     <dl class="resumen" id="dv-datos" style="margin:0 0 8px"><dt>Vendedora-Cajera</dt><dd>${esc(v.cajero)}</dd><dt>Venta por</dt><dd>${esc(v.vendedora || '—')}</dd><dt>Forma de pago</dt><dd>${pagos}</dd></dl>
     ${canc}
     <div class="tabla-cont"><table id="dv-lineas"><thead><tr><th class="num">Cant.</th><th>Prenda</th><th class="num">Precio</th><th class="num">Importe</th></tr></thead><tbody>${lineas}</tbody><tfoot><tr><th colspan="3" style="text-align:right">Total</th><td class="num"><b>${mxn(v.total)}</b></td></tr></tfoot></table></div>
@@ -1610,7 +1612,7 @@ function panelRetiros(retiros) {
   return `<div class="panel" id="panel-retiros"><h2 style="margin-top:0">Retiros de efectivo</h2>
     <p class="nota" style="margin-top:0">Dinero que salió de las cajas en el periodo. No son ventas: no restan a las ventas netas, pero sí al efectivo de la caja.</p>
     <div class="tabla-cont"><table id="tabla-retiros"><thead><tr><th>Caja</th><th>Retiro</th><th>Fecha</th><th>Hora</th><th>Lo retiró</th><th class="num">Pesos</th><th class="num">Dólares</th><th class="num">Total en pesos</th></tr></thead><tbody>
-    ${lista.map((r) => `<tr data-retiro="${esc(r.retiro_id)}"><td>${esc(r.tienda)} · ${r.caja}</td><td>${esc(r.folio_retiro)}</td><td>${esc(r.fecha_local.split('-').reverse().join('/'))}</td><td>${esc(r.hora)}</td><td>${esc(r.usuario)}</td><td class="num">${mxn(r.pesos)}</td><td class="num">${r.dolares ? usd(r.dolares) : '—'}</td><td class="num"><b>${mxn(r.equivalente_mxn)}</b></td></tr>`).join('') || '<tr><td colspan="8" class="vacio">Sin retiros en el periodo.</td></tr>'}
+    ${lista.map((r) => `<tr data-retiro="${esc(r.retiro_id)}"><td>${esc(r.tienda)} · ${r.caja}</td><td>${esc(r.folio_retiro)}</td><td>${esc(r.fecha_local.split('-').reverse().join('/'))}</td><td>${esc(h12(r.hora))}</td><td>${esc(r.usuario)}</td><td class="num">${mxn(r.pesos)}</td><td class="num">${r.dolares ? usd(r.dolares) : '—'}</td><td class="num"><b>${mxn(r.equivalente_mxn)}</b></td></tr>`).join('') || '<tr><td colspan="8" class="vacio">Sin retiros en el periodo.</td></tr>'}
     </tbody>${lista.length ? `<tfoot><tr><th colspan="7">Total retirado (${lista.length})</th><td class="num"><b id="total-retiros">${mxn(total)}</b></td></tr></tfoot>` : ''}</table></div></div>`;
 }
 /** Gastos de caja: pagos con efectivo del cajón, con el nombre de quien recibió el dinero y quién lo autorizó. */
@@ -1620,7 +1622,7 @@ function panelGastos(gastos) {
   return `<div class="panel" id="panel-gastos"><h2 style="margin-top:0">Gastos de caja</h2>
     <p class="nota" style="margin-top:0">Pagos con efectivo del cajón (limpieza, proveedores…). Cada uno tiene su recibo firmado.</p>
     <div class="tabla-cont"><table id="tabla-gastos"><thead><tr><th>Caja</th><th>Recibo</th><th>Fecha</th><th>Hora</th><th>Concepto</th><th>Recibió</th><th>Entregó</th><th>Autorizó</th><th class="num">Importe</th></tr></thead><tbody>
-    ${lista.map((r) => `<tr data-gasto="${esc(r.gasto_id)}"><td>${esc(r.tienda)} · ${r.caja}</td><td>${esc(r.folio_gasto)}</td><td>${esc(r.fecha_local.split('-').reverse().join('/'))}</td><td>${esc(r.hora)}</td><td>${esc(r.concepto)}</td><td>${esc(r.recibio)}</td><td>${esc(r.usuario)}</td><td>${esc(r.autorizado_por ?? '—')}</td><td class="num"><b>${mxn(r.monto)}</b></td></tr>`).join('') || '<tr><td colspan="9" class="vacio">Sin gastos en el periodo.</td></tr>'}
+    ${lista.map((r) => `<tr data-gasto="${esc(r.gasto_id)}"><td>${esc(r.tienda)} · ${r.caja}</td><td>${esc(r.folio_gasto)}</td><td>${esc(r.fecha_local.split('-').reverse().join('/'))}</td><td>${esc(h12(r.hora))}</td><td>${esc(r.concepto)}</td><td>${esc(r.recibio)}</td><td>${esc(r.usuario)}</td><td>${esc(r.autorizado_por ?? '—')}</td><td class="num"><b>${mxn(r.monto)}</b></td></tr>`).join('') || '<tr><td colspan="9" class="vacio">Sin gastos en el periodo.</td></tr>'}
     </tbody>${lista.length ? `<tfoot><tr><th colspan="8">Total de gastos (${lista.length})</th><td class="num"><b id="total-gastos">${mxn(total)}</b></td></tr></tfoot>` : ''}</table></div></div>`;
 }
 
@@ -1649,9 +1651,9 @@ async function vistaHistorialAdmin() {
     try { j = await api(`/api/admin/ventas?${p}`); } catch (e) { m.className = 'mensaje error'; m.textContent = e.message; return; }
     if (j.truncado) { m.className = 'mensaje aviso'; m.textContent = `Hay ${j.total_filas} ventas; se muestran las 500 más recientes. Acote las fechas.`; }
     $('#ha-resultado').innerHTML = `<div class="panel"><p class="nota" style="margin-top:0">Toque una venta para ver el detalle y el ticket.</p><div class="tabla-cont"><table id="tabla-historial-admin" class="solo-escritorio"><thead><tr><th>Caja</th><th>Folio</th><th>Fecha</th><th>Hora</th><th>Vendedora-Cajera</th><th>Venta por</th><th>Pago</th><th class="num">Total</th><th>Estado</th></tr></thead><tbody>
-      ${j.ventas.length ? j.ventas.map((r) => `<tr data-detalle="${esc(r.sale_id)}" tabindex="0" style="cursor:pointer"><td>${esc(r.tienda)} · ${r.caja}</td><td>${r.historico ? `${esc(String(r.folio))} <span class="insignia" title="Venta importada del POS anterior: solo se conserva folio, fecha, total, piezas y forma de pago">POS anterior</span>` : esc(r.codigo_ticket)}</td><td>${esc(r.fecha_local.split('-').reverse().join('/'))}</td><td>${esc(r.hora || '—')}</td><td>${esc(r.cajero)}</td><td data-col="vendio">${esc(r.vendedora || '—')}</td><td>${esc(r.pago)}</td><td class="num">${mxn(r.total)}</td><td><span class="insignia ${esc(r.estado)}">${esc(r.estado)}</span></td></tr>`).join('') : '<tr><td colspan="9" class="vacio">No hay ventas con esos datos.</td></tr>'}
+      ${j.ventas.length ? j.ventas.map((r) => `<tr data-detalle="${esc(r.sale_id)}" tabindex="0" style="cursor:pointer"><td>${esc(r.tienda)} · ${r.caja}</td><td>${r.historico ? `${esc(String(r.folio))} <span class="insignia" title="Venta importada del POS anterior: solo se conserva folio, fecha, total, piezas y forma de pago">POS anterior</span>` : esc(r.codigo_ticket)}</td><td>${esc(r.fecha_local.split('-').reverse().join('/'))}</td><td>${esc(h12(r.hora) || '—')}</td><td>${esc(r.cajero)}</td><td data-col="vendio">${esc(r.vendedora || '—')}</td><td>${esc(r.pago)}</td><td class="num">${mxn(r.total)}</td><td><span class="insignia ${esc(r.estado)}">${esc(r.estado)}</span></td></tr>`).join('') : '<tr><td colspan="9" class="vacio">No hay ventas con esos datos.</td></tr>'}
       </tbody></table>
-      <div class="lista-inv solo-movil" id="lista-historial-admin" role="list">${j.ventas.map((r) => `<button type="button" class="fila-inv" role="listitem" data-detalle="${esc(r.sale_id)}"><span class="fi-linea"><b class="fi-desc">${r.historico ? `${esc(String(r.folio))} · POS anterior` : `${esc(r.codigo_ticket)} · ${esc(r.hora)}`}</b><span class="fi-precio">${mxn(r.total)}</span></span><span class="fi-quien fi-quien-art">${esc(r.tienda)} · Caja ${r.caja}${r.historico ? ' · POS anterior' : r.articulo ? ` · ${esc(r.articulo)}${r.mas > 0 ? ` +${r.mas} más` : ''}` : ''}</span><span class="fi-sub"><span>${esc(r.fecha_local.split('-').reverse().join('/'))}</span><span>${esc(r.pago)}</span>${r.estado === 'cancelada' ? '<span class="insignia cancelada" data-quien="cancelada">CANCELADA</span>' : `<span class="insignia" data-quien="vendio">${esc(r.historico ? '—' : r.vendedora === 'Autocompra' ? `Autocompra · ${r.cajero}` : r.vendedora || r.cajero)}</span>`}</span></button>`).join('') || '<p class="vacio">No hay ventas con esos datos.</p>'}</div></div></div>${panelRetiros(j.retiros)}${panelGastos(j.gastos)}`;
+      <div class="lista-inv solo-movil" id="lista-historial-admin" role="list">${j.ventas.map((r) => `<button type="button" class="fila-inv" role="listitem" data-detalle="${esc(r.sale_id)}"><span class="fi-linea"><b class="fi-desc">${r.historico ? `${esc(String(r.folio))} · POS anterior` : `${esc(r.codigo_ticket)} · ${esc(h12(r.hora))}`}</b><span class="fi-precio">${mxn(r.total)}</span></span><span class="fi-quien fi-quien-art">${esc(r.tienda)} · Caja ${r.caja}${r.historico ? ' · POS anterior' : r.articulo ? ` · ${esc(r.articulo)}${r.mas > 0 ? ` +${r.mas} más` : ''}` : ''}</span><span class="fi-sub"><span>${esc(r.fecha_local.split('-').reverse().join('/'))}</span><span>${esc(r.pago)}</span>${r.estado === 'cancelada' ? '<span class="insignia cancelada" data-quien="cancelada">CANCELADA</span>' : `<span class="insignia" data-quien="vendio">${esc(r.historico ? '—' : r.vendedora === 'Autocompra' ? `Autocompra · ${r.cajero}` : r.vendedora || r.cajero)}</span>`}</span></button>`).join('') || '<p class="vacio">No hay ventas con esos datos.</p>'}</div></div></div>${panelRetiros(j.retiros)}${panelGastos(j.gastos)}`;
     for (const fila of $('#ha-resultado').querySelectorAll('[data-detalle]')) {
       const abrir = () => abrirDetalleVenta(fila.dataset.detalle, { acciones: false, ruta: `/api/admin/venta?sale_id=${encodeURIComponent(fila.dataset.detalle)}` }).catch((e) => { m.className = 'mensaje error'; m.textContent = e.message; });
       fila.addEventListener('click', abrir);
@@ -2473,7 +2475,7 @@ async function vistaDolares() {
     const { reporte: r } = await api(`/api/admin/dolares?${q}`);
     $('#resultado-usd').innerHTML = `<div class="panel"><p class="nota" style="margin-top:0">Dólares FÍSICOS recibidos. El equivalente en MXN usa la tasa de cada operación, no la última del día. El cambio se entrega en pesos.</p>
       <div class="tabla-cont"><table id="tabla-dolares"><thead><tr><th>Tienda</th><th>Caja</th><th>Folio</th><th>Fecha</th><th>Vendedora-Cajera</th><th class="num">USD</th><th class="num">Tasa</th><th class="num">Equivalente MXN</th><th class="num">Pesos recibidos</th><th class="num">Cambio MXN</th><th>Estado</th></tr></thead><tbody>
-      ${r.filas.map((f) => `<tr data-folio="${f.folio}"><td>${esc(f.tienda)}</td><td>${f.caja}</td><td>${folioDe(f)}</td><td>${esc(f.fecha_local)} ${esc(f.hora)}</td><td>${esc(f.cajero)}</td><td class="num">${usd(f.usd)}</td><td class="num">${(f.tasa / 10000).toFixed(2)} (v${f.tasa_version})</td><td class="num">${mxn(f.equivalente)}</td><td class="num">${mxn(f.pesos_recibidos)}</td><td class="num">${mxn(f.cambio_mxn)}</td><td>${esc(f.estado)}</td></tr>`).join('') || '<tr><td colspan="11" class="vacio">Sin cobros con dólares en el periodo.</td></tr>'}</tbody></table></div>
+      ${r.filas.map((f) => `<tr data-folio="${f.folio}"><td>${esc(f.tienda)}</td><td>${f.caja}</td><td>${folioDe(f)}</td><td>${esc(f.fecha_local)} ${esc(h12(f.hora))}</td><td>${esc(f.cajero)}</td><td class="num">${usd(f.usd)}</td><td class="num">${(f.tasa / 10000).toFixed(2)} (v${f.tasa_version})</td><td class="num">${mxn(f.equivalente)}</td><td class="num">${mxn(f.pesos_recibidos)}</td><td class="num">${mxn(f.cambio_mxn)}</td><td>${esc(f.estado)}</td></tr>`).join('') || '<tr><td colspan="11" class="vacio">Sin cobros con dólares en el periodo.</td></tr>'}</tbody></table></div>
       <h2>Por caja</h2><table id="tabla-dolares-caja"><thead><tr><th>Tienda</th><th>Caja</th><th class="num">Cobros</th><th class="num">USD físicos</th><th class="num">Equivalente histórico MXN</th></tr></thead><tbody>
       ${r.porCaja.map((c) => `<tr><td>${esc(c.tienda)}</td><td>${c.caja}</td><td class="num">${c.cobros}</td><td class="num">${usd(c.usd)}</td><td class="num">${mxn(c.equivalente_historico)}</td></tr>`).join('')}
       <tr><th colspan="3" scope="row">Total</th><td class="num" id="total-usd"><b>${usd(r.usd)}</b></td><td class="num" id="total-equivalente"><b>${mxn(r.equivalente_historico)}</b></td></tr></tbody></table></div>`;
@@ -2711,7 +2713,7 @@ async function vistaEntregas() {
       ${r.porTienda.map((t) => `<tr data-tienda="${esc(t.tienda)}"><td>${esc(TIENDAS_ALM[t.tienda] ?? t.tienda)}</td><td class="num">${t.entregas}</td><td class="num">${t.piezas}</td><td class="num">${t.confirmadas}</td><td class="num">${t.pendientes}</td><td class="num">${t.piezas_pendientes}</td></tr>`).join('') || '<tr><td colspan="6" class="vacio">Sin entregas en el periodo.</td></tr>'}</tbody>
       <tfoot><tr><th>Total</th><td class="num" data-campo="entregas">${R.entregas}</td><td class="num" data-campo="piezas">${R.piezas}</td><td class="num">${R.confirmadas}</td><td class="num" data-campo="pendientes">${R.pendientes}</td><td class="num">${R.piezas_pendientes}</td></tr></tfoot></table></div>
       <div class="panel" style="margin-top:12px"><h2 style="margin-top:0">Detalle de entregas</h2><div class="tabla-cont"><table id="tabla-ent-detalle"><thead><tr><th>Fecha</th><th>Tienda</th><th>Item #</th><th>Código</th><th>Artículo</th><th class="num">Piezas</th><th>Estado</th><th>Confirmada</th><th>Entregó</th></tr></thead><tbody>
-      ${r.filas.map((f) => `<tr data-entrega="${esc(f.entrega_id)}" data-estado="${f.estado}"><td>${esc(f.fecha_local)} ${esc(f.hora)}</td><td>${esc(TIENDAS_ALM[f.tienda] ?? f.tienda)}</td><td>${esc(f.item_no ?? '—')}</td><td>${esc(f.codigo)}</td><td>${esc(f.descripcion)} ${esc(f.marca)}${f.exceso ? ' <span class="insignia cancelada">excede almacén</span>' : ''}</td><td class="num">${f.qty}</td><td>${f.estado === 'confirmada' ? (f.recibida_qty < f.qty ? `Confirmada: recibió ${f.recibida_qty} de ${f.qty}` : 'Confirmada') : `<b>Pendiente</b> (${f.dias_espera} d)`}</td><td>${esc(f.recibida_local ?? '—')}${f.recibida_por ? ` · ${esc(f.recibida_por)}` : ''}</td><td>${esc(f.por)}</td></tr>`).join('') || '<tr><td colspan="9" class="vacio">Sin entregas en el periodo.</td></tr>'}</tbody></table></div></div>`;
+      ${r.filas.map((f) => `<tr data-entrega="${esc(f.entrega_id)}" data-estado="${f.estado}"><td>${esc(f.fecha_local)} ${esc(h12(f.hora))}</td><td>${esc(TIENDAS_ALM[f.tienda] ?? f.tienda)}</td><td>${esc(f.item_no ?? '—')}</td><td>${esc(f.codigo)}</td><td>${esc(f.descripcion)} ${esc(f.marca)}${f.exceso ? ' <span class="insignia cancelada">excede almacén</span>' : ''}</td><td class="num">${f.qty}</td><td>${f.estado === 'confirmada' ? (f.recibida_qty < f.qty ? `Confirmada: recibió ${f.recibida_qty} de ${f.qty}` : 'Confirmada') : `<b>Pendiente</b> (${f.dias_espera} d)`}</td><td>${esc(f.recibida_local ?? '—')}${f.recibida_por ? ` · ${esc(f.recibida_por)}` : ''}</td><td>${esc(f.por)}</td></tr>`).join('') || '<tr><td colspan="9" class="vacio">Sin entregas en el periodo.</td></tr>'}</tbody></table></div></div>`;
   };
   $('#btn-volver-alm').addEventListener('click', () => ir('almacen'));
   $('#filtros-ent').addEventListener('submit', async (ev) => { ev.preventDefault(); await consultar(); });
@@ -2745,7 +2747,7 @@ async function vistaDescuentos() {
         <table id="tabla-desc-promos"><thead><tr><th>Tipo</th><th>Nombre</th><th class="num">Tickets</th><th class="num">Monto</th></tr></thead><tbody>
         ${r.porPromocion.map((x) => `<tr data-ref="${esc(x.ref)}"><td>${NOM_TIPO_DESC[x.tipo]}</td><td>${esc(x.concepto)}</td><td class="num">${x.tickets}</td><td class="num">${mxn(x.monto)}</td></tr>`).join('') || '<tr><td colspan="4" class="vacio">Sin promociones ni cupones aplicados en el periodo.</td></tr>'}</tbody></table></div>
       <div class="panel" style="margin-top:12px"><h2 style="margin-top:0">Detalle por ticket</h2><div class="tabla-cont"><table id="tabla-desc-detalle"><thead><tr><th>Tienda</th><th>Caja</th><th>Folio</th><th>Fecha</th><th>Vendedora-Cajera</th><th>Tipo</th><th>Concepto</th><th>Autorizó</th><th class="num">Venta</th><th class="num">Descuento</th><th class="num">% venta</th><th>Estado</th></tr></thead><tbody>
-        ${r.filas.map((f) => `<tr data-folio="${f.folio}" data-tipo="${f.tipo}"><td>${esc(f.tienda)}</td><td>${f.caja}</td><td>${folioDe(f)}</td><td>${esc(f.fecha_local)} ${esc(f.hora)}</td><td>${esc(f.cajero)}</td><td>${NOM_TIPO_DESC[f.tipo]}</td><td>${esc(f.concepto)}</td><td>${esc(f.supervisor ?? '')}</td><td class="num">${mxn(f.importe_venta)}</td><td class="num">${mxn(f.monto)}</td><td class="num">${pctBp(f.pct_bp)}</td><td>${f.estado === 'cancelada' ? '<span class="insignia cancelada">cancelada</span>' : 'confirmada'}</td></tr>`).join('') || '<tr><td colspan="12" class="vacio">Sin descuentos en el periodo.</td></tr>'}</tbody></table></div></div>`;
+        ${r.filas.map((f) => `<tr data-folio="${f.folio}" data-tipo="${f.tipo}"><td>${esc(f.tienda)}</td><td>${f.caja}</td><td>${folioDe(f)}</td><td>${esc(f.fecha_local)} ${esc(h12(f.hora))}</td><td>${esc(f.cajero)}</td><td>${NOM_TIPO_DESC[f.tipo]}</td><td>${esc(f.concepto)}</td><td>${esc(f.supervisor ?? '')}</td><td class="num">${mxn(f.importe_venta)}</td><td class="num">${mxn(f.monto)}</td><td class="num">${pctBp(f.pct_bp)}</td><td>${f.estado === 'cancelada' ? '<span class="insignia cancelada">cancelada</span>' : 'confirmada'}</td></tr>`).join('') || '<tr><td colspan="12" class="vacio">Sin descuentos en el periodo.</td></tr>'}</tbody></table></div></div>`;
   };
   $('#btn-volver-promos').addEventListener('click', () => ir('promociones'));
   $('#filtros-desc').addEventListener('submit', async (ev) => { ev.preventDefault(); await consultar(); });
@@ -3976,7 +3978,7 @@ async function vistaFeria() {
   const j = await api('/api/admin/feria'); // solo el día de hoy: la feria de días anteriores ya no se muestra
   const orden = { critico: 0, bajo: 1, bien: 2, sin_dato: 3 };
   const cajas = [...j.cajas].sort((a, b) => orden[a.estado] - orden[b.estado] || a.tienda.localeCompare(b.tienda) || a.caja - b.caja);
-  const hora = (iso) => new Date(Date.parse(iso) - 7 * 3600_000).toISOString().slice(11, 16);
+  const hora = (iso) => h12(new Date(Date.parse(iso) - 7 * 3600_000).toISOString().slice(11, 16));
   const tarjeta = (c) => {
     const [rotulo, color] = ESTADO_FERIA[c.estado];
     const movs = c.eventos.filter((e) => e.tipo !== 'fondo' && e.tipo !== 'conteo');
