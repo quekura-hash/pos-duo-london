@@ -4853,6 +4853,44 @@ function ponerBotonesCamara() {
   }
 }
 { let pendiente = false; new MutationObserver(() => { if (pendiente) return; pendiente = true; requestAnimationFrame(() => { pendiente = false; ponerBotonesCamara(); }); }).observe(document.body, { childList: true, subtree: true }); }
+// ── Captura de cantidades como en Excel (caja y Administración) ──
+// Al entrar a una celda numérica (click, toque, Tab o flecha) todo su contenido queda seleccionado: lo que se escriba reemplaza lo que haya (un «0» no estorba).
+// En una tabla de cantidades, ↑ ↓ ← → (y Enter) pasan a la celda de al lado sin sumar ni restar uno.
+document.addEventListener('focusin', (ev) => {
+  const i = ev.target;
+  if (!(i instanceof HTMLInputElement) || i.type !== 'number') return;
+  i.dataset.selAlEntrar = '1';
+  try { i.select(); } catch { /* sin selección: se escribe normal */ }
+});
+document.addEventListener('mouseup', (ev) => {
+  const i = ev.target;
+  if (i instanceof HTMLInputElement && i.type === 'number' && i.dataset.selAlEntrar) { delete i.dataset.selAlEntrar; ev.preventDefault(); try { i.select(); } catch { /* sin selección */ } } // el click que da el foco no quita la selección
+});
+document.addEventListener('input', (ev) => { if (ev.target instanceof HTMLInputElement) delete ev.target.dataset.selAlEntrar; }, true);
+document.addEventListener('keydown', (ev) => {
+  const i = ev.target;
+  if (!(i instanceof HTMLInputElement) || i.type !== 'number' || ev.altKey || ev.ctrlKey || ev.metaKey || ev.shiftKey) return;
+  const k = ev.key;
+  if (k !== 'ArrowUp' && k !== 'ArrowDown' && k !== 'ArrowLeft' && k !== 'ArrowRight' && k !== 'Enter') return;
+  const tr = i.closest('tr'), tabla = i.closest('table');
+  if (!tr || !tabla) return; // fuera de una tabla de cantidades todo funciona como siempre
+  const celdas = (fila) => [...fila.querySelectorAll('input[type="number"]')].filter((x) => !x.disabled && !x.readOnly && x.offsetParent !== null);
+  const filas = [...tabla.querySelectorAll('tr')].filter((f) => celdas(f).length);
+  const aqui = celdas(tr), col = aqui.indexOf(i), r = filas.indexOf(tr);
+  if (col < 0 || r < 0) return;
+  let destino = null;
+  if (k === 'ArrowLeft') destino = aqui[col - 1] ?? null;
+  else if (k === 'ArrowRight') destino = aqui[col + 1] ?? null;
+  else {
+    const paso = k === 'ArrowUp' ? -1 : 1;
+    const otra = filas[r + paso];
+    if (otra) { const c = celdas(otra); destino = c[Math.min(col, c.length - 1)] ?? null; }
+  }
+  if (k === 'ArrowUp' || k === 'ArrowDown') ev.preventDefault(); // en una tabla de cantidades las flechas no suben ni bajan el número
+  if (!destino) return;
+  ev.preventDefault();
+  destino.focus();
+});
 window.POS_UI = { iniciar, ir };
 // ── cierre por inactividad: la pantalla avisa que la persona sigue ahí (latido) y muestra el aviso antes de que se cierre la sesión ──
 let actividadPendiente = false;
