@@ -226,10 +226,52 @@ describe('[navegador real] Cierre de caja guiado por pasos', { timeout: 240_000,
     for (let n = 0; n < 12; n++) await page.keyboard.press('ArrowDown');
     assert.equal(await celdas.nth(2).inputValue(), '0', 'no baja de cero');
     assert.equal(await celdas.nth(1).inputValue(), '6', 'las flechas no tocaron otras celdas');
-    // Shift+Enter regresa a la celda de arriba (seleccionada)
+    // Shift+Enter y Re Pág regresan a la celda de arriba (seleccionada); Av Pág baja
     await page.keyboard.press('Shift+Enter');
     await page.keyboard.type('7');
     assert.equal(await celdas.nth(1).inputValue(), '7');
+    await page.keyboard.press('PageDown');
+    await page.keyboard.type('4');
+    assert.equal(await celdas.nth(2).inputValue(), '4');
+    await page.keyboard.press('PageUp');
+    await page.keyboard.press('PageUp');
+    await page.keyboard.type('5');
+    assert.deepEqual([await celdas.nth(0).inputValue(), await celdas.nth(1).inputValue(), await celdas.nth(2).inputValue()], ['5', '7', '4'], 'Re Pág subió dos celdas y reemplazó la primera');
+    assert.deepEqual(errores.filter((e) => !/401|403|Failed to load resource/.test(e)), []);
+  });
+  it('UC5 el asistente del fondo avisa cuánto sacar cuando te pasas (pitido) y dice Listo con campanita cuando queda exacto; las ventas se cuentan de billete chico a grande y la cantidad queda junto a la denominación', async (t) => {
+    const browser = await chromium.launch({ executablePath: chromiumPath, args: ['--no-sandbox'] });
+    const ctx = nuevoMundo(sqlite, politica());
+    const adm = await appAdmin(ctx);
+    const caja = await appCajero(ctx, 'DUO', 1, 'Lupe');
+    t.after(async () => { await browser.close(); await adm.cerrar(); await caja.cerrar(); ctx.limpiar(); });
+    await api(adm.url, '/api/admin/cajeros', { nombre: 'Lupe', clave: '4321' });
+    ctx.m.pump(); ctx.m.pump(); ctx.m.pump();
+    await api(caja.url, '/api/login', { usuario: 'Lupe', clave: '4321' });
+    const { page, errores } = await pagina(browser, caja.url);
+    await page.evaluate(() => { (window as any).__tonos = 0; const A = window.AudioContext; const crear = A.prototype.createOscillator; A.prototype.createOscillator = function (this: AudioContext) { (window as any).__tonos++; return crear.call(this); }; });
+    await page.click('#nav button[data-vista="corte"]');
+    await empezarCorte(page);
+    await page.waitForSelector('#paso-fondo');
+    const poner = async (k: string, n: number) => page.fill(`[data-fondo="${k}"]`, String(n));
+    // 3,489 contados y luego 4 billetes de $500: ya se pasó $489
+    for (const [k, n] of [['m100', 4], ['m500', 1], ['m1000', 1], ['b2000', 1], ['b5000', 1], ['b20000', 2], ['b100000', 3]] as const) await poner(k, n);
+    assert.equal(await page.locator('#fondo-asistente').isVisible(), false, 'mientras falta no estorba');
+    await poner('b50000', 4);
+    assert.match((await page.textContent('#fondo-asistente'))!.replace(/\s+/g, ' '), /Completaste el fondo\. Saca \$489: 2 de \$200 · 1 de \$50 · 1 de \$20 · 1 de \$10 · 1 de \$5 · 4 de \$1/);
+    await page.waitForFunction(() => (window as any).__tonos >= 3, undefined, { timeout: 5000 }); // el pitido suena al dejar de teclear
+    const trasAlerta = await page.evaluate(() => (window as any).__tonos);
+    // lo que sobra se saca y queda exacto: Listo + campanita
+    for (const [k, n] of [['b50000', 3], ['m1000', 2], ['m100', 5]] as const) await poner(k, n);
+    await page.waitForFunction(() => /Listo ✅/.test(document.querySelector('#fondo-asistente')!.textContent!));
+    await page.waitForFunction((n) => (window as any).__tonos > n, trasAlerta, { timeout: 5000 });
+    // paso 2: billetes de menor a mayor y al final las monedas; la cantidad queda pegada a su denominación
+    await page.click('#btn-fondo');
+    await page.waitForSelector('#paso-ventas');
+    assert.deepEqual(await page.$$eval('#paso-ventas .tabla-denom tbody th', (e) => e.map((x) => x.textContent!.trim())),
+      ['Billete $20', 'Billete $50', 'Billete $100', 'Billete $200', 'Billete $500', 'Billete $1,000', 'Moneda $1', 'Moneda $2', 'Moneda $5', 'Moneda $10', 'Moneda $20']);
+    const th = (await page.locator('#paso-ventas .tabla-denom tbody th').first().boundingBox())!, celda = (await page.locator('#paso-ventas .tabla-denom tbody input').first().boundingBox())!;
+    assert.ok(celda.x - (th.x + th.width) < 40, `la cantidad queda junto a la denominación (${celda.x - (th.x + th.width)} px)`);
     assert.deepEqual(errores.filter((e) => !/401|403|Failed to load resource/.test(e)), []);
   });
 });

@@ -1117,7 +1117,49 @@ const FILAS_PESOS = [
   ['m2000', 2000, 'Moneda $20'], ['m1000', 1000, 'Moneda $10'], ['m500', 500, 'Moneda $5'], ['m200', 200, 'Moneda $2'], ['m100', 100, 'Moneda $1'],
   ['b100000', 100000, 'Billete $1,000'], ['b50000', 50000, 'Billete $500'], ['b20000', 20000, 'Billete $200'], ['b10000', 10000, 'Billete $100'], ['b5000', 5000, 'Billete $50'], ['b2000', 2000, 'Billete $20'],
 ];
+// Efectivo de las ventas: se cuenta de billete más chico a más grande y al final las monedas (también de menor a mayor).
+const FILAS_PESOS_VENTA = [
+  ['b2000', 2000, 'Billete $20'], ['b5000', 5000, 'Billete $50'], ['b10000', 10000, 'Billete $100'], ['b20000', 20000, 'Billete $200'], ['b50000', 50000, 'Billete $500'], ['b100000', 100000, 'Billete $1,000'],
+  ['m100', 100, 'Moneda $1'], ['m200', 200, 'Moneda $2'], ['m500', 500, 'Moneda $5'], ['m1000', 1000, 'Moneda $10'], ['m2000', 2000, 'Moneda $20'],
+];
 const FILAS_USD = [100, 50, 20, 10, 5, 2, 1].map((d) => [`u${d}`, d * 100, `Billete US$${d}`, d]);
+const pesosEnteros = (centavos) => `$${(centavos / 100).toLocaleString('es-MX', { maximumFractionDigits: 2 })}`;
+const DENOM_FONDO = [100000, 50000, 20000, 10000, 5000, 2000, 1000, 500, 200, 100];
+/**
+ * Qué sacar del fondo contado para quitar `exceso` (centavos): solo billetes y monedas que ya se contaron (`den` = { centavos: cantidad }), de las más grandes
+ * a las más chicas y con las menos piezas posibles. null si con lo contado no se puede dejar exacto.
+ */
+function quitarExceso(den, exceso) {
+  const items = DENOM_FONDO.map((u) => [u, Math.min(den[u] ?? 0, Math.floor(exceso / u))]).filter(([, n]) => n > 0);
+  let nodos = 0;
+  const buscar = (i, resto) => {
+    if (resto === 0) return [];
+    if (i >= items.length || ++nodos > 50000) return null;
+    const [u, max] = items[i];
+    for (let n = Math.min(max, Math.floor(resto / u)); n >= 0; n--) {
+      const r = buscar(i + 1, resto - n * u);
+      if (r) return n ? [[u, n], ...r] : r;
+    }
+    return null;
+  };
+  return buscar(0, exceso);
+}
+/** Sonidos de la caja (sin archivos): `alerta` = pitido doble; `campana` = campanita. Se crean con el audio ya activado por el teclado o el toque. */
+function tonoPOS(tipo) {
+  try {
+    audioEscaner ??= new (window.AudioContext || window.webkitAudioContext)();
+    audioEscaner.resume?.();
+    const A = audioEscaner, t0 = A.currentTime;
+    const nota = (f, ini, dur, tipoOnda, vol) => {
+      const o = A.createOscillator(), g = A.createGain();
+      o.type = tipoOnda; o.frequency.value = f;
+      g.gain.setValueAtTime(0.0001, t0 + ini); g.gain.exponentialRampToValueAtTime(vol, t0 + ini + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t0 + ini + dur);
+      o.connect(g).connect(A.destination); o.start(t0 + ini); o.stop(t0 + ini + dur + 0.02);
+    };
+    if (tipo === 'alerta') { nota(520, 0, 0.16, 'square', 0.22); nota(520, 0.22, 0.16, 'square', 0.22); nota(390, 0.44, 0.3, 'square', 0.22); }
+    else { nota(1046.5, 0, 1.3, 'sine', 0.3); nota(2093, 0, 0.9, 'sine', 0.12); nota(3136, 0, 0.5, 'sine', 0.06); }
+  } catch { /* sin audio: queda el aviso en pantalla */ }
+}
 /** Tabla de conteo por denominación. `previos` = { clave: cantidad } para precargar (el renglón del billete se queda con las de $20). */
 function tablaDenominaciones(prefijo, filas, fmt, previos = {}) {
   const usadas = new Set();
@@ -1176,6 +1218,7 @@ async function vistaCorte() {
       ${v.fondo_referencia && v.fondo_confirmado === null ? `<p class="nota" id="fondo-referencia">Composición del último fondo confirmado (${esc(v.fondo_referencia.fecha)}): ${mxn(v.fondo_referencia.total)}. <button class="btn" type="button" id="fondo-usar-anterior">Usar esa composición</button></p>` : ''}
       <div class="tabla-cont">${tablaDenominaciones('fondo', FILAS_PESOS, mxn, prev)}</div>
       <div class="panel" id="fondo-resumen" style="margin:10px 0"><p style="margin:0">Total contado del fondo: <b id="fondo-total">${mxn(0)}</b> · <span id="fondo-dif-txt"></span></p><p id="fondo-estado" style="margin:6px 0 0;font-weight:700"></p></div>
+      <div id="fondo-asistente" class="mensaje" role="status" aria-live="polite" hidden></div>
       <div class="campo" id="fondo-nota-campo" hidden><label for="fondo-nota">Nota del <span id="fondo-nota-tipo">faltante</span> (obligatoria; queda en el corte), por ejemplo «faltante por pago de barrendero»</label><textarea id="fondo-nota" rows="2" maxlength="300" style="width:100%;box-sizing:border-box;padding:8px;border:2px solid var(--borde);border-radius:10px;background:var(--superficie);font:inherit">${esc(v.fondo_nota ?? '')}</textarea></div>
       <div id="msg-fondo" class="mensaje" role="status" aria-live="polite"></div>
       ${cerrado ? '' : `<button class="btn btn-primario" id="btn-fondo" type="button">${ico('check')}<span>Confirmar fondo y continuar</span></button>`}</section>`;
@@ -1187,7 +1230,7 @@ async function vistaCorte() {
       <div class="mensaje ok" id="fondo-confirmado">Fondo confirmado: <b>${mxn(v.fondo_confirmado ?? 0)}</b>${v.fondo_estado && v.fondo_estado !== 'completo' ? ` · ${esc(v.fondo_estado)} de ${mxn(Math.abs(v.fondo_diferencia))}` : ''}</div>
       ${v.conteo_desactualizado.mxn || v.conteo_desactualizado.usd ? '<div class="mensaje aviso" id="aviso-recontar">Hubo movimientos de efectivo después del último conteo: vuelva a contar para poder cerrar.</div>' : ''}
       <div class="cuadricula">
-        <div class="panel"><h3 style="margin-top:0">Pesos (MXN)</h3><div class="tabla-cont">${tablaDenominaciones('venta', FILAS_PESOS, mxn, prev)}</div></div>
+        <div class="panel"><h3 style="margin-top:0">Pesos (MXN)</h3><div class="tabla-cont">${tablaDenominaciones('venta', FILAS_PESOS_VENTA, mxn, prev)}</div></div>
         ${mostrarUsd ? `<div class="panel" id="panel-usd"><h3 style="margin-top:0">Dólares (USD)</h3><div class="tabla-cont">${tablaDenominaciones('usd', FILAS_USD, usd, v.conteo_usd?.denominaciones ?? {})}</div>
           <p class="nota">Los dólares se cuentan como dólares; en pesos se concilian con el tipo de cambio de cada operación.</p></div>` : `<div class="panel"><p class="nota" id="sin-usd">No hubo dólares hoy. <button class="btn" type="button" id="btn-ver-usd">Contar dólares</button></p></div>`}
       </div>
@@ -1275,14 +1318,27 @@ async function vistaCorte() {
       e.style.color = d === 0 ? 'var(--ok,#0a7a4b)' : 'var(--error,#b3261e)';
       $('#fondo-nota-campo').hidden = d === 0 || t === 0;
       $('#fondo-nota-tipo').textContent = d < 0 ? 'faltante' : 'sobrante';
-      return { t, d };
+      // Asistente: si ya se pasó del fondo dice qué sacar (con lo que hay contado); si quedó exacto, «Listo» (el sonido suena cuando se deja de teclear).
+      const a = $('#fondo-asistente');
+      const { den } = leerDenominaciones('fondo', mxn);
+      const quitar = d > 0 ? quitarExceso(den, d) : null;
+      a.hidden = !(d > 0 || (d === 0 && t > 0));
+      a.className = `mensaje ${d === 0 ? 'ok' : 'error'}`;
+      a.innerHTML = d === 0 ? '<b>Listo ✅</b> Fondo completo.' : quitar ? `<b>Completaste el fondo.</b> Saca <b>${pesosEnteros(d)}</b>: ${quitar.map(([u, n]) => `${n} de ${pesosEnteros(u)}`).join(' · ')}` : `<b>Completaste el fondo</b> y te pasaste <b>${pesosEnteros(d)}</b>, pero con lo contado no se puede sacar exacto: revisa el conteo.`;
+      return { t, d, estado: t === 0 ? 'vacio' : d === 0 ? 'exacto' : d > 0 ? 'sobra' : 'falta' };
     };
-    for (const i of $('#vista').querySelectorAll('[data-fondo]')) i.addEventListener('input', total);
-    total();
+    let ultimoSonido = null, tSonido = 0;
+    const alTeclear = () => {
+      const { estado } = total();
+      clearTimeout(tSonido);
+      tSonido = setTimeout(() => { if (estado !== ultimoSonido) { if (estado === 'sobra') tonoPOS('alerta'); else if (estado === 'exacto') tonoPOS('campana'); } ultimoSonido = estado; }, 450);
+    };
+    for (const i of $('#vista').querySelectorAll('[data-fondo]')) i.addEventListener('input', alTeclear);
+    ultimoSonido = total().estado;
     $('#fondo-usar-anterior')?.addEventListener('click', () => {
       const ref = v.fondo_referencia.denominaciones;
       for (const i of $('#vista').querySelectorAll('[data-fondo]')) i.value = i.dataset.fondo.startsWith('b') ? (ref[i.dataset.clave] ?? 0) : (i.dataset.clave === '2000' ? 0 : (ref[i.dataset.clave] ?? 0));
-      total();
+      ultimoSonido = total().estado;
     });
     $('#btn-fondo')?.addEventListener('click', async () => {
       const m = $('#msg-fondo');
@@ -4855,7 +4911,7 @@ function ponerBotonesCamara() {
 { let pendiente = false; new MutationObserver(() => { if (pendiente) return; pendiente = true; requestAnimationFrame(() => { pendiente = false; ponerBotonesCamara(); }); }).observe(document.body, { childList: true, subtree: true }); }
 // ── Captura de cantidades como en Excel (caja y Administración) ──
 // Al entrar a una celda numérica (click, toque, Tab o Enter) todo su contenido queda seleccionado: lo que se escriba reemplaza lo que haya (un «0» no estorba).
-// Las flechas ↑ ↓ suben o bajan la cantidad de uno en uno. En una tabla de cantidades, Enter pasa a la celda de abajo (Shift+Enter, a la de arriba).
+// Las flechas ↑ ↓ suben o bajan la cantidad de uno en uno. En una tabla de cantidades, Enter y Av Pág pasan a la celda de abajo; Shift+Enter y Re Pág, a la de arriba.
 document.addEventListener('focusin', (ev) => {
   const i = ev.target;
   if (!(i instanceof HTMLInputElement) || i.type !== 'number') return;
@@ -4869,15 +4925,16 @@ document.addEventListener('mouseup', (ev) => {
 document.addEventListener('input', (ev) => { if (ev.target instanceof HTMLInputElement) delete ev.target.dataset.selAlEntrar; }, true);
 document.addEventListener('keydown', (ev) => {
   const i = ev.target;
-  if (!(i instanceof HTMLInputElement) || i.type !== 'number' || ev.key !== 'Enter' || ev.altKey || ev.ctrlKey || ev.metaKey) return;
+  if (!(i instanceof HTMLInputElement) || i.type !== 'number' || (ev.key !== 'Enter' && ev.key !== 'PageDown' && ev.key !== 'PageUp') || ev.altKey || ev.ctrlKey || ev.metaKey) return;
+  const arriba = ev.key === 'PageUp' || (ev.key === 'Enter' && ev.shiftKey);
   const tr = i.closest('tr'), tabla = i.closest('table');
   if (!tr || !tabla) return; // fuera de una tabla de cantidades Enter funciona como siempre
   const celdas = (fila) => [...fila.querySelectorAll('input[type="number"]')].filter((x) => !x.disabled && !x.readOnly && x.offsetParent !== null);
   const filas = [...tabla.querySelectorAll('tr')].filter((f) => celdas(f).length);
   const aqui = celdas(tr), col = aqui.indexOf(i), r = filas.indexOf(tr);
   if (col < 0 || r < 0) return;
-  const otra = filas[r + (ev.shiftKey ? -1 : 1)];
-  if (!otra) return; // última celda: Enter hace lo de siempre (por ejemplo, enviar el formulario)
+  const otra = filas[r + (arriba ? -1 : 1)];
+  if (!otra) { if (ev.key !== 'Enter') ev.preventDefault(); return; } // última celda: Enter hace lo de siempre (por ejemplo, enviar el formulario)
   const c = celdas(otra);
   const destino = c[Math.min(col, c.length - 1)];
   if (!destino) return;

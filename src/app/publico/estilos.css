@@ -332,9 +332,15 @@ input[data-pin] { -webkit-text-security: disc; text-security: disc; }
 .paso-btn.hecho .paso-num { background: var(--acento); color: #fff; }
 .paso-num { display: inline-flex; width: 28px; height: 28px; border-radius: 50%; align-items: center; justify-content: center; background: var(--borde); font-weight: 700; flex: none; }
 .paso-num svg { width: 16px; height: 16px; }
-.tabla-denom { width: 100%; border-collapse: collapse; }
+.tabla-denom { width: auto; min-width: 420px; border-collapse: collapse; }
 .tabla-denom th, .tabla-denom td { padding: 4px 8px; border-bottom: 1px solid var(--borde); text-align: left; }
+.tabla-denom tbody th { width: 120px; white-space: nowrap; }
+.tabla-denom tbody td:nth-child(2) { text-align: left; width: 1%; }
+.tabla-denom thead th:nth-child(2) { text-align: left; }
 .tabla-denom .num { text-align: right; }
+/* la cantidad queda pegada a su denominación y el renglón donde está el cursor se resalta para no perderse */
+.tabla-denom tbody tr:focus-within { background: var(--acento-suave, rgba(46, 196, 182, .18)); }
+.tabla-denom tbody tr:focus-within th { font-weight: 800; }
 
 /* Cierre: jerarquía de totales */
 .kpi-grande { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 16px; margin: 8px 0 12px; border-radius: 14px; background: var(--marino); color: var(--marino-texto); }
