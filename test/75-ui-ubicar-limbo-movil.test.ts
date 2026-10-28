@@ -123,6 +123,12 @@ describe('[iPhone] Inventario: seleccionar y ubicar piezas de El Limbo', { timeo
     const visibles = await page.evaluate(() => [...document.querySelectorAll('#lista-historial-admin .fila-inv')].filter((e) => { const r = e.getBoundingClientRect(); return r.bottom <= window.innerHeight; }).length);
     assert.ok(visibles >= 3, `caben varias ventas en la pantalla (${visibles})`);
     assert.match((await page.textContent('#lista-historial-admin .fila-inv'))!, /000006[\s\S]*Caja 2[\s\S]*Efectivo/);
+    // segundo renglón: tienda, caja y el artículo (descripción y marca) en letra más grande; donde iba «confirmada» va quien vendió
+    assert.match((await page.textContent('#lista-historial-admin .fila-inv .fi-quien'))!, /DUO · Caja 2 · BLUSA TM/);
+    assert.match((await page.textContent('#lista-historial-admin .fila-inv [data-quien="vendio"]'))!, /Autocompra/);
+    assert.equal(await page.locator('#lista-historial-admin .insignia.confirmada').count(), 0, 'ya no dice «confirmada»');
+    const tam = await page.evaluate(() => { const f = (s: string) => parseFloat(getComputedStyle(document.querySelector(s)!).fontSize); return [f('#lista-historial-admin .fila-inv .fi-quien'), f('#lista-historial-admin .fila-inv .fi-sub')]; });
+    assert.ok(tam[0]! > tam[1]!, `el artículo se ve más grande que el resto: ${tam}`);
     await page.tap('#lista-historial-admin .fila-inv');
     await page.waitForSelector('#dlg-detalle-venta[open]');
     assert.match((await page.textContent('#dv-titulo'))!, /Venta D2-000006/);

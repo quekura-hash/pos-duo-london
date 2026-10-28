@@ -1777,7 +1777,23 @@ export class ServicioAdmin {
     // Los retiros de efectivo del mismo periodo y cajas (no se filtran por folio ni por origen: no son ventas).
     const retiros = buscado || origen === 'anterior' ? [] : retirosPorCaja(this.actor, this.fuente(), filtro);
     const gastos = buscado || origen === 'anterior' ? [] : gastosPorCaja(this.actor, this.fuente(), filtro);
-    return { ventas: ordenadas.slice(0, 500), total_filas: ordenadas.length, truncado: ordenadas.length > 500, retiros, gastos };
+    // Para cada venta, el primer artículo (descripción y marca ACTUALES del catálogo) y cuántos más lleva: es lo que se ve en el historial del teléfono.
+    const recorte = ordenadas.slice(0, 500);
+    let ventasConArticulo = recorte as ((typeof recorte)[number] & { articulo?: string; mas?: number })[];
+    if (recorte.some((r) => !r.historico)) {
+      const ops = this.fuente();
+      const vs = ventas(ops), cat = catalogo(ops);
+      ventasConArticulo = recorte.map((r) => {
+        const lineas = r.historico ? [] : (vs.get(r.sale_id)?.lineas ?? []);
+        const merc = lineas.filter((l) => !l.tarjeta_regalo);
+        if (!lineas.length) return r;
+        if (!merc.length) return { ...r, articulo: 'Tarjeta de regalo', mas: Math.max(0, lineas.length - 1) };
+        const a = cat.get(merc[0]!.item_id);
+        const articulo = `${(a?.descripcion ?? merc[0]!.descripcion ?? '').trim()} ${(a?.marca ?? merc[0]!.marca ?? '').trim()}`.trim();
+        return { ...r, articulo, mas: new Set(merc.map((l) => l.item_id)).size - 1 };
+      });
+    }
+    return { ventas: ventasConArticulo, total_filas: ordenadas.length, truncado: ordenadas.length > 500, retiros, gastos };
   }
   /**
    * Resumen del día de TODAS las tiendas (el mismo que llega como aviso a las 9 p. m.): por tienda y en total, la venta total, cómo se cobró
