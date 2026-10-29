@@ -639,7 +639,9 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     await page.click('#btn-exacto');
     await page.click('#btn-cobrar');
     await page.waitForSelector('#dlg-ticket[open]');
-    assert.equal(await page.$eval('#logo-ticket', (i) => (i as HTMLImageElement).naturalWidth > 100), true, 'el logo del ticket cargó');
+    // en pantalla ya no se ve el ticket sino los detalles de la venta; el ticket impreso conserva su logo y sus datos (su texto va oculto en la pantalla)
+    assert.equal(await page.locator('#dlg-ticket #logo-ticket').count(), 0, 'la pantalla de cobro ya no muestra el ticket');
+    assert.match((await page.textContent('#dar-feria'))!, /PAGO EXACTO/);
     const ticketDuo = (await page.textContent('#ticket-texto'))!;
     for (const x of ['DÚO Centro', 'Calle Nueva 123', 'RFC: PAVK-781208-TB9', 'TELÉFONO 534-0607', 'Cambios en 5 días con ticket']) assert.ok(ticketDuo.includes(x), x);
     assert.doesNotMatch(ticketDuo, /PÓLIZA/, 'la política editada reemplaza la de fábrica');

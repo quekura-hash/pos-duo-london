@@ -1044,6 +1044,39 @@ function cerrarTicketYVentaNueva(dlg, despues) {
   dlg.addEventListener('close', () => { void nueva(); }, { once: true });
 }
 
+/**
+ * Lo que ve la cajera al cobrar: la feria que hay que dar, en grande, y los detalles de la venta. El ticket sigue imprimiéndose igual
+ * (su texto va oculto en la pantalla para lectores de pantalla y pruebas).
+ */
+function detalleCobro(r) {
+  const v = r.venta;
+  const pagos = v.pagos ?? [];
+  const solo = (m) => pagos.filter((p) => p.metodo === m);
+  const dolares = solo('efectivo_usd'), efectivos = solo('efectivo');
+  const recibido = efectivos.reduce((a, p) => a + (p.recibido ?? p.monto), 0) + dolares.reduce((a, p) => a + (p.equivalente ?? 0) + (p.pesos_recibidos ?? 0), 0);
+  const hayEfectivo = efectivos.length > 0 || dolares.length > 0;
+  const hero = r.cambio > 0
+    ? `<div id="dar-feria" class="hero-feria con-cambio" role="status"><span class="hero-etiqueta">DAR DE FERIA</span><b class="hero-monto" id="dar-feria-monto">${mxn(r.cambio)}</b></div>`
+    : `<div id="dar-feria" class="hero-feria sin-cambio" role="status"><span class="hero-etiqueta">${hayEfectivo ? 'PAGO EXACTO' : 'SIN CAMBIO'}</span></div>`;
+  const forma = (p) => ({
+    efectivo: 'Efectivo MXN',
+    efectivo_usd: `Dólares ${usd(p.usd)} a $${(p.tasa / 10000).toFixed(2)} = ${mxn(p.equivalente)}`,
+    tarjeta: `Tarjeta${p.ultimos4 ? ` ····${esc(p.ultimos4)}` : ''}`,
+    tarjeta_regalo: `Tarjeta de regalo (saldo ${mxn(p.saldo_despues ?? 0)})`,
+    credito_empleada: `Crédito de empleada: ${esc(p.empleada ?? '')}`,
+    credito_cambio: 'Mercancía recibida a cambio',
+  })[p.metodo] ?? esc(p.metodo);
+  const lineas = (v.lineas ?? []).map((l) => `<li><span>${l.tarjeta_regalo ? 'Tarjeta de regalo' : `${l.qty} ${esc(l.descripcion)} ${esc(l.marca ?? '')}`}</span><b>${mxn(l.importe)}</b></li>`).join('');
+  return `${hero}
+    <dl class="detalle-cobro" id="detalle-cobro">
+      <div><dt>Total de la venta</dt><dd>${mxn(v.total)}</dd></div>
+      ${hayEfectivo ? `<div><dt>Recibido</dt><dd>${mxn(recibido)}</dd></div>` : ''}
+      ${pagos.map((p) => `<div><dt>Pago</dt><dd>${forma(p)}</dd></div>`).join('')}
+      <div><dt>Ticket</dt><dd>${esc(r.codigo_ticket)} · ${esc(v.cajero ?? '')}</dd></div>
+    </dl>
+    <ul class="lineas-cobro" id="lineas-cobro" aria-label="Artículos de la venta">${lineas}</ul>`;
+}
+
 function mostrarTicket(r) {
   const dlg = $('#dlg-ticket');
   const imp = r.impresion;
@@ -1053,7 +1086,8 @@ function mostrarTicket(r) {
     <p style="margin:0" id="resumen-venta">Folio <b>${folioDe(r.venta)}</b> · ticket <b>${esc(r.codigo_ticket)}</b> · cambio <b id="dlg-cambio">${mxn(r.cambio)}</b>${r.venta.pagos.some((p) => p.metodo === 'efectivo_usd') ? ` · dólares recibidos <b id="dlg-usd">${usd(r.venta.pagos.find((p) => p.metodo === 'efectivo_usd').usd)}</b>` : ''}${regalo ? ` · saldo de la tarjeta <b id="dlg-saldo-regalo">${mxn(regalo.saldo_despues ?? 0)}</b>` : ''}</p>
     <div id="estado-impresion" class="mensaje ${imp.ok ? 'ok' : 'error'}" role="status">${imp.ok ? 'Ticket enviado a la impresora.' : `La impresora falló: ${esc(imp.error)}. La venta SÍ quedó guardada; reintente la impresión.`}</div>
     ${(r.avisos ?? []).length ? `<div class="mensaje aviso" id="avisos-venta">${r.avisos.map((a) => esc(/^cambio_excede_efectivo_mxn:/.test(a) ? `Advertencia: el cambio entregado superó en ${mxn(Number(a.split(':')[1]))} los pesos que se sabía que había en la caja: revise el efectivo.` : a)).join(' · ')}</div>` : ''}
-    ${logoTicketHtml()}<pre class="ticket" id="ticket-texto" tabindex="0">${esc(r.ticket_texto)}</pre>
+    ${detalleCobro(r)}
+    <pre class="sr-only" id="ticket-texto">${esc(r.ticket_texto)}</pre>
     ${(r.venta.recompensas ?? []).map((e) => `<div class="panel" data-cupon-ganado="${esc(e.codigo)}" style="text-align:center;margin:8px 0"><b>Cupón ganado: ${esc(e.nombre)}</b><br><canvas width="150" height="150" aria-label="QR del cupón ${esc(e.codigo)}" data-qr="${esc(e.codigo)}"></canvas><br><small>${esc(e.codigo)}</small></div>`).join('')}
     <div class="filas"><button class="btn" id="btn-reimprimir" type="button">${ico('printer')}<span>${imp.ok ? 'Reimprimir ticket' : 'Reintentar impresión'}</span></button><button class="btn" id="btn-ticket-regalo" type="button">${ico('gift')}<span>Ticket de regalo</span></button><button class="btn btn-primario" id="btn-nueva" type="button" style="width:auto;flex:1">${ico('plus')}<span>Nueva venta</span></button></div>`;
   dlg.showModal();
