@@ -120,6 +120,8 @@ export const DENOMINACIONES_FONDO = [100000, 50000, 20000, 10000, 5000, 2000, 10
 /** Lo que llega del central (Supabase) y debe repartirse al hub de esa tienda: catálogo y configuración, El Limbo y lo de inventario/almacén/tarjetas de la tienda. */
 export function relevanteParaHub(op: Op, tienda: string): boolean {
   if (CATALOGO.has(op.tipo) || esMovimientoLimbo(op)) return true;
+  // Las ventas de la OTRA caja de la tienda (otro equipo, su propio hub): sin ellas la barra de metas de cada caja solo cuenta lo que cobró ella.
+  if ((op.tipo === 'sale.confirmed' || op.tipo === 'sale.cancelled') && op.tienda === tienda) return true;
   const inventario = op.tipo.startsWith('inv.') || op.tipo.startsWith('doc.') || op.tipo.startsWith('giftcard.') || op.tipo.startsWith('alm.');
   return inventario && op.payload?.tienda === tienda;
 }

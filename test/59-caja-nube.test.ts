@@ -192,3 +192,25 @@ test('CN7 si otro equipo de la misma caja ya usó un folio, esta PC salta despu�
   assert.equal((await venta(a)).venta.folio, 3);
   a.detener(); b.detener();
 });
+
+test('CN8 las dos cajas de una tienda (equipos distintos) se ven las ventas: lo que vende la caja 2 cuenta en la barra de metas de la caja 1; las de otra tienda no', async () => {
+  const { db, cuentas, admin } = await escenario();
+  (cuentas as Record<string, unknown>)['caja-duo-2@x.mx'] = { id: await usuario(db, 'caja-duo-2@x.mx', 'caja', true, { tienda: 'DUO', caja: 2 }), rol: 'caja', alias: 'caja-duo-2', tienda: 'DUO', caja: 2 };
+  const c1 = iniciarCajaNube({ cliente: clienteDe(db, cuentas), impresora: new ImpresoraProbada(), almacen: almacenMemoria() });
+  const c2 = iniciarCajaNube({ cliente: clienteDe(db, cuentas), impresora: new ImpresoraProbada(), almacen: almacenMemoria() });
+  const lon = iniciarCajaNube({ cliente: clienteDe(db, cuentas), impresora: new ImpresoraProbada(), almacen: almacenMemoria() });
+  await c1.entrar('caja-duo-1@x.mx', 'buena');
+  await c2.entrar('caja-duo-2@x.mx', 'buena');
+  await lon.entrar('caja-lon-1@x.mx', 'buena');
+  await c2.atender('POST', '/api/login', { usuario: 'Ana', clave: '1234' });
+  await venta(c2);
+  await c2.sincronizar(); await c2.sincronizar();
+  await admin.sincronizar();
+  await c1.sincronizar(); await c1.sincronizar();
+  await lon.sincronizar();
+  const hoy = new Date(Date.now() - 7 * 3600_000).toISOString().slice(0, 10);
+  const de = (c: typeof c1, t: string, n: number) => c.mundo!.caja(t, n).enlace.totalesVentas?.(hoy, hoy) ?? null;
+  assert.ok(Object.values(de(c1, 'DUO', 1) ?? {}).reduce((a, b) => a + b, 0) > 0, 'la caja 1 ve lo que vendió la caja 2');
+  assert.deepEqual(de(lon, 'LON', 1) ?? {}, {}, 'London no ve las ventas de DÚO');
+  c1.detener(); c2.detener(); lon.detener();
+});
