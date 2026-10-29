@@ -16,7 +16,7 @@ import { TASA_SIN_VERIFICAR_OMISION, type Politicas } from './politicas.ts';
 import { Indice } from './indice.ts';
 import { localizarVentas } from './consultas.ts';
 import { addDias } from './util.ts';
-import { historicasDuplicadas, reglasDuplicadosHistoricos, type ReglaDuplicadosHistoricos } from './proyecciones.ts';
+import { mesesVigenciaTarjetas, sumarMeses, historicasDuplicadas, reglasDuplicadosHistoricos, type ReglaDuplicadosHistoricos } from './proyecciones.ts';
 import { avanceMetas, CONFIG_METAS_INICIAL, historicoPorDia, horaValida, lunesDe, metasDias, metasPublicadas, totalesPorDia, type AvancePeriodo, type ConfigMetas, type MetaTienda, type MetasPublicadas, type PeriodoMeta } from './metas.ts';
 import { CRITERIOS_EXPEDIENTE, expedientesDe, expedienteVacio, clientesVip, excepcionesVip, type ClienteVip, type ExcepcionesVip, type Expediente } from './proyecciones.ts';
 import { type ConfigEmpleadas, type CuentaEmpleada, configEmpleadas, cuentasEmpleadas, CAMPOS_EDITABLES, CAMPOS_TIENDA, type CampoEditable, departamentos, promocionesDe, recompensasDe, supervisoresDe, cajerosDe, personalConCuenta, administradoresDe, efectivoDeVenta, movimientosCaja, tipoCambioVigente, catalogo, devoluciones, devueltoPorLinea, existenciaVerificada, intentos, perdidasDocumentales, stock, ventas, type Devolucion, type ExistenciaVerificada, type Intento, type PerdidaDocumental, type TarjetaRegalo, type TipoCambio } from './proyecciones.ts';
@@ -109,7 +109,7 @@ const esMovimientoLimbo = (op: Op) => op.tipo === 'inv.movement' && op.payload.t
 const esAjusteAdmin = (op: Op) => (op.tipo === 'inv.movement' && op.payload.tipo === 'ajuste_admin') || (op.tipo === 'inv.conteo' && op.payload.admin === true);
 const BROADCAST_TIENDA = new Set(['cajero.ubicacion', 'alm.recibida', 'inv.movement', 'inv.conteo', 'inv.verificacion_pendiente', 'doc.perdida_posible', 'item.created', 'item.item_no_assigned', 'giftcard.emitida', 'giftcard.recarga', 'giftcard.uso', 'giftcard.reintegro']);
 // Lo que el central baja a hubs y cajas (catálogo y resoluciones administrativas).
-const CATALOGO = new Set(['cajero.ubicacion', 'item.created', 'item.item_no_assigned', 'item.codigo_corregido', 'doc.perdida_resuelta', 'giftcard.emitida', 'giftcard.recarga', 'giftcard.uso', 'giftcard.reintegro', 'config.tipo_cambio', 'permiso.asignado', 'depto.alta', 'depto.editado', 'alm.entrega', 'alm.faltante', 'promo.guardada', 'recompensa.guardada', 'supervisor.guardado', 'cajero.guardado', 'config.sesion', 'config.negocio', 'item.editado', 'caja.fondo_autorizado', 'cash.ajuste_admin', 'empleadas.config', 'empleada.credito', 'empleada.movimiento', 'venta.consulta', 'folio.continuacion', 'vip.guardado', 'vip.excepciones', 'metas.config']);
+const CATALOGO = new Set(['cajero.ubicacion', 'item.created', 'item.item_no_assigned', 'item.codigo_corregido', 'doc.perdida_resuelta', 'giftcard.emitida', 'giftcard.recarga', 'giftcard.uso', 'giftcard.reintegro', 'config.tipo_cambio', 'permiso.asignado', 'depto.alta', 'depto.editado', 'alm.entrega', 'alm.faltante', 'promo.guardada', 'recompensa.guardada', 'supervisor.guardado', 'cajero.guardado', 'config.sesion', 'config.negocio', 'item.editado', 'caja.fondo_autorizado', 'cash.ajuste_admin', 'empleadas.config', 'empleada.credito', 'empleada.movimiento', 'venta.consulta', 'folio.continuacion', 'vip.guardado', 'vip.excepciones', 'metas.config', 'giftcard.config']);
 /** Días de ventas del POS anterior que las cajas conservan para consulta. */
 export const DIAS_CONSULTA_HISTORICA = 60;
 /** Fondo fijo de cada caja mientras Administración no asigne otro (centavos). */
@@ -545,6 +545,12 @@ export class Central {
     const pub = this.metasVigentes();
     if (pub) this.publicarMetas(pub.config, por);
     return { ok: true, tickets: v.tickets, total: v.total };
+  }
+  /** Meses de vigencia de las tarjetas de regalo nuevas y de las recargas en efectivo. Las ya emitidas conservan su fecha de vencimiento. Solo Administración. */
+  fijarVigenciaTarjetas(d: { meses_vigencia: number }, por: string): { ok: true; meses_vigencia: number } | { ok: false; error: { codigo: 'DATOS_INVALIDOS'; mensaje: string } } {
+    if (!Number.isInteger(d.meses_vigencia) || d.meses_vigencia < 1 || d.meses_vigencia > 60) return { ok: false, error: { codigo: 'DATOS_INVALIDOS', mensaje: 'la vigencia es un número entero de meses, de 1 a 60' } };
+    this.emitirAdmin('giftcard.config', { meses_vigencia: d.meses_vigencia, por });
+    return { ok: true, meses_vigencia: d.meses_vigencia };
   }
   // ── Metas de venta por tienda: el incremento sobre el año pasado y los límites de color los fija Administración; la meta de cada día se publica a las cajas ──
   /** Configuración y metas publicadas vigentes (null si Administración aún no publica nada). */
@@ -2133,7 +2139,7 @@ export class Caja {
     const linea: Linea = {
       linea_id: uuid(), item_id: `tarjeta_regalo:${codigo}`, item_no: null, codigo,
       descripcion: `${tipo === 'alta' ? 'Tarjeta de regalo' : 'Recarga de tarjeta de regalo'} ${codigo}`, marca: '', estilo: '', lote: '', departamento: 'TARJETAS DE REGALO',
-      qty: 1, precio_unit: d.monto, descuento: 0, importe: d.monto, tarjeta_regalo: { codigo, tipo },
+      qty: 1, precio_unit: d.monto, descuento: 0, importe: d.monto, tarjeta_regalo: { codigo, tipo, meses: mesesVigenciaTarjetas(this.opsDe('giftcard.config')) },
     };
     this.repo.kvSet(`cart:${id}`, { id, lineas: [linea], estado: 'abierto' } satisfies Carrito);
     try {
@@ -2413,7 +2419,7 @@ export class Caja {
         if (l.tarjeta_regalo) {
           // La venta o recarga de una tarjeta no mueve inventario: crea o aumenta el saldo (y reinicia los 12 meses en efectivo).
           this.emitir(l.tarjeta_regalo.tipo === 'alta' ? 'giftcard.emitida' : 'giftcard.recarga',
-            { codigo: l.tarjeta_regalo.codigo, monto: l.importe, tienda: this.tienda, caja: this.caja, cajero, sale_id: c.id, folio, medio: 'efectivo' }, `gc:${c.id}:${l.linea_id}`);
+            { codigo: l.tarjeta_regalo.codigo, monto: l.importe, tienda: this.tienda, caja: this.caja, cajero, sale_id: c.id, folio, medio: 'efectivo', vigente_hasta: sumarMeses(this.ctx.reloj.now(), l.tarjeta_regalo.meses ?? 12) }, `gc:${c.id}:${l.linea_id}`);
           continue;
         }
         const deLimbo = limbo.get(l.linea_id) ?? 0;

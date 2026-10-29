@@ -98,6 +98,8 @@ export interface LineaTicket {
   descuentos?: { tipo: 'manual' | 'promo' | 'cupon' | 'empleada' | 'vip'; nombre: string; monto: number }[];
   /** Venta o recarga de tarjeta de regalo: no lleva Item #, marca, estilo ni lote. */
   tarjeta_regalo?: boolean;
+  /** Meses de vigencia de la tarjeta vendida (si falta, 12). */
+  vigencia_meses?: number;
 }
 /** Cambio de mercancía: lo recibido a cambio se muestra DENTRO del ticket de la venta nueva (no hay un comprobante aparte de crédito). */
 export interface CambioTicket {
@@ -167,7 +169,7 @@ export function construirTicket(v: Venta, cfg: NegocioCfg = NEGOCIOS[v.tienda]!,
     fecha: `${d}/${mo}/${y}`, hora: local.slice(11, 16), folio: v.folio, ...(v.serie ? { serie: v.serie } : {}), ...(v.credito ? { credito: v.credito } : {}), codigo_ticket: codigoTicket(v.tienda, v.caja, v.folio, negocios, v.serie),
     lineas: v.lineas.map((l) => ({
       item_no: l.item_no, codigo: l.codigo, descripcion: l.descripcion, marca: l.marca, estilo: l.estilo, lote: l.lote,
-      qty: l.qty, precio_unit: l.precio_unit, descuento: l.descuento, importe: l.importe, descuentos: l.descuento_detalle?.map((d) => ({ tipo: d.tipo, nombre: d.nombre, monto: d.monto })), tarjeta_regalo: l.tarjeta_regalo ? true : undefined,
+      qty: l.qty, precio_unit: l.precio_unit, descuento: l.descuento, importe: l.importe, descuentos: l.descuento_detalle?.map((d) => ({ tipo: d.tipo, nombre: d.nombre, monto: d.monto })), tarjeta_regalo: l.tarjeta_regalo ? true : undefined, ...(l.tarjeta_regalo?.meses ? { vigencia_meses: l.tarjeta_regalo.meses } : {}),
     })),
     total: v.total,
     ...(cambio ? { cambio: cambioDeTicket(v, cambio.dev, cambio.origen, negocios) } : {}),
@@ -284,7 +286,7 @@ export function renderTicketTexto(t: Ticket): string {
   for (const l of t.lineas) {
     L.push(...renglonArticulo(l, c));
     L.push(...renglonIdentificacion(l, l.qty * l.precio_unit, c));
-    if (l.tarjeta_regalo) L.push('Vigencia: 12 meses desde la compra o la última recarga');
+    if (l.tarjeta_regalo) L.push(`Vigencia: ${l.vigencia_meses ?? 12} ${(l.vigencia_meses ?? 12) === 1 ? 'mes' : 'meses'} desde la compra o la última recarga`);
     if (l.descuento > 0) {
       if (l.descuentos?.length) {
         for (const d of l.descuentos) {

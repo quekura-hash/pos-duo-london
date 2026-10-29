@@ -227,8 +227,14 @@ export function tarjetasRegalo(ops: Op[]): Map<string, TarjetaRegalo> {
   return m;
 }
 
-/** P-26b (decidido): las tarjetas de regalo vencen a los 12 meses. */
+/** P-26b (decidido): las tarjetas de regalo vencen a los 12 meses, salvo que Administración fije otra vigencia (`giftcard.config`). */
 export const MESES_VIGENCIA_TARJETA = 12;
+/** Meses de vigencia vigentes hoy para tarjetas nuevas o recargas (última `giftcard.config`; 12 si Administración nunca la cambió). */
+export function mesesVigenciaTarjetas(ops: Op[]): number {
+  let meses = MESES_VIGENCIA_TARJETA;
+  for (const o of ops) if (o.tipo === 'giftcard.config' && Number.isInteger(o.payload.meses_vigencia)) meses = o.payload.meses_vigencia;
+  return meses;
+}
 export function sumarMeses(iso: string, n: number): string {
   const d = new Date(iso);
   d.setUTCMonth(d.getUTCMonth() + n);
@@ -237,16 +243,19 @@ export function sumarMeses(iso: string, n: number): string {
 
 export function aplicarTarjeta(m: Map<string, TarjetaRegalo>, o: { tipo: string; op_id: string; payload: any; ocurrio_en: string }) {
   const p = o.payload;
+  // La caja graba el vencimiento en cada alta o recarga (según la vigencia que fijó Administración); sin él, 12 meses. `giftcard.config` no cambia tarjetas ya emitidas.
+  const vence = () => (typeof p.vigente_hasta === 'string' ? p.vigente_hasta : sumarMeses(o.ocurrio_en, MESES_VIGENCIA_TARJETA));
+  if (o.tipo === 'giftcard.config') return;
   if (o.tipo === 'giftcard.emitida') {
     const t = m.get(p.codigo);
     if (t) t.duplicadas.push({ op_id: o.op_id, tienda: p.tienda, caja: p.caja, monto: p.monto });
-    else m.set(p.codigo, { codigo: p.codigo, emitido: p.monto, recargado: 0, usado: 0, reintegrado: 0, saldo: p.monto, tienda: p.tienda, caja: p.caja, cajero: p.cajero, ocurrio_en: o.ocurrio_en, vigente_hasta: sumarMeses(o.ocurrio_en, MESES_VIGENCIA_TARJETA), duplicadas: [] });
+    else m.set(p.codigo, { codigo: p.codigo, emitido: p.monto, recargado: 0, usado: 0, reintegrado: 0, saldo: p.monto, tienda: p.tienda, caja: p.caja, cajero: p.cajero, ocurrio_en: o.ocurrio_en, vigente_hasta: vence(), duplicadas: [] });
   } else if (o.tipo === 'giftcard.uso' || o.tipo === 'giftcard.reintegro' || o.tipo === 'giftcard.recarga') {
     const t = m.get(p.codigo);
     if (!t) return;
     if (o.tipo === 'giftcard.uso') t.usado += p.monto;
     else if (o.tipo === 'giftcard.reintegro') t.reintegrado += p.monto;
-    else { t.recargado += p.monto; t.vigente_hasta = sumarMeses(o.ocurrio_en, MESES_VIGENCIA_TARJETA); }
+    else { t.recargado += p.monto; t.vigente_hasta = vence(); }
     t.saldo = t.emitido + t.recargado - t.usado + t.reintegrado;
   }
 }

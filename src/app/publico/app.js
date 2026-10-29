@@ -2312,10 +2312,24 @@ function dialogoTicketTarjeta(titulo, r) {
 async function vistaTarjetas() {
   if (S.sesion.rol === 'admin') {
     const { tarjetas } = await api('/api/admin/tarjetas');
+    const { meses_vigencia: mesesVig } = await api('/api/admin/tarjetas/vigencia');
     $('#vista').innerHTML = `<div class="titulo-vista">${ico('gift')}<h1>Tarjetas de regalo</h1></div>
-      <div class="panel"><p class="nota" style="margin-top:0">Libro de todas las tiendas. Saldo = vendido + recargas − usos + devoluciones a la tarjeta. Vencen a los 12 meses de la venta o de la última recarga en efectivo. Si dos cajas aisladas dan de alta el mismo código, la segunda no suma saldo y se señala aquí.</p>
+      <div class="panel" id="panel-vigencia"><form id="form-vigencia" autocomplete="off" style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">
+        <div class="campo" style="margin:0"><label for="vig-meses">Vigencia de las tarjetas nuevas y de las recargas (meses)</label><input id="vig-meses" inputmode="numeric" value="${mesesVig}" style="max-width:120px"></div>
+        <button class="btn btn-primario" id="btn-vigencia" type="submit">${ico('check')}<span>Guardar vigencia</span></button></form>
+        <div id="msg-vigencia" class="mensaje" role="status" aria-live="polite"></div>
+        <p class="nota" style="margin-bottom:0">Solo aplica a las tarjetas que se vendan o recarguen desde ahora; las que ya existen conservan su fecha de vencimiento.</p></div>
+      <div class="panel"><p class="nota" style="margin-top:0">Libro de todas las tiendas. Saldo = vendido + recargas − usos + devoluciones a la tarjeta. Vencen a los ${mesesVig} meses de la venta o de la última recarga en efectivo. Si dos cajas aisladas dan de alta el mismo código, la segunda no suma saldo y se señala aquí.</p>
       <div class="tabla-cont"><table id="tabla-tarjetas"><thead><tr><th>Código</th><th>Emitida en</th><th class="num">Cargado</th><th class="num">Usado</th><th class="num">Saldo</th><th>Vigente hasta</th><th>Avisos</th></tr></thead><tbody>
       ${tarjetas.map((t) => filaTarjeta(t, true)).join('') || '<tr><td colspan="7" class="vacio">Aún no hay tarjetas de regalo.</td></tr>'}</tbody></table></div></div>`;
+    $('#form-vigencia').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const msg = $('#msg-vigencia');
+      try {
+        const r = await api('/api/admin/tarjetas/vigencia', { meses_vigencia: Number($('#vig-meses').value) });
+        msg.className = 'mensaje ok'; msg.textContent = `Vigencia guardada: ${r.meses_vigencia} ${r.meses_vigencia === 1 ? 'mes' : 'meses'}.`;
+      } catch (err) { msg.className = 'mensaje error'; msg.textContent = err.message; }
+    });
     return;
   }
   const { tarjetas } = await api('/api/tarjetas');
@@ -2330,7 +2344,7 @@ async function vistaTarjetas() {
           <button class="btn btn-primario" id="btn-alta" type="submit">${ico('gift')}<span>Cobrar y dar de alta</span></button>
         </form>
         <div id="msg-alta" class="mensaje" role="status" aria-live="polite"></div>
-        <p class="nota">Es una venta en efectivo con folio normal, pero el corte la separa de las ventas de mercancía. Vence a los 12 meses.</p>
+        <p class="nota">Es una venta en efectivo con folio normal, pero el corte la separa de las ventas de mercancía. Vence según la vigencia que fije Administración (12 meses de inicio).</p>
       </section>
       <section class="panel" aria-label="Recargar una tarjeta">
         <h2 style="margin-top:0">${ico('refresh')} Recargar una tarjeta</h2>
@@ -2341,7 +2355,7 @@ async function vistaTarjetas() {
           <button class="btn btn-primario" id="btn-recarga" type="submit">${ico('refresh')}<span>Cobrar y recargar</span></button>
         </form>
         <div id="msg-recarga" class="mensaje" role="status" aria-live="polite"></div>
-        <p class="nota">La recarga en efectivo reinicia los 12 meses. Lo devuelto por cambios o devoluciones no los reinicia.</p>
+        <p class="nota">La recarga en efectivo reinicia la vigencia. Lo devuelto por cambios o devoluciones no los reinicia.</p>
       </section>
       <section class="panel" aria-label="Consultar saldo">
         <h2 style="margin-top:0">${ico('search')} Consultar saldo</h2>

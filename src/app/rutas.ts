@@ -244,6 +244,8 @@ export async function atender(o: { cajero?: ServicioCaja; admin?: ServicioAdmin 
         const f = { cajas: cajasParam(q.get('cajas')), desde: q.get('desde') || undefined, hasta: q.get('hasta') || undefined };
         return ok({ reporte: A2.dolares(f), ...(q.get('completo') === '1' ? { hoja: A2.hojaDolares(f) } : {}) });
       }
+      case 'GET /api/admin/tarjetas/vigencia': return ok(exigirAdmin().vigenciaTarjetas());
+      case 'POST /api/admin/tarjetas/vigencia': return ok(exigirAdmin().fijarVigenciaTarjetas({ meses_vigencia: Number(b.meses_vigencia) }));
       case 'GET /api/admin/tarjetas': return ok({ tarjetas: exigirAdmin().tarjetasRegalo() });
       case 'GET /api/admin/inventario': return ok(exigirAdmin().inventario(q.get('completo') === '1'));
       case 'POST /api/admin/cortes': return ok({ cortes: exigirAdmin().cortes({ cajas: b.cajas, desde: b.desde, hasta: b.hasta }) });
