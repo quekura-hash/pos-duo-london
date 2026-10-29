@@ -203,7 +203,7 @@ test('CN8 las dos cajas de una tienda (equipos distintos) se ven las ventas: lo 
   await c2.entrar('caja-duo-2@x.mx', 'buena');
   await lon.entrar('caja-lon-1@x.mx', 'buena');
   await c2.atender('POST', '/api/login', { usuario: 'Ana', clave: '1234' });
-  await venta(c2);
+  const v2 = await venta(c2);
   await c2.sincronizar(); await c2.sincronizar();
   await admin.sincronizar();
   await c1.sincronizar(); await c1.sincronizar();
@@ -216,6 +216,11 @@ test('CN8 las dos cajas de una tienda (equipos distintos) se ven las ventas: lo 
   await c1.atender('POST', '/api/login', { usuario: 'Ana', clave: '1234' });
   const dia = (await c1.atender('GET', '/api/ventas', undefined)).json as { ventas: unknown[] };
   assert.equal(dia.ventas.length, 0, 'ventas del día de la caja 1: ninguna ajena');
+  // Buscar ticket en la caja 1 SÍ encuentra la venta de la caja 2, pero sin importes ni pagos, y avisa que se opera en la caja 2
+  const b = (await c1.atender('GET', `/api/ventas/buscar?folio=${v2.venta.folio}`, undefined)).json as { resultados: { caja: number; propia: boolean; total?: number; sale_id: string }[] };
+  const aj = b.resultados.find((r) => r.caja === 2);
+  assert.ok(aj, 'la caja 1 encuentra el ticket de la caja 2');
+  assert.equal(aj.propia, false); assert.ok(aj.total == null, 'sin importes: es de otra caja');
   const corte = ((await c1.atender('GET', '/api/corte', undefined)).json as { vivo: { tickets: number; ventas: number } }).vivo;
   assert.deepEqual([corte.tickets, corte.ventas], [0, 0], 'el corte de la caja 1 no suma lo de la caja 2')
   c1.detener(); c2.detener(); lon.detener();
