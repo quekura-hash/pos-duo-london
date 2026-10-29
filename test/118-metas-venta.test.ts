@@ -152,3 +152,19 @@ it('MV7 [navegador] Administración configura la meta (incremento) y ve el repor
   await c.waitForFunction(() => /Meta del mes/.test(document.querySelector('#metas-barra')!.textContent!));
   assert.deepEqual(errores.filter((e) => !/401|403|Failed to load resource/.test(e)), []);
 });
+
+it('MV8 [navegador] sin metas publicadas la caja NO dibuja la barra de metas (ni una caja vacía bajo el tipo de cambio)', { timeout: 120_000, skip: chromiumPath ? false : 'Chromium no encontrado' }, async (t) => {
+  const browser = await chromium.launch({ executablePath: chromiumPath, args: ['--no-sandbox'] });
+  const ctx = nuevoMundo(ALMACENES_SQLITE(), politica());
+  const adm = await appAdmin(ctx);
+  const caja = await appCajero(ctx, 'DUO', 1, 'Lupe');
+  t.after(async () => { await browser.close(); await adm.cerrar(); await caja.cerrar(); ctx.limpiar(); });
+  await api(adm.url, '/api/admin/cajeros', { nombre: 'Lupe', clave: '4321' });
+  ctx.m.pump(); ctx.m.pump(); ctx.m.pump();
+  await api(caja.url, '/api/login', { usuario: 'Lupe', clave: '4321' });
+  const c = await (await browser.newContext({ viewport: { width: 1366, height: 900 }, locale: 'es-MX' })).newPage();
+  await c.goto(caja.url);
+  await c.waitForSelector('#tc-barra');
+  await c.waitForFunction(() => !!document.querySelector('#metas-barra'));
+  assert.equal(await c.locator('#metas-barra').isVisible(), false);
+});
