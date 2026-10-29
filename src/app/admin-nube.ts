@@ -49,6 +49,8 @@ export function iniciarAdminNube(o: { cliente: ClienteNube; almacen?: AlmacenRep
 
   const repo = () => m!.central.repo as MemoriaRepo;
   const ahora = () => new Date().toISOString();
+  /** El reloj del central local debe marcar la hora real: de él salen la fecha de lo que escribe Administración (metas, importaciones, reglas) y «hoy». */
+  const ponerHora = () => { if (m) m.reloj.fijar(ahora()); };
 
   async function guardarReplica(): Promise<void> {
     if (!o.almacen || !perfil || !m) return;
@@ -61,6 +63,7 @@ export function iniciarAdminNube(o: { cliente: ClienteNube; almacen?: AlmacenRep
   async function sincronizar(): Promise<boolean> {
     if (!puente) return false;
     sincronizando = true;
+    ponerHora();
     o.alCambiar?.();
     const r = await puente.sincronizar();
     sincronizando = false;
@@ -98,6 +101,7 @@ export function iniciarAdminNube(o: { cliente: ClienteNube; almacen?: AlmacenRep
       });
       const guardada = await o.almacen?.leer(claveReplica(p.usuario_id)).catch(() => undefined);
       if (guardada) repo().importar(guardada);
+      ponerHora();
       puente = new PuenteCentral(repo(), cliente);
       servicio = new ServicioAdmin({
         central: m.central, actor: { rol: 'admin', usuario: p.alias }, fuente: () => (m ? m.central.repo.ops() : []),
@@ -115,6 +119,7 @@ export function iniciarAdminNube(o: { cliente: ClienteNube; almacen?: AlmacenRep
     /** Mismo contrato que el enrutador de la página de prueba. Antes de escribir se trae lo último del central; después se sube. */
     async atender(metodo: string, ruta: string, cuerpo: unknown) {
       if (!servicio || !m) return { status: 401, json: { ok: false, error: { codigo: 'SIN_SESION', mensaje: 'inicie sesión' } } };
+      ponerHora();
       const escribe = metodo !== 'GET' && /^\/api\/admin\//.test(ruta);
       if (escribe) await sincronizar();
       const r = await atender({ admin: servicio }, metodo, new URL(ruta, 'http://local'), (cuerpo as object) ?? {});

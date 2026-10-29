@@ -126,3 +126,15 @@ test('AN4 cerrar sesión (o inactividad) devuelve a la pantalla de entrada y sue
   assert.equal(a.estado().dentro, false);
   assert.equal((await a.atender('GET', '/api/sesion', undefined)).status, 401);
 });
+
+test('AN-RELOJ lo que publica Administración lleva la hora real (no la fecha inicial del reloj interno): las metas se generan con la fecha de hoy', async () => {
+  const { db, cuentas } = await escenario();
+  const a = iniciarAdminNube({ cliente: clienteDe(db, cuentas) });
+  await a.entrar('edgardo@x.mx', 'buena');
+  const antes = Date.now();
+  const r = await a.atender('POST', '/api/admin/metas', { tiendas: { DUO: { incremento_pct: 5 } } });
+  assert.ok(r.status < 400, JSON.stringify(r.json));
+  await a.sincronizar();
+  const f = (await db.query(`select payload->>'generado_en' as g, ocurrio_en from pos.ops where tipo = 'metas.config' order by seq desc limit 1`)).rows[0] as { g: string; ocurrio_en: string | Date };
+  assert.ok(Math.abs(Date.parse(f.g) - antes) < 60_000, `generado_en debe ser la hora real, salió ${f.g}`);
+});
