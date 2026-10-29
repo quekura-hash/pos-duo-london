@@ -212,5 +212,11 @@ test('CN8 las dos cajas de una tienda (equipos distintos) se ven las ventas: lo 
   const de = (c: typeof c1, t: string, n: number) => c.mundo!.caja(t, n).enlace.totalesVentas?.(hoy, hoy) ?? null;
   assert.ok(Object.values(de(c1, 'DUO', 1) ?? {}).reduce((a, b) => a + b, 0) > 0, 'la caja 1 ve lo que vendió la caja 2');
   assert.deepEqual(de(lon, 'LON', 1) ?? {}, {}, 'London no ve las ventas de DÚO');
+  // la caja 1 NO muestra las ventas de la caja 2 en sus pantallas: ni en las ventas del día ni en el corte (son solo para el total de la barra de metas)
+  await c1.atender('POST', '/api/login', { usuario: 'Ana', clave: '1234' });
+  const dia = (await c1.atender('GET', '/api/ventas', undefined)).json as { ventas: unknown[] };
+  assert.equal(dia.ventas.length, 0, 'ventas del día de la caja 1: ninguna ajena');
+  const corte = ((await c1.atender('GET', '/api/corte', undefined)).json as { vivo: { tickets: number; ventas: number } }).vivo;
+  assert.deepEqual([corte.tickets, corte.ventas], [0, 0], 'el corte de la caja 1 no suma lo de la caja 2')
   c1.detener(); c2.detener(); lon.detener();
 });
