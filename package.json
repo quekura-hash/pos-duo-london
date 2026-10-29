@@ -1,6 +1,6 @@
 {
   "name": "pos-duo-london",
-  "version": "0.2.47",
+  "version": "0.2.48",
   "private": true,
   "type": "module",
   "description": "POS DÚO / London — Etapa 0: simulador y pruebas sintéticas",
