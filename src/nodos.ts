@@ -109,7 +109,7 @@ const esMovimientoLimbo = (op: Op) => op.tipo === 'inv.movement' && op.payload.t
 const esAjusteAdmin = (op: Op) => (op.tipo === 'inv.movement' && op.payload.tipo === 'ajuste_admin') || (op.tipo === 'inv.conteo' && op.payload.admin === true);
 const BROADCAST_TIENDA = new Set(['cajero.ubicacion', 'alm.recibida', 'inv.movement', 'inv.conteo', 'inv.verificacion_pendiente', 'doc.perdida_posible', 'item.created', 'item.item_no_assigned', 'giftcard.emitida', 'giftcard.recarga', 'giftcard.uso', 'giftcard.reintegro']);
 // Lo que el central baja a hubs y cajas (catálogo y resoluciones administrativas).
-const CATALOGO = new Set(['cajero.ubicacion', 'item.created', 'item.item_no_assigned', 'item.codigo_corregido', 'doc.perdida_resuelta', 'giftcard.emitida', 'giftcard.recarga', 'giftcard.uso', 'giftcard.reintegro', 'config.tipo_cambio', 'permiso.asignado', 'depto.alta', 'depto.editado', 'alm.entrega', 'alm.faltante', 'promo.guardada', 'recompensa.guardada', 'supervisor.guardado', 'cajero.guardado', 'config.sesion', 'config.negocio', 'item.editado', 'caja.fondo_autorizado', 'cash.ajuste_admin', 'empleadas.config', 'empleada.credito', 'empleada.movimiento', 'venta.consulta', 'folio.continuacion', 'vip.guardado', 'vip.excepciones', 'metas.config', 'giftcard.config']);
+const CATALOGO = new Set(['cajero.ubicacion', 'item.created', 'item.item_no_assigned', 'item.codigo_corregido', 'doc.perdida_resuelta', 'giftcard.emitida', 'giftcard.recarga', 'giftcard.uso', 'giftcard.reintegro', 'config.tipo_cambio', 'permiso.asignado', 'depto.alta', 'depto.editado', 'alm.entrega', 'alm.faltante', 'promo.guardada', 'recompensa.guardada', 'supervisor.guardado', 'cajero.guardado', 'config.sesion', 'config.negocio', 'item.editado', 'caja.fondo_autorizado', 'cash.ajuste_admin', 'empleadas.config', 'empleada.credito', 'empleada.movimiento', 'venta.consulta', 'folio.continuacion', 'vip.guardado', 'vip.excepciones', 'metas.config', 'giftcard.config', 'caja.limite_efectivo']);
 /** Días de ventas del POS anterior que las cajas conservan para consulta. */
 export const DIAS_CONSULTA_HISTORICA = 60;
 /** Fondo fijo de cada caja mientras Administración no asigne otro (centavos). */
@@ -634,6 +634,15 @@ export class Central {
     const motivo = String(d.motivo ?? '').trim();
     if (motivo.length < 3) return mal('escriba el motivo del cambio de fondo');
     this.emitirAdmin('caja.fondo_autorizado', { tienda: d.tienda, caja: d.caja, monto: d.monto, motivo, por });
+    return { ok: true };
+  }
+  /** Límite de ventas en efectivo del día de una caja (centavos; 0 = sin límite). Al llegarlo, la caja muestra un aviso permanente para cobrar en la otra. Solo Administración. */
+  fijarLimiteEfectivo(d: { tienda: string; caja: number; limite: number }, por: string): { ok: true } | { ok: false; error: { codigo: 'DATOS_INVALIDOS'; mensaje: string } } {
+    const mal = (mensaje: string) => ({ ok: false as const, error: { codigo: 'DATOS_INVALIDOS' as const, mensaje } });
+    if (!this.ctx.tiendas.includes(d.tienda)) return mal('tienda desconocida');
+    if (!Number.isInteger(d.caja) || d.caja < 1) return mal('caja inválida');
+    if (!Number.isInteger(d.limite) || d.limite < 0) return mal('el límite es un importe en pesos (0 = sin límite)');
+    this.emitirAdmin('caja.limite_efectivo', { tienda: d.tienda, caja: d.caja, limite: d.limite, por });
     return { ok: true };
   }
   /** Entrega o ajuste administrativo de efectivo en una caja (entrada o salida en pesos), con motivo y referencia única. */
@@ -2821,6 +2830,19 @@ export class Caja {
   }
 
   // ── cierre guiado: fondo fijo, conteo de ventas y cierre ──
+  /**
+   * Límite de ventas en efectivo del día de ESTA caja (lo fija Administración; 0 = sin límite) y lo cobrado en efectivo hoy en ella (pesos y dólares,
+   * sin contar cancelaciones). `alcanzado` enciende el aviso permanente de la barra lateral: hay que cobrar en la otra caja de la tienda.
+   */
+  limiteEfectivo(): { limite: number; vendido: number; alcanzado: boolean; cobrar_en: number } {
+    const a = this.opsDe('caja.limite_efectivo').filter((o) => o.payload.tienda === this.tienda && o.payload.caja === this.caja).at(-1);
+    const limite = a ? Math.max(0, Number(a.payload.limite) || 0) : 0;
+    const hoy = fechaLocal(this.ctx.reloj.now());
+    const vendido = [...ventas(this.opsDe('sale.confirmed', 'sale.cancelled')).values()]
+      .filter((v) => v.estado === 'confirmada' && v.tienda === this.tienda && v.caja === this.caja && fechaLocal(v.ocurrio_en) === hoy)
+      .reduce((s, v) => s + v.pagos.filter((p) => p.metodo === 'efectivo' || p.metodo === 'efectivo_usd').reduce((x, p) => x + p.monto, 0), 0);
+    return { limite, vendido, alcanzado: limite > 0 && vendido >= limite, cobrar_en: this.caja === 1 ? 2 : 1 };
+  }
   /** Fondo fijo autorizado por Administración para ESTA caja (el último asignado; sin asignación, $5,000). */
   fondoAutorizado(): number {
     const a = this.opsDe('caja.fondo_autorizado').filter((o) => o.payload.tienda === this.tienda && o.payload.caja === this.caja).at(-1);

@@ -150,6 +150,12 @@ pre.ticket { background: #fff; color: #111; border: 1px dashed #888; padding: 12
 .tc-lapiz { background: none; border: 1px solid rgba(255,255,255,.25); color: inherit; border-radius: 6px; padding: 3px; cursor: pointer; display: inline-flex; }
 .tc-lapiz:hover { background: rgba(255,255,255,.12); }
 /* ── meta de venta (barra bajo el dólar) ── */
+.limite-efectivo { margin: 8px 12px 0; padding: 10px; border-radius: 8px; background: #b3261e; color: #fff; display: flex; flex-direction: column; gap: 4px; font-size: 13px; line-height: 1.25; border: 2px solid #ffb4ab; animation: limite-pulso 2s ease-in-out infinite; }
+.limite-efectivo[hidden] { display: none; }
+.limite-efectivo b { font-size: 14px; text-transform: uppercase; } .limite-efectivo span { font-size: 18px; font-weight: 800; }
+@keyframes limite-pulso { 50% { box-shadow: 0 0 0 4px rgba(255, 180, 171, .45); } }
+@media (prefers-reduced-motion: reduce) { .limite-efectivo { animation: none; } }
+@media (max-width: 1280px) { .limite-efectivo { margin: 6px 4px 0; padding: 6px 4px; font-size: 11px; text-align: center; } .limite-efectivo b { font-size: 11px; } .limite-efectivo span { font-size: 14px; } }
 .metas[hidden] { display: none; }
 .metas { margin: 8px 12px 0; padding: 10px; border-radius: 8px; background: var(--marino-2); color: var(--marino-texto); display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
 .metas-linea { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; } .metas-linea b { font-size: 18px; font-variant-numeric: tabular-nums; }

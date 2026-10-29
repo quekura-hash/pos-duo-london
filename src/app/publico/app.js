@@ -139,6 +139,7 @@ async function pintarEncabezado() {
   const { estado: e } = await api('/api/estado?pasivo=1');
   S.estado = e;
   pintarTipoCambio();
+  pintarLimiteEfectivo().catch(() => {});
   pintarMetas();
   const c = e.conexion;
   const sincro = !c.hub ? ['mal', 'Sin hub'] : c.pendientes > 0 ? ['pendiente', `${c.pendientes} por sincronizar`] : ['', 'Sincronizado'];
@@ -1019,6 +1020,7 @@ async function cobrar() {
       r = await api('/api/venta/cobrar-efectivo', { cart: S.cart, recibido: c.pesos, ...(c.usd > 0 ? { usd: c.usd } : {}) });
     }
     pintarMetas().catch(() => {});
+    pintarLimiteEfectivo().catch(() => {});
     if (!r.venta.serie) S.ultimoFolio = r.venta.folio; // el chip es de la serie de ventas; el folio CR sale en el resumen del cobro
     mostrarTicket(r);
     await pintarEncabezado();
@@ -2543,6 +2545,24 @@ async function pintarMetas() {
     <div class="metas-pista" role="progressbar" aria-label="${ETIQ_META[S.metasPeriodo]}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.min(100, a.pct)}"><div class="metas-relleno ${a.color}" data-metas="relleno" style="width:${Math.min(100, Math.max(0, a.pct))}%"></div></div>
     <div class="metas-tabs" role="group" aria-label="Periodo de la meta">${per.map((k) => `<button type="button" data-metas-periodo="${k}" aria-pressed="${k === S.metasPeriodo}">${{ dia: 'Día', semana: 'Semana', mes: 'Mes' }[k]}</button>`).join('')}</div>`;
   for (const b of el.querySelectorAll('[data-metas-periodo]')) b.addEventListener('click', () => { S.metasPeriodo = b.dataset.metasPeriodo; pintarMetas(); });
+}
+// ── Aviso permanente: la caja ya llegó a su límite de ventas en efectivo del día → cobrar en la otra caja (lo ven todas las cajeras, no solo quien lo leyó) ──
+async function pintarLimiteEfectivo() {
+  if (!S.sesion || S.sesion.rol === 'admin') return;
+  const tc = $('#tc-barra');
+  if (!tc) return;
+  let el = $('#limite-efectivo');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'limite-efectivo'; el.className = 'limite-efectivo'; el.setAttribute('role', 'alert'); el.hidden = true;
+    tc.insertAdjacentElement('afterend', el);
+    setInterval(() => { pintarLimiteEfectivo().catch(() => {}); }, 30_000);
+  }
+  let r;
+  try { r = await api('/api/limite-efectivo?pasivo=1'); } catch { return; }
+  if (!r.alcanzado) { el.hidden = true; return; }
+  el.hidden = false;
+  el.innerHTML = `<b data-limite="titulo">Esta caja ya llegó al límite de efectivo</b><span data-limite="accion">Cobrar en Caja ${r.cobrar_en}</span>`;
 }
 async function pintarTipoCambio() {
   const el = $('#tc-barra');
@@ -4154,11 +4174,12 @@ async function vistaCajasFondo() {
   cuerpoVista().innerHTML = `<section class="panel"><h2 style="margin-top:0">Fondo fijo por caja</h2>
     <p class="nota">Solo Administración asigna o cambia el fondo autorizado de cada caja. La cajera cuenta y confirma su composición en el cierre, pero no puede modificar el importe. Sin asignación, la caja usa ${mxn(j.defecto)}. Cada cambio queda con quién lo hizo y el motivo.</p>
     <div id="msg-cajas" class="mensaje" role="status" aria-live="polite"></div>
-    <div class="tabla-cont"><table id="tabla-cajas-fondo"><thead><tr><th>Caja</th><th class="num">Fondo autorizado</th><th>Último fondo confirmado</th><th>Historial</th><th></th></tr></thead><tbody>
+    <div class="tabla-cont"><table id="tabla-cajas-fondo"><thead><tr><th>Caja</th><th class="num">Fondo autorizado</th><th class="num">Límite de efectivo del día</th><th>Último fondo confirmado</th><th>Historial</th><th></th></tr></thead><tbody>
     ${j.cajas.map((c) => `<tr data-caja="${esc(c.tienda)}/${c.caja}"><td>${nom(c)}</td><td class="num" data-col="fondo">${mxn(c.fondo)}${c.asignado ? '' : ' <small>(por defecto)</small>'}</td>
+      <td class="num" data-col="limite">${c.limite_efectivo > 0 ? mxn(c.limite_efectivo) : '<small>sin límite</small>'}</td>
       <td data-col="ultimo">${c.ultimo_fondo ? `${esc(c.ultimo_fondo.fecha)} · ${mxn(c.ultimo_fondo.total)} · ${esc(c.ultimo_fondo.estado)}${c.ultimo_fondo.diferencia ? ` (${dif$(c.ultimo_fondo.diferencia)}: ${esc(c.ultimo_fondo.nota)})` : ''}` : '—'}</td>
       <td>${c.historial.slice(0, 3).map((h) => `${mxn(h.monto)} · ${esc(h.por)} · ${esc(h.motivo)}`).join('<br>') || '—'}</td>
-      <td class="filas" style="flex-wrap:nowrap"><button class="btn cf-fondo" type="button">${ico('pencil')}<span>Cambiar fondo</span></button><button class="btn cf-ajuste" type="button">${ico('cash')}<span>Entrega o ajuste</span></button></td></tr>`).join('')}
+      <td class="filas" style="flex-wrap:nowrap"><button class="btn cf-fondo" type="button">${ico('pencil')}<span>Cambiar fondo</span></button><button class="btn cf-limite" type="button">${ico('pencil')}<span>Límite de efectivo</span></button><button class="btn cf-ajuste" type="button">${ico('cash')}<span>Entrega o ajuste</span></button></td></tr>`).join('')}
     </tbody></table></div>
     <form id="form-cf" hidden autocomplete="off" style="margin-top:12px;border-top:1px solid var(--borde);padding-top:10px"></form></section>
     <section class="panel"><h2 style="margin-top:0">Entregas y ajustes recientes</h2><div class="tabla-cont"><table id="tabla-ajustes"><thead><tr><th>Caja</th><th>Fecha</th><th>Operación</th><th class="num">Monto</th><th>Motivo</th><th>Registró</th></tr></thead><tbody>
@@ -4166,6 +4187,21 @@ async function vistaCajasFondo() {
   const msg = (t, tipo = 'error') => { const m = $('#msg-cajas'); m.className = `mensaje ${tipo}`; m.textContent = t; };
   const abrir = (c, tipo) => {
     const f = $('#form-cf'); f.hidden = false;
+    if (tipo === 'limite') {
+      f.innerHTML = `<h3 style="margin-top:0">Límite de efectivo de ${nom(c)}</h3><p class="nota" style="margin-top:0">Cuando las ventas en efectivo del día de esta caja lleguen a este importe, la caja muestra en su barra lateral un aviso permanente: «Esta caja ya llegó al límite de efectivo. Cobrar en Caja ${c.caja === 1 ? 2 : 1}». Solo avisa; no bloquea los cobros. Deje 0 para quitar el límite.</p>
+        <div class="campo"><label for="cf-limite">Límite de ventas en efectivo del día ($; 0 = sin límite)</label><input id="cf-limite" class="texto" inputmode="decimal" value="${centavosAPesos(c.limite_efectivo || 0)}"></div>
+        <div class="filas"><button class="btn" type="button" id="cf-cancelar">Cancelar</button><button class="btn btn-primario" type="submit" style="width:auto;flex:1">${ico('check')}<span>Guardar límite</span></button></div>`;
+      $('#cf-cancelar').addEventListener('click', () => { f.hidden = true; });
+      f.onsubmit = async (ev) => {
+        ev.preventDefault();
+        try {
+          await api('/api/admin/cajas/limite-efectivo', { tienda: c.tienda, caja: c.caja, limite: parseMXN($('#cf-limite').value || '0') });
+          await vistaCajasFondo(); msg('Límite guardado. La caja lo recibe al sincronizar.', 'ok');
+        } catch (e) { msg(e.message); }
+      };
+      $('#cf-limite').focus();
+      return;
+    }
     f.innerHTML = tipo === 'fondo'
       ? `<h3 style="margin-top:0">Cambiar el fondo de ${nom(c)}</h3><div class="campo"><label for="cf-monto">Fondo autorizado ($)</label><input id="cf-monto" class="texto" inputmode="decimal" value="${centavosAPesos(c.fondo)}"></div>
          <div class="campo"><label for="cf-motivo">Motivo del cambio</label><input id="cf-motivo" class="texto" maxlength="120"></div>
@@ -4190,6 +4226,7 @@ async function vistaCajasFondo() {
     const [tienda, n] = tr.dataset.caja.split('/'); const c = j.cajas.find((x) => x.tienda === tienda && String(x.caja) === n);
     tr.querySelector('.cf-fondo').addEventListener('click', () => abrir(c, 'fondo'));
     tr.querySelector('.cf-ajuste').addEventListener('click', () => abrir(c, 'ajuste'));
+    tr.querySelector('.cf-limite').addEventListener('click', () => abrir(c, 'limite'));
   }
   await montarInactividad();
 }

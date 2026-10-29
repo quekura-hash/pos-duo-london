@@ -63,6 +63,7 @@ export async function atender(o: { cajero?: ServicioCaja; admin?: ServicioAdmin 
       case 'POST /api/venta/empleada': return ok(exigirCajero().asignarEmpleada(b.cart, { empleada_id: String(b.empleada_id ?? ''), clave: String(b.clave ?? ''), clave_supervisor: b.clave_supervisor, sin_supervisor: !!b.sin_supervisor }));
       case 'POST /api/venta/empleada/quitar': return ok(exigirCajero().quitarEmpleada(b.cart));
       case 'GET /api/metas': return ok(exigirCajero().metas());
+      case 'GET /api/limite-efectivo': return ok(exigirCajero().limiteEfectivo());
       case 'GET /api/venta/vip': return ok(exigirCajero().vips());
       case 'POST /api/venta/vip': return ok(exigirCajero().asignarVip(b.cart, { vip_id: String(b.vip_id ?? ''), clave: b.clave === undefined ? undefined : String(b.clave) }));
       case 'POST /api/venta/vip/quitar': return ok(exigirCajero().quitarVip(b.cart));
@@ -163,6 +164,7 @@ export async function atender(o: { cajero?: ServicioCaja; admin?: ServicioAdmin 
       case 'POST /api/admin/empleadas/movimiento': return ok(exigirAdmin().movimientoEmpleada({ empleada_id: b.empleada_id, tipo: b.tipo, monto: Number(b.monto), motivo: b.motivo, periodo: b.periodo, ref: b.ref }));
       case 'GET /api/admin/cajas/fondo': return ok(exigirAdmin().cajasFondo());
       case 'POST /api/admin/cajas/fondo': return ok(exigirAdmin().fijarFondoCaja({ tienda: b.tienda, caja: Number(b.caja), monto: Number(b.monto), motivo: b.motivo }));
+      case 'POST /api/admin/cajas/limite-efectivo': return ok(exigirAdmin().fijarLimiteEfectivo({ tienda: b.tienda, caja: Number(b.caja), limite: Number(b.limite) }));
       case 'POST /api/admin/cajas/ajuste': return ok(exigirAdmin().ajusteCaja({ tienda: b.tienda, caja: Number(b.caja), tipo: b.tipo, monto: Number(b.monto), motivo: b.motivo, ref: b.ref }));
       case 'POST /api/admin/reporte-vendedoras': return ok(exigirAdmin().reporteVendedoras({ cajas: b.cajas, desde: b.desde, hasta: b.hasta }));
       case 'POST /api/admin/reporte': return ok({ reporte: exigirAdmin().reporte({ cajas: b.cajas, desde: b.desde, hasta: b.hasta, historicas: b.historicas !== false }) });
