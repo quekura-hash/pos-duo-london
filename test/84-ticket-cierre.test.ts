@@ -82,3 +82,30 @@ porAlmacen('Ticket de cierre de corte: 5 ventas (una con tarjeta), una devoluci�
     assert.equal(tiene([0x1d, 0x76, 0x30]), false, 'sin logo (GS v 0)');
   });
 });
+
+porAlmacen('Ticket de corte: tipo de cambio y equivalente en pesos de los dólares recibidos', (alm) => {
+  const TASA = 180000;
+  it('TC1 el ticket trae el tipo de cambio y el equivalente en pesos de los dólares; con dos tasas en el día, una línea por tasa; sin dólares, el tipo de cambio vigente y $0.00', (t) => {
+    const ctx = nuevoMundo(alm, politica());
+    t.after(ctx.limpiar);
+    ctx.m.fijarTipoCambioInicial(TASA);
+    const caja = ctx.m.caja('DUO', 1);
+    const texto = () => renderTicketCorteTexto(caja.corteEnVivo('2026-10-01') as never, NEGOCIOS.DUO).replace(/[ \t]+/g, ' ');
+    // sin dólares todavía: el tipo de cambio vigente y equivalente en cero
+    assert.match(texto(), /Total en dólares US\$0\.00\n Tipo de cambio \$18\.00 MXN\/USD\n Equivalente en pesos \$0\.00/);
+    // 1.ª venta: US$50 a $18.00 = $900 (más $400 en pesos)
+    const c1 = caja.abrirCarrito();
+    caja.agregarLinea(c1, { item_id: ctx.items[2]!.item_id, qty: 4, precio_unit: 30000 });
+    caja.cobrarEfectivoMixto(c1, { usd: 5000, pesos: 40000 });
+    assert.match(texto(), /Total en dólares US\$50\.00\n Tipo de cambio \$18\.00 MXN\/USD\n Equivalente en pesos \$900\.00/);
+    // la tasa cambia y entra otra venta con dólares: una línea por tasa y el equivalente suma cada una con SU tasa
+    ctx.m.central.fijarTipoCambio(190000, 'admin', 1); ctx.m.pump();
+    const c2 = caja.abrirCarrito();
+    caja.agregarLinea(c2, { item_id: ctx.items[2]!.item_id, qty: 1, precio_unit: 30000 });
+    caja.cobrarEfectivoMixto(c2, { usd: 1000, pesos: 12000 });
+    const t2 = texto();
+    assert.match(t2, /Total en dólares US\$60\.00/);
+    assert.match(t2, /US\$50\.00 a \$18\.00 \$900\.00\n US\$10\.00 a \$19\.00 \$190\.00\n Equivalente en pesos \$1,090\.00/);
+    assert.doesNotMatch(t2, /\(\$/, 'el equivalente ya no va entre paréntesis en la línea del total');
+  });
+});

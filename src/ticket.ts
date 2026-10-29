@@ -601,7 +601,12 @@ export function lineasTicketCorte(k: DatosCorte, cfg: NegocioCfg = NEGOCIOS[k.ti
   // 2) cómo se cobró
   L.push(b(dos('TOTAL EN EFECTIVO', pesosCobrados === undefined ? 'No disponible' : formatoMXN(pesosCobrados + usdEquivalente), c)));
   L.push(t(dos('  Total en pesos', dato(pesosCobrados), c)));
-  L.push(t(dos('  Total en dólares', usdEquivalente || k.usd_recibidos ? `${formatoUSD(k.usd_recibidos ?? 0)} (${formatoMXN(usdEquivalente)})` : formatoUSD(0), c)));
+  L.push(t(dos('  Total en dólares', formatoUSD(k.usd_recibidos ?? 0), c)));
+  // Tipo de cambio de los dólares recibidos (el de cada operación; si cambió durante el día, una línea por tasa) y su equivalente en pesos. Sin dólares, el tipo de cambio vigente.
+  const porTasa = (Array.isArray(k.usd_por_tasa) ? k.usd_por_tasa : []) as { tasa: number; version: number; usd: number; equivalente: number }[];
+  if (porTasa.length > 1) for (const x of porTasa) L.push(t(dos(`  ${formatoUSD(x.usd)} a $${formatoTasa(x.tasa)}`, formatoMXN(x.equivalente), c)));
+  else if (porTasa.length === 1 || k.tipo_cambio) L.push(t(dos('  Tipo de cambio', `$${formatoTasa((porTasa[0]?.tasa ?? k.tipo_cambio!.tasa))} MXN/USD`, c)));
+  L.push(t(dos('  Equivalente en pesos', formatoMXN(porTasa.reduce((a, x) => a + x.equivalente, 0)), c)));
   L.push(b(dos('TOTAL EN TARJETA', dato(k.cobros_tarjeta), c)));
   if (k.cobros_tarjeta_regalo) L.push(t(dos('Total con tarjeta de regalo', formatoMXN(k.cobros_tarjeta_regalo), c)));
   if (k.devoluciones_a_tarjeta) L.push(t(dos('Reembolsos a tarjeta / banco', `-${formatoMXN(k.devoluciones_a_tarjeta)}`, c)));

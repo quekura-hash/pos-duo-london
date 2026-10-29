@@ -3088,6 +3088,9 @@ export class Caja {
       conteo_alcance: mxn.alcance, conteo_desactualizado: { mxn: mxn.desactualizado, usd: usd.desactualizado },
       // Dólares recibidos en efectivo: tickets, importe MXN que liquidan, y detalle físico.
       tickets_con_usd: pagosUsd.length, cobros_efectivo_usd: cobrosUsd, usd_recibidos: usdRecibidos, usd_equivalente_mxn_historico: usdEquivalenteHistorico,
+      // Tipo de cambio: el de cada operación con dólares (agrupadas por tasa) y el vigente al cerrar; el equivalente en pesos de los dólares recibidos es la suma de cada operación con SU tasa.
+      usd_por_tasa: [...pagosUsdFisicos.reduce((m, p) => { const k = `${p.tasa}|${p.tasa_version}`; const a = m.get(k) ?? { tasa: p.tasa!, version: p.tasa_version!, usd: 0, equivalente: 0 }; a.usd += p.usd ?? 0; a.equivalente += p.equivalente ?? 0; return m.set(k, a); }, new Map<string, { tasa: number; version: number; usd: number; equivalente: number }>()).values()],
+      tipo_cambio: (() => { const tc = this.tipoCambio(); return tc ? { tasa: tc.tasa, version: tc.version } : null; })(),
       pesos_recibidos_con_usd: pesosConUsd, cambio_mxn_con_usd: cambioConUsd,
       fondo_inicial_usd: usd.fondo, entradas_usd: usd.entradas, retiros_usd: usd.retiros, efectivo_usd_esperado: usd.esperado,
       conteo_usd: usd.conteo ? { contado: usd.contado!, denominaciones: usd.conteo.denominaciones, usuario: usd.conteo.usuario, ocurrio_en: usd.conteo.ocurrio_en } : null,
