@@ -1761,6 +1761,48 @@ async function vistaHistorialAdmin() {
 
 // ── Administración ──
 // ── Importar las ventas del POS anterior (reporte «Sales Detail»): vista previa y confirmación ──
+// ── Ventas del POS anterior importadas dos veces con otra caja: se revisan y, si Administración lo decide, dejan de contar (el dato se conserva) ──
+async function abrirDuplicadasHistoricas(cajas, alTerminar) {
+  const d = dialogo('dlg-dup');
+  d.setAttribute('aria-labelledby', 'dup-titulo');
+  const opciones = (sel) => cajas.map((c) => `<option value="${esc(c.tienda)}/${c.caja}" ${sel === `${c.tienda}/${c.caja}` ? 'selected' : ''}>${esc(c.tienda)} · Caja ${c.caja}</option>`).join('');
+  d.innerHTML = `<h2 id="dup-titulo" style="margin-top:0">Ventas duplicadas del POS anterior</h2>
+    <p class="nota" style="margin-top:0">Busca tickets importados dos veces con otra caja: mismo folio, misma fecha, mismo total y mismo tipo. Los que sobran dejan de contar en reportes, análisis y metas; <b>no se borra nada</b>.</p>
+    <div class="filas" style="flex-wrap:wrap;gap:10px"><div class="campo" style="flex:1;min-width:200px"><label for="dup-caja">Caja con las copias</label><select id="dup-caja" style="width:100%;padding:10px;border:2px solid var(--borde);border-radius:10px;background:var(--superficie)">${opciones('DUO/2')}</select></div>
+      <div class="campo" style="flex:1;min-width:200px"><label for="dup-igual">Caja original (la que se conserva)</label><select id="dup-igual" style="width:100%;padding:10px;border:2px solid var(--borde);border-radius:10px;background:var(--superficie)">${opciones('DUO/1')}</select></div>
+      <button class="btn btn-primario" type="button" id="dup-revisar" style="width:auto;align-self:flex-end">${ico('search')}<span>Revisar</span></button></div>
+    <div id="dup-msg" class="mensaje" role="status" aria-live="polite"></div><div id="dup-vista"></div>
+    <div class="filas"><button class="btn" type="button" id="dup-cerrar">Cerrar</button><button class="btn btn-peligro" type="button" id="dup-aplicar" style="width:auto;flex:1" disabled>${ico('check')}<span>Dejar de contar estas copias</span></button></div>`;
+  d.showModal();
+  const msg = (t, tipo = '') => { const m = $('#dup-msg'); m.className = `mensaje ${tipo}`; m.textContent = t; };
+  const par = () => { const [t1, c1] = $('#dup-caja').value.split('/'); const [t2, c2] = $('#dup-igual').value.split('/'); return { tienda: t1, caja: Number(c1), igual_a_caja: Number(c2), otraTienda: t1 !== t2 }; };
+  const pintar = (v) => {
+    $('#dup-vista').innerHTML = v.tickets ? `<table id="dup-resumen"><tbody><tr><th scope="row">Tickets duplicados</th><td class="num"><b>${v.tickets.toLocaleString('es-MX')}</b></td></tr><tr><th scope="row">Importe duplicado</th><td class="num"><b>${mxn(v.total)}</b></td></tr><tr><th scope="row">Fechas</th><td class="num">${esc(fechaC(v.desde))} al ${esc(fechaC(v.hasta))}</td></tr></tbody></table>
+      <div class="tabla-cont" style="max-height:220px;overflow:auto"><table id="dup-meses"><thead><tr><th>Mes</th><th class="num">Tickets</th><th class="num">Importe</th></tr></thead><tbody>${v.por_mes.map((m) => `<tr><td>${esc(m.mes)}</td><td class="num">${m.tickets}</td><td class="num">${mxn(m.total)}</td></tr>`).join('')}</tbody></table></div>
+      <p class="nota">Ejemplos: ${v.muestra.map((m) => `folio ${m.folio} (${esc(fechaC(m.fecha))}, ${mxn(m.total)})`).join(' · ')}</p>` : '';
+    $('#dup-aplicar').disabled = !v.tickets || v.ya_descartados;
+  };
+  const fechaC = (f) => f.split('-').reverse().join('/');
+  $('#dup-cerrar').addEventListener('click', () => d.close());
+  $('#dup-revisar').addEventListener('click', async () => {
+    const x = par();
+    if (x.otraTienda || (x.caja === x.igual_a_caja)) return msg('Elija dos cajas distintas de la misma tienda.', 'error');
+    try {
+      const v = await api(`/api/admin/historicas/duplicadas?tienda=${encodeURIComponent(x.tienda)}&caja=${x.caja}&igual_a=${x.igual_a_caja}`);
+      pintar(v);
+      msg(v.ya_descartados ? 'Estas copias ya se dejaron de contar.' : v.tickets ? 'Revise el resumen y confirme.' : 'No hay tickets duplicados entre esas dos cajas.', v.tickets && !v.ya_descartados ? '' : 'ok');
+    } catch (e) { msg(e.message, 'error'); }
+  });
+  $('#dup-aplicar').addEventListener('click', async () => {
+    const x = par();
+    try {
+      const r = await api('/api/admin/historicas/descartar-duplicadas', { tienda: x.tienda, caja: x.caja, igual_a_caja: x.igual_a_caja });
+      pintar(r.vista);
+      msg(`Listo: ${r.tickets.toLocaleString('es-MX')} tickets (${mxn(r.total)}) dejaron de contar. Las metas se volvieron a publicar.`, 'ok');
+      alTerminar?.();
+    } catch (e) { msg(e.message, 'error'); }
+  });
+}
 async function abrirImportarHistoricas(cajas, alTerminar) {
   const d = dialogo('dlg-hist');
   d.setAttribute('aria-labelledby', 'hist-titulo');
@@ -1904,7 +1946,8 @@ async function vistaReportes() {
     <label class="check-hist"><input type="checkbox" id="hist" checked> Incluir ventas del POS anterior (históricas)</label>
     <div class="filas"><button class="btn btn-primario" type="submit" style="width:auto">${ico('search')}<span>Consultar</span></button>
       <button class="btn" type="button" id="rep-excel" title="Excel para la contadora: detalle de tickets y resumen por día">${ico('download')}<span>Exportar a Excel (contadora)</span></button>
-      <button class="btn" type="button" id="rep-importar" title="Importa el reporte «Sales Detail» del POS anterior">${ico('upload')}<span>Importar ventas del POS anterior</span></button></div>
+      <button class="btn" type="button" id="rep-importar" title="Importa el reporte «Sales Detail» del POS anterior">${ico('upload')}<span>Importar ventas del POS anterior</span></button>
+      <button class="btn" type="button" id="rep-duplicadas" title="Tickets del POS anterior importados dos veces con otra caja">${ico('search')}<span>Revisar ventas duplicadas</span></button></div>
     <div id="rep-msg" class="mensaje" role="status" aria-live="polite"></div></form>
     ${window.__POS_REPORTE__ && S.sesion.rol_usuario === 'supervisor' ? '<section class="panel" id="panel-contadora" aria-label="Envío mensual a la contadora"></section>' : ''}
     <div id="resultado"></div>`;
@@ -1926,6 +1969,7 @@ async function vistaReportes() {
     } catch (e) { m.className = 'mensaje error'; m.textContent = `No se pudo exportar: ${e.message}`; }
   });
   $('#rep-importar').addEventListener('click', () => abrirImportarHistoricas(cajas, () => $('#filtros').requestSubmit()));
+  $('#rep-duplicadas').addEventListener('click', () => abrirDuplicadasHistoricas(cajas, () => $('#filtros').requestSubmit()));
   $('#filtros').addEventListener('submit', async (ev) => {
     ev.preventDefault();
     const sel = marcas().filter((m) => m.checked).map((m) => ({ tienda: m.value.split('/')[0], caja: Number(m.value.split('/')[1]) }));

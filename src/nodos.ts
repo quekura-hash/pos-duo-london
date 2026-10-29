@@ -16,6 +16,7 @@ import { TASA_SIN_VERIFICAR_OMISION, type Politicas } from './politicas.ts';
 import { Indice } from './indice.ts';
 import { localizarVentas } from './consultas.ts';
 import { addDias } from './util.ts';
+import { historicasDuplicadas, reglasDuplicadosHistoricos, type ReglaDuplicadosHistoricos } from './proyecciones.ts';
 import { avanceMetas, CONFIG_METAS_INICIAL, horaValida, lunesDe, metasDias, metasPublicadas, totalesPorDia, type AvancePeriodo, type ConfigMetas, type MetaTienda, type MetasPublicadas, type PeriodoMeta } from './metas.ts';
 import { CRITERIOS_EXPEDIENTE, expedientesDe, expedienteVacio, clientesVip, excepcionesVip, type ClienteVip, type ExcepcionesVip, type Expediente } from './proyecciones.ts';
 import { type ConfigEmpleadas, type CuentaEmpleada, configEmpleadas, cuentasEmpleadas, CAMPOS_EDITABLES, CAMPOS_TIENDA, type CampoEditable, departamentos, promocionesDe, recompensasDe, supervisoresDe, cajerosDe, personalConCuenta, administradoresDe, efectivoDeVenta, movimientosCaja, tipoCambioVigente, catalogo, devoluciones, devueltoPorLinea, existenciaVerificada, intentos, perdidasDocumentales, stock, ventas, type Devolucion, type ExistenciaVerificada, type Intento, type PerdidaDocumental, type TarjetaRegalo, type TipoCambio } from './proyecciones.ts';
@@ -514,6 +515,34 @@ export class Central {
     const marcas = d.marcas === undefined ? actual.marcas : limpia(d.marcas), departamentos = d.departamentos === undefined ? actual.departamentos : limpia(d.departamentos);
     this.emitirAdmin('empleadas.config', { pct, pct_uniforme: pctU, marcas, departamentos, por });
     return { ok: true };
+  }
+  // ── Ventas históricas duplicadas (el mismo ticket importado con dos cajas): se revisan y, con la decisión de Administración, dejan de contar ──
+  /** Qué tickets históricos de `caja` son copia exacta (folio, fecha, total y tipo) de los de `igual_a_caja`, con totales y por mes. No cambia nada. */
+  duplicadosHistoricos(r: ReglaDuplicadosHistoricos) {
+    const ops = this.repo.ops();
+    const fuera = historicasDuplicadas(ops, [r]);
+    const filas = ops.filter((o) => o.tipo === 'venta.historica' && fuera.has(o.payload.hist_id)).map((o) => o.payload as { hist_id: string; folio: number; fecha: string; total: number; tipo_hist: string });
+    const porMes = new Map<string, { mes: string; tickets: number; total: number }>();
+    for (const p of filas) { const k = p.fecha.slice(0, 7); const a = porMes.get(k) ?? { mes: k, tickets: 0, total: 0 }; a.tickets++; a.total += p.total; porMes.set(k, a); }
+    const fechas = filas.map((p) => p.fecha).sort();
+    return {
+      regla: r, tickets: filas.length, total: filas.reduce((a, p) => a + p.total, 0), desde: fechas[0] ?? null, hasta: fechas.at(-1) ?? null,
+      por_mes: [...porMes.values()].sort((a, b) => a.mes.localeCompare(b.mes)),
+      muestra: filas.slice(0, 8).map((p) => ({ folio: p.folio, fecha: p.fecha, total: p.total, tipo: p.tipo_hist })),
+      ya_descartados: reglasDuplicadosHistoricos(ops).some((x) => x.tienda === r.tienda && x.caja === r.caja && x.igual_a_caja === r.igual_a_caja),
+    };
+  }
+  /** Deja de contar las copias duplicadas (el dato se conserva) y vuelve a publicar las metas con el historial ya limpio. */
+  descartarDuplicadosHistoricos(r: ReglaDuplicadosHistoricos, por: string): { ok: true; tickets: number; total: number } | { ok: false; error: { codigo: 'DATOS_INVALIDOS'; mensaje: string } } {
+    const mal = (mensaje: string) => ({ ok: false as const, error: { codigo: 'DATOS_INVALIDOS' as const, mensaje } });
+    if (!r.tienda || !Number.isInteger(r.caja) || !Number.isInteger(r.igual_a_caja) || r.caja < 1 || r.igual_a_caja < 1) return mal('indique la tienda y las dos cajas');
+    if (r.caja === r.igual_a_caja) return mal('la caja a limpiar y la caja de referencia deben ser distintas');
+    const v = this.duplicadosHistoricos(r);
+    if (!v.tickets) return mal('no hay tickets duplicados entre esas dos cajas');
+    this.emitirUna('historico.duplicados', { tienda: r.tienda, caja: r.caja, igual_a_caja: r.igual_a_caja, tickets: v.tickets, total: v.total, desde: v.desde, hasta: v.hasta, motivo: 'tickets importados dos veces con otra caja', por }, `historico.duplicados:${r.tienda}/${r.caja}/${r.igual_a_caja}`, false);
+    const pub = this.metasVigentes();
+    if (pub) this.publicarMetas(pub.config, por);
+    return { ok: true, tickets: v.tickets, total: v.total };
   }
   // ── Metas de venta por tienda: el incremento sobre el año pasado y los límites de color los fija Administración; la meta de cada día se publica a las cajas ──
   /** Configuración y metas publicadas vigentes (null si Administración aún no publica nada). */

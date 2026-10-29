@@ -618,3 +618,26 @@ export function cuentasEmpleadas(ops: Op[]): Map<string, CuentaEmpleada> {
   }
   return m;
 }
+
+// ── Ventas históricas duplicadas: tickets del POS anterior importados dos veces con otra caja ──
+/** Una regla de Administración: los tickets históricos de `caja` que tengan un par IDÉNTICO (mismo folio, fecha, total y tipo) en `igual_a_caja` no cuentan. */
+export interface ReglaDuplicadosHistoricos { tienda: string; caja: number; igual_a_caja: number }
+const llaveHistorica = (p: { tienda_hist: string; caja_hist: number; folio: number; fecha: string; total: number; tipo_hist: string }, caja: number) => `${p.tienda_hist}|${caja}|${p.folio}|${p.fecha}|${p.total}|${p.tipo_hist}`;
+/** Reglas vigentes (`historico.duplicados`) sin repetir. */
+export function reglasDuplicadosHistoricos(ops: Op[]): ReglaDuplicadosHistoricos[] {
+  const m = new Map<string, ReglaDuplicadosHistoricos>();
+  for (const o of ops) if (o.tipo === 'historico.duplicados') m.set(`${o.payload.tienda}|${o.payload.caja}|${o.payload.igual_a_caja}`, { tienda: o.payload.tienda, caja: o.payload.caja, igual_a_caja: o.payload.igual_a_caja });
+  return [...m.values()];
+}
+/** `hist_id` de los tickets históricos que una regla descarta por duplicados (el dato no se borra: solo deja de contar). */
+export function historicasDuplicadas(ops: Op[], reglas: ReglaDuplicadosHistoricos[] = reglasDuplicadosHistoricos(ops)): Set<string> {
+  const fuera = new Set<string>();
+  if (!reglas.length) return fuera;
+  const historicas = ops.filter((o) => o.tipo === 'venta.historica');
+  for (const r of reglas) {
+    const referencia = new Set<string>();
+    for (const o of historicas) if (o.payload.tienda_hist === r.tienda && o.payload.caja_hist === r.igual_a_caja) referencia.add(llaveHistorica(o.payload, r.caja));
+    for (const o of historicas) if (o.payload.tienda_hist === r.tienda && o.payload.caja_hist === r.caja && referencia.has(llaveHistorica(o.payload, r.caja))) fuera.add(o.payload.hist_id);
+  }
+  return fuera;
+}

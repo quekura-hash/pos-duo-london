@@ -49,12 +49,13 @@ function dependencias(): Dependencias {
     registrar: async (p, t, c, r) => { await db.rpc('registrar_envio_reporte', { p_periodo: p, p_tienda: t, p_caja: c, p_correos: r.correos, p_tickets: r.tickets, p_total: r.total, p_proveedor: r.proveedor_id }); },
     leerOps: async (desde, hasta) => {
       const cols = 'op_id, tipo, tienda, caja, origen, ocurrio_en, payload';
-      const [ventas, cancelaciones, historicas] = await Promise.all([
+      const [ventas, cancelaciones, historicas, reglas] = await Promise.all([
         paginas((a, b) => db.from('ops').select(cols).eq('tipo', 'sale.confirmed').gte('ocurrio_en', desde).lt('ocurrio_en', hasta).order('seq').range(a, b)),
         paginas((a, b) => db.from('ops').select(cols).eq('tipo', 'sale.cancelled').order('seq').range(a, b)),
         paginas((a, b) => db.from('ops').select(cols).eq('tipo', 'venta.historica').order('seq').range(a, b)),
+        paginas((a, b) => db.from('ops').select(cols).eq('tipo', 'historico.duplicados').order('seq').range(a, b)), // copias duplicadas que ya no cuentan
       ]);
-      return [...ventas, ...cancelaciones, ...historicas] as never;
+      return [...ventas, ...cancelaciones, ...historicas, ...reglas] as never;
     },
     generarXlsx: (hojas) => escribirXlsx(ExcelJS, hojas),
     enviarCorreo: async (c) => {

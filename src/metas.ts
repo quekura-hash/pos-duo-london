@@ -4,7 +4,7 @@
 // Código PURO: lo usan Administración, la caja y las pruebas. Importes en centavos; fechas «AAAA-MM-DD» en hora de Hermosillo.
 import type { Op } from './tipos.ts';
 import { addDias, fechaLocal } from './util.ts';
-import { ventas } from './proyecciones.ts';
+import { historicasDuplicadas, ventas } from './proyecciones.ts';
 
 export interface MetaTienda { activa: boolean; incremento_pct: number; apertura: string; cierre: string }
 export interface ConfigMetas { tiendas: Record<string, MetaTienda>; verde_pct: number; amarillo_pct: number }
@@ -65,8 +65,9 @@ export function totalesPorDia(ops: Op[], tienda: string): Map<string, number> {
     const f = fechaLocal(v.ocurrio_en);
     m.set(f, (m.get(f) ?? 0) + v.total);
   }
+  const descartadas = historicasDuplicadas(ops);
   for (const o of ops) {
-    if (o.tipo !== 'venta.historica' || o.payload.tienda_hist !== tienda) continue;
+    if (o.tipo !== 'venta.historica' || o.payload.tienda_hist !== tienda || descartadas.has(o.payload.hist_id)) continue;
     m.set(o.payload.fecha, (m.get(o.payload.fecha) ?? 0) + (Number(o.payload.total) || 0));
   }
   return m;

@@ -1,5 +1,5 @@
 import { ErrorDominio } from './errores.ts';
-import { devoluciones, ventas } from './proyecciones.ts';
+import { devoluciones, historicasDuplicadas, ventas } from './proyecciones.ts';
 import type { Actor, Op } from './tipos.ts';
 import { aMXN, fechaLocal } from './util.ts';
 
@@ -122,9 +122,11 @@ export function ventasPorCaja(actor: Actor, ops: Op[], f: Filtro = {}): FilaVent
     });
   }
   if (actor.rol === 'admin' && f.historicas !== false) {
+    const descartadas = historicasDuplicadas(ops); // copias de la misma venta importadas con otra caja: no cuentan
     for (const o of ops) {
       if (o.tipo !== 'venta.historica') continue;
       const h = o.payload;
+      if (descartadas.has(h.hist_id)) continue;
       if (permitidas !== 'todas' && !permitidas.some((c) => c.tienda === h.tienda_hist && c.caja === h.caja_hist)) continue;
       if (f.tiendas && !f.tiendas.includes(h.tienda_hist)) continue;
       if ((f.desde && h.fecha < f.desde) || (f.hasta && h.fecha > f.hasta)) continue;

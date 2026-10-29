@@ -150,6 +150,8 @@ export async function atender(o: { cajero?: ServicioCaja; admin?: ServicioAdmin 
       case 'GET /api/admin/empleadas': return ok(exigirAdmin().empleadasCuentas());
       case 'GET /api/admin/empleadas/movimientos': return ok(exigirAdmin().empleadaMovimientos(q.get('id') ?? ''));
       case 'GET /api/admin/empleadas/nomina': return ok(exigirAdmin().nominaEmpleadas(q.get('desde') || undefined, q.get('hasta') || undefined));
+      case 'GET /api/admin/historicas/duplicadas': return ok(exigirAdmin().duplicadosHistoricos({ tienda: q.get('tienda') ?? '', caja: Number(q.get('caja')), igual_a_caja: Number(q.get('igual_a')) }));
+      case 'POST /api/admin/historicas/descartar-duplicadas': return ok(exigirAdmin().descartarDuplicadosHistoricos({ tienda: String(b.tienda ?? ''), caja: Number(b.caja), igual_a_caja: Number(b.igual_a_caja) }));
       case 'GET /api/admin/metas': return ok(exigirAdmin().metasAdmin());
       case 'POST /api/admin/metas': return ok(exigirAdmin().guardarMetas({ tiendas: b.tiendas, verde_pct: b.verde_pct === undefined ? undefined : Number(b.verde_pct), amarillo_pct: b.amarillo_pct === undefined ? undefined : Number(b.amarillo_pct) }));
       case 'GET /api/admin/vip': return ok(exigirAdmin().vipAdmin());
