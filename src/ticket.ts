@@ -122,6 +122,8 @@ export interface Ticket {
   vip?: { nombre: string; pct: number };
   /** Cupones de recompensa que se imprimen al final (cada uno con su QR). */
   recompensas?: import('./recompensas.ts').RecompensaEmitida[];
+  /** Avisos que se imprimen en letras grandes antes de las leyendas (vestido de noche, venta final con descuento). */
+  avisos_grandes?: string[];
   /** Quién atendió la venta (no se imprime si fue «Autocompra» o no se registró). */
   vendio?: string;
   negocio: string;
@@ -161,11 +163,20 @@ export function aplicarDatosTienda(base: NegocioCfg, d?: import('./proyecciones.
 /** Líneas del encabezado de la tienda (las vacías no salen). */
 export const encabezadoDe = (cfg: NegocioCfg): string[] => [cfg.direccion, cfg.ciudad, cfg.razon_social, cfg.rfc ? `RFC: ${cfg.rfc}` : ''].map((x) => (x ?? '').trim()).filter(Boolean);
 
+export const AVISO_VESTIDO_NOCHE = 'EN VESTIDO DE NOCHE NO HAY CAMBIOS NI DEVOLUCIONES';
+export const AVISO_VENTA_FINAL = 'VENTA FINAL NO CAMBIOS NI DEVOLUCIONES';
+/** Avisos en letras grandes de un ticket: lleva vestido de noche y/o algún descuento (cualquiera: manual, promoción, cupón, empleada o VIP). */
+export function avisosGrandes(v: Pick<Venta, 'lineas'>): string[] {
+  const out: string[] = [];
+  if (v.lineas.some((l) => !l.tarjeta_regalo && /\bnoche\b/.test(String(l.departamento ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()))) out.push(AVISO_VESTIDO_NOCHE);
+  if (v.lineas.some((l) => l.descuento > 0)) out.push(AVISO_VENTA_FINAL);
+  return out;
+}
 export function construirTicket(v: Venta, cfg: NegocioCfg = NEGOCIOS[v.tienda]!, reimpresion = 0, negocios = NEGOCIOS, cambio?: { dev: Devolucion; origen: Venta }): Ticket {
   const local = new Date(Date.parse(v.ocurrio_en) - 7 * 3600_000).toISOString();
   const [y, mo, d] = fechaLocal(v.ocurrio_en).split('-');
   return {
-    negocio: cfg.nombre, tienda: v.tienda, caja: v.caja, cajero: v.cajero, vendio: v.vendedora_id ? v.vendedora : undefined, recompensas: v.recompensas,
+    negocio: cfg.nombre, tienda: v.tienda, caja: v.caja, cajero: v.cajero, ...(avisosGrandes(v).length ? { avisos_grandes: avisosGrandes(v) } : {}), vendio: v.vendedora_id ? v.vendedora : undefined, recompensas: v.recompensas,
     fecha: `${d}/${mo}/${y}`, hora: local.slice(11, 16), folio: v.folio, ...(v.serie ? { serie: v.serie } : {}), ...(v.credito ? { credito: v.credito } : {}), codigo_ticket: codigoTicket(v.tienda, v.caja, v.folio, negocios, v.serie),
     lineas: v.lineas.map((l) => ({
       item_no: l.item_no, codigo: l.codigo, descripcion: l.descripcion, marca: l.marca, estilo: l.estilo, lote: l.lote,
@@ -268,8 +279,14 @@ const dos = (izq: string, der: string, cols: number) => izq + ' '.repeat(Math.ma
  * Texto del ticket. Precios finales y total neto: NO hay renglón de IVA, impuesto ni porcentaje alguno (presentación
  * comercial; no implica que los productos sean fiscalmente exentos). Cada artículo en dos renglones: «cantidad descripción marca estilo» y «#Item código … importe».
  */
+/** Marca un renglón que sale en letras grandes en la impresora (en texto plano sale centrado, normal). */
+const GRANDE = '\u0001';
 export function renderTicketTexto(t: Ticket): string {
   if (t.regalo) return renderTicketRegaloTexto(t);
+  const c = t.columnas;
+  return armarTicket(t).flatMap((x) => (x.startsWith(GRANDE) ? envolver(x.slice(1), c).map((y) => centrar(y, c)) : [x])).join('\n') + '\n';
+}
+function armarTicket(t: Ticket): string[] {
   const c = t.columnas;
   const regla = '-'.repeat(c);
   const L: string[] = [];
@@ -331,12 +348,13 @@ export function renderTicketTexto(t: Ticket): string {
     for (const a of t.credito.abonos) L.push(dos(`  ${fe(a.fecha)}`, formatoMXN(a.monto), c));
     L.push(regla);
   }
+  if (t.avisos_grandes?.length) for (const a of t.avisos_grandes) L.push('', `${GRANDE}${a}`);
   if (t.telefono) L.push('', centrar(`TELÉFONO ${t.telefono}`, c));
   if (t.leyendas.length) L.push('');
   for (const leyenda of t.leyendas) L.push(...envolver(leyenda, c).map((x) => centrar(x, c)));
   L.push(centrar(t.codigo_ticket, c));
   for (const r of t.recompensas ?? []) L.push('', ...textoCupon(r, t));
-  return L.join('\n') + '\n';
+  return L;
 }
 
 const fechaCorta = (iso: string) => iso.split('-').reverse().join('/');
@@ -392,7 +410,18 @@ export function renderTicketEscPos(t: Ticket, opts: { abrirCajon?: boolean; logo
   b.push(0x1b, 0x74, 19); // ESC t 19: página de códigos PC858 (acentos del español)
   if (opts.abrirCajon) b.push(0x1b, 0x70, 0x00, 25, 250); // ESC p: pulso al cajón
   if (opts.logo) b.push(...rasterEscPos(opts.logo)); // logo de la tienda arriba, centrado (GS v 0)
-  b.push(...aCP858(renderTicketTexto({ ...t, recompensas: undefined }).replace(/\n$/, '')), 0x0a);
+  if (t.regalo) b.push(...aCP858(renderTicketTexto({ ...t, recompensas: undefined }).replace(/\n$/, '')), 0x0a);
+  else {
+    // Los avisos (vestido de noche, venta final) salen centrados, en negritas y en doble tamaño; el resto del ticket, normal.
+    let normal: string[] = [];
+    const vaciar = () => { if (normal.length) b.push(...aCP858(normal.join('\n')), 0x0a); normal = []; };
+    for (const x of armarTicket({ ...t, recompensas: undefined })) {
+      if (!x.startsWith(GRANDE)) { normal.push(x); continue; }
+      vaciar();
+      b.push(0x1b, 0x61, 1, 0x1b, 0x45, 1, 0x1d, 0x21, 0x11, ...aCP858(envolver(x.slice(1), Math.floor(t.columnas / 2)).join('\n')), 0x0a, 0x1d, 0x21, 0x00, 0x1b, 0x45, 0, 0x1b, 0x61, 0);
+    }
+    vaciar();
+  }
   const datos = aCP858(`{B${t.codigo_ticket}`); // Code128 juego B
   b.push(0x1b, 0x61, 1); // centrar
   b.push(0x1d, 0x68, 80, 0x1d, 0x77, 2, 0x1d, 0x48, 0); // alto, ancho, sin texto HRI (ya va impreso)
