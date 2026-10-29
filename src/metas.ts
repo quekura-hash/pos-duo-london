@@ -22,6 +22,8 @@ export interface MetasPublicadas {
   hasta: string;
   generado_en: string;
   dias: Record<string, Record<string, number>>;
+  /** Lo ya vendido en el sistema anterior (importado, solo lo ve Administración) por tienda y día, para que la barra de la caja cuente también esos días. */
+  historico?: Record<string, Record<string, number>>;
 }
 
 export interface AvancePeriodo {
@@ -57,6 +59,17 @@ export const diasDelPeriodo = (periodo: PeriodoMeta, fecha: string): string[] =>
   return Array.from({ length: n }, (_, i) => `${fecha.slice(0, 7)}-${String(i + 1).padStart(2, '0')}`);
 };
 
+/** Ventas importadas del POS anterior por día de una tienda (centavos), sin las copias duplicadas descartadas. */
+export function historicoPorDia(ops: Op[], tienda: string): Map<string, number> {
+  const m = new Map<string, number>();
+  const descartadas = historicasDuplicadas(ops);
+  for (const o of ops) {
+    if (o.tipo !== 'venta.historica' || o.payload.tienda_hist !== tienda || descartadas.has(o.payload.hist_id)) continue;
+    m.set(o.payload.fecha, (m.get(o.payload.fecha) ?? 0) + (Number(o.payload.total) || 0));
+  }
+  return m;
+}
+
 /** Total vendido por día de UNA tienda (centavos): todos los tickets confirmados (no cancelados) de las dos cajas y las ventas importadas del POS anterior. */
 export function totalesPorDia(ops: Op[], tienda: string): Map<string, number> {
   const m = new Map<string, number>();
@@ -65,11 +78,7 @@ export function totalesPorDia(ops: Op[], tienda: string): Map<string, number> {
     const f = fechaLocal(v.ocurrio_en);
     m.set(f, (m.get(f) ?? 0) + v.total);
   }
-  const descartadas = historicasDuplicadas(ops);
-  for (const o of ops) {
-    if (o.tipo !== 'venta.historica' || o.payload.tienda_hist !== tienda || descartadas.has(o.payload.hist_id)) continue;
-    m.set(o.payload.fecha, (m.get(o.payload.fecha) ?? 0) + (Number(o.payload.total) || 0));
-  }
+  for (const [f, v] of historicoPorDia(ops, tienda)) m.set(f, (m.get(f) ?? 0) + v);
   return m;
 }
 
@@ -118,5 +127,5 @@ export function metasPublicadas(ops: Op[]): MetasPublicadas | null {
   const o = ops.filter((x) => x.tipo === 'metas.config').at(-1);
   if (!o) return null;
   const p = o.payload;
-  return { config: { ...CONFIG_METAS_INICIAL, ...(p.config ?? {}), tiendas: { ...CONFIG_METAS_INICIAL.tiendas, ...(p.config?.tiendas ?? {}) } }, desde: p.desde, hasta: p.hasta, generado_en: p.generado_en, dias: p.dias ?? {} };
+  return { config: { ...CONFIG_METAS_INICIAL, ...(p.config ?? {}), tiendas: { ...CONFIG_METAS_INICIAL.tiendas, ...(p.config?.tiendas ?? {}) } }, desde: p.desde, hasta: p.hasta, generado_en: p.generado_en, dias: p.dias ?? {}, historico: p.historico ?? {} };
 }

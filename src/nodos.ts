@@ -17,7 +17,7 @@ import { Indice } from './indice.ts';
 import { localizarVentas } from './consultas.ts';
 import { addDias } from './util.ts';
 import { historicasDuplicadas, reglasDuplicadosHistoricos, type ReglaDuplicadosHistoricos } from './proyecciones.ts';
-import { avanceMetas, CONFIG_METAS_INICIAL, horaValida, lunesDe, metasDias, metasPublicadas, totalesPorDia, type AvancePeriodo, type ConfigMetas, type MetaTienda, type MetasPublicadas, type PeriodoMeta } from './metas.ts';
+import { avanceMetas, CONFIG_METAS_INICIAL, historicoPorDia, horaValida, lunesDe, metasDias, metasPublicadas, totalesPorDia, type AvancePeriodo, type ConfigMetas, type MetaTienda, type MetasPublicadas, type PeriodoMeta } from './metas.ts';
 import { CRITERIOS_EXPEDIENTE, expedientesDe, expedienteVacio, clientesVip, excepcionesVip, type ClienteVip, type ExcepcionesVip, type Expediente } from './proyecciones.ts';
 import { type ConfigEmpleadas, type CuentaEmpleada, configEmpleadas, cuentasEmpleadas, CAMPOS_EDITABLES, CAMPOS_TIENDA, type CampoEditable, departamentos, promocionesDe, recompensasDe, supervisoresDe, cajerosDe, personalConCuenta, administradoresDe, efectivoDeVenta, movimientosCaja, tipoCambioVigente, catalogo, devoluciones, devueltoPorLinea, existenciaVerificada, intentos, perdidasDocumentales, stock, ventas, type Devolucion, type ExistenciaVerificada, type Intento, type PerdidaDocumental, type TarjetaRegalo, type TipoCambio } from './proyecciones.ts';
 import type { Repo } from './repo.ts';
@@ -566,13 +566,18 @@ export class Central {
     const { desde, hasta } = this.ventanaMetas(fechaLocal(ahora));
     const ops = this.repo.ops();
     const dias: Record<string, Record<string, number>> = {};
+    const historico: Record<string, Record<string, number>> = {};
+    const hoy = fechaLocal(ahora);
     for (const [t, c] of Object.entries(config.tiendas)) {
       if (!c.activa) continue;
       const d = metasDias(totalesPorDia(ops, t), c.incremento_pct, desde, hasta);
       if (Object.keys(d).length) dias[t] = d;
+      // lo importado del sistema anterior del mes en curso: las cajas no lo reciben, así que va aquí para que su barra lo cuente
+      const h = Object.fromEntries([...historicoPorDia(ops, t)].filter(([f]) => f >= desde && f <= hoy));
+      if (Object.keys(h).length) historico[t] = h;
     }
-    this.emitirAdmin('metas.config', { config, desde, hasta, generado_en: ahora, dias, por });
-    return { config, desde, hasta, generado_en: ahora, dias };
+    this.emitirAdmin('metas.config', { config, desde, hasta, generado_en: ahora, dias, historico, por });
+    return { config, desde, hasta, generado_en: ahora, dias, historico };
   }
   /** Cambia el incremento, el horario o los colores de las metas y las vuelve a publicar. Lo que no se manda se conserva. */
   guardarMetas(d: { tiendas?: Record<string, Partial<MetaTienda>>; verde_pct?: number; amarillo_pct?: number }, por: string): { ok: true; metas: MetasPublicadas } | { ok: false; error: { codigo: 'DATOS_INVALIDOS'; mensaje: string } } {
@@ -875,6 +880,9 @@ export class Central {
     }
     // Los folios nuevos de esta caja continúan después del último folio del sistema anterior (nunca baja el contador ni repite un número).
     const folio_maximo = this.folioMaximoHistorico(d.tienda, d.caja);
+    // Si ya hay metas publicadas, se republican para que la barra de las cajas cuente lo recién importado.
+    const metas = nuevas > 0 ? this.metasVigentes() : null;
+    if (metas) this.publicarMetas(metas.config, d.por);
     if (d.continuarFolios && folio_maximo > 0) this.emitirAdmin('folio.continuacion', { tienda: d.tienda, caja: d.caja, hasta: folio_maximo, motivo: 'continuación del sistema anterior', por: d.por }, `folio.continuacion:${d.tienda}/${d.caja}:${folio_maximo}`);
     return { nuevas, existentes: d.filas.length - nuevas, folio_maximo, siguiente_folio: d.continuarFolios ? folio_maximo + 1 : 0 };
   }
@@ -1902,6 +1910,7 @@ export class Caja {
     const totales = totalesPorDia(this.opsDe('sale.confirmed', 'sale.cancelled'), this.tienda);
     const remotos = this.enlace.totalesVentas?.(desde, fecha) ?? null;
     for (const [f, v] of Object.entries(remotos ?? {})) totales.set(f, Math.max(totales.get(f) ?? 0, v));
+    for (const [f, v] of Object.entries(pub.historico?.[this.tienda] ?? {})) if (f >= desde && f <= fecha) totales.set(f, (totales.get(f) ?? 0) + v);
     const a = avanceMetas({ tienda: this.tienda, fecha, hora, config: pub.config, metas, totales });
     const r = {} as Record<PeriodoMeta, { pct: number; color: AvancePeriodo['color'] } | null>;
     for (const p of ['dia', 'semana', 'mes'] as const) r[p] = a[p] ? { pct: Math.round(a[p]!.pct), color: a[p]!.color } : null;

@@ -96,6 +96,21 @@ porAlmacen('Metas de venta: se publican a las cajas, la caja solo ve porcentaje 
     assert.equal(rep.dias.length, 31);
     assert.equal(rep.dias[1]!.ano_pasado, 50000, 'el viernes 2/oct/2026 compara con el viernes 3/oct/2025 (364 días antes)');
   });
+  it('MV5b la barra de la caja cuenta también lo importado del POS anterior del mes en curso, y se actualiza sola al importar más', (t) => {
+    const ctx = nuevoMundo(alm, politica());
+    t.after(ctx.limpiar);
+    const a = admin(ctx);
+    ctx.m.central.importarVentasHistoricas({ tienda: 'DUO', caja: 1, lote: 'p', por: 'Edgardo', filas: [filaHist('2025-10-02', 100000, 1)] });
+    ctx.m.central.importarVentasHistoricas({ tienda: 'DUO', caja: 1, lote: 'q', por: 'Edgardo', filas: [filaHist('2026-10-01', 40000, 2)] });
+    a.metasAdmin(); // publica
+    ctx.m.pump(); ctx.m.pump(); ctx.m.pump();
+    const caja = ctx.m.caja('DUO', 1);
+    assert.equal(caja.metasAvance()!.dia!.pct, 40, 'las cajas no reciben las ventas importadas, pero la meta publicada trae lo ya vendido');
+    assert.equal(caja.metasAvance()!.semana!.pct, 40);
+    ctx.m.central.importarVentasHistoricas({ tienda: 'DUO', caja: 1, lote: 'r', por: 'Edgardo', filas: [filaHist('2026-10-01', 10000, 3)] });
+    ctx.m.pump(); ctx.m.pump(); ctx.m.pump();
+    assert.equal(caja.metasAvance()!.dia!.pct, 50, 'al importar más, las metas se republican solas');
+  });
 });
 
 it('MV6 migraciones 0014 y 0015 (central real): VIP y metas son solo de Administración y se reparten a las cajas; lo anterior se conserva', async () => {
