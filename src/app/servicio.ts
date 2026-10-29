@@ -1372,7 +1372,7 @@ export class ServicioAdmin {
         const hist = de('caja.fondo_autorizado', c);
         const ult = de('cash.fondo', c).at(-1);
         return {
-          tienda: c.tienda, caja: c.caja, limite_efectivo: Number(de('caja.limite_efectivo', c).at(-1)?.payload.limite ?? 0), fondo: hist.length ? (hist.at(-1)!.payload.monto as number) : FONDO_AUTORIZADO_DEFECTO, asignado: hist.length > 0,
+          tienda: c.tienda, caja: c.caja, limite_efectivo: Number(de('caja.limite_efectivo', c).at(-1)?.payload.limite ?? 0), limite_efectivo_fin_semana: Number(de('caja.limite_efectivo', c).at(-1)?.payload.limite_fin_semana ?? de('caja.limite_efectivo', c).at(-1)?.payload.limite ?? 0), fondo: hist.length ? (hist.at(-1)!.payload.monto as number) : FONDO_AUTORIZADO_DEFECTO, asignado: hist.length > 0,
           historial: hist.map((o) => ({ monto: o.payload.monto, motivo: o.payload.motivo, por: o.payload.por, ocurrio_en: o.ocurrio_en })).reverse(),
           ultimo_fondo: ult ? { fecha: ult.payload.fecha, total: ult.payload.total, estado: ult.payload.estado, diferencia: ult.payload.diferencia, nota: ult.payload.nota, usuario: ult.payload.usuario, denominaciones: ult.payload.denominaciones } : null,
           ajustes: de('cash.ajuste_admin', c).map((o) => ({ tipo: o.payload.tipo, monto: o.payload.monto, motivo: o.payload.motivo, por: o.payload.por, fecha: o.payload.fecha, ocurrio_en: o.ocurrio_en })).reverse().slice(0, 20),
@@ -1386,9 +1386,9 @@ export class ServicioAdmin {
     if (!r.ok) throw new ErrorDominio('DATOS_INVALIDOS', r.error.mensaje);
     return this.cajasFondo();
   }
-  fijarLimiteEfectivo(d: { tienda: string; caja: number; limite: number }) {
+  fijarLimiteEfectivo(d: { tienda: string; caja: number; limite: number; limite_fin_semana?: number }) {
     if (!this.central) throw new ErrorDominio('SIN_CENTRAL', 'esta sesión no tiene acceso al servicio central');
-    const r = this.central.fijarLimiteEfectivo({ tienda: String(d.tienda ?? ''), caja: Number(d.caja), limite: Number(d.limite) }, this.actor.usuario);
+    const r = this.central.fijarLimiteEfectivo({ tienda: String(d.tienda ?? ''), caja: Number(d.caja), limite: Number(d.limite), ...(d.limite_fin_semana === undefined ? {} : { limite_fin_semana: Number(d.limite_fin_semana) }) }, this.actor.usuario);
     if (!r.ok) throw new ErrorDominio('DATOS_INVALIDOS', r.error.mensaje);
     return this.cajasFondo();
   }

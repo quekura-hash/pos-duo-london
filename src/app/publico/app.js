@@ -4174,9 +4174,9 @@ async function vistaCajasFondo() {
   cuerpoVista().innerHTML = `<section class="panel"><h2 style="margin-top:0">Fondo fijo por caja</h2>
     <p class="nota">Solo Administración asigna o cambia el fondo autorizado de cada caja. La cajera cuenta y confirma su composición en el cierre, pero no puede modificar el importe. Sin asignación, la caja usa ${mxn(j.defecto)}. Cada cambio queda con quién lo hizo y el motivo.</p>
     <div id="msg-cajas" class="mensaje" role="status" aria-live="polite"></div>
-    <div class="tabla-cont"><table id="tabla-cajas-fondo"><thead><tr><th>Caja</th><th class="num">Fondo autorizado</th><th class="num">Límite de efectivo del día</th><th>Último fondo confirmado</th><th>Historial</th><th></th></tr></thead><tbody>
+    <div class="tabla-cont"><table id="tabla-cajas-fondo"><thead><tr><th>Caja</th><th class="num">Fondo autorizado</th><th class="num">Límite de efectivo del día<br><small>Lun–Jue · Vie–Dom</small></th><th>Último fondo confirmado</th><th>Historial</th><th></th></tr></thead><tbody>
     ${j.cajas.map((c) => `<tr data-caja="${esc(c.tienda)}/${c.caja}"><td>${nom(c)}</td><td class="num" data-col="fondo">${mxn(c.fondo)}${c.asignado ? '' : ' <small>(por defecto)</small>'}</td>
-      <td class="num" data-col="limite">${c.limite_efectivo > 0 ? mxn(c.limite_efectivo) : '<small>sin límite</small>'}</td>
+      <td class="num" data-col="limite"><span data-limite="entre-semana">${c.limite_efectivo > 0 ? mxn(c.limite_efectivo) : '<small>sin límite</small>'}</span><br><span data-limite="fin-semana">${c.limite_efectivo_fin_semana > 0 ? mxn(c.limite_efectivo_fin_semana) : '<small>sin límite</small>'}</span></td>
       <td data-col="ultimo">${c.ultimo_fondo ? `${esc(c.ultimo_fondo.fecha)} · ${mxn(c.ultimo_fondo.total)} · ${esc(c.ultimo_fondo.estado)}${c.ultimo_fondo.diferencia ? ` (${dif$(c.ultimo_fondo.diferencia)}: ${esc(c.ultimo_fondo.nota)})` : ''}` : '—'}</td>
       <td>${c.historial.slice(0, 3).map((h) => `${mxn(h.monto)} · ${esc(h.por)} · ${esc(h.motivo)}`).join('<br>') || '—'}</td>
       <td class="filas" style="flex-wrap:nowrap"><button class="btn cf-fondo" type="button">${ico('pencil')}<span>Cambiar fondo</span></button><button class="btn cf-limite" type="button">${ico('pencil')}<span>Límite de efectivo</span></button><button class="btn cf-ajuste" type="button">${ico('cash')}<span>Entrega o ajuste</span></button></td></tr>`).join('')}
@@ -4189,13 +4189,14 @@ async function vistaCajasFondo() {
     const f = $('#form-cf'); f.hidden = false;
     if (tipo === 'limite') {
       f.innerHTML = `<h3 style="margin-top:0">Límite de efectivo de ${nom(c)}</h3><p class="nota" style="margin-top:0">Cuando las ventas en efectivo del día de esta caja lleguen a este importe, la caja muestra en su barra lateral un aviso permanente: «Esta caja ya llegó al límite de efectivo. Cobrar en Caja ${c.caja === 1 ? 2 : 1}». Solo avisa; no bloquea los cobros. Deje 0 para quitar el límite.</p>
-        <div class="campo"><label for="cf-limite">Límite de ventas en efectivo del día ($; 0 = sin límite)</label><input id="cf-limite" class="texto" inputmode="decimal" value="${centavosAPesos(c.limite_efectivo || 0)}"></div>
+        <div class="campo"><label for="cf-limite">De lunes a jueves ($; 0 = sin límite)</label><input id="cf-limite" class="texto" inputmode="decimal" value="${centavosAPesos(c.limite_efectivo || 0)}"></div>
+        <div class="campo"><label for="cf-limite-fds">De viernes a domingo ($; 0 = sin límite)</label><input id="cf-limite-fds" class="texto" inputmode="decimal" value="${centavosAPesos(c.limite_efectivo_fin_semana || 0)}"></div>
         <div class="filas"><button class="btn" type="button" id="cf-cancelar">Cancelar</button><button class="btn btn-primario" type="submit" style="width:auto;flex:1">${ico('check')}<span>Guardar límite</span></button></div>`;
       $('#cf-cancelar').addEventListener('click', () => { f.hidden = true; });
       f.onsubmit = async (ev) => {
         ev.preventDefault();
         try {
-          await api('/api/admin/cajas/limite-efectivo', { tienda: c.tienda, caja: c.caja, limite: parseMXN($('#cf-limite').value || '0') });
+          await api('/api/admin/cajas/limite-efectivo', { tienda: c.tienda, caja: c.caja, limite: parseMXN($('#cf-limite').value || '0'), limite_fin_semana: parseMXN($('#cf-limite-fds').value || '0') });
           await vistaCajasFondo(); msg('Límite guardado. La caja lo recibe al sincronizar.', 'ok');
         } catch (e) { msg(e.message); }
       };

@@ -636,13 +636,14 @@ export class Central {
     this.emitirAdmin('caja.fondo_autorizado', { tienda: d.tienda, caja: d.caja, monto: d.monto, motivo, por });
     return { ok: true };
   }
-  /** Límite de ventas en efectivo del día de una caja (centavos; 0 = sin límite). Al llegarlo, la caja muestra un aviso permanente para cobrar en la otra. Solo Administración. */
-  fijarLimiteEfectivo(d: { tienda: string; caja: number; limite: number }, por: string): { ok: true } | { ok: false; error: { codigo: 'DATOS_INVALIDOS'; mensaje: string } } {
+  /** Límites de ventas en efectivo del día de una caja (centavos; 0 = sin límite): `limite` de lunes a jueves y `limite_fin_semana` de viernes a domingo (si falta, el mismo). Al llegarlo, la caja muestra un aviso permanente para cobrar en la otra. Solo Administración. */
+  fijarLimiteEfectivo(d: { tienda: string; caja: number; limite: number; limite_fin_semana?: number }, por: string): { ok: true } | { ok: false; error: { codigo: 'DATOS_INVALIDOS'; mensaje: string } } {
     const mal = (mensaje: string) => ({ ok: false as const, error: { codigo: 'DATOS_INVALIDOS' as const, mensaje } });
     if (!this.ctx.tiendas.includes(d.tienda)) return mal('tienda desconocida');
     if (!Number.isInteger(d.caja) || d.caja < 1) return mal('caja inválida');
-    if (!Number.isInteger(d.limite) || d.limite < 0) return mal('el límite es un importe en pesos (0 = sin límite)');
-    this.emitirAdmin('caja.limite_efectivo', { tienda: d.tienda, caja: d.caja, limite: d.limite, por });
+    const fds = d.limite_fin_semana ?? d.limite;
+    if (![d.limite, fds].every((x) => Number.isInteger(x) && x >= 0)) return mal('el límite es un importe en pesos (0 = sin límite)');
+    this.emitirAdmin('caja.limite_efectivo', { tienda: d.tienda, caja: d.caja, limite: d.limite, limite_fin_semana: fds, por });
     return { ok: true };
   }
   /** Entrega o ajuste administrativo de efectivo en una caja (entrada o salida en pesos), con motivo y referencia única. */
@@ -2834,14 +2835,16 @@ export class Caja {
    * Límite de ventas en efectivo del día de ESTA caja (lo fija Administración; 0 = sin límite) y lo cobrado en efectivo hoy en ella (pesos y dólares,
    * sin contar cancelaciones). `alcanzado` enciende el aviso permanente de la barra lateral: hay que cobrar en la otra caja de la tienda.
    */
-  limiteEfectivo(): { limite: number; vendido: number; alcanzado: boolean; cobrar_en: number } {
+  limiteEfectivo(): { limite: number; vendido: number; alcanzado: boolean; cobrar_en: number; dia: 'entre_semana' | 'fin_semana' } {
     const a = this.opsDe('caja.limite_efectivo').filter((o) => o.payload.tienda === this.tienda && o.payload.caja === this.caja).at(-1);
-    const limite = a ? Math.max(0, Number(a.payload.limite) || 0) : 0;
     const hoy = fechaLocal(this.ctx.reloj.now());
+    const dow = new Date(`${hoy}T12:00:00Z`).getUTCDay(); // 0 domingo … 6 sábado
+    const dia = dow === 0 || dow >= 5 ? 'fin_semana' as const : 'entre_semana' as const; // viernes, sábado y domingo
+    const limite = a ? Math.max(0, Number(dia === 'fin_semana' ? (a.payload.limite_fin_semana ?? a.payload.limite) : a.payload.limite) || 0) : 0;
     const vendido = [...ventas(this.opsDe('sale.confirmed', 'sale.cancelled')).values()]
       .filter((v) => v.estado === 'confirmada' && v.tienda === this.tienda && v.caja === this.caja && fechaLocal(v.ocurrio_en) === hoy)
       .reduce((s, v) => s + v.pagos.filter((p) => p.metodo === 'efectivo' || p.metodo === 'efectivo_usd').reduce((x, p) => x + p.monto, 0), 0);
-    return { limite, vendido, alcanzado: limite > 0 && vendido >= limite, cobrar_en: this.caja === 1 ? 2 : 1 };
+    return { limite, vendido, alcanzado: limite > 0 && vendido >= limite, cobrar_en: this.caja === 1 ? 2 : 1, dia };
   }
   /** Fondo fijo autorizado por Administración para ESTA caja (el último asignado; sin asignación, $5,000). */
   fondoAutorizado(): number {
