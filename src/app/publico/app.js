@@ -1904,6 +1904,19 @@ async function pintarPanelContadora(cajas) {
 
 
 // ── Resumen del día de todas las tiendas (el mismo que llega como aviso al teléfono a la hora elegida) ──
+/** Una caja del resumen del día: su venta y cómo se cobró (efectivo, tarjeta de crédito/débito, tarjeta de regalo), con cambios, devoluciones, retiros y gastos cuando los hubo. */
+function bloqueCajaResumen(x, c) {
+  const fila = (rotulo, valor, col, fuerte = false) => `<tr><th scope="row">${rotulo}</th><td class="num" data-col="${col}">${fuerte ? `<b>${mxn(valor)}</b>` : mxn(valor)}</td></tr>`;
+  const si = (n, rotulo, col) => (n ? fila(rotulo, n, col) : '');
+  return `<div class="caja-detalle" data-caja="${esc(x.tienda)}/${c.caja}"><table class="tabla-caja-detalle"><tbody>
+    <tr class="caja-titulo"><th scope="row">Caja ${esc(letraTienda(x.tienda))}${c.caja}${c.corte_cerrado ? ' <small>· corte cerrado</small>' : ''}</th><td class="num" data-col="venta"><b>${mxn(c.venta_total)}</b></td></tr>
+    ${fila('Efectivo', c.efectivo, 'efectivo')}${c.dolares_mxn ? fila('&nbsp;&nbsp;de ello, dólares', c.dolares_mxn, 'dolares') : ''}
+    ${fila('T. Cred.', c.tarjeta, 'tarjeta')}${fila('T. Reg.', c.tarjeta_regalo, 'tarjeta-regalo')}${si(c.credito_empleadas, 'Crédito empleadas', 'credito')}
+    ${si(c.mercancia_recibida_por_cambio, 'Recibido a cambio', 'cambio')}${si(c.devoluciones_con_reembolso, 'Devoluciones', 'devoluciones')}
+    ${fila('Ventas netas', c.ventas_netas, 'netas', true)}${si(c.retiros, 'Retiros', 'retiros')}${si(c.gastos, 'Gastos de caja', 'gastos')}
+    <tr class="caja-pie"><td colspan="2" data-label=""><small>${c.tickets} ticket${c.tickets === 1 ? '' : 's'}${c.canceladas ? ` · ${c.canceladas} cancelada${c.canceladas === 1 ? '' : 's'}` : ''}</small></td></tr>
+  </tbody></table></div>`;
+}
 async function pintarResumenDia(fecha) {
   const cont = $('#resumen-dia');
   let j;
@@ -1924,6 +1937,10 @@ async function pintarResumenDia(fecha) {
       <div class="kpi" style="border-color:var(--acento)"><span class="kpi-rotulo">TOTAL EN TARJETA</span><b id="rd-tarjeta">${mxn(t.tarjeta)}</b></div>
       ${t.credito_empleadas ? `<div class="kpi"><span class="kpi-rotulo">Crédito de empleadas</span><b id="rd-credito">${mxn(t.credito_empleadas)}</b><small>se descuenta de nómina; no es cobro</small></div>` : ''}
     </div>
+    <h3 style="margin:14px 0 6px">Por tienda y por caja</h3>
+    <div id="rd-por-caja">${j.tiendas.map((x) => `<div class="panel tienda-detalle" data-detalle-tienda="${esc(x.tienda)}" style="margin:0 0 10px">
+      <div class="filas" style="align-items:baseline;justify-content:space-between;margin-bottom:8px"><h4 style="margin:0">${esc(x.nombre)}</h4><b>${mxn(x.venta_total)}</b></div>
+      <div class="cajas-detalle">${x.detalle_cajas.map((c) => bloqueCajaResumen(x, c)).join('')}</div></div>`).join('')}</div>
     <div class="panel" style="margin:10px 0"><h3 style="margin:0 0 6px">Cambios y devoluciones</h3><table><tbody>
       <tr><th scope="row">Mercancía recibida a cambio</th><td class="num" id="rd-cambio">${mxn(t.mercancia_recibida_por_cambio)}</td></tr>
       <tr><th scope="row">Devoluciones con reembolso</th><td class="num" id="rd-devoluciones">${mxn(t.devoluciones_con_reembolso)}</td></tr>

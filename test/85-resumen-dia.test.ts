@@ -55,6 +55,21 @@ it('RD1 el resumen del día junta las dos tiendas: venta total, efectivo, tarjet
   assert.deepEqual([otro.total.tickets, otro.total.venta_total, otro.total.ventas_netas], [0, 0, 0]);
 });
 
+it('RD3 el resumen también viene desglosado por caja: cada caja con su venta y cómo se cobró, y las cajas suman exactamente lo de su tienda', async (t) => {
+  const { adm } = await escenario(t);
+  const r = (await api(adm.url, '/api/admin/resumen-dia?fecha=2026-10-01')).json;
+  const CLAVES = ['tickets', 'venta_total', 'efectivo', 'pesos', 'dolares_mxn', 'tarjeta', 'tarjeta_regalo', 'credito_empleadas', 'mercancia_recibida_por_cambio', 'devoluciones_con_reembolso', 'ventas_netas', 'retiros', 'gastos'];
+  for (const x of r.tiendas) {
+    assert.ok(x.detalle_cajas.length >= 1);
+    for (const k of CLAVES) assert.equal(x.detalle_cajas.reduce((a: number, c: any) => a + c[k], 0), x[k], `${x.tienda}: las cajas suman «${k}»`);
+  }
+  const duo = r.tiendas.find((x: any) => x.tienda === 'DUO'), lon = r.tiendas.find((x: any) => x.tienda === 'LON');
+  const c1 = duo.detalle_cajas.find((c: any) => c.caja === 1), c2 = duo.detalle_cajas.find((c: any) => c.caja === 2);
+  assert.deepEqual([c1.tickets, c1.venta_total, c1.efectivo, c1.tarjeta, c1.tarjeta_regalo], [3, 146900, 122900, 12000, 0]);
+  assert.deepEqual([c2.tickets, c2.venta_total, c2.efectivo, c2.tarjeta], [0, 0, 0, 0], 'la caja 2 sin ventas sale en ceros');
+  assert.deepEqual(lon.detalle_cajas.find((c: any) => c.caja === 1).venta_total, 45000);
+});
+
 describe('[navegador real] Resumen del día en Reportes', { timeout: 240_000, skip: chromiumPath ? false : 'Chromium no encontrado (defina POS_CHROMIUM)' }, () => {
   it('RD2 Reportes abre con el resumen del día de las dos tiendas, con la venta total sobresaliendo', async (t) => {
     const browser = await chromium.launch({ executablePath: chromiumPath, args: ['--no-sandbox'] });
@@ -73,6 +88,11 @@ describe('[navegador real] Resumen del día en Reportes', { timeout: 240_000, sk
     assert.equal(await page.textContent('#rd-tarjeta'), '$120.00');
     assert.equal((await page.textContent('#rd-netas'))!.trim(), '$1,349.00');
     assert.match((await page.textContent('#rd-tiendas [data-tienda="LON"]'))!, /\$450\.00[\s\S]*1 ticket/);
+    // desglose por tienda y por caja: «Caja D1» con su venta y Efectivo / T. Cred. / T. Reg.
+    const d1 = page.locator('#rd-por-caja [data-caja="DUO/1"]');
+    assert.match((await d1.textContent())!, /Caja D1[\s\S]*\$1,469\.00[\s\S]*Efectivo[\s\S]*\$1,229\.00[\s\S]*T\. Cred\.[\s\S]*\$120\.00[\s\S]*T\. Reg\.[\s\S]*\$0\.00/);
+    assert.equal((await page.textContent('#rd-por-caja [data-caja="DUO/2"] [data-col="venta"]'))!.trim(), '$0.00');
+    assert.match((await page.textContent('#rd-por-caja [data-caja="LON/1"]'))!, /Caja L1/);
     const g = await page.locator('#rd-venta-total .kpi-valor').evaluate((e) => parseFloat(getComputedStyle(e).fontSize));
     assert.ok(g >= 32, 'la venta total del día sobresale');
   });

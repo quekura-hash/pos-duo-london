@@ -1876,12 +1876,13 @@ export class ServicioAdmin {
     const suma = (xs: number[]) => xs.reduce((a, b) => a + b, 0);
     const retirosDia = retirosPorCaja(this.actor, ops, { desde: dia, hasta: dia });
     const gastosDia = gastosPorCaja(this.actor, ops, { desde: dia, hasta: dia });
-    const filaDe = (tienda: string | null) => {
-      const rt = retirosDia.filter((x) => tienda === null || x.tienda === tienda);
-      const gt = gastosDia.filter((x) => tienda === null || x.tienda === tienda);
-      const v = vs.filter((x) => tienda === null || x.tienda === tienda);
+    const filaDe = (tienda: string | null, caja: number | null = null) => {
+      const aqui = (x: { tienda: string; caja: number }) => (tienda === null || x.tienda === tienda) && (caja === null || x.caja === caja);
+      const rt = retirosDia.filter(aqui);
+      const gt = gastosDia.filter(aqui);
+      const v = vs.filter(aqui);
       const conf = v.filter((x) => x.estado === 'confirmada');
-      const d = devs.filter((x) => tienda === null || x.tienda === tienda);
+      const d = devs.filter(aqui);
       const lineas = conf.flatMap((x) => x.lineas);
       const pagos = (m: string) => suma(conf.flatMap((x) => x.pagos.filter((p) => p.metodo === m).map((p) => p.monto)));
       const ventaTotal = suma(lineas.filter((l) => !l.tarjeta_regalo).map((l) => l.importe));
@@ -1899,7 +1900,9 @@ export class ServicioAdmin {
     const cortes = ultimoCortePorCaja(ops.filter((o) => o.tipo === 'corte.generado' && o.payload.fecha === dia));
     return {
       fecha: dia, hoy: fechaLocal(this.reloj.now()),
-      tiendas: info.map((t) => ({ tienda: t.tienda, nombre: t.nombre, ...filaDe(t.tienda), cajas_con_corte: cortes.filter((o) => o.payload.tienda === t.tienda).length, cajas: this.cajas.filter((c) => c.tienda === t.tienda).length })),
+      tiendas: info.map((t) => ({ tienda: t.tienda, nombre: t.nombre, ...filaDe(t.tienda), cajas_con_corte: cortes.filter((o) => o.payload.tienda === t.tienda).length, cajas: this.cajas.filter((c) => c.tienda === t.tienda).length,
+        /** El mismo desglose de arriba, caja por caja. */
+        detalle_cajas: this.cajas.filter((c) => c.tienda === t.tienda).map((c) => ({ caja: c.caja, corte_cerrado: cortes.some((o) => o.payload.tienda === t.tienda && o.payload.caja === c.caja), ...filaDe(t.tienda, c.caja) })) })),
       total: filaDe(null),
     };
   }
