@@ -25,7 +25,9 @@ describe('[navegador real] Al cobrar: la feria que se da en grande y los detalle
     page.on('pageerror', (e) => errores.push(String(e)));
     await page.goto(caja.url);
     await page.waitForSelector('#scan');
-    const nueva = async () => { await page.click('#btn-nueva'); await page.waitForSelector('#dlg-ticket', { state: 'hidden' }); };
+    // «Nueva venta» cierra el aviso al instante, pero el carrito nuevo y la pantalla de venta se arman un momento después (y reemplazan el campo de escaneo):
+    // se espera a que termine antes de escanear el siguiente artículo, como lo haría una cajera.
+    const nueva = async () => { const lista = page.waitForResponse((r) => /\/api\/venta\/vendedoras/.test(r.url())); await page.click('#btn-nueva'); await page.waitForSelector('#dlg-ticket', { state: 'hidden' }); await lista; await page.waitForTimeout(200); };
     // 1) efectivo con cambio: $899 pagados con $1,000
     await page.fill('#scan', JEANS); await page.press('#scan', 'Enter');
     await page.waitForSelector('#cuerpo tr[data-linea]');
