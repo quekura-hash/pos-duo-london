@@ -31,6 +31,11 @@ describe('[navegador real] Al cobrar: la feria que se da en grande y los detalle
     // 1) efectivo con cambio: $899 pagados con $1,000
     await page.fill('#scan', JEANS); await page.press('#scan', 'Enter');
     await page.waitForSelector('#cuerpo tr[data-linea]');
+    // el total también en dólares (tipo de cambio $18.00): $899.00 / 18 = US$49.94, debajo del de pesos y en un tamaño menor; la forma de cobro y la feria siguen en pesos
+    assert.equal((await page.textContent('#total-usd'))!.trim(), 'US$49.94');
+    assert.match((await page.textContent('#total-usd-bloque'))!, /US\$49\.94\s*USD/);
+    const tamUsd = await page.evaluate(() => ({ usd: parseFloat(getComputedStyle(document.querySelector('#total-usd')!).fontSize), mxn: parseFloat(getComputedStyle(document.querySelector('#total')!).fontSize), yUsd: document.querySelector('#total-usd')!.getBoundingClientRect().top, yMxn: document.querySelector('#total')!.getBoundingClientRect().bottom }));
+    assert.ok(tamUsd.usd < tamUsd.mxn && tamUsd.yUsd >= tamUsd.yMxn, `el total en dólares va debajo y más chico: ${JSON.stringify(tamUsd)}`);
     await page.fill('#recibido', '1000');
     await page.click('#btn-cobrar');
     await page.waitForSelector('#dlg-ticket[open] #dar-feria');

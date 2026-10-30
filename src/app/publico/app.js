@@ -90,6 +90,8 @@ const parseTasa = (t) => {
 };
 /** Misma regla que el servidor: al centavo, mitad hacia arriba. Solo para mostrar; el servidor recalcula y manda lo que guarda. */
 const usdAMxn = (usdC, tasa) => Math.floor((usdC * tasa + 5000) / 10000);
+/** Lo mismo en dólares (centavos de USD) a una tasa en diezmilésimas, al centavo más cercano. Solo es informativo: lo que se cobra y la feria siguen en pesos. */
+const mxnAUsd = (mxnC, tasa) => Math.round((mxnC * 10000) / tasa);
 const MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
 const fechaCorta = (iso) => { const l = new Date(Date.parse(iso) - 7 * 3600e3).toISOString(); return `${l.slice(8, 10)} ${MESES[Number(l.slice(5, 7)) - 1]} ${l.slice(0, 4)} · ${h12(l.slice(11, 16))}`; };
 const logoDe = (t) => window.__POS_LOGOS__?.[t] ?? (t === 'DUO' ? 'logo-duo.png' : 'logo-london.png');
@@ -538,6 +540,7 @@ async function vistaVenta() {
         <div id="promos-aplicadas" aria-live="polite"></div>
         <div class="total"><span>TOTAL</span><b id="total">$0.00</b></div>
         <div class="mxn">MXN</div>
+        <div class="total-usd" id="total-usd-bloque" hidden><b id="total-usd">US$0.00</b> <span>USD</span></div>
         <div class="formas" id="formas" role="group" aria-label="Forma de pago">
           <button class="btn forma" type="button" data-forma="efectivo" aria-pressed="true">${ico('cash', 'ico-lg')}<span>Efectivo</span></button>
           <button class="btn forma" type="button" data-forma="tarjeta" aria-pressed="false" ${metodos.includes('tarjeta') ? '' : 'disabled title="Esta caja no tiene terminal bancaria"'}>${ico('card', 'ico-lg')}<span>Tarjeta</span></button>
@@ -768,6 +771,10 @@ function pintarCarrito() {
   $('#descuentos').textContent = c.descuentos ? `-${mxn(c.descuentos)}` : mxn(0);
   pintarPromos();
   $('#total').textContent = mxn(c.total);
+  // El total también en dólares (debajo del de pesos, más chico) para informarle a la clienta; solo se ve si hay tipo de cambio fijado.
+  const tc = S.estado?.tipo_cambio;
+  $('#total-usd-bloque').hidden = !(tc?.configurado && tc.tasa > 0);
+  if (!$('#total-usd-bloque').hidden) { $('#total-usd').textContent = usd(mxnAUsd(c.total, tc.tasa)); $('#total-usd-bloque').title = `Al tipo de cambio de $${(tc.tasa / 10000).toFixed(2)} por dólar`; }
   const cb = c.cambio;
   $('#dt-cambio').hidden = $('#dd-cambio').hidden = !cb;
   if (cb) $('#dd-cambio').textContent = `-${mxn(cb.credito)}`;
