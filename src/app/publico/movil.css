@@ -69,7 +69,7 @@
   tbody td[colspan] { display: block; text-align: left; }
   /* Tablas con encabezado de fila (<th scope="row">): como tarjeta, la etiqueta va a la izquierda y el importe a la derecha. El th NO queda pegado arriba (sticky es solo para encabezados de columna). */
   tbody th { position: static; }
-  table:not([class]) tbody tr:has(> th[scope="row"]) { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+  table:not([class]) tbody tr:has(> th[scope="row"]:first-child + td:last-child) { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
   table:not([class]) tbody th[scope="row"] { background: none; border: 0; padding: 5px 0; text-align: left; white-space: normal; overflow-wrap: anywhere; font-size: 12px; text-transform: none; letter-spacing: 0; font-weight: 600; color: var(--texto-2); }
   /* Avisos flotantes: debajo de la barra de estado del iPhone (la hora y la batería), no detrás de ella. */
   #avisos-flotantes { top: calc(env(safe-area-inset-top, 0px) + 8px); }
