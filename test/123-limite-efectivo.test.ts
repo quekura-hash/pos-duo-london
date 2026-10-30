@@ -37,30 +37,30 @@ porAlmacen('Límite de ventas en efectivo del día por caja: aviso permanente pa
     for (const mal of [-1, 1.5, Number.NaN]) assert.throws(() => a.fijarLimiteEfectivo({ tienda: 'DUO', caja: 1, limite: mal }), /importe en pesos/);
     assert.throws(() => a.fijarLimiteEfectivo({ tienda: 'XXX', caja: 1, limite: 100 }), /tienda desconocida/);
   });
-  it('LE5 el límite de lunes a jueves es distinto al de viernes a domingo; si no se fija el de fin de semana, vale el mismo', (t) => {
+  it('LE5 el límite de domingo a miércoles es distinto al de jueves a sábado; si no se fija el de fin de semana, vale el mismo', (t) => {
     const ctx = nuevoMundo(alm, politica());
     t.after(ctx.limpiar);
     const a = admin(ctx);
     const c1 = ctx.m.caja('DUO', 1);
-    const v = vender(ctx.m, 'DUO', 1, ctx.items[0]!.item_id).venta.total; // jueves 1/oct/2026: ya hay ventas del día
+    const v = vender(ctx.m, 'DUO', 1, ctx.items[0]!.item_id).venta.total; // jueves 1/oct/2026: ya hay una venta del día
     a.fijarLimiteEfectivo({ tienda: 'DUO', caja: 1, limite: v * 10, limite_fin_semana: v });
     ctx.m.pump(); ctx.m.pump();
-    assert.deepEqual([c1.limiteEfectivo().dia, c1.limiteEfectivo().limite, c1.limiteEfectivo().alcanzado], ['entre_semana', v * 10, false], 'jueves: manda el de lunes a jueves');
+    assert.deepEqual([c1.limiteEfectivo().dia, c1.limiteEfectivo().limite, c1.limiteEfectivo().alcanzado], ['fin_semana', v, true], 'jueves: manda el de jueves a sábado y ya lo alcanzó');
     const fila = a.cajasFondo().cajas.find((c) => c.caja === 1)!;
     assert.deepEqual([fila.limite_efectivo, fila.limite_efectivo_fin_semana], [v * 10, v]);
-    for (const [dia, esperado] of [['2026-10-02', 'fin_semana'], ['2026-10-03', 'fin_semana'], ['2026-10-04', 'fin_semana'], ['2026-10-05', 'entre_semana']] as const) {
+    for (const [dia, esperado] of [['2026-10-01', 'fin_semana'], ['2026-10-02', 'fin_semana'], ['2026-10-03', 'fin_semana'], ['2026-10-04', 'entre_semana'], ['2026-10-05', 'entre_semana'], ['2026-10-06', 'entre_semana'], ['2026-10-07', 'entre_semana'], ['2026-10-08', 'fin_semana']] as const) {
       ctx.m.reloj.fijar(`${dia}T19:00:00Z`);
       assert.equal(c1.limiteEfectivo().dia, esperado, dia);
     }
-    // viernes: otra venta del día, límite de fin de semana = lo de una venta
-    ctx.m.reloj.fijar('2026-10-02T19:00:00Z');
-    assert.equal(c1.limiteEfectivo().alcanzado, false, 'viernes sin ventas del día todavía');
+    // domingo: otra venta del día, límite de entre semana = diez ventas
+    ctx.m.reloj.fijar('2026-10-04T19:00:00Z');
     vender(ctx.m, 'DUO', 1, ctx.items[0]!.item_id);
-    assert.deepEqual([c1.limiteEfectivo().limite, c1.limiteEfectivo().alcanzado], [v, true], 'viernes: manda el de fin de semana');
-    // sin límite de fin de semana, vale el de entre semana
+    assert.deepEqual([c1.limiteEfectivo().limite, c1.limiteEfectivo().alcanzado], [v * 10, false], 'domingo: manda el de domingo a miércoles');
+    // sin límite de fin de semana, vale el de entre semana también de jueves a sábado
     a.fijarLimiteEfectivo({ tienda: 'DUO', caja: 1, limite: v * 10 });
     ctx.m.pump(); ctx.m.pump();
-    assert.deepEqual([c1.limiteEfectivo().limite, c1.limiteEfectivo().alcanzado], [v * 10, false]);
+    ctx.m.reloj.fijar('2026-10-02T19:00:00Z');
+    assert.deepEqual([c1.limiteEfectivo().dia, c1.limiteEfectivo().limite], ['fin_semana', v * 10]);
     assert.throws(() => a.fijarLimiteEfectivo({ tienda: 'DUO', caja: 1, limite: 100, limite_fin_semana: -5 }), /importe en pesos/);
   });
   it('LE2 el servicio de la caja solo dice si el aviso está activo (sin importes)', (t) => {

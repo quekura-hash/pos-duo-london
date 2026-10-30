@@ -636,7 +636,7 @@ export class Central {
     this.emitirAdmin('caja.fondo_autorizado', { tienda: d.tienda, caja: d.caja, monto: d.monto, motivo, por });
     return { ok: true };
   }
-  /** Límites de ventas en efectivo del día de una caja (centavos; 0 = sin límite): `limite` de lunes a jueves y `limite_fin_semana` de viernes a domingo (si falta, el mismo). Al llegarlo, la caja muestra un aviso permanente para cobrar en la otra. Solo Administración. */
+  /** Límites de ventas en efectivo del día de una caja (centavos; 0 = sin límite): `limite` de domingo a miércoles y `limite_fin_semana` de jueves a sábado (si falta, el mismo). Al llegarlo, la caja muestra un aviso permanente para cobrar en la otra. Solo Administración. */
   fijarLimiteEfectivo(d: { tienda: string; caja: number; limite: number; limite_fin_semana?: number }, por: string): { ok: true } | { ok: false; error: { codigo: 'DATOS_INVALIDOS'; mensaje: string } } {
     const mal = (mensaje: string) => ({ ok: false as const, error: { codigo: 'DATOS_INVALIDOS' as const, mensaje } });
     if (!this.ctx.tiendas.includes(d.tienda)) return mal('tienda desconocida');
@@ -2848,7 +2848,7 @@ export class Caja {
     const a = this.opsDe('caja.limite_efectivo').filter((o) => o.payload.tienda === this.tienda && o.payload.caja === this.caja).at(-1);
     const hoy = fechaLocal(this.ctx.reloj.now());
     const dow = new Date(`${hoy}T12:00:00Z`).getUTCDay(); // 0 domingo … 6 sábado
-    const dia = dow === 0 || dow >= 5 ? 'fin_semana' as const : 'entre_semana' as const; // viernes, sábado y domingo
+    const dia = dow >= 4 && dow <= 6 ? 'fin_semana' as const : 'entre_semana' as const; // jueves, viernes y sábado (domingo a miércoles es entre semana)
     const limite = a ? Math.max(0, Number(dia === 'fin_semana' ? (a.payload.limite_fin_semana ?? a.payload.limite) : a.payload.limite) || 0) : 0;
     const vendido = [...ventas(this.opsDe('sale.confirmed', 'sale.cancelled')).values()]
       .filter((v) => v.estado === 'confirmada' && v.tienda === this.tienda && v.caja === this.caja && fechaLocal(v.ocurrio_en) === hoy)
