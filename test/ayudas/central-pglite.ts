@@ -3,7 +3,7 @@ import { after } from 'node:test';
 import { PGlite } from '@electric-sql/pglite';
 import type { ClienteCentral, FilaCentral } from '../../src/transporte/puente-central.ts';
 
-const MIGRACIONES = ['0001_central.sql', '0002_actualizaciones.sql', '0003_cajas.sql', '0004_publicador.sql', '0005_notificaciones.sql', '0007_reporte_contadora.sql', '0008_reporte_reintentos.sql', '0009_trabajadoras.sql', '0010_cierre_guiado.sql', '0011_empleadas.sql', '0012_consulta_ventas_anteriores.sql', '0014_clientes_vip.sql', '0015_metas_venta.sql', '0016_limite_efectivo.sql'].map((n) => new URL(`../../supabase/migrations/${n}`, import.meta.url));
+const MIGRACIONES = ['0001_central.sql', '0002_actualizaciones.sql', '0003_cajas.sql', '0004_publicador.sql', '0005_notificaciones.sql', '0007_reporte_contadora.sql', '0008_reporte_reintentos.sql', '0009_trabajadoras.sql', '0010_cierre_guiado.sql', '0011_empleadas.sql', '0012_consulta_ventas_anteriores.sql', '0014_clientes_vip.sql', '0015_metas_venta.sql', '0016_limite_efectivo.sql', '0017_ventas_por_dia.sql'].map((n) => new URL(`../../supabase/migrations/${n}`, import.meta.url));
 
 const abiertas: PGlite[] = [];
 // PGlite deja un temporizador interno por instancia: se cierran todas al terminar para que el proceso de pruebas salga.
@@ -69,6 +69,10 @@ export class ClientePglite implements ClienteCentral {
       .map((o) => ({ op_id: o.op_id, tipo: o.tipo, tienda: o.tienda, caja: o.caja, ocurrio_en: o.ocurrio_en, payload: o.payload }));
     const [r] = (await como(this.db, this.uid, (q) => q('select pos.subir_ops($1::jsonb) as r', [JSON.stringify(p_ops)]))) as { r: { nuevas: number; ultimo_seq: number } }[];
     return r!.r;
+  }
+  async ventasPorDia(desde: string, hasta: string) {
+    const filas = (await como(this.db, this.uid, (q) => q('select tienda, fecha::text as fecha, total::text as total from pos.ventas_por_dia($1::date, $2::date)', [desde, hasta]))) as unknown as { tienda: string; fecha: string; total: string }[];
+    return filas.map((f) => ({ tienda: f.tienda, fecha: f.fecha, total: Number(f.total) }));
   }
   async bajarOps(desde: number, limite: number) {
     const filas = (await como(this.db, this.uid, (q) => q('select * from pos.bajar_ops($1, $2)', [desde, limite]))) as unknown as (Omit<FilaCentral, 'seq' | 'ocurrio_en'> & { seq: number | bigint; ocurrio_en: Date | string })[];

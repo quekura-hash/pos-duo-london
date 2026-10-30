@@ -23,6 +23,7 @@ export function clienteDe(db: PGlite, cuentas: Cuentas, red = { caida: false }):
     cerrarSesion() { actual = null; },
     async subirOps(ops) { return c().subirOps(ops); },
     async bajarOps(d, l) { return c().bajarOps(d, l); },
+    async ventasPorDia(d, h) { return c().ventasPorDia(d, h); },
   };
 }
 export function almacenMemoria(): AlmacenCaja & { datos: Map<string, unknown>; identidad?: IdentidadCaja } {

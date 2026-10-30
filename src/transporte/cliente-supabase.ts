@@ -74,6 +74,11 @@ export class ClienteSupabase implements ClienteCentral {
     return this.rpc<{ nuevas: number; ultimo_seq: number }>('subir_ops', { p_ops });
   }
 
+  async ventasPorDia(desde: string, hasta: string) {
+    const filas = await this.rpc<{ tienda: string; fecha: string; total: number | string }[]>('ventas_por_dia', { p_desde: desde, p_hasta: hasta });
+    return filas.map((f) => ({ tienda: f.tienda, fecha: String(f.fecha).slice(0, 10), total: Number(f.total) }));
+  }
+
   bajarOps(desde: number, limite: number) {
     return this.rpc<FilaCentral[]>('bajar_ops', { p_desde: desde, p_limite: limite });
   }

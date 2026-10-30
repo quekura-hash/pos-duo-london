@@ -1915,6 +1915,8 @@ export class Caja {
   }
   // ── Metas de venta: la caja solo ve el porcentaje y el color de su tienda (las cantidades son de Administración) ──
   /** Avance de la tienda contra su meta del día, la semana y el mes. null = no hay metas publicadas para esta tienda (la barra no se muestra). */
+  /** Ventas por día de la tienda calculadas en el central (con historial y las dos cajas): la barra de metas las prefiere porque coinciden con Administración. */
+  totalesCentral: { dias: Record<string, number>; ms: number } | null = null;
   metasAvance(): Record<PeriodoMeta, { pct: number; color: AvancePeriodo['color'] } | null> | null {
     const pub = metasPublicadas(this.opsDe('metas.config'));
     const conf = pub?.config.tiendas[this.tienda];
@@ -1925,10 +1927,17 @@ export class Caja {
     const hora = new Date(Date.parse(ahora) - 7 * 3600_000).toISOString().slice(11, 16);
     const desde = [lunesDe(fecha), `${fecha.slice(0, 7)}-01`].sort()[0]!;
     // Las dos cajas de la tienda suman juntas: se toma lo que sabe el hub y, por si aún no llegó una venta de esta caja, lo de esta caja (lo mayor de cada día).
-    const totales = totalesPorDia(this.opsDe('sale.confirmed', 'sale.cancelled'), this.tienda);
-    const remotos = this.enlace.totalesVentas?.(desde, fecha) ?? null;
-    for (const [f, v] of Object.entries(remotos ?? {})) totales.set(f, Math.max(totales.get(f) ?? 0, v));
-    for (const [f, v] of Object.entries(pub.historico?.[this.tienda] ?? {})) if (f >= desde && f <= fecha) totales.set(f, (totales.get(f) ?? 0) + v);
+    const propios = totalesPorDia(this.opsDe('sale.confirmed', 'sale.cancelled'), this.tienda);
+    const remotos = this.enlace.totalesVentas?.(desde, fecha) ?? {};
+    const central = this.totalesCentral && Date.parse(ahora) - this.totalesCentral.ms < 30 * 60_000 ? this.totalesCentral.dias : null;
+    const historico = pub.historico?.[this.tienda] ?? {};
+    const totales = new Map<string, number>();
+    for (const f of new Set([...propios.keys(), ...Object.keys(remotos), ...Object.keys(central ?? historico)])) {
+      const local = Math.max(propios.get(f) ?? 0, remotos[f] ?? 0);
+      // Con el cálculo del central (mismos datos y reglas que Administración) se usa ese; lo local solo cubre, hoy, una venta que aún no sube.
+      // Sin él (sin internet), lo local más lo importado del sistema anterior que Administración publicó con las metas.
+      totales.set(f, central ? (f === fecha ? Math.max(central[f] ?? 0, local) : (central[f] ?? 0)) : local + (historico[f] ?? 0));
+    }
     const a = avanceMetas({ tienda: this.tienda, fecha, hora, config: pub.config, metas, totales });
     const r = {} as Record<PeriodoMeta, { pct: number; color: AvancePeriodo['color'] } | null>;
     for (const p of ['dia', 'semana', 'mes'] as const) r[p] = a[p] ? { pct: Math.round(a[p]!.pct), color: a[p]!.color } : null;

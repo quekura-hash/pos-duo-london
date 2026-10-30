@@ -7,6 +7,8 @@ import { CAJAS_ESTANDAR, fabricaMemoria, Mundo } from '../mundo.ts';
 import { folioMaximoConocido, relevanteParaHub } from '../nodos.ts';
 import { crearPoliticasEnsayo } from '../politicas.ts';
 import { MemoriaRepo } from '../repo.ts';
+import { fechaLocal } from '../util.ts';
+import { lunesDe } from '../metas.ts';
 import { PuenteCentral, type ClienteCentral } from '../transporte/puente-central.ts';
 import { atender } from './rutas.ts';
 import { ServicioCaja } from './servicio.ts';
@@ -142,6 +144,19 @@ export function iniciarCajaNube(o: { cliente: ClienteCaja; almacen?: AlmacenCaja
     m.caja(identidad.tienda, identidad.caja).continuarFoliosDesde(maximo);
   }
 
+  /** Ventas por día del mes calculadas en el central: la barra de metas de la caja marca lo mismo que Administración. Si falla (sin internet o sin la función), se usa el cálculo local. */
+  async function totalesDelCentral(): Promise<void> {
+    if (!m || !identidad || !cliente.ventasPorDia) return;
+    try {
+      const hoy = fechaLocal(ahora());
+      const desde = [lunesDe(hoy), `${hoy.slice(0, 7)}-01`].sort()[0]!;
+      const filas = await cliente.ventasPorDia(desde, hoy);
+      const dias: Record<string, number> = {};
+      for (const f of filas) if (f.tienda === identidad.tienda) dias[f.fecha] = (dias[f.fecha] ?? 0) + f.total;
+      m.caja(identidad.tienda, identidad.caja).totalesCentral = { dias, ms: Date.parse(ahora()) };
+    } catch { /* sin internet: queda el cálculo local */ }
+  }
+
   /** Un ciclo completo: lo local sube al hub y a la réplica; la réplica se sincroniza con el central; lo nuevo del central baja al hub y a la caja. */
   function sincronizar(): Promise<boolean> {
     enCurso ??= (async () => {
@@ -158,7 +173,7 @@ export function iniciarCajaNube(o: { cliente: ClienteCaja; almacen?: AlmacenCaja
         m.pump();
         m.pump();
         error = r.ok ? null : (r.error ?? 'sin conexión');
-        if (r.ok) { ultimaSync = ahora(); alinearFolios(); }
+        if (r.ok) { ultimaSync = ahora(); alinearFolios(); await totalesDelCentral(); }
         return r.ok;
       } catch (e) {
         error = e instanceof Error ? e.message : String(e);

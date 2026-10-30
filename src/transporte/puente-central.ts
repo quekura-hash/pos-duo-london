@@ -17,6 +17,8 @@ export interface FilaCentral {
 export interface ClienteCentral {
   subirOps(ops: Pick<Op, 'op_id' | 'tipo' | 'tienda' | 'caja' | 'ocurrio_en' | 'payload'>[]): Promise<{ nuevas: number; ultimo_seq: number }>;
   bajarOps(desde: number, limite: number): Promise<FilaCentral[]>;
+  /** Ventas por día calculadas en el central (la barra de metas de la caja). Opcional: sin él la caja calcula con lo que tiene. */
+  ventasPorDia?(desde: string, hasta: string): Promise<{ tienda: string; fecha: string; total: number }[]>;
 }
 
 interface Cursores { remoto: number; local: number }
