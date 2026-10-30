@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import { describe, it } from 'node:test';
+import { readFileSync } from 'node:fs';
 import { chromium } from 'playwright-core';
 import { api, appAdmin, appCajero } from './ayudas/app.ts';
 import { ALMACENES, nuevoMundo, politica } from './ayudas/comun.ts';
@@ -8,6 +9,22 @@ import { ALMACENES, nuevoMundo, politica } from './ayudas/comun.ts';
 const chromiumPath = [process.env.POS_CHROMIUM, '/opt/pw-browsers/chromium-1194/chrome-linux/chrome', '/opt/pw-browsers/chromium/chrome-linux/chrome'].find((p) => p && existsSync(p));
 const sqlite = ALMACENES.find((a) => a.nombre === 'sqlite')!;
 const JEANS = '0002026090782';
+
+it('PC0 el total en dólares se redondea SIEMPRE hacia arriba al siguiente múltiplo de 25 centavos (83.94 → 84.00, 63.08 → 63.25); un monto exacto se queda', () => {
+  const m = /const mxnAUsd = (.*);\n/.exec(readFileSync(new URL('../src/app/publico/app.js', import.meta.url), 'utf8'))!;
+  const f = new Function(`return ${m[1]}`)() as (mxnC: number, tasa: number) => number;
+  assert.equal(f(146900, 175000), 8400, '$1,469.00 a $17.50 = 83.94 → 84.00');
+  assert.equal(f(110390, 175000), 6325, '$1,103.90 a $17.50 = 63.08 → 63.25');
+  assert.equal(f(147000, 175000), 8400, '$1,470.00 a $17.50 = 84.00 exacto: no sube');
+  assert.equal(f(45000, 180000), 2500, '$450 a $18.00 = 25.00 exacto');
+  assert.equal(f(89900, 180000), 5000, '49.94 → 50.00');
+  assert.equal(f(1, 175000), 25, 'un centavo ya sube al primer escalón');
+  assert.equal(f(0, 175000), 0);
+  for (let mxn = 1; mxn <= 400000; mxn += 997) for (const tasa of [170000, 175000, 180000, 183500]) {
+    const exacto = (mxn * 10000) / tasa, r = f(mxn, tasa);
+    assert.ok(r % 25 === 0 && r >= exacto - 1e-6 && r - exacto < 25 + 1e-6, `${mxn}@${tasa}: ${r} vs ${exacto}`);
+  }
+});
 
 describe('[navegador real] Al cobrar: la feria que se da en grande y los detalles de la venta (ya no el ticket)', { timeout: 180_000, skip: chromiumPath ? false : 'Chromium no encontrado (defina POS_CHROMIUM)' }, () => {
   it('PC1 con cambio: «DAR DE FERIA» enorme y en verde, con total, recibido, forma de pago y artículos; con dólares muestra el tipo de cambio; sin cambio dice PAGO EXACTO; el ticket no se ve pero sigue ahí para imprimir', async (t) => {
@@ -31,9 +48,9 @@ describe('[navegador real] Al cobrar: la feria que se da en grande y los detalle
     // 1) efectivo con cambio: $899 pagados con $1,000
     await page.fill('#scan', JEANS); await page.press('#scan', 'Enter');
     await page.waitForSelector('#cuerpo tr[data-linea]');
-    // el total también en dólares (tipo de cambio $18.00): $899.00 / 18 = US$49.94, debajo del de pesos y en un tamaño menor; la forma de cobro y la feria siguen en pesos
-    assert.equal((await page.textContent('#total-usd'))!.trim(), 'US$49.94');
-    assert.match((await page.textContent('#total-usd-bloque'))!, /US\$49\.94\s*USD/);
+    // el total también en dólares (tipo de cambio $18.00): $899.00 / 18 = 49.94 → se redondea hacia arriba a múltiplos de 25 centavos: US$50.00; debajo del de pesos y en un tamaño menor; la forma de cobro y la feria siguen en pesos
+    assert.equal((await page.textContent('#total-usd'))!.trim(), 'US$50.00');
+    assert.match((await page.textContent('#total-usd-bloque'))!, /US\$50\.00\s*USD/);
     const tamUsd = await page.evaluate(() => ({ usd: parseFloat(getComputedStyle(document.querySelector('#total-usd')!).fontSize), mxn: parseFloat(getComputedStyle(document.querySelector('#total')!).fontSize), yUsd: document.querySelector('#total-usd')!.getBoundingClientRect().top, yMxn: document.querySelector('#total')!.getBoundingClientRect().bottom }));
     assert.ok(tamUsd.usd < tamUsd.mxn && tamUsd.yUsd >= tamUsd.yMxn, `el total en dólares va debajo y más chico: ${JSON.stringify(tamUsd)}`);
     await page.fill('#recibido', '1000');

@@ -90,8 +90,9 @@ const parseTasa = (t) => {
 };
 /** Misma regla que el servidor: al centavo, mitad hacia arriba. Solo para mostrar; el servidor recalcula y manda lo que guarda. */
 const usdAMxn = (usdC, tasa) => Math.floor((usdC * tasa + 5000) / 10000);
-/** Lo mismo en dólares (centavos de USD) a una tasa en diezmilésimas, al centavo más cercano. Solo es informativo: lo que se cobra y la feria siguen en pesos. */
-const mxnAUsd = (mxnC, tasa) => Math.round((mxnC * 10000) / tasa);
+/** Lo mismo en dólares (centavos de USD) a una tasa en diezmilésimas, redondeado SIEMPRE hacia arriba al siguiente múltiplo de 25 centavos (83.94 → 84.00, 63.08 → 63.25).
+ *  Solo es informativo: lo que se cobra y la feria siguen en pesos. Aritmética entera para que un monto exacto no suba por decimales. */
+const mxnAUsd = (mxnC, tasa) => (mxnC <= 0 ? 0 : Math.floor((mxnC * 10000 + tasa * 25 - 1) / (tasa * 25)) * 25);
 const MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
 const fechaCorta = (iso) => { const l = new Date(Date.parse(iso) - 7 * 3600e3).toISOString(); return `${l.slice(8, 10)} ${MESES[Number(l.slice(5, 7)) - 1]} ${l.slice(0, 4)} · ${h12(l.slice(11, 16))}`; };
 const logoDe = (t) => window.__POS_LOGOS__?.[t] ?? (t === 'DUO' ? 'logo-duo.png' : 'logo-london.png');
@@ -774,7 +775,7 @@ function pintarCarrito() {
   // El total también en dólares (debajo del de pesos, más chico) para informarle a la clienta; solo se ve si hay tipo de cambio fijado.
   const tc = S.estado?.tipo_cambio;
   $('#total-usd-bloque').hidden = !(tc?.configurado && tc.tasa > 0);
-  if (!$('#total-usd-bloque').hidden) { $('#total-usd').textContent = usd(mxnAUsd(c.total, tc.tasa)); $('#total-usd-bloque').title = `Al tipo de cambio de $${(tc.tasa / 10000).toFixed(2)} por dólar`; }
+  if (!$('#total-usd-bloque').hidden) { $('#total-usd').textContent = usd(mxnAUsd(c.total, tc.tasa)); $('#total-usd-bloque').title = `Aproximado: al tipo de cambio de $${(tc.tasa / 10000).toFixed(2)} por dólar, redondeado hacia arriba a múltiplos de 25 centavos`; }
   const cb = c.cambio;
   $('#dt-cambio').hidden = $('#dd-cambio').hidden = !cb;
   if (cb) $('#dd-cambio').textContent = `-${mxn(cb.credito)}`;
