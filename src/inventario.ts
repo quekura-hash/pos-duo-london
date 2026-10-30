@@ -329,6 +329,12 @@ export function hojaDetalleVentas(r: import('./consultas.ts').Consolidado): Hoja
   return { nombre: 'Detalle de ventas', encabezados, filas, textoCols: [8, 9, 10], formatoCols: { 0: 'dd/mm/yyyy', 4: '#,##0.00' } };
 }
 
+/** «Detalle de ventas» para la auxiliar de la contadora: solo Fecha, Folio, Tipo, Piezas, Total, Forma de pago y Tienda (sin caja, hora, vendedoras, estado ni origen). */
+export function hojaDetalleVentasContadora(r: import('./consultas.ts').Consolidado): Hoja {
+  const h = hojaDetalleVentas(r);
+  return { nombre: 'Detalle de ventas', encabezados: h.encabezados.slice(0, 7), filas: h.filas.map((f) => f.slice(0, 7)), textoCols: [], formatoCols: { 0: 'dd/mm/yyyy', 4: '#,##0.00' } };
+}
+
 const NOMBRE_AGRUP: Record<string, string> = { mes: 'Ventas por mes', semana: 'Ventas por semana', dia: 'Ventas por día', dia_semana: 'Ventas por día de la semana', hora: 'Ventas por hora', mapa_calor: 'Ventas por hora', forma_pago: 'Ventas por forma de pago', caja: 'Ventas por caja', tienda: 'Ventas por tienda' };
 /** Tabla del análisis de ventas (la misma que se ve en pantalla). Importes numéricos para poder sumar y graficar en Excel. */
 export function hojaAnalisis(r: import('./analisis-ventas.ts').ResultadoAnalisis): Hoja {

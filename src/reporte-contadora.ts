@@ -1,7 +1,7 @@
 // Reporte mensual para la contadora: qué se manda, cuándo y con qué texto. Código PURO (sin red ni base de datos): lo usan la Edge Function
 // `reporte-contadora` y las pruebas. Un correo por CAJA (cada una con sus propios destinatarios), con el Excel «Detalle de ventas» + «Resumen por día» (ver hojaDetalleVentas).
 import { reporteConsolidado } from './consultas.ts';
-import { hojaDetalleVentas, hojaResumenVentas, type Hoja } from './inventario.ts';
+import { hojaDetalleVentas, hojaDetalleVentasContadora, hojaResumenVentas, type Hoja } from './inventario.ts';
 import type { Op } from './tipos.ts';
 import { fechaLocal } from './util.ts';
 
@@ -21,7 +21,16 @@ export const rangoDelPeriodo = (periodo: string) => ({ desde: `${periodo}-01`, h
 /** Intentos por envío: 9, 10 y 11 p. m. del último día y 9 a. m. del día siguiente (hora de Hermosillo). Si los 4 fallan se avisa al teléfono y ya no se insiste. */
 export const MAX_INTENTOS = 4;
 export const claveCaja = (tienda: string, caja: number) => `${tienda}/${caja}`;
-export const nombreCaja = (tienda: string, caja: number) => `${NOMBRE_NEGOCIO[tienda] ?? tienda} · Caja ${caja}`;
+/**
+ * Reporte especial (para la auxiliar de la contadora): el mismo envío mensual, con otro formato, de la Caja 1 de cada tienda. Se guarda con el número de caja
+ * 100 + N (101 = reporte especial de la Caja 1), así comparte tablas, programación y reintentos con los reportes por caja sin tocar la base de datos.
+ */
+export const BASE_ESPECIAL = 100;
+export const esEspecial = (caja: number) => caja > BASE_ESPECIAL;
+export const cajaEspecialDe = (caja: number) => BASE_ESPECIAL + caja;
+export const SALUDO_ESPECIAL = 'Contadora Elva';
+/** Nombre para pantallas internas (Administración y el aviso al teléfono); el correo y el Excel del especial NO llevan caja ni este rótulo. */
+export const nombreCaja = (tienda: string, caja: number) => (esEspecial(caja) ? `Reporte Especial Caja ${caja - BASE_ESPECIAL} · ${NOMBRE_NEGOCIO[tienda] ?? tienda}` : `${NOMBRE_NEGOCIO[tienda] ?? tienda} · Caja ${caja}`);
 /** Hora local (0–23) de un instante. */
 export const horaLocalDe = (iso: string) => new Date(Date.parse(iso) - 7 * 3600_000).getUTCHours();
 
@@ -41,7 +50,10 @@ export function porEnviar(ahoraIso: string, cajasActivas: { tienda: string; caja
 
 export interface ReporteCaja {
   tienda: string;
+  /** Caja real (en el reporte especial, la 1 aunque se guarde como 101). */
   caja: number;
+  /** Formato para la auxiliar de la contadora: una sola hoja, siete columnas, sin mencionar la caja. */
+  especial: boolean;
   periodo: string;
   desde: string;
   hasta: string;
@@ -65,19 +77,21 @@ export interface ReporteCaja {
 }
 
 /** Reporte de UNA caja y UN mes (o de lo que va del mes, con `hastaFecha`). Incluye las ventas históricas del POS anterior de esa caja. Nunca cuenta cancelados. */
-export function reporteDeCaja(ops: Op[], tienda: string, caja: number, periodo: string, hastaFecha?: string): ReporteCaja {
+export function reporteDeCaja(ops: Op[], tienda: string, cajaGuardada: number, periodo: string, hastaFecha?: string): ReporteCaja {
+  const especial = esEspecial(cajaGuardada);
+  const caja = especial ? cajaGuardada - BASE_ESPECIAL : cajaGuardada;
   const { desde, hasta: finMes } = rangoDelPeriodo(periodo);
   const hasta = hastaFecha && hastaFecha < finMes ? hastaFecha : finMes;
   const r = reporteConsolidado({ rol: 'admin', usuario: 'reporte-mensual' } as never, ops, { desde, hasta, cajas: [{ tienda, caja }], historicas: true });
   const vivas = r.filas.filter((f) => f.estado !== 'cancelada');
   const suma = (k: 'efectivo' | 'tarjeta' | 'dolares' | 'tarjeta_regalo' | 'otro' | 'mixto' | 'credito') => vivas.reduce((a, f) => a + f.montos[k], 0);
   return {
-    tienda, caja, periodo, desde, hasta, tickets: vivas.length, piezas: vivas.reduce((a, f) => a + f.piezas, 0), total: vivas.reduce((a, f) => a + f.total, 0),
+    tienda, caja, especial, periodo, desde, hasta, tickets: vivas.length, piezas: vivas.reduce((a, f) => a + f.piezas, 0), total: vivas.reduce((a, f) => a + f.total, 0),
     efectivo: suma('efectivo'), tarjeta: suma('tarjeta'), dolares: suma('dolares'), tarjeta_regalo: suma('tarjeta_regalo'), otros: suma('otro'), mixto: suma('mixto'), credito_empleadas: suma('credito'), creditos: vivas.filter((f) => f.serie === 'CR').length,
     fees: vivas.filter((f) => f.tipo_ticket === 'fee').reduce((a, f) => a + f.total, 0), cambios: vivas.filter((f) => f.tipo_ticket === 'cambio').length,
     historicos: vivas.filter((f) => f.historico).length,
-    hojas: [hojaDetalleVentas(r), hojaResumenVentas(r)],
-    archivo: `reporte-de-ventas-${tienda === 'DUO' ? 'duo' : tienda === 'LON' ? 'london' : tienda.toLowerCase()}-caja-${caja}-${periodo}.xlsx`,
+    hojas: especial ? [hojaDetalleVentasContadora(r)] : [hojaDetalleVentas(r), hojaResumenVentas(r)],
+    archivo: `reporte-de-ventas-${tienda === 'DUO' ? 'duo' : tienda === 'LON' ? 'london' : tienda.toLowerCase()}${especial ? '' : `-caja-${caja}`}-${periodo}.xlsx`,
   };
 }
 
@@ -87,7 +101,8 @@ const esc = (x: string) => x.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&l
 
 /** Asunto y cuerpo del correo (texto y HTML sencillo), en español. `prueba` marca el correo como de prueba. */
 export function correoDelReporte(r: ReporteCaja, o: { prueba?: boolean; corteA?: string } = {}) {
-  const negocio = nombreCaja(r.tienda, r.caja);
+  // En el especial el correo no dice qué caja es ni que es un reporte especial.
+  const negocio = r.especial ? (NOMBRE_NEGOCIO[r.tienda] ?? r.tienda) : nombreCaja(r.tienda, r.caja);
   const parcial = r.hasta < rangoDelPeriodo(r.periodo).hasta;
   const asunto = `${o.prueba ? '[PRUEBA] ' : ''}${negocio} · Reporte de ventas de ${nombreDelMes(r.periodo)}${parcial ? ` (al ${fechaCorta(r.hasta)})` : ''}`;
   const lineas: [string, string][] = [
@@ -97,11 +112,12 @@ export function correoDelReporte(r: ReporteCaja, o: { prueba?: boolean; corteA?:
     ...(r.creditos ? [[`Compras a crédito de empleadas (${r.creditos}, folios CR; no es dinero cobrado, se descuenta de nómina)`, mxn(r.credito_empleadas)] as [string, string]] : []), ...(r.fees ? [['Fees por daño (incluidos en el total)', mxn(r.fees)] as [string, string]] : []),
     ...(r.cambios ? [['Cambios sin diferencia', String(r.cambios)] as [string, string]] : []),
   ];
-  const intro = `Adjunto el reporte de ventas de ${negocio} del ${fechaCorta(r.desde)} al ${fechaCorta(r.hasta)}.`;
+  const intro = r.especial ? `Adjunto el reporte de ventas de ${negocio} · del ${fechaCorta(r.desde)} al ${fechaCorta(r.hasta)}.` : `Adjunto el reporte de ventas de ${negocio} del ${fechaCorta(r.desde)} al ${fechaCorta(r.hasta)}.`;
   const corte = o.corteA ? `Corte: ${o.corteA}. Lo que se venda después no está en este archivo.` : '';
-  const pie = 'El archivo trae dos hojas: «Detalle de ventas» (una fila por ticket, con folio, fecha, piezas, total y forma de pago) y «Resumen por día». Los cancelados no se cuentan. Enviado automáticamente por LonDuo POS.';
-  const texto = [`Hola,`, '', intro, '', ...lineas.map(([k, v]) => `${k}: ${v}`), '', corte, pie].filter((x, i, a) => !(x === '' && a[i - 1] === '')).join('\n');
-  const html = `<p>Hola,</p><p>${esc(intro)}</p><table cellpadding="4" style="border-collapse:collapse">${lineas.map(([k, v]) => `<tr><td>${esc(k)}</td><td align="right"><b>${esc(v)}</b></td></tr>`).join('')}</table>${corte ? `<p>${esc(corte)}</p>` : ''}<p style="color:#555">${esc(pie)}</p>`;
+  const saludo = r.especial ? `Hola, ${SALUDO_ESPECIAL}` : 'Hola,';
+  const pie = r.especial ? 'El archivo trae la hoja «Detalle de ventas» (una fila por ticket, con folio, fecha, piezas, total y forma de pago). Los cancelados no se cuentan. Enviado automáticamente por LonDuo POS.' : 'El archivo trae dos hojas: «Detalle de ventas» (una fila por ticket, con folio, fecha, piezas, total y forma de pago) y «Resumen por día». Los cancelados no se cuentan. Enviado automáticamente por LonDuo POS.';
+  const texto = [saludo, '', intro, '', ...lineas.map(([k, v]) => `${k}: ${v}`), '', corte, pie].filter((x, i, a) => !(x === '' && a[i - 1] === '')).join('\n');
+  const html = `<p>${esc(saludo)}</p><p>${esc(intro)}</p><table cellpadding="4" style="border-collapse:collapse">${lineas.map(([k, v]) => `<tr><td>${esc(k)}</td><td align="right"><b>${esc(v)}</b></td></tr>`).join('')}</table>${corte ? `<p>${esc(corte)}</p>` : ''}<p style="color:#555">${esc(pie)}</p>`;
   return { asunto, texto, html };
 }
 

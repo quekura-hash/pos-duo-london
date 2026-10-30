@@ -134,7 +134,7 @@ describe('[navegador real] Reportes: envío mensual a la contadora', { timeout: 
     await page.waitForSelector('#puerta', { state: 'hidden' });
     await page.click('#nav button[data-vista="reportes"]');
     await page.waitForSelector('#panel-contadora .rc-caja');
-    assert.deepEqual(await page.$$eval('#panel-contadora legend', (x) => x.map((e) => e.textContent)), ['DÚO New York · Caja 1', 'DÚO New York · Caja 2', 'London Love · Caja 1', 'London Love · Caja 2'], 'una sección por caja');
+    assert.deepEqual(await page.$$eval('#panel-contadora legend', (x) => x.map((e) => e.textContent)), ['DÚO New York · Caja 1', 'DÚO New York · Caja 2', 'London Love · Caja 1', 'London Love · Caja 2', 'Reporte Especial Caja 1 · DÚO New York', 'Reporte Especial Caja 1 · London Love'], 'una sección por caja');
     assert.match((await page.textContent('#tabla-envios tbody'))!, /septiembre 2026.*DÚO New York · Caja 1.*Enviado.*337.*\$322,152\.00.*conta@despacho\.mx/);
     assert.match((await page.locator('#tabla-envios tbody tr', { hasText: 'DÚO New York · Caja 2' }).textContent())!, /No se envió · 4 de 4 intentos · se avisó a tu teléfono\s*Resend: 503/);
     assert.match((await page.locator('#tabla-envios tbody tr', { hasText: 'London Love · Caja 1' }).textContent())!, /Reintentando · 2 de 4 intentos\s*tiempo agotado/);
@@ -174,6 +174,19 @@ describe('[navegador real] Reportes: envío mensual a la contadora', { timeout: 
     await duo2.locator('.rc-probar').click();
     await page.waitForFunction(() => /te mandé a edgardo@x\.mx el reporte de lo que va del mes de DÚO New York · Caja 2 \(3 ticket\(s\), \$1,234\.00\)/.test(document.querySelector('.rc-caja[data-tienda="DUO"][data-caja="2"] .rc-msg')!.textContent!));
     assert.deepEqual(pruebasReporte.at(-1), { accion: 'prueba', tienda: 'DUO', caja: 2 });
+    // Reporte Especial Caja 1: bloque aparte (se ve distinto), una fila por tienda; se guarda con el número de caja 101 y no toca el reporte de la Caja 1
+    assert.equal(await page.locator('#rc-especial h3').textContent(), 'Reporte Especial Caja 1');
+    const especial = page.locator('.rc-caja.rc-especial[data-tienda="DUO"][data-caja="101"]');
+    await especial.locator('.rc-activo').check();
+    await especial.locator('.rc-correos').fill('Auxiliar@Despacho.mx');
+    await especial.locator('.rc-guardar').click();
+    await page.waitForFunction(() => /se enviará a auxiliar@despacho\.mx/.test(document.querySelector('.rc-caja[data-tienda="DUO"][data-caja="101"] .rc-msg')!.textContent!));
+    const guardadas = (await como(db, edgardo, (q) => q('select tienda, caja, activo, correos from pos.reporte_contadora where tienda = $1 order by caja', ['DUO']))) as { caja: number; activo: boolean; correos: string[] }[];
+    assert.deepEqual(guardadas.map((f) => [f.caja, f.activo, f.correos]), [[1, true, ['conta@despacho.mx', 'edgardo@x.mx']], [2, true, ['otra.contadora@despacho.mx']], [101, true, ['auxiliar@despacho.mx']]]);
+    await especial.locator('.rc-probar').click();
+    await page.waitForFunction(() => /te mandé a edgardo@x\.mx el reporte de lo que va del mes de Reporte Especial Caja 1 · DÚO New York/.test(document.querySelector('.rc-caja[data-tienda="DUO"][data-caja="101"] .rc-msg')!.textContent!));
+    assert.deepEqual(pruebasReporte.at(-1), { accion: 'prueba', tienda: 'DUO', caja: 101 });
+    assert.ok(await page.locator('#rc-especial').evaluate((e) => getComputedStyle(e).borderTopColor !== getComputedStyle(document.querySelector('.rc-caja:not(.rc-especial)')!).borderTopColor), 'el bloque especial se ve distinto');
     await page.evaluate(() => document.querySelector('#panel-contadora')!.scrollIntoView());
     await page.screenshot({ path: join(RAIZ, 'docs', 'capturas', '66-envio-contadora.png') });
     assert.deepEqual(errores, []);

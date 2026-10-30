@@ -2,6 +2,10 @@
 
 El último día de cada mes a las 9:00 p. m. (hora de Hermosillo) se manda por correo, **un correo por caja y cada caja a sus propios destinatarios** (DÚO Caja 1, DÚO Caja 2, London Caja 1…), el Excel del mes de esa caja (hojas «Detalle de ventas» y «Resumen por día»; las ventas del POS anterior van en la Caja 1 de DÚO). Si falla, reintenta a las 10 p. m., a las 11 p. m. y a las 9 a. m. del día siguiente (4 intentos en total); si los 4 fallan manda un aviso al teléfono del supervisor («El reporte no se envió») y ya no insiste. Lo que se venda después de las 9:00 p. m. del último día no entra en ese archivo (se puede descargar el mes completo desde Reportes → Exportar a Excel).
 
+## Reporte Especial Caja 1 (para la auxiliar de la contadora)
+
+Mismo envío, mismo horario y mismos reintentos, pero solo de la **Caja 1 de cada tienda** y con otro formato: el Excel trae una sola hoja, «Detalle de ventas», con las columnas Fecha, Folio, Tipo, Piezas, Total, Forma de pago y Tienda (incluye las ventas del POS anterior de esa caja), y el correo saluda a «Contadora Elva» sin decir «Caja 1» ni «reporte especial». Se configura en Reportes, en el bloque «Reporte Especial Caja 1» (solo supervisor). Internamente se guarda con el número de caja 100 + N (101 = especial de la Caja 1) en las mismas tablas (`reporte_contadora`, `envios_reporte`): no necesita migración. Lógica: `esEspecial`, `reporteDeCaja` y `correoDelReporte` en `src/reporte-contadora.ts`; hoja en `hojaDetalleVentasContadora` (`src/inventario.ts`); pruebas en `test/126`. Usarlo en producción exige **redesplegar la función** `reporte-contadora`.
+
 ## Piezas
 
 | Pieza | Dónde |
