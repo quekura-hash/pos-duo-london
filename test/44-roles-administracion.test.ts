@@ -30,7 +30,7 @@ porAlmacen('Roles de Administración: supervisor y almacenista; los cajeros no e
     assert.match(r.json.error.mensaje, /al menos un supervisor activo/);
   });
 
-  it('RO2 el almacenista solo ve Inventario y Almacén: el resto responde 403, no cambia precios ni administra usuarios; el supervisor ve todo', async (t) => {
+  it('RO2 el almacenista solo ve Inventario y Almacén: el resto responde 403, cambia precios y fija existencias reales, pero no administra usuarios; el supervisor ve todo', async (t) => {
     const { adm } = await preparar(t);
     await api(adm.url, '/api/admin/administradores', { nombre: 'Edgardo', clave: 'clave-segura' });
     await api(adm.url, '/api/admin/administradores', { nombre: 'Gabo', clave: 'clave-gabo', rol: 'almacenista' });
@@ -44,11 +44,12 @@ porAlmacen('Roles de Administración: supervisor y almacenista; los cajeros no e
     assert.equal((await api(adm.url, '/api/admin/cajeros', { nombre: 'Intruso', clave: '1234' })).status, 403);
     assert.equal((await api(adm.url, '/api/admin/tipo-cambio', { tasa: 180000, version_base: 0 })).status, 403, 'puede ver el dólar pero no cambiarlo');
     assert.equal((await api(adm.url, '/api/admin/departamentos', { nombre: 'Nuevo' })).status, 403, 'editar departamentos es de supervisor');
-    // editar un artículo sí, pero no su precio
+    // editar un artículo y también su precio (queda registrado a su nombre)
     const a = (await api(adm.url, '/api/admin/articulos?todos=1&limite=1')).json.articulos[0];
     assert.equal((await api(adm.url, '/api/admin/articulos', { item_id: a.item_id, cambios: { marca: 'NUEVA MARCA' } })).status, 200);
-    const sinPrecio = await api(adm.url, '/api/admin/articulos', { item_id: a.item_id, cambios: { precio: 99900 } });
-    assert.deepEqual([sinPrecio.status, sinPrecio.json.error.codigo], [403, 'PROHIBIDO']);
+    assert.equal((await api(adm.url, '/api/admin/articulos', { item_id: a.item_id, cambios: { precio: 88800 } })).status, 200, 'el almacenista sí cambia precios');
+    assert.equal((await api(adm.url, '/api/admin/articulos?todos=1&limite=1')).json.articulos[0].precio, 88800);
+    assert.equal((await api(adm.url, `/api/admin/existencias?item_id=${a.item_id}`)).status, 200, 'y ve las existencias reales');
     // el supervisor sí
     await api(adm.url, '/api/logout', {});
     s = (await api(adm.url, '/api/login', { usuario: 'Edgardo', clave: 'clave-segura' })).json;

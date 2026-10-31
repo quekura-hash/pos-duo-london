@@ -1200,7 +1200,7 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     assert.deepEqual(errores.filter((e) => !/401|NO_AUTENTICADO|403|Failed to load resource/.test(e)), []);
   });
 
-  it('B18 roles: el almacenista solo ve Inventario y Almacén y no cambia precios; el cajero no entra a Administración; el supervisor ve todo', async (t) => {
+  it('B18 roles: el almacenista solo ve Inventario y Almacén (con precios y existencias reales); el cajero no entra a Administración; el supervisor ve todo', async (t) => {
     execFileSync(process.execPath, [join(RAIZ, 'scripts', 'construir-prueba.mjs')], { stdio: 'pipe' });
     const browser = await chromium.launch({ executablePath: chromiumPath, args: ['--no-sandbox'] });
     t.after(() => browser.close());
@@ -1241,7 +1241,8 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     await page.click('#tabla-inv-lista tr[data-item]');
     await page.waitForSelector('#form-articulo');
     assert.equal(await page.locator('#art-promo').count(), 0, 'sin «Crear promoción»');
-    assert.equal(await page.getAttribute('#art-precio', 'readonly'), '');
+    assert.equal(await page.getAttribute('#art-precio', 'readonly'), null, 'el almacenista puede cambiar el precio');
+    assert.equal(await page.locator('#art-existencias').count(), 1, 'y tiene «Existencias reales»');
     await page.fill('#art-marca', 'MARCA GABO');
     await page.click('#art-guardar');
     await page.waitForFunction(() => /guardado/.test(document.querySelector('#inv-msg')!.textContent!));

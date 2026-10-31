@@ -1082,11 +1082,11 @@ export class ServicioAdmin {
   }
   /**
    * «Existencias reales»: el propietario deja las cantidades de un artículo exactamente como las contó (El Limbo, almacén y cada tienda), sin escáner ni
-   * confirmación de recepción. Solo supervisores. Con `solo_revisar` no guarda nada.
+   * confirmación de recepción. Solo supervisores y almacenistas. Con `solo_revisar` no guarda nada.
    */
   fijarExistencias(d: { ajuste_id: string; item_id: string; cantidades: Record<string, number>; motivo?: string; solo_revisar?: boolean }) {
     if (!this.central) throw new ErrorDominio('SIN_CENTRAL', 'esta sesión no tiene acceso al servicio central');
-    if (this.rol() !== 'supervisor') throw new ErrorDominio('PROHIBIDO', 'solo un supervisor corrige las existencias');
+    if (this.rol() !== 'supervisor' && this.rol() !== 'almacenista') throw new ErrorDominio('PROHIBIDO', 'solo un supervisor o un almacenista corrige las existencias');
     const cantidades: Record<string, number> = {};
     for (const [k, v] of Object.entries(d.cantidades ?? {})) cantidades[String(k)] = Number(v);
     const r = this.central.fijarExistencias({ ajuste_id: String(d.ajuste_id ?? ''), item_id: String(d.item_id ?? ''), cantidades, motivo: d.motivo, por: this.actor.usuario, solo_revisar: !!d.solo_revisar });
@@ -1172,7 +1172,6 @@ export class ServicioAdmin {
   /** Edita un artículo del catálogo (marca, descripción, estilo, lote, departamento, precio en pesos). */
   editarArticulo(itemId: string, cambios: Record<string, unknown>) {
     if (!this.central) throw new ErrorDominio('SIN_CENTRAL', 'esta sesión no tiene acceso al servicio central');
-    if ('precio' in cambios && this.rol() !== 'supervisor') throw new ErrorDominio('PROHIBIDO', 'solo un supervisor puede cambiar el precio de un artículo');
     const lim: Record<string, string | number> = {};
     for (const k of CAMPOS_EDITABLES) if (k in cambios) lim[k] = k === 'precio' ? Number(cambios[k]) : String(cambios[k] ?? '');
     const a = this.central.editarArticulo(itemId, lim, this.actor.usuario);
@@ -1498,7 +1497,7 @@ export class ServicioAdmin {
   /** ¿El rol de la sesión puede llamar a esta ruta de Administración? El supervisor, todo; el almacenista, solo lo de Inventario y Almacén. */
   puede(metodo: string, ruta: string): boolean {
     if (this.rol() === 'supervisor') return true;
-    return /^(GET|POST) \/api\/admin\/(almacen|limbo)(\/|$)/.test(`${metodo} ${ruta}`) || /^GET \/api\/admin\/(inventario|entregas|articulos|articulo\/historial|departamentos|tipo-cambio)$/.test(`${metodo} ${ruta}`) || `${metodo} ${ruta}` === 'POST /api/admin/articulos';
+    return /^(GET|POST) \/api\/admin\/(almacen|limbo)(\/|$)/.test(`${metodo} ${ruta}`) || /^GET \/api\/admin\/(inventario|entregas|articulos|articulo\/historial|departamentos|tipo-cambio)$/.test(`${metodo} ${ruta}`) || `${metodo} ${ruta}` === 'POST /api/admin/articulos' || /^(GET|POST) \/api\/admin\/existencias$/.test(`${metodo} ${ruta}`);
   }
   administradores() {
     return { administradores: administradoresDe(this.fuente()).map(({ id, nombre, activo, rol, perfil }) => ({ id, nombre, activo, perfil: perfil ?? null, rol: rol ?? 'supervisor', protegido: adminProtegido({ nombre, perfil }), clave_caja: supervisoresDe(this.fuente()).some((s) => s.id === `sup-${id.slice(4)}`) })) };

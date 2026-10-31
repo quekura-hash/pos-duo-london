@@ -163,7 +163,7 @@ porAlmacen('Existencias reales: el propietario deja las cantidades como las cont
     assert.throws(() => admin.fijarExistencias({ ajuste_id: '', item_id: 'p1', cantidades: { DUO: 1 } }), { codigo: 'DATOS_REQUERIDOS' });
   });
 
-  it('EX4 por HTTP: el supervisor ve y corrige las existencias; el almacenista no', async (t) => {
+  it('EX4 por HTTP: el supervisor y el almacenista ven y corrigen las existencias; el resto de Administración sigue cerrado al almacenista', async (t) => {
     const { ctx } = mundo(t);
     const adm = await appAdmin(ctx); t.after(() => adm.cerrar());
     await api(adm.url, '/api/admin/administradores', { nombre: 'Edgardo', clave: 'clave-segura' });
@@ -176,7 +176,10 @@ porAlmacen('Existencias reales: el propietario deja las cantidades como las cont
     assert.deepEqual(r.json.existencias.ubicaciones.map((u: any) => u.cantidad), [30, 0, 41, 0]);
     await api(adm.url, '/api/logout', {});
     await api(adm.url, '/api/login', { usuario: 'Gabo', clave: 'clave-gabo' });
-    assert.equal((await api(adm.url, '/api/admin/existencias?item_id=p1')).status, 403);
-    assert.equal((await api(adm.url, '/api/admin/existencias', { ajuste_id: 'h2', item_id: 'p1', cantidades: { DUO: 1 } })).status, 403);
+    assert.equal((await api(adm.url, '/api/admin/existencias?item_id=p1')).status, 200);
+    const ra = await api(adm.url, '/api/admin/existencias', { ajuste_id: 'h2', item_id: 'p1', cantidades: { DUO: 7 } });
+    assert.equal(ra.status, 200, JSON.stringify(ra.json));
+    assert.equal(ra.json.existencias.ubicaciones.find((u: any) => u.clave === 'DUO').cantidad, 7);
+    assert.equal((await api(adm.url, '/api/admin/promociones')).status, 403, 'lo demás de Administración sigue cerrado');
   });
 });

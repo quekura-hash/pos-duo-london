@@ -2215,7 +2215,7 @@ async function cargarListaInventario() {
   $('#inv-sig').addEventListener('click', () => { I.pag++; cargarListaInventario(); });
 }
 /**
- * «Existencias reales» (solo supervisores): el propietario deja las cantidades de UN artículo exactamente como las contó (El Limbo, almacén y cada tienda).
+ * «Existencias reales» (supervisores y almacenistas): el propietario deja las cantidades de UN artículo exactamente como las contó (El Limbo, almacén y cada tienda).
  * Se guardan tal cual, sin escáner ni confirmación de recepción. Lo que se agrega en el almacén o en una tienda se puede descontar de El Limbo (casilla).
  */
 async function abrirExistencias(a) {
@@ -2229,7 +2229,7 @@ async function abrirExistencias(a) {
   const antes = Object.fromEntries(ub.map((u) => [u.clave, u.cantidad]));
   d.innerHTML = `<h2 id="ex-titulo" style="margin-top:0">Existencias reales</h2>
     <p style="margin:0 0 6px"><b>${esc(j.articulo.descripcion)}</b>${j.articulo.marca ? ` · ${esc(j.articulo.marca)}` : ''}${j.articulo.estilo ? ` · ${esc(j.articulo.estilo)}` : ''} <small>#${esc(j.articulo.item_no ?? '—')}</small></p>
-    <p class="nota" style="margin-top:0">Escriba cuántas piezas hay <b>realmente</b> en cada lugar. Se guarda tal cual, sin escáner ni confirmación de la tienda. Solo supervisores.</p>
+    <p class="nota" style="margin-top:0">Escriba cuántas piezas hay <b>realmente</b> en cada lugar. Se guarda tal cual, sin escáner ni confirmación de la tienda.</p>
     <form id="form-existencias" autocomplete="off">
       <table id="ex-tabla" style="width:100%"><thead><tr><th style="text-align:left">Lugar</th><th class="num">Ahora</th><th class="num">Hay realmente</th></tr></thead><tbody>
       ${ub.map((u) => `<tr data-lugar="${esc(u.clave)}"><td>${esc(NOM[u.clave] ?? u.clave)}</td><td class="num" data-label="Ahora">${u.cantidad}</td><td class="num" data-label="Hay realmente"><input type="number" min="0" step="1" inputmode="numeric" value="${u.cantidad}" data-ex="${esc(u.clave)}" style="${campo}" aria-label="Piezas reales: ${esc(NOM[u.clave] ?? u.clave)}"></td></tr>`).join('')}
@@ -2290,10 +2290,10 @@ async function abrirArticulo(a) {
     <form id="form-articulo" autocomplete="off">
       ${campo('art-descripcion', 'Descripción', a.descripcion)}${campo('art-marca', 'Marca', a.marca)}${campo('art-estilo', 'Estilo', a.estilo)}${campo('art-lote', 'Lote', a.lote)}
       <div class="campo"><label for="art-depto">Departamento</label><select id="art-depto" style="width:100%;padding:10px;border:2px solid var(--borde);border-radius:10px;background:var(--superficie)">${deptos.map((n) => `<option ${n === a.departamento ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></div>
-      ${campo('art-precio', 'Precio de venta (MXN)', centavosAPesos(a.precio), `inputmode="decimal" ${S.sesion.rol_usuario === 'almacenista' ? 'readonly title="Solo un supervisor cambia precios"' : ''}`)}
-      <p class="nota">${S.sesion.rol_usuario === 'almacenista' ? 'El precio solo lo cambia un supervisor. ' : ''}Un cambio de precio vale para las ventas siguientes; lo ya vendido conserva el suyo. Queda registrado en el historial.</p>
+      ${campo('art-precio', 'Precio de venta (MXN)', centavosAPesos(a.precio), 'inputmode="decimal"')}
+      <p class="nota">Un cambio de precio vale para las ventas siguientes; lo ya vendido conserva el suyo. Queda registrado en el historial.</p>
       <div id="msg-art" class="mensaje" role="status" aria-live="polite"></div>
-      <div class="filas"><button class="btn" type="button" id="art-cerrar">Cerrar</button>${S.sesion.rol_usuario === 'supervisor' ? `<button class="btn" type="button" id="art-existencias" title="Dejar las piezas de cada lugar tal como las contó">${ico('box')}<span>Existencias reales</span></button>` : `<button class="btn" type="button" id="art-ubicar" title="Dar su ubicación real a las piezas que figuran en El Limbo">${ico('warehouse')}<span>Ubicar piezas</span></button>`}<button class="btn" type="button" id="art-historial">${ico('clock')}<span>Historial</span></button>${S.sesion.rol_usuario === 'almacenista' ? '' : `<button class="btn" type="button" id="art-promo">${ico('tag')}<span>Crear promoción</span></button>`}<button class="btn btn-primario" type="submit" id="art-guardar" style="width:auto;flex:1">${ico('check')}<span>Guardar cambios</span></button></div>
+      <div class="filas"><button class="btn" type="button" id="art-cerrar">Cerrar</button><button class="btn" type="button" id="art-existencias" title="Dejar las piezas de cada lugar tal como las contó">${ico('box')}<span>Existencias reales</span></button>${S.sesion.rol_usuario === 'supervisor' ? '' : `<button class="btn" type="button" id="art-ubicar" title="Dar su ubicación real a las piezas que figuran en El Limbo">${ico('warehouse')}<span>Ubicar piezas</span></button>`}<button class="btn" type="button" id="art-historial">${ico('clock')}<span>Historial</span></button>${S.sesion.rol_usuario === 'almacenista' ? '' : `<button class="btn" type="button" id="art-promo">${ico('tag')}<span>Crear promoción</span></button>`}<button class="btn btn-primario" type="submit" id="art-guardar" style="width:auto;flex:1">${ico('check')}<span>Guardar cambios</span></button></div>
     </form>
     <div id="art-hist" class="tabla-cont" hidden></div>`;
   $('#art-cerrar').addEventListener('click', () => d.close());
@@ -2312,11 +2312,10 @@ async function abrirArticulo(a) {
   $('#form-articulo').addEventListener('submit', async (ev) => {
     ev.preventDefault();
     const m = $('#msg-art');
-    const soloLectura = S.sesion.rol_usuario === 'almacenista'; // el almacenista no cambia precios
-    const precio = soloLectura ? a.precio : parseMXN($('#art-precio').value);
+    const precio = parseMXN($('#art-precio').value);
     if (precio === null) { m.className = 'mensaje error'; m.textContent = 'Escriba el precio en pesos (por ejemplo 899 o 899.50).'; return; }
     try {
-      const r = await api('/api/admin/articulos', { item_id: a.item_id, cambios: { descripcion: $('#art-descripcion').value, marca: $('#art-marca').value, estilo: $('#art-estilo').value, lote: $('#art-lote').value, departamento: $('#art-depto').value, ...(soloLectura ? {} : { precio }) } });
+      const r = await api('/api/admin/articulos', { item_id: a.item_id, cambios: { descripcion: $('#art-descripcion').value, marca: $('#art-marca').value, estilo: $('#art-estilo').value, lote: $('#art-lote').value, departamento: $('#art-depto').value, precio } });
       d.close();
       await cargarListaInventario();
       const mm = $('#inv-msg'); mm.className = 'mensaje ok'; mm.textContent = `Artículo ${r.articulo.item_no ?? ''} guardado.`;
@@ -4608,7 +4607,7 @@ async function vistaCajeros() {
     .sort((a, b) => Number(b.x.activo) - Number(a.x.activo) || a.x.nombre.localeCompare(b.x.nombre, 'es', { sensitivity: 'base' }));
   const filas = personas.map((q) => q.html).join('') || '<tr><td colspan="6" class="vacio">Aún no hay personal registrado.</td></tr>';
   cuerpoVista().innerHTML = `<section class="panel" id="panel-personal"><h2 style="margin-top:0">Perfiles</h2>
-    <p class="nota" style="margin-top:0">${administradores.some((a) => a.activo) ? '<b>Supervisor</b>: ve todo Administración, autoriza operaciones en la caja y también puede iniciar sesión y cobrar en la caja con su clave de caja (4 a 8 dígitos). <b>Almacenista</b>: solo Inventario y Almacén, y no cambia precios; si también cobra, ponle una clave de caja (cobra, pero no autoriza descuentos). Entran con su usuario y contraseña (6 a 40 caracteres), que solo viven en el servidor central. Las Vendedoras-Cajeras no entran a Administración.' : '<b>Esta consola está abierta: cualquiera que la abra puede entrar.</b> Cree el primer usuario (debe ser supervisor) para que pida usuario y contraseña. Quien lo crea queda dentro.'}</p>
+    <p class="nota" style="margin-top:0">${administradores.some((a) => a.activo) ? '<b>Supervisor</b>: ve todo Administración, autoriza operaciones en la caja y también puede iniciar sesión y cobrar en la caja con su clave de caja (4 a 8 dígitos). <b>Almacenista</b>: solo Inventario y Almacén, con permiso para cambiar precios y fijar las existencias reales; si también cobra, ponle una clave de caja (cobra, pero no autoriza descuentos). Entran con su usuario y contraseña (6 a 40 caracteres), que solo viven en el servidor central. Las Vendedoras-Cajeras no entran a Administración.' : '<b>Esta consola está abierta: cualquiera que la abra puede entrar.</b> Cree el primer usuario (debe ser supervisor) para que pida usuario y contraseña. Quien lo crea queda dentro.'}</p>
     <p class="nota">Cada Vendedora-Cajera tiene su propia clave (4 a 8 dígitos) para confirmar operaciones a su nombre, como dar de alta un artículo en la caja. El <b>usuario (alias)</b> es con el que entra a la caja y el que sale en tickets y reportes; los nombres, apellidos, teléfono, dirección y foto son su registro. La clave no se puede volver a ver: si se olvida, se cambia.</p>
     <div class="filas" style="align-items:center;margin:8px 0"><input id="per-buscar" type="search" placeholder="Buscar por nombre, alias o teléfono" autocomplete="off" aria-label="Buscar personal" style="flex:1 1 260px;padding:9px 12px;border:2px solid var(--borde);border-radius:10px;background:var(--superficie);font:inherit"><label for="per-filtro" style="flex:none">Mostrar</label><select id="per-filtro" style="flex:none;padding:8px;border:2px solid var(--borde);border-radius:10px;background:var(--superficie)"><option value="">Todo el personal</option><option value="cajero">Vendedoras-Cajeras</option><option value="supervisor">Supervisores</option><option value="almacenista">Almacenistas</option></select></div>
     <div id="msg-admins" class="mensaje" role="status" aria-live="polite"></div>
