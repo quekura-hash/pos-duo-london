@@ -28,11 +28,21 @@ describe('Ticket: logo centrado y ancho por equipo', () => {
     assert.equal(rasterEscPos(LOGOS_TICKET.DUO!, 504)[7], 63);
     assert.equal(rasterEscPos(LOGOS_TICKET.DUO!)[7], Math.ceil(LOGOS_TICKET.DUO!.ancho / 8));
   });
+  it('TL2b el relleno del logo es opcional por equipo: apagado (de fábrica) no engorda el trabajo; encendido lo rellena al ancho del papel', async () => {
+    const { construirTicket, renderTicketEscPos, NEGOCIOS } = await import('../src/ticket.ts');
+    const v = { sale_id: 's', tienda: 'LON', caja: 1, folio: 1, cajero: 'A', ocurrio_en: '2026-10-31T16:00:00Z', lineas: [{ linea_id: 'l', item_id: 'i', qty: 1, importe: 1000, precio_unit: 1000, codigo: '1', item_no: null, descripcion: 'X', marca: '', estilo: '', descuento: 0 }], total: 1000, pagos: [{ metodo: 'efectivo', monto: 1000 }], estado: 'confirmada' } as never;
+    const t = construirTicket(v, NEGOCIOS.LON!, 0, NEGOCIOS);
+    const ancho = (b: Uint8Array) => { const i = b.findIndex((x, k) => x === 0x1d && b[k + 1] === 0x76 && b[k + 2] === 0x30); return b[i + 4]!; };
+    assert.equal(ancho(renderTicketEscPos(t, { logo: LOGOS_TICKET.LON! })), Math.ceil(LOGOS_TICKET.LON!.ancho / 8));
+    assert.equal(ancho(renderTicketEscPos(t, { logo: LOGOS_TICKET.LON!, logoRelleno: true })), 72);
+  });
   it('TL3 el ancho del ticket de cada equipo se guarda en Ajustes (48 de fábrica; solo valores razonables)', () => {
     const a = crearAjustes(mkdtempSync(join(tmpdir(), 'aj-')));
     assert.equal(a.leer().columnasTicket, 48);
     assert.equal(a.guardar({ columnasTicket: 42 }).columnasTicket, 42);
     assert.equal(a.guardar({ columnasTicket: 5 }).columnasTicket, 42, 'valor absurdo: se ignora');
+    assert.equal(a.leer().logoRelleno, false);
+    assert.equal(a.guardar({ logoRelleno: true }).logoRelleno, true);
     assert.equal(crearAjustes(join(tmpdir(), 'inexistente-' + Date.now())).leer().columnasTicket, 48);
   });
   it('TL4 con el ancho del equipo en 42 columnas, el ticket se arma a 42 (y sin dato, a 48)', async (t) => {

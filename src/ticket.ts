@@ -404,12 +404,12 @@ export function aCP858(s: string): number[] {
   return out;
 }
 
-export function renderTicketEscPos(t: Ticket, opts: { abrirCajon?: boolean; logo?: import('./logos-ticket.ts').LogoRaster } = {}): Uint8Array {
+export function renderTicketEscPos(t: Ticket, opts: { abrirCajon?: boolean; logo?: import('./logos-ticket.ts').LogoRaster; /** Rellena el logo con blanco hasta el ancho del papel (para impresoras que no centran imágenes); manda más datos y en algunas impresoras lentas provoca pausas. */ logoRelleno?: boolean } = {}): Uint8Array {
   const b: number[] = [];
   b.push(0x1b, 0x40); // ESC @ inicializar
   b.push(0x1b, 0x74, 19); // ESC t 19: página de códigos PC858 (acentos del español)
   if (opts.abrirCajon) b.push(0x1b, 0x70, 0x00, 25, 250); // ESC p: pulso al cajón
-  if (opts.logo) b.push(...rasterEscPos(opts.logo, t.columnas * 12)); // logo de la tienda arriba, centrado (GS v 0); letra A = 12 puntos por columna
+  if (opts.logo) b.push(...rasterEscPos(opts.logo, opts.logoRelleno ? t.columnas * 12 : 0)); // logo de la tienda arriba, centrado (GS v 0); letra A = 12 puntos por columna
   if (t.regalo) b.push(...aCP858(renderTicketTexto({ ...t, recompensas: undefined }).replace(/\n$/, '')), 0x0a);
   else {
     // Los avisos (vestido de noche, venta final) salen centrados, en negritas y en doble tamaño; el resto del ticket, normal.

@@ -68,6 +68,9 @@ function cambioDeVenta(ops: Op[], v: Venta): { dev: Devolucion; origen: Venta } 
   return dev && origen ? { dev, origen } : undefined;
 }
 
+/** Ajuste de ESTE equipo (app de Windows): centrar el logo rellenándolo, para impresoras que no centran las imágenes. */
+const logoRellenoEquipo = (): boolean => !!(globalThis as { posHardware?: { logoRelleno?(): boolean } }).posHardware?.logoRelleno?.();
+
 export class ServicioCaja {
   readonly caja: Caja;
   readonly actor: ActorCajero;
@@ -558,7 +561,7 @@ export class ServicioCaja {
     const ticket = construirTicket(v, cfg, n, this.negociosVivos(), this.cambioDe(v));
     const texto = renderTicketTexto(ticket);
     // El cajón se abre con el cobro en efectivo original, no al reimprimir.
-    const bytes = renderTicketEscPos(ticket, { abrirCajon: tipo === 'original', logo: LOGOS_TICKET[v.tienda] });
+    const bytes = renderTicketEscPos(ticket, { abrirCajon: tipo === 'original', logo: LOGOS_TICKET[v.tienda], logoRelleno: logoRellenoEquipo() });
     let impresion: { ok: boolean; error?: string };
     try {
       await this.impresora.imprimir({ ref: ticket.codigo_ticket, texto, bytes });
@@ -803,7 +806,7 @@ export class ServicioCaja {
     const texto = renderTicketTexto(ticket);
     let impresion: { ok: boolean; error?: string };
     try {
-      await this.impresora.imprimir({ ref: `regalo-${ticket.codigo_ticket}`, texto, bytes: renderTicketEscPos(ticket, { logo: LOGOS_TICKET[v.tienda] }) });
+      await this.impresora.imprimir({ ref: `regalo-${ticket.codigo_ticket}`, texto, bytes: renderTicketEscPos(ticket, { logo: LOGOS_TICKET[v.tienda], logoRelleno: logoRellenoEquipo() }) });
       impresion = { ok: true };
     } catch (e) {
       impresion = { ok: false, error: e instanceof Error ? e.message : String(e) };

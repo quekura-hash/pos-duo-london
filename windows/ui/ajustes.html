@@ -23,6 +23,8 @@
   <input id="impresora-manual" type="text" placeholder="Ej.: EPSON TM-T20II Receipt">
   <label for="ancho-ticket">Ancho del ticket (si el texto sale cortado o desacomodado, pruebe 42)</label>
   <select id="ancho-ticket"><option value="48">48 columnas (papel de 80 mm, lo normal)</option><option value="44">44 columnas</option><option value="42">42 columnas</option><option value="40">40 columnas</option><option value="32">32 columnas (papel de 58 mm)</option></select>
+  <label class="fila" for="logo-relleno" style="gap:8px"><input id="logo-relleno" type="checkbox"> Centrar el logo rellenándolo (solo si el logo sale pegado a la izquierda)</label>
+  <p class="nota">Déjelo apagado si la impresora ya centra el logo: rellenarlo manda más datos y en impresoras lentas puede causar pausas y papel en blanco.</p>
   <p class="nota">Se manda ESC/POS directo, sin diálogo de impresión. El cajón va conectado a la impresora (cable RJ11) y se abre con la misma orden de impresión.</p>
   <div class="fila">
     <button id="guardar-imp" class="pri" type="button">Guardar impresora</button>
@@ -67,7 +69,7 @@
       const lista = await posAjustes.impresoras();
       sel.innerHTML = '<option value="">(elija una impresora)</option>' + lista.map((p) => `<option value="${p.nombre.replace(/"/g, '&quot;')}">${p.nombre.replace(/</g, '&lt;')} ${p.puerto ? '— ' + p.puerto.replace(/</g, '&lt;') : ''}${p.sinConexion ? ' (sin conexión)' : ''}</option>`).join('');
       if (ajustes.impresora && !lista.some((p) => p.nombre === ajustes.impresora)) sel.insertAdjacentHTML('beforeend', `<option value="${ajustes.impresora.replace(/"/g, '&quot;')}">${ajustes.impresora.replace(/</g, '&lt;')} (guardada, no aparece instalada)</option>`);
-      sel.value = ajustes.impresora || ''; $('#ancho-ticket').value = String(ajustes.columnasTicket || 48);
+      sel.value = ajustes.impresora || ''; $('#ancho-ticket').value = String(ajustes.columnasTicket || 48); $('#logo-relleno').checked = !!ajustes.logoRelleno;
       $('#impresora-manual').value = '';
       msg('#msg-imp', lista.length ? '' : 'Windows no reporta impresoras instaladas.', lista.length ? '' : 'mal');
     } catch (e) {
@@ -76,7 +78,7 @@
     }
   }
   const limpio = (e) => String(e && e.message || e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '');
-  async function guardarImpresora() { ajustes = await posAjustes.guardar({ impresora: $('#impresora-manual').value.trim() || $('#impresora').value, columnasTicket: Number($('#ancho-ticket').value) }); return ajustes; }
+  async function guardarImpresora() { ajustes = await posAjustes.guardar({ impresora: $('#impresora-manual').value.trim() || $('#impresora').value, columnasTicket: Number($('#ancho-ticket').value), logoRelleno: $('#logo-relleno').checked }); return ajustes; }
   async function probar(tipo) {
     msg('#msg-imp', 'Enviando…');
     try { await guardarImpresora(); msg('#msg-imp', await posAjustes.probar(tipo), 'ok'); } catch (e) { msg('#msg-imp', limpio(e), 'mal'); }

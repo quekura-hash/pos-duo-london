@@ -5,6 +5,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('posHardware', {
   imprimirRaw: (bytes) => ipcRenderer.invoke('hw:imprimir', bytes),
   columnasTicket: () => ipcRenderer.sendSync('ajustes:columnas'),
+  logoRelleno: () => ipcRenderer.sendSync('ajustes:logo-relleno'),
   instalarActualizacion: () => ipcRenderer.invoke('upd:instalar'),
   version: () => ipcRenderer.invoke('app:version'),
   credencialesCaja: () => ipcRenderer.invoke('caja:credenciales'),
