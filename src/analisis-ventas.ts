@@ -4,8 +4,8 @@
 //  · Las ventas del POS anterior no traen hora: entran a todo menos a las vistas por hora (se avisa cuántas se dejaron fuera).
 import type { FilaVenta } from './consultas.ts';
 
-export type Agrupar = 'mes' | 'semana' | 'dia' | 'dia_semana' | 'hora' | 'mapa_calor' | 'forma_pago' | 'caja' | 'tienda';
-export const AGRUPACIONES: Agrupar[] = ['mes', 'semana', 'dia', 'dia_semana', 'hora', 'mapa_calor', 'forma_pago', 'caja', 'tienda'];
+export type Agrupar = 'anio' | 'mes' | 'semana' | 'dia' | 'dia_semana' | 'hora' | 'mapa_calor' | 'forma_pago' | 'caja' | 'tienda';
+export const AGRUPACIONES: Agrupar[] = ['anio', 'mes', 'semana', 'dia', 'dia_semana', 'hora', 'mapa_calor', 'forma_pago', 'caja', 'tienda'];
 
 export interface FilaAnalisis {
   clave: string;
@@ -86,6 +86,7 @@ export function analizarVentas(filas: FilaVenta[], o: { agrupar: Agrupar; desde?
   const matriz = Array.from({ length: 7 }, () => Array.from({ length: 24 }, () => 0));
 
   // Categorías que deben aparecer aunque no haya ventas (para ver los huecos): meses, semanas, días, días de la semana y horas del rango.
+  if (o.agrupar === 'anio') for (let y = Number(desde.slice(0, 4)); y <= Number(hasta.slice(0, 4)); y++) get(String(y), String(y));
   if (o.agrupar === 'mes') for (let k = desde.slice(0, 7); k <= hasta.slice(0, 7); k = Number(k.slice(5, 7)) === 12 ? `${Number(k.slice(0, 4)) + 1}-01` : `${k.slice(0, 4)}-${dos(Number(k.slice(5, 7)) + 1)}`) get(k, etiquetaMes(k));
   if (o.agrupar === 'semana') for (let d = sumaDias(desde, -diaSemana(desde)); d <= hasta; d = sumaDias(d, 7)) { const s = semanaIso(d); get(`${s.anio}-S${dos(s.semana)}`, `Sem ${s.semana} · ${rangoCorto(d)}`); }
   if (o.agrupar === 'dia' && dias <= 400) for (let d = desde; d <= hasta; d = sumaDias(d, 1)) get(d, `${DIAS_CORTO[diaSemana(d)]} ${Number(d.slice(8))} ${MESES_CORTO[Number(d.slice(5, 7)) - 1]}`);
@@ -95,6 +96,7 @@ export function analizarVentas(filas: FilaVenta[], o: { agrupar: Agrupar; desde?
     const h = f.hora ? Number(f.hora.slice(0, 2)) : -1;
     let a: Acum;
     switch (o.agrupar) {
+      case 'anio': a = get(f.fecha_local.slice(0, 4), f.fecha_local.slice(0, 4)); break;
       case 'mes': a = get(f.fecha_local.slice(0, 7), etiquetaMes(f.fecha_local.slice(0, 7))); break;
       case 'semana': { const s = semanaIso(f.fecha_local); a = get(`${s.anio}-S${dos(s.semana)}`, `Sem ${s.semana} · ${rangoCorto(s.lunes)}`); break; }
       case 'dia': a = get(f.fecha_local, `${DIAS_CORTO[diaSemana(f.fecha_local)]} ${Number(f.fecha_local.slice(8))} ${MESES_CORTO[Number(f.fecha_local.slice(5, 7)) - 1]}`); break;
@@ -117,7 +119,7 @@ export function analizarVentas(filas: FilaVenta[], o: { agrupar: Agrupar; desde?
     claves = [...mapa.keys()];
   }
   const orden: Record<Agrupar, (a: Acum, b: Acum) => number> = {
-    mes: (a, b) => a.clave.localeCompare(b.clave), semana: (a, b) => a.clave.localeCompare(b.clave), dia: (a, b) => a.clave.localeCompare(b.clave),
+    anio: (a, b) => a.clave.localeCompare(b.clave), mes: (a, b) => a.clave.localeCompare(b.clave), semana: (a, b) => a.clave.localeCompare(b.clave), dia: (a, b) => a.clave.localeCompare(b.clave),
     dia_semana: (a, b) => Number(a.clave) - Number(b.clave), hora: (a, b) => Number(a.clave) - Number(b.clave), mapa_calor: (a, b) => Number(a.clave) - Number(b.clave),
     forma_pago: (a, b) => (b.total_ventas + b.fees) - (a.total_ventas + a.fees), caja: (a, b) => a.clave.localeCompare(b.clave), tienda: (a, b) => a.clave.localeCompare(b.clave),
   };
@@ -128,6 +130,7 @@ export function analizarVentas(filas: FilaVenta[], o: { agrupar: Agrupar; desde?
     if (o.agrupar === 'dia_semana') { let n = 0; for (let d = desde; d <= hasta; d = sumaDias(d, 1)) if (diaSemana(d) === Number(clave)) n++; return n || null; }
     if (porHora) return dias;
     if (o.agrupar === 'mes') { const k = clave; const ini = `${k}-01` > desde ? `${k}-01` : desde; const fin = `${k}-${dos(new Date(Date.UTC(Number(k.slice(0, 4)), Number(k.slice(5, 7)), 0)).getUTCDate())}`; return diasEntre(ini, fin < hasta ? fin : hasta); }
+    if (o.agrupar === 'anio') { const ini = `${clave}-01-01` > desde ? `${clave}-01-01` : desde, fin = `${clave}-12-31` < hasta ? `${clave}-12-31` : hasta; return diasEntre(ini, fin); }
     if (o.agrupar === 'semana') return 7;
     return null;
   };
@@ -145,5 +148,63 @@ export function analizarVentas(filas: FilaVenta[], o: { agrupar: Agrupar; desde?
     mejor: { por_total: mejorT && mejorT.total > 0 ? { clave: mejorT.clave, etiqueta: mejorT.etiqueta, total: mejorT.total } : null, por_tickets: mejorK && mejorK.tickets > 0 ? { clave: mejorK.clave, etiqueta: mejorK.etiqueta, tickets: mejorK.tickets } : null },
     ...(o.agrupar === 'mapa_calor' ? { matriz } : {}),
     sin_hora: sinHora,
+  };
+}
+
+// ── Ventas por empleada (vendedora: quien atendió a la clienta, «Venta por») ──
+export type AgruparEmpleada = 'dia' | 'semana' | 'mes' | 'anio';
+export const AGRUPACIONES_EMPLEADA: AgruparEmpleada[] = ['dia', 'semana', 'mes', 'anio'];
+/** Ventas importadas del POS anterior: no traen quién atendió. */
+export const SIN_VENDEDORA = 'Sin dato (POS anterior)';
+
+export interface SerieEmpleada {
+  clave: string;
+  alias: string;
+  tickets: number;
+  piezas: number;
+  /** Centavos de ventas de mercancía. */
+  total: number;
+  promedio_ticket: number;
+  /** % del total vendido en el periodo (0–100, un decimal). */
+  porcentaje: number;
+  /** Una entrada por periodo, en el mismo orden que `periodos`. */
+  periodos: { tickets: number; piezas: number; total: number }[];
+}
+export interface ResultadoEmpleadas {
+  agrupar: AgruparEmpleada;
+  desde: string;
+  hasta: string;
+  periodos: { clave: string; etiqueta: string }[];
+  /** De la que más vendió a la que menos (el renglón «sin dato» al final). */
+  empleadas: SerieEmpleada[];
+  /** Suma de todas las empleadas por periodo. */
+  totales: { tickets: number; piezas: number; total: number }[];
+  resumen: { tickets: number; piezas: number; total: number; empleadas: number; mejor: { alias: string; total: number } | null };
+}
+
+/**
+ * Lo que vendió cada empleada por día, semana, mes o año. Cuenta por quien atendió (no por quien cobró), solo ventas de mercancía; no resta devoluciones
+ * (igual que el resto del Análisis: lo devuelto o cambiado sí se resta en Reportes › Ventas por vendedora). Los periodos sin ventas salen en cero.
+ */
+export function analizarPorEmpleada(filas: FilaVenta[], o: { agrupar: AgruparEmpleada; desde?: string; hasta?: string }): ResultadoEmpleadas {
+  const vivas = filas.filter((f) => f.estado !== 'cancelada' && f.tipo_ticket === 'venta');
+  const base = analizarVentas(vivas, { agrupar: o.agrupar, desde: o.desde, hasta: o.hasta });
+  const periodos = base.filas.map((f) => ({ clave: f.clave, etiqueta: f.etiqueta }));
+  const nombres = new Map<string, FilaVenta[]>();
+  for (const f of vivas) { if (f.fecha_local < base.desde || f.fecha_local > base.hasta) continue; const k = f.vendedora || SIN_VENDEDORA; (nombres.get(k) ?? nombres.set(k, []).get(k)!).push(f); }
+  const total = base.resumen.total_ventas;
+  const series: SerieEmpleada[] = [...nombres].map(([alias, rows]) => {
+    const r = analizarVentas(rows, { agrupar: o.agrupar, desde: base.desde, hasta: base.hasta });
+    const porClave = new Map(r.filas.map((f) => [f.clave, f]));
+    const celdas = periodos.map((p) => { const f = porClave.get(p.clave); return { tickets: f?.tickets ?? 0, piezas: f?.piezas ?? 0, total: f?.total_ventas ?? 0 }; });
+    const t = celdas.reduce((a, c) => a + c.total, 0), n = celdas.reduce((a, c) => a + c.tickets, 0);
+    return { clave: alias, alias, tickets: n, piezas: celdas.reduce((a, c) => a + c.piezas, 0), total: t, promedio_ticket: n ? Math.round(t / n) : 0, porcentaje: total ? Math.round((t / total) * 1000) / 10 : 0, periodos: celdas };
+  }).sort((a, b) => Number(a.alias === SIN_VENDEDORA) - Number(b.alias === SIN_VENDEDORA) || b.total - a.total || a.alias.localeCompare(b.alias, 'es'));
+  const totales = periodos.map((_, i) => series.reduce((a, s) => ({ tickets: a.tickets + s.periodos[i]!.tickets, piezas: a.piezas + s.periodos[i]!.piezas, total: a.total + s.periodos[i]!.total }), { tickets: 0, piezas: 0, total: 0 }));
+  const conVentas = series.filter((s) => s.alias !== SIN_VENDEDORA && s.total > 0);
+  const mejor = conVentas.length ? conVentas.reduce((m, s) => (s.total > m.total ? s : m)) : null;
+  return {
+    agrupar: o.agrupar, desde: base.desde, hasta: base.hasta, periodos, empleadas: series, totales,
+    resumen: { tickets: series.reduce((a, s) => a + s.tickets, 0), piezas: series.reduce((a, s) => a + s.piezas, 0), total: series.reduce((a, s) => a + s.total, 0), empleadas: series.filter((s) => s.alias !== SIN_VENDEDORA).length, mejor: mejor ? { alias: mejor.alias, total: mejor.total } : null },
   };
 }

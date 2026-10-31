@@ -4899,12 +4899,12 @@ async function vistaAvisos() {
 }
 
 // ── Análisis de ventas: por mes, semana, día, día de la semana, hora, mapa de calor, forma de pago, caja y tienda ──
-const AN_AGRUP = [['mes', 'Por mes'], ['semana', 'Por semana (la más alta del año)'], ['dia', 'Por día'], ['dia_semana', 'Por día de la semana'], ['hora', 'Por hora'], ['mapa_calor', 'Mapa de calor (día × hora)'], ['forma_pago', 'Por forma de pago'], ['caja', 'Por caja'], ['tienda', 'Por tienda']];
+const AN_AGRUP = [['anio', 'Por año'], ['mes', 'Por mes'], ['semana', 'Por semana (la más alta del año)'], ['dia', 'Por día'], ['dia_semana', 'Por día de la semana'], ['hora', 'Por hora'], ['mapa_calor', 'Mapa de calor (día × hora)'], ['forma_pago', 'Por forma de pago'], ['caja', 'Por caja'], ['tienda', 'Por tienda']];
 const AN_METRICAS = [['total', 'Total vendido ($)'], ['tickets', 'Tickets'], ['piezas', 'Piezas'], ['promedio_ticket', 'Ticket promedio ($)'], ['promedio_dia', 'Promedio por día ($)']];
 const AN_DIAS = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
 const anValor = (f, m) => (m === 'promedio_dia' ? (f.promedio_dia ?? 0) : f[m] ?? 0);
 const anTexto = (v, m) => (m === 'tickets' || m === 'piezas' ? Number(v).toLocaleString('es-MX') : mxn(v));
-const anCorto = (ag, f) => (ag === 'mes' ? f.etiqueta.slice(0, 3) : ag === 'semana' ? `S${f.etiqueta.split(' ')[1]}` : ag === 'dia' ? f.etiqueta.split(' ')[1] : ag === 'hora' ? `${f.etiqueta.split(':')[0]}h` : ag === 'dia_semana' ? f.etiqueta.slice(0, 3) : f.etiqueta);
+const anCorto = (ag, f) => (ag === 'anio' ? f.etiqueta : ag === 'mes' ? f.etiqueta.slice(0, 3) : ag === 'semana' ? `S${f.etiqueta.split(' ')[1]}` : ag === 'dia' ? f.etiqueta.split(' ')[1] : ag === 'hora' ? `${f.etiqueta.split(':')[0]}h` : ag === 'dia_semana' ? f.etiqueta.slice(0, 3) : f.etiqueta);
 const anFechas = (A) => {
   const hoy = new Date(Date.now() - 7 * 3600e3).toISOString().slice(0, 10), y = Number(hoy.slice(0, 4));
   const finMes = (ym) => `${ym}-${String(new Date(Date.UTC(Number(ym.slice(0, 4)), Number(ym.slice(5, 7)), 0)).getUTCDate()).padStart(2, '0')}`;
@@ -4917,6 +4917,7 @@ async function vistaAnalisis() {
   const { cajas } = await api('/api/admin/cajas');
   const hoy = new Date(Date.now() - 7 * 3600e3).toISOString().slice(0, 10), y = Number(hoy.slice(0, 4));
   const A = (S.analisis ??= { rango: 'anio', anio: String(y), mes: hoy.slice(0, 7), desde: `${y}-01-01`, hasta: hoy, agrupar: 'mes', metrica: 'total', historicas: true });
+  A.desglose ??= 'todo'; A.vistaEmp ??= 'juntas';
   const anios = Array.from({ length: Math.max(1, y - 2022) }, (_, i) => String(y - i));
   const sel = (id, ops, v) => `<select id="${id}" style="padding:8px;border:2px solid var(--borde);border-radius:10px;background:var(--superficie)">${ops.map(([k, t]) => `<option value="${k}" ${String(k) === String(v) ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select>`;
   cuerpoVista().innerHTML = `<div class="titulo-vista">${ico('trend')}<h1>Análisis de ventas</h1></div>
@@ -4928,7 +4929,9 @@ async function vistaAnalisis() {
         <label id="an-l-desde">Desde <input type="date" id="an-desde" value="${esc(A.desde)}"></label><label id="an-l-hasta">Hasta <input type="date" id="an-hasta" value="${esc(A.hasta)}"></label>
       </div>
       <div class="an-fila">
+        <label>Desglose ${sel('an-desglose', [['todo', 'Todo junto'], ['empleada', 'Por empleada']], A.desglose)}</label>
         <label>Ver ${sel('an-agrupar', AN_AGRUP, A.agrupar)}</label>
+        <label id="an-l-vista">Gráficas ${sel('an-vista', [['juntas', 'Una con todas (apilada)'], ['separadas', 'Una por empleada']], A.vistaEmp)}</label>
         <label id="an-l-metrica">Medir ${sel('an-metrica', AN_METRICAS, A.metrica)}</label>
       </div>
       <fieldset><legend>Cajas</legend><label><input type="checkbox" id="an-todas" checked> Todas</label>
@@ -4940,11 +4943,18 @@ async function vistaAnalisis() {
     <div id="an-resultado"></div>`;
   const marcas = () => [...document.querySelectorAll('.an-caja')];
   const seleccion = () => marcas().filter((m) => m.checked).map((m) => m.value);
-  const ruta = () => { const f = anFechas(A); const sel2 = seleccion(); return `/api/admin/analisis?agrupar=${A.agrupar}&desde=${f.desde}&hasta=${f.hasta}&cajas=${sel2.join(',')}&historicas=${A.historicas ? 1 : 0}`; };
+  const ruta = () => { const f = anFechas(A); const sel2 = seleccion(); return `/api/admin/analisis?agrupar=${A.agrupar}&desde=${f.desde}&hasta=${f.hasta}&cajas=${sel2.join(',')}&historicas=${A.historicas ? 1 : 0}${A.desglose === 'empleada' ? `&desglose=empleada&medida=${A.metrica}` : ''}`; };
+  const llenar = (id, ops, v) => { $(`#${id}`).innerHTML = ops.map(([k, t]) => `<option value="${k}" ${String(k) === String(v) ? 'selected' : ''}>${esc(t)}</option>`).join(''); };
   const visibilidad = () => {
+    // Por empleada solo se agrupa por día, semana, mes o año y se mide en pesos, tickets o piezas.
+    const emp = A.desglose === 'empleada';
+    if (emp) { if (!['dia', 'semana', 'mes', 'anio'].includes(A.agrupar)) A.agrupar = 'mes'; if (!AN_MEDIDAS_EMP.some((m) => m[0] === A.metrica)) A.metrica = 'total'; }
+    llenar('an-agrupar', emp ? AN_AGRUP.filter((x) => ['dia', 'semana', 'mes', 'anio'].includes(x[0])) : AN_AGRUP, A.agrupar);
+    llenar('an-metrica', emp ? AN_MEDIDAS_EMP : AN_METRICAS, A.metrica);
+    $('#an-l-vista').hidden = !emp;
     $('#an-l-anio').hidden = A.rango !== 'anio'; $('#an-l-mes').hidden = A.rango !== 'mes';
     $('#an-l-desde').hidden = $('#an-l-hasta').hidden = A.rango !== 'personalizado';
-    $('#an-l-metrica').hidden = A.agrupar === 'mapa_calor';
+    $('#an-l-metrica').hidden = !emp && A.agrupar === 'mapa_calor';
   };
   async function consultar() {
     visibilidad();
@@ -4952,9 +4962,9 @@ async function vistaAnalisis() {
     if (!seleccion().length) { res.innerHTML = '<div class="mensaje error">Seleccione al menos una caja.</div>'; return; }
     let j;
     try { j = (await api(ruta())).analisis; } catch (e) { res.innerHTML = `<div class="mensaje error">${esc(e.message)}</div>`; return; }
-    pintarAnalisis(res, j, A.metrica);
+    if (A.desglose === 'empleada') pintarAnalisisEmpleadas(res, j, A.metrica, A.vistaEmp); else pintarAnalisis(res, j, A.metrica);
   }
-  for (const [id, k] of [['an-rango', 'rango'], ['an-anio', 'anio'], ['an-mes', 'mes'], ['an-desde', 'desde'], ['an-hasta', 'hasta'], ['an-agrupar', 'agrupar'], ['an-metrica', 'metrica']]) $(`#${id}`).addEventListener('change', () => { A[k] = $(`#${id}`).value; consultar(); });
+  for (const [id, k] of [['an-rango', 'rango'], ['an-anio', 'anio'], ['an-mes', 'mes'], ['an-desde', 'desde'], ['an-hasta', 'hasta'], ['an-agrupar', 'agrupar'], ['an-metrica', 'metrica'], ['an-desglose', 'desglose'], ['an-vista', 'vistaEmp']]) $(`#${id}`).addEventListener('change', () => { A[k] = $(`#${id}`).value; consultar(); });
   $('#an-hist').addEventListener('change', () => { A.historicas = $('#an-hist').checked; consultar(); });
   $('#an-todas').addEventListener('change', (e) => { marcas().forEach((m) => (m.checked = e.target.checked)); consultar(); });
   marcas().forEach((m) => m.addEventListener('change', () => { $('#an-todas').checked = marcas().every((x) => x.checked); consultar(); }));
@@ -4962,17 +4972,61 @@ async function vistaAnalisis() {
     const m = $('#an-msg'); m.className = 'mensaje'; m.textContent = 'Preparando el Excel…';
     const r = ruta().replace('/analisis?', '/analisis.xlsx?');
     try {
-      if (window.__POS_EXPORTAR__) m.textContent = await window.__POS_EXPORTAR__(r, `analisis-de-ventas-${A.agrupar}.xlsx`);
+      if (window.__POS_EXPORTAR__) m.textContent = await window.__POS_EXPORTAR__(r, `${A.desglose === 'empleada' ? 'ventas-por-empleada' : 'analisis-de-ventas'}-${A.agrupar}.xlsx`);
       else { const a = document.createElement('a'); a.href = r; a.download = 'analisis-de-ventas.xlsx'; document.body.appendChild(a); a.click(); a.remove(); m.textContent = 'Descarga iniciada.'; }
       m.className = 'mensaje ok';
     } catch (e) { m.className = 'mensaje error'; m.textContent = `No se pudo exportar: ${e.message}`; }
   });
   await consultar();
 }
+const AN_MEDIDAS_EMP = [['total', 'Total vendido ($)'], ['tickets', 'Tickets'], ['piezas', 'Piezas']];
+const AN_COLORES = ['#2563eb', '#f59e0b', '#10b981', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6', '#a16207', '#0ea5e9', '#84cc16', '#f97316', '#64748b'];
+const AN_SIN_DATO = 'Sin dato (POS anterior)';
+/** Ventas por empleada (quien atendió): gráficas por día, semana, mes o año. `vista`: «juntas» (barras apiladas, una por periodo) o «separadas» (una gráfica por empleada). */
+function pintarAnalisisEmpleadas(el, j, medida, vista) {
+  const r = j.resumen, ag = j.agrupar;
+  const NOMBRE = AN_MEDIDAS_EMP.find((x) => x[0] === medida)[1];
+  const kpi = (t, v, nota = '') => `<div class="an-kpi"><span>${esc(t)}</span><b>${esc(v)}</b>${nota ? `<small>${esc(nota)}</small>` : ''}</div>`;
+  const kpis = `<div class="an-kpis">${kpi('Total vendido', mxn(r.total))}${kpi('Tickets', r.tickets.toLocaleString('es-MX'))}${kpi('Piezas', r.piezas.toLocaleString('es-MX'))}${kpi('Empleadas con ventas', String(r.empleadas))}${kpi('La que más vendió', r.mejor ? r.mejor.alias : '—', r.mejor ? mxn(r.mejor.total) : '')}</div>`;
+  const notas = `<p class="nota">Cuenta por quien atendió a la clienta («Venta por»), no por quien cobró; solo ventas de mercancía y <b>sin restar devoluciones</b> (en Reportes › Ventas por vendedora sí se restan). «Autocompra» = nadie ayudó. Las ventas del POS anterior no traen empleada y salen como «Sin dato».</p>`;
+  if (!r.tickets) { el.innerHTML = `${kpis}<div class="panel"><p class="vacio">No hay ventas en este periodo.</p></div>${notas}`; return; }
+  const val = (c) => c[medida] ?? 0;
+  const txt = (v) => (medida === 'total' ? mxn(v) : Number(v).toLocaleString('es-MX'));
+  const corto = (v) => txt(v).replace(/\.00$/, '');
+  let k = 0;
+  const color = new Map(j.empleadas.map((e) => [e.alias, e.alias === AN_SIN_DATO ? '#94a3b8' : AN_COLORES[k++ % AN_COLORES.length]]));
+  const muchas = j.periodos.length > 24;
+  const eti = (p) => anCorto(ag, p);
+  const leyenda = `<ul class="an-leyenda" id="an-leyenda">${j.empleadas.map((e) => `<li data-empleada="${esc(e.alias)}"><i style="background:${color.get(e.alias)}"></i>${esc(e.alias)} <small>${esc(txt(val(e)))}</small></li>`).join('')}</ul>`;
+  let graficas;
+  if (vista === 'separadas') {
+    graficas = `<div class="an-emp-grid" id="an-emp-grid">${j.empleadas.map((e) => {
+      const m = Math.max(1, ...e.periodos.map(val));
+      return `<section class="an-emp-card" data-empleada="${esc(e.alias)}"><h3><i style="background:${color.get(e.alias)}"></i>${esc(e.alias)} <small>${esc(txt(val(e)))} · ${e.porcentaje}%</small></h3>
+        <div class="grafica-cont"><div class="grafica mini ${muchas ? 'ancha' : ''}" role="img" aria-label="${esc(`Gráfica de ${NOMBRE} de ${e.alias}`)}">${j.periodos.map((p, i) => `<div class="gb" title="${esc(p.etiqueta)} · ${esc(txt(val(e.periodos[i])))}"><span class="gb-barra" style="height:${((val(e.periodos[i]) / m) * 100).toFixed(1)}%;background:${color.get(e.alias)}"></span><span class="gb-eti">${muchas && i % 5 ? '' : esc(eti(p))}</span></div>`).join('')}</div></div></section>`;
+    }).join('')}</div><p class="nota">Cada gráfica usa su propia escala (la barra más alta es el mejor periodo de esa empleada); para comparar entre empleadas use la gráfica apilada o la tabla.</p>`;
+  } else {
+    const maxP = Math.max(1, ...j.totales.map(val));
+    graficas = `<div class="grafica-cont"><div class="grafica ${muchas ? 'ancha' : ''}" id="an-grafica-emp" role="img" aria-label="${esc(`Gráfica apilada de ${NOMBRE} por empleada`)}">${j.periodos.map((p, i) => {
+      const tot = val(j.totales[i]);
+      return `<div class="gb" title="${esc(p.etiqueta)} · ${esc(txt(tot))}"><span class="gb-valor">${muchas || !tot ? '' : esc(corto(tot))}</span><div class="gb-pila" style="height:${((tot / maxP) * 100).toFixed(1)}%">${j.empleadas.filter((e) => val(e.periodos[i]) > 0).map((e) => `<span class="gs" style="height:${((val(e.periodos[i]) / tot) * 100).toFixed(2)}%;background:${color.get(e.alias)}" title="${esc(e.alias)} · ${esc(txt(val(e.periodos[i])))}"></span>`).join('')}</div><span class="gb-eti">${muchas && i % 5 ? '' : esc(eti(p))}</span></div>`;
+    }).join('')}</div></div>`;
+  }
+  const maxE = Math.max(1, ...j.empleadas.map(val));
+  const ranking = `<table class="tabla-analisis" id="an-ranking"><thead><tr><th>Empleada</th><th>${esc(NOMBRE)}</th><th class="num">Tickets</th><th class="num">Piezas</th><th class="num">Vendido</th><th class="num">Ticket promedio</th><th class="num">% del total</th></tr></thead><tbody>
+    ${j.empleadas.map((e) => `<tr data-empleada="${esc(e.alias)}"><td><i class="an-punto" style="background:${color.get(e.alias)}"></i>${esc(e.alias)}</td><td class="celda-barra"><span class="barra-h" style="width:${((val(e) / maxE) * 100).toFixed(1)}%;background:${color.get(e.alias)}"></span></td><td class="num">${e.tickets}</td><td class="num">${e.piezas}</td><td class="num">${mxn(e.total)}</td><td class="num">${mxn(e.promedio_ticket)}</td><td class="num">${e.porcentaje}%</td></tr>`).join('')}
+    <tr class="fila-total"><th scope="row">Total</th><td></td><td class="num">${r.tickets}</td><td class="num">${r.piezas}</td><td class="num">${mxn(r.total)}</td><td class="num">${mxn(r.tickets ? Math.round(r.total / r.tickets) : 0)}</td><td class="num">100%</td></tr></tbody></table>`;
+  const matriz = `<div class="tabla-cont"><table class="tabla-analisis tabla-emp" id="an-matriz"><thead><tr><th>Empleada</th>${j.periodos.map((p) => `<th class="num">${esc(muchas ? eti(p) : p.etiqueta)}</th>`).join('')}<th class="num">Total</th></tr></thead><tbody>
+    ${j.empleadas.map((e) => `<tr data-empleada="${esc(e.alias)}"><td><i class="an-punto" style="background:${color.get(e.alias)}"></i>${esc(e.alias)}</td>${e.periodos.map((c) => `<td class="num">${val(c) ? esc(txt(val(c))) : '<span class="cero">·</span>'}</td>`).join('')}<td class="num"><b>${esc(txt(val(e)))}</b></td></tr>`).join('')}
+    <tr class="fila-total"><th scope="row">Total</th>${j.totales.map((c) => `<td class="num">${esc(txt(val(c)))}</td>`).join('')}<td class="num">${esc(txt(medida === 'total' ? r.total : r[medida]))}</td></tr></tbody></table></div>`;
+  el.innerHTML = `${kpis}<section class="panel"><h2 style="margin-top:0">Ventas por empleada · ${esc(AN_AGRUP.find((x) => x[0] === ag)[1])} · ${esc(NOMBRE)}</h2>${leyenda}${graficas}</section>
+    <section class="panel"><h2 style="margin-top:0">Ranking del periodo</h2><div class="tabla-cont">${ranking}</div></section>
+    <section class="panel"><h2 style="margin-top:0">${esc(NOMBRE)} por empleada y por ${esc({ dia: 'día', semana: 'semana', mes: 'mes', anio: 'año' }[ag])}</h2>${matriz}</section>${notas}`;
+}
 function pintarAnalisis(el, j, metrica) {
   const r = j.resumen, ag = j.agrupar;
   const kpi = (t, v, nota = '') => `<div class="an-kpi"><span>${esc(t)}</span><b>${esc(v)}</b>${nota ? `<small>${esc(nota)}</small>` : ''}</div>`;
-  const NOM = { mes: 'mes', semana: 'semana', dia: 'día', dia_semana: 'día de la semana', hora: 'hora', mapa_calor: 'hora', forma_pago: 'forma de pago', caja: 'caja', tienda: 'tienda' }[ag];
+  const NOM = { anio: 'año', mes: 'mes', semana: 'semana', dia: 'día', dia_semana: 'día de la semana', hora: 'hora', mapa_calor: 'hora', forma_pago: 'forma de pago', caja: 'caja', tienda: 'tienda' }[ag];
   const kpis = `<div class="an-kpis">${kpi('Total vendido', mxn(r.total), r.fees ? `incluye ${mxn(r.fees)} de fees por daño` : '')}${kpi('Tickets', r.tickets.toLocaleString('es-MX'))}${kpi('Piezas', r.piezas.toLocaleString('es-MX'))}${kpi('Ticket promedio', mxn(r.promedio_ticket))}${kpi('Días con ventas', `${r.dias_con_ventas} de ${r.dias}`)}${j.mejor.por_total ? kpi(`Mejor ${NOM}`, j.mejor.por_total.etiqueta, mxn(j.mejor.por_total.total)) : ''}</div>`;
   const notas = `${j.sin_hora ? `<p class="nota">${j.sin_hora} ticket(s) del POS anterior no traen hora y no entran en esta vista.</p>` : ''}<p class="nota">Los fees por daño suman al total pero no cuentan como ticket; los cambios sin diferencia no cuentan. No incluye tickets cancelados.</p>`;
   if (!r.tickets && !r.fees) { el.innerHTML = `${kpis}<div class="panel"><p class="vacio">No hay ventas en este periodo.</p></div>${notas}`; return; }

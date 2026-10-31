@@ -1,5 +1,5 @@
 import { revisarReporteAnterior, idVentaHistorica } from '../ventas-historicas.ts';
-import { AGRUPACIONES, analizarVentas, type Agrupar } from '../analisis-ventas.ts';
+import { AGRUPACIONES, AGRUPACIONES_EMPLEADA, analizarPorEmpleada, analizarVentas, type Agrupar, type AgruparEmpleada } from '../analisis-ventas.ts';
 import { gastosPorCaja, retirosPorCaja, cortesPorCaja, ultimoCortePorCaja, descuentosPorCaja, dolaresPorCaja, reporteConsolidado, ventasPorCaja, ventasPorVendedora, type Filtro } from '../consultas.ts';
 import type { GastoRegistrado } from '../gastos.ts';
 import { DENOMS_FERIA, MINIMO_FERIA, estimarFeria } from '../feria.ts';
@@ -11,7 +11,7 @@ import type { Impresora } from '../impresion.ts';
 import { DIAS_CONSULTA_HISTORICA, FONDO_AUTORIZADO_DEFECTO, type Autoriza, type Caja } from '../nodos.ts';
 import { estadoPromo, type Promocion } from '../promociones.ts';
 import { personalConCuenta, mesesVigenciaTarjetas, clientesVip, excepcionesVip, cuentasEmpleadas, configEmpleadas, CRITERIOS_EXPEDIENTE, expedientesDe, expedienteVacio, registradaEn, CAMPOS_EDITABLES, catalogo, historialArticulo, nombresTienda, datosTiendas, departamentos as proyDepartamentos, devoluciones, type Devolucion, promocionesDe, recompensasDe, supervisoresDe, cajerosDe, administradoresDe, configSesionDe, permisos as proyPermisos, tarjetasRegalo, tiposDeCambio, tipoCambioVigente, ventas, type TipoCambio } from '../proyecciones.ts';
-import { hojaAnalisis, hojaDetalleVentas, hojaResumenVentas, hojaDescuentos, hojaEntregas, hojaDolares, hojaInventario, leerInventario, PERFIL_CONFIRMADO, type Hoja } from '../inventario.ts';
+import { hojaAnalisis, hojaAnalisisEmpleadas, hojaDetalleVentas, hojaResumenVentas, hojaDescuentos, hojaEntregas, hojaDolares, hojaInventario, leerInventario, PERFIL_CONFIRMADO, type Hoja } from '../inventario.ts';
 import { LOGOS_TICKET } from '../logos-ticket.ts';
 import { detalleHistorica, detalleDeVenta, validarDatosClienta, type DatosClienta } from '../detalle-venta.ts';
 import { aplicarDatosTienda, codigoTicket, interpretarFolio, construirTicket, construirTicketRegalo, formatoMXN, NEGOCIOS, renderTextoEscPos, renderTicketCancelacionTexto, renderTicketGastoTexto, renderTicketFirmaTexto, renderTicketDevolucionTexto, type ComprobanteClienta, renderTicketRetiroTexto, renderTicketEscPos, renderTicketCorteEscPos, renderTicketCorteTexto, renderTicketTexto, type NegocioCfg } from '../ticket.ts';
@@ -1788,6 +1788,15 @@ export class ServicioAdmin {
     if (!AGRUPACIONES.includes(f.agrupar)) throw new ErrorDominio('DATOS_INVALIDOS', `agrupación desconocida: ${String(f.agrupar)}`);
     const { agrupar, ...filtro } = f;
     return analizarVentas(this.reporte(filtro).filas, { agrupar, desde: f.desde, hasta: f.hasta });
+  }
+  /** Lo que vendió cada empleada por día, semana, mes o año (solo Administración). */
+  analisisEmpleadas(f: Filtro & { agrupar: AgruparEmpleada }) {
+    if (!AGRUPACIONES_EMPLEADA.includes(f.agrupar)) throw new ErrorDominio('DATOS_INVALIDOS', `por empleada se agrupa por día, semana, mes o año, no por «${String(f.agrupar)}»`);
+    const { agrupar, ...filtro } = f;
+    return analizarPorEmpleada(this.reporte(filtro).filas, { agrupar, desde: f.desde, hasta: f.hasta });
+  }
+  hojasAnalisisEmpleadas(f: Filtro & { agrupar: AgruparEmpleada }, medida: 'total' | 'tickets' | 'piezas' = 'total'): Hoja[] {
+    return [hojaAnalisisEmpleadas(this.analisisEmpleadas(f), medida)];
   }
   hojasAnalisis(f: Filtro & { agrupar: Agrupar }): Hoja[] {
     return [hojaAnalisis(this.analisisVentas(f))];

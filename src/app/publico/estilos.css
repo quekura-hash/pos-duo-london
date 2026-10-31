@@ -300,6 +300,16 @@ tr.fila-fallo td { background: color-mix(in srgb, #ef4444 12%, transparent); }
 .gb-valor { font-size: 11px; font-weight: 700; margin-bottom: 3px; white-space: nowrap; }
 .gb-eti { position: absolute; top: 100%; margin-top: 4px; font-size: 11px; color: var(--texto-2); white-space: nowrap; }
 .grafica { margin-bottom: 26px; }
+.gb-pila { display: flex; flex-direction: column-reverse; width: 100%; max-width: 56px; min-height: 2px; border-radius: 5px 5px 0 0; overflow: hidden; transition: height .25s; }
+.gb-pila .gs { display: block; width: 100%; min-height: 1px; border-top: 1px solid var(--superficie); }
+.an-leyenda { list-style: none; display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 0 0 12px; padding: 0; font-size: 14px; }
+.an-leyenda li { display: flex; align-items: center; gap: 6px; } .an-leyenda i, .an-emp-card h3 i, .an-punto { display: inline-block; width: 12px; height: 12px; border-radius: 3px; flex: none; }
+.an-punto { margin-right: 8px; vertical-align: -1px; } .an-leyenda small { color: var(--texto-2); }
+.an-emp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; margin-bottom: 8px; }
+.an-emp-card { border: 1px solid var(--borde); border-radius: 12px; padding: 10px 12px 4px; background: var(--superficie); }
+.an-emp-card h3 { margin: 0 0 6px; font-size: 15px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; } .an-emp-card h3 small { color: var(--texto-2); font-weight: 500; }
+.grafica.mini { height: 130px; padding-top: 8px; margin-bottom: 22px; }
+.tabla-emp th:first-child, .tabla-emp td:first-child { position: sticky; left: 0; background: var(--superficie); z-index: 1; white-space: nowrap; } .tabla-emp .cero { color: var(--texto-2); opacity: .6; }
 .tabla-analisis td.celda-barra { width: 28%; min-width: 120px; } .barra-h { display: block; height: 14px; background: var(--acento); border-radius: 0 7px 7px 0; min-width: 1px; }
 .tabla-analisis tr.fila-mejor .barra-h { background: var(--naranja); } .tabla-analisis tr.fila-mejor td, .tabla-analisis tr.fila-mejor th { font-weight: 700; }
 .tabla-analisis tr.fila-total th, .tabla-analisis tr.fila-total td { border-top: 2px solid var(--borde); font-weight: 700; }
@@ -449,3 +459,4 @@ input[data-pin] { -webkit-text-security: disc; text-security: disc; }
 .detalle-cobro dt { color: var(--texto-2); } .detalle-cobro dd { margin: 0; font-weight: 600; text-align: right; }
 .lineas-cobro { list-style: none; margin: 8px 0; padding: 0; max-height: 26vh; overflow: auto; font-size: 14px; }
 .lineas-cobro li { display: flex; justify-content: space-between; gap: 12px; padding: 3px 2px; border-bottom: 1px dotted var(--borde); }
+.tabla-emp { width: max-content; min-width: 100%; } .tabla-emp th, .tabla-emp td { white-space: nowrap; }

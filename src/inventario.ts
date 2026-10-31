@@ -335,7 +335,19 @@ export function hojaDetalleVentasContadora(r: import('./consultas.ts').Consolida
   return { nombre: 'Detalle de ventas', encabezados: h.encabezados.slice(0, 7), filas: h.filas.map((f) => f.slice(0, 7)), textoCols: [], formatoCols: { 0: 'dd/mm/yyyy', 4: '#,##0.00' } };
 }
 
-const NOMBRE_AGRUP: Record<string, string> = { mes: 'Ventas por mes', semana: 'Ventas por semana', dia: 'Ventas por día', dia_semana: 'Ventas por día de la semana', hora: 'Ventas por hora', mapa_calor: 'Ventas por hora', forma_pago: 'Ventas por forma de pago', caja: 'Ventas por caja', tienda: 'Ventas por tienda' };
+const NOMBRE_AGRUP: Record<string, string> = { anio: 'Ventas por año', mes: 'Ventas por mes', semana: 'Ventas por semana', dia: 'Ventas por día', dia_semana: 'Ventas por día de la semana', hora: 'Ventas por hora', mapa_calor: 'Ventas por hora', forma_pago: 'Ventas por forma de pago', caja: 'Ventas por caja', tienda: 'Ventas por tienda' };
+/** Ventas por empleada: una fila por empleada y una columna por periodo (importes numéricos, para sumar y graficar en Excel), más sus totales. */
+export function hojaAnalisisEmpleadas(r: import('./analisis-ventas.ts').ResultadoEmpleadas, medida: 'total' | 'tickets' | 'piezas' = 'total'): Hoja {
+  const v = (c: { total: number; tickets: number; piezas: number }) => (medida === 'total' ? pesos(c.total) : c[medida]);
+  const encabezados = ['Empleada', ...r.periodos.map((p) => p.etiqueta), 'Total', 'Tickets', 'Piezas', 'Ticket promedio', '% del total'];
+  const filas: Hoja['filas'] = r.empleadas.map((e) => [e.alias, ...e.periodos.map(v), medida === 'total' ? pesos(e.total) : e[medida], e.tickets, e.piezas, pesos(e.promedio_ticket), e.porcentaje / 100]);
+  filas.push([], ['TOTAL', ...r.totales.map(v), medida === 'total' ? pesos(r.resumen.total) : r.resumen[medida], r.resumen.tickets, r.resumen.piezas, null, null]);
+  const n = r.periodos.length, fmt = medida === 'total' ? '#,##0.00' : '#,##0';
+  const formatoCols: Record<number, string> = { [n + 4]: '#,##0.00', [n + 5]: '0.0%' };
+  for (let i = 1; i <= n + 1; i++) formatoCols[i] = fmt;
+  return { nombre: `Ventas por empleada (${{ total: '$', tickets: 'tickets', piezas: 'piezas' }[medida]})`.slice(0, 31), encabezados, filas, textoCols: [0], formatoCols };
+}
+
 /** Tabla del análisis de ventas (la misma que se ve en pantalla). Importes numéricos para poder sumar y graficar en Excel. */
 export function hojaAnalisis(r: import('./analisis-ventas.ts').ResultadoAnalisis): Hoja {
   const encabezados = ['Periodo', 'Tickets', 'Piezas', 'Ventas', 'Fees por daño', 'Total', 'Ticket promedio', 'Promedio por día', '% del total'];

@@ -239,6 +239,11 @@ export async function atender(o: { cajero?: ServicioCaja; admin?: ServicioAdmin 
       case 'GET /api/admin/analisis': {
         const A6 = exigirAdmin();
         const f = { cajas: cajasParam(q.get('cajas')), desde: q.get('desde') || undefined, hasta: q.get('hasta') || undefined, historicas: q.get('historicas') !== '0', agrupar: (q.get('agrupar') || 'mes') as never };
+        if (q.get('desglose') === 'empleada') {
+          const fe = { ...f, agrupar: f.agrupar as never };
+          const medida = (['total', 'tickets', 'piezas'] as const).find((m) => m === q.get('medida')) ?? 'total';
+          return ok({ analisis: A6.analisisEmpleadas(fe), ...(q.get('completo') === '1' ? { hojas: A6.hojasAnalisisEmpleadas(fe, medida) } : {}) });
+        }
         return ok({ analisis: A6.analisisVentas(f), ...(q.get('completo') === '1' ? { hojas: A6.hojasAnalisis(f) } : {}) });
       }
       case 'GET /api/admin/dolares': {
