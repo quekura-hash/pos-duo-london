@@ -367,7 +367,9 @@ export class ServicioCaja {
   /** Configuración de cada negocio con el nombre editado en Administración (si lo hay). */
   private negociosVivos(): Record<string, NegocioCfg> {
     const datos = this.caja.idx.datosDeTienda();
-    return Object.fromEntries(Object.entries(this.negocios).map(([t, c]) => [t, aplicarDatosTienda(c, datos.get(t))]));
+    // Cada impresora tiene su ancho (la app de Windows lo guarda en Ajustes de ESTE equipo); sin dato se usa el de fábrica (48 columnas).
+    const col = Number((globalThis as { posHardware?: { columnasTicket?(): number } }).posHardware?.columnasTicket?.());
+    return Object.fromEntries(Object.entries(this.negocios).map(([t, c]) => { const v = aplicarDatosTienda(c, datos.get(t)); return [t, col >= 24 && col <= 64 ? { ...v, columnas: col } : v]; }));
   }
 
   /** Reutiliza la venta en curso (sobrevive a reinicios) o abre una nueva. */

@@ -188,6 +188,7 @@ function registrarIpc() {
   ipcMain.handle('app:carpeta-datos', () => app.getPath('userData'));
   ipcMain.handle('ajustes:leer', () => ({ ...ajustes.leer(), version: app.getVersion(), empaquetada: app.isPackaged, modoArchivo: !!process.env.LONDUO_IMPRESORA_ARCHIVO }));
   ipcMain.handle('ajustes:guardar', (_e, c) => { const a = ajustes.guardar(c); if (ventana) ventana.setFullScreen(!!a.pantallaCompleta); aplicarFuente(); programarRevisiones(); return a; });
+  ipcMain.on('ajustes:columnas', (e) => { e.returnValue = ajustes.leer().columnasTicket; });
   ipcMain.handle('ajustes:impresoras', () => impresora.listar());
   ipcMain.handle('ajustes:probar', (_e, tipo) => probarHardware(tipo));
   ipcMain.handle('upd:revisar', () => revisarActualizacion());

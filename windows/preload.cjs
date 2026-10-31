@@ -4,6 +4,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 // Lo que la pantalla del POS puede pedirle al equipo. Nada más: no hay acceso a Node desde la página.
 contextBridge.exposeInMainWorld('posHardware', {
   imprimirRaw: (bytes) => ipcRenderer.invoke('hw:imprimir', bytes),
+  columnasTicket: () => ipcRenderer.sendSync('ajustes:columnas'),
   instalarActualizacion: () => ipcRenderer.invoke('upd:instalar'),
   version: () => ipcRenderer.invoke('app:version'),
   credencialesCaja: () => ipcRenderer.invoke('caja:credenciales'),

@@ -409,7 +409,7 @@ export function renderTicketEscPos(t: Ticket, opts: { abrirCajon?: boolean; logo
   b.push(0x1b, 0x40); // ESC @ inicializar
   b.push(0x1b, 0x74, 19); // ESC t 19: página de códigos PC858 (acentos del español)
   if (opts.abrirCajon) b.push(0x1b, 0x70, 0x00, 25, 250); // ESC p: pulso al cajón
-  if (opts.logo) b.push(...rasterEscPos(opts.logo)); // logo de la tienda arriba, centrado (GS v 0)
+  if (opts.logo) b.push(...rasterEscPos(opts.logo, t.columnas * 12)); // logo de la tienda arriba, centrado (GS v 0); letra A = 12 puntos por columna
   if (t.regalo) b.push(...aCP858(renderTicketTexto({ ...t, recompensas: undefined }).replace(/\n$/, '')), 0x0a);
   else {
     // Los avisos (vestido de noche, venta final) salen centrados, en negritas y en doble tamaño; el resto del ticket, normal.
@@ -435,9 +435,16 @@ export function renderTicketEscPos(t: Ticket, opts: { abrirCajon?: boolean; logo
 }
 
 /** Imagen en 1 bit como ESC/POS «GS v 0» (modo normal), centrada. NO validado con una impresora real. */
-export function rasterEscPos(l: import('./logos-ticket.ts').LogoRaster): number[] {
-  const bytes = Array.from(atob(l.datos), (c) => c.charCodeAt(0));
-  const bpr = Math.ceil(l.ancho / 8);
+export function rasterEscPos(l: import('./logos-ticket.ts').LogoRaster, anchoPuntos = 0): number[] {
+  let bytes = Array.from(atob(l.datos), (c) => c.charCodeAt(0));
+  let bpr = Math.ceil(l.ancho / 8);
+  // Algunas impresoras ignoran «centrar» (ESC a) en las imágenes y la dejan pegada a la izquierda: se rellena con blanco hasta el ancho del papel para que quede al centro sin depender de ello.
+  const total = Math.ceil(anchoPuntos / 8);
+  if (total > bpr) {
+    const izq = Math.floor((total - bpr) / 2), der = total - bpr - izq, filas: number[] = [];
+    for (let y = 0; y < l.alto; y++) filas.push(...new Array<number>(izq).fill(0), ...bytes.slice(y * bpr, (y + 1) * bpr), ...new Array<number>(der).fill(0));
+    bytes = filas; bpr = total;
+  }
   return [0x1b, 0x61, 1, 0x1d, 0x76, 0x30, 0, bpr & 255, bpr >> 8, l.alto & 255, l.alto >> 8, ...bytes, 0x0a, 0x1b, 0x61, 0];
 }
 
