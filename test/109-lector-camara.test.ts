@@ -51,9 +51,17 @@ it('LC1 los buscadores de artículos de Administración tienen un botón de cám
   assert.ok(boton.x >= caja.x + caja.width - 1 && Math.abs(boton.y - caja.y) < 8 && boton.height < 60, `botón junto al buscador: ${JSON.stringify({ caja, boton })}`);
   // pitido de lector al leer: se cuentan los osciladores que arma el audio
   await page.evaluate(() => { (window as any).__pitidos = 0; const A = window.AudioContext; const crear = A.prototype.createOscillator; A.prototype.createOscillator = function (this: AudioContext) { (window as any).__pitidos++; return crear.call(this); }; });
-  // lectura: se abre la cámara, lee el código y lo escribe en el buscador
+  // acercamiento: a 2× solo se lee el centro (el código de la prueba es ancho y no cabe), así que no lee; a 1× sí
   await page.click('#inv-q + .btn-camara');
   await page.waitForSelector('#dlg-escaner[open]');
+  assert.equal(await page.locator('#dlg-escaner [data-zoom]').count(), 3, 'botones 1×, 2× y 3×');
+  assert.equal(await page.getAttribute('#dlg-escaner [data-zoom="1"]', 'aria-pressed'), 'true', 'fuera del iPhone arranca en 1×');
+  await page.click('#dlg-escaner [data-zoom="2"]');
+  assert.equal(await page.evaluate(() => (document.querySelector('#esc-video') as HTMLElement).style.transform), 'scale(2)');
+  await page.waitForTimeout(1500);
+  assert.equal(await page.inputValue('#inv-q'), '', 'a 2× el código ancho queda cortado y no se lee');
+  // lectura: a 1× lee el código y lo escribe en el buscador
+  await page.click('#dlg-escaner [data-zoom="1"]');
   await page.waitForFunction(() => (document.querySelector('#inv-q') as HTMLInputElement).value === '8342509102', undefined, { timeout: 20_000 });
   assert.equal(await page.locator('#dlg-escaner[open]').count(), 0, 'al leer, la cámara se cierra');
   assert.ok((await page.evaluate(() => (window as any).__pitidos)) >= 1, 'al leer suena el pitido');

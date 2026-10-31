@@ -5144,8 +5144,14 @@ function abrirEscaner(alLeer) {
   d.setAttribute('aria-labelledby', 'esc-titulo');
   d.innerHTML = `<h2 id="esc-titulo" style="margin-top:0">Leer código con la cámara</h2>
     <div class="escaner-visor"><video id="esc-video" autoplay playsinline muted></video><div class="escaner-marco" aria-hidden="true"></div></div>
-    <p id="esc-msg" class="nota" role="status" aria-live="polite">Apunte la cámara al código de barras de la etiqueta, con buena luz y sin acercarla demasiado.</p>
+    <div class="escaner-zoom" role="group" aria-label="Acercamiento">${[1, 2, 3].map((z) => `<button class="btn" type="button" data-zoom="${z}" aria-pressed="false">${z}×</button>`).join('')}</div>
+    <p id="esc-msg" class="nota" role="status" aria-live="polite">Aleje el teléfono unos 20 cm de la etiqueta (más cerca no enfoca) y use el acercamiento 2× o 3× hasta que el código llene el recuadro.</p>
     <div class="filas"><button class="btn" type="button" id="esc-cancelar">${ico('x')}<span>Cancelar</span></button></div>`;
+  // El iPhone sin cámara macro no enfoca a menos de ~12 cm y Safari no deja forzar el enfoque: se acerca la imagen en pantalla (y al leer) para poder sostenerlo más lejos.
+  let zoom = /iPhone|iPad|iPod/.test(navigator.userAgent) ? 2 : 1;
+  const ponerZoom = (z) => { zoom = z; $('#esc-video').style.transform = `scale(${z})`; d.querySelectorAll('[data-zoom]').forEach((b) => b.setAttribute('aria-pressed', String(Number(b.dataset.zoom) === z))); };
+  d.querySelectorAll('[data-zoom]').forEach((b) => b.addEventListener('click', () => ponerZoom(Number(b.dataset.zoom))));
+  ponerZoom(zoom);
   let flujo = null, listo = false, pista = 0, vuelta = 0;
   const parar = () => { listo = true; clearTimeout(pista); clearTimeout(vuelta); flujo?.getTracks().forEach((t) => t.stop()); flujo = null; };
   d.addEventListener('close', parar, { once: true });
@@ -5161,21 +5167,25 @@ function abrirEscaner(alLeer) {
   const B = Z.BarcodeFormat;
   const lector = new Z.MultiFormatReader();
   lector.setHints(new Map([[Z.DecodeHintType.POSSIBLE_FORMATS, [B.CODE_128, B.EAN_13, B.EAN_8, B.UPC_E, B.CODE_39, B.ITF, B.QR_CODE]], [Z.DecodeHintType.TRY_HARDER, true]]));
-  navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false }).then(async (st) => {
+  navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false }).then(async (st) => {
     if (listo) { st.getTracks().forEach((t) => t.stop()); return; }
     flujo = st;
+    // Si el equipo deja pedir enfoque continuo se pide; en iPhone Safari no lo expone y simplemente se ignora.
+    try { await st.getVideoTracks()[0]?.applyConstraints({ advanced: [{ focusMode: 'continuous' }] }); } catch { /* sin control de enfoque */ }
     const video = $('#esc-video');
     video.srcObject = st;
     await video.play().catch(() => {});
     const lienzo = document.createElement('canvas');
     const g = lienzo.getContext('2d', { willReadFrequently: true });
-    pista = setTimeout(() => { if (!listo) $('#esc-msg').textContent = 'Si no lee: acerque o aleje un poco la etiqueta, busque más luz y mantenga el teléfono quieto.'; }, 8000);
+    pista = setTimeout(() => { if (!listo) $('#esc-msg').textContent = 'Si no lee: pruebe otro acercamiento (2× o 3×), sostenga el teléfono a unos 20 cm sin moverlo y busque más luz.'; }, 8000);
     // Cada ~150 ms se toma un cuadro del video y se busca un código en él (la lectura es local: nada sale del teléfono).
     const paso = () => {
       if (listo) return;
       if (video.videoWidth) {
-        lienzo.width = video.videoWidth; lienzo.height = video.videoHeight;
-        g.drawImage(video, 0, 0);
+        // Se lee solo el centro del cuadro (lo que el acercamiento muestra), a la resolución real del video.
+        const w = Math.round(video.videoWidth / zoom), h = Math.round(video.videoHeight / zoom);
+        lienzo.width = w; lienzo.height = h;
+        g.drawImage(video, Math.round((video.videoWidth - w) / 2), Math.round((video.videoHeight - h) / 2), w, h, 0, 0, w, h);
         try {
           const res = lector.decode(new Z.BinaryBitmap(new Z.HybridBinarizer(new Z.HTMLCanvasElementLuminanceSource(lienzo))));
           const texto = String(res.getText()).trim();
