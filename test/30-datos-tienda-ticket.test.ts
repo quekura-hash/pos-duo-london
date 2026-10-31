@@ -83,7 +83,7 @@ porAlmacen('Datos de la tienda y política de devolución en el ticket', (alm) =
       const logo = LOGOS_TICKET[tienda]!;
       const i = secuencia(bytes, [0x1d, 0x76, 0x30, 0]);
       assert.ok(i >= 0, `${tienda}: lleva imagen`);
-      assert.equal(bytes[i + 4], Math.ceil(logo.ancho / 8), 'por omisión el logo no se rellena (la impresora lo centra con ESC a): menos datos, sin pausas');
+      assert.equal(bytes[i + 4], 72, 'de fábrica el logo se rellena con blanco hasta el ancho del papel (48 columnas = 576 puntos) para quedar al centro');
       assert.ok(i < 40, 'el logo es lo primero que se imprime (tras inicializar y abrir el cajón)');
       await s.svc.reimprimir(v.venta.sale_id);
       assert.ok(bin().every((b) => secuencia(b, [0x1d, 0x76, 0x30, 0]) >= 0), 'también la reimpresión');

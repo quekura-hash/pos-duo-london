@@ -68,8 +68,8 @@ function cambioDeVenta(ops: Op[], v: Venta): { dev: Devolucion; origen: Venta } 
   return dev && origen ? { dev, origen } : undefined;
 }
 
-/** Ajuste de ESTE equipo (app de Windows): centrar el logo rellenándolo, para impresoras que no centran las imágenes. */
-const logoRellenoEquipo = (): boolean => !!(globalThis as { posHardware?: { logoRelleno?(): boolean } }).posHardware?.logoRelleno?.();
+/** Ajuste de ESTE equipo (app de Windows): centrar el logo rellenándolo, para impresoras que no centran las imágenes. Encendido de fábrica; se apaga en impresoras lentas que se pausan con tanto dato. */
+const logoRellenoEquipo = (): boolean => (globalThis as { posHardware?: { logoRelleno?(): boolean } }).posHardware?.logoRelleno?.() !== false;
 
 export class ServicioCaja {
   readonly caja: Caja;

@@ -3,7 +3,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const URL_ACTUALIZACIONES = 'https://zchgpakvhrdpabvsxpnn.supabase.co/storage/v1/object/public/actualizaciones';
-const OMISION = { impresora: '', canal: 'pruebas', urlActualizaciones: URL_ACTUALIZACIONES, pantallaCompleta: false, revisarCadaMin: 30, columnasTicket: 48, logoRelleno: false };
+const OMISION = { impresora: '', canal: 'pruebas', urlActualizaciones: URL_ACTUALIZACIONES, pantallaCompleta: false, revisarCadaMin: 30, columnasTicket: 48, logoRelleno: true };
 
 /** Ajustes de ESTE equipo (impresora, canal de actualizaciones…), en la carpeta de datos del usuario. */
 function crearAjustes(dir, sistema = fs) {

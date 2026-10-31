@@ -28,7 +28,7 @@ describe('Ticket: logo centrado y ancho por equipo', () => {
     assert.equal(rasterEscPos(LOGOS_TICKET.DUO!, 504)[7], 63);
     assert.equal(rasterEscPos(LOGOS_TICKET.DUO!)[7], Math.ceil(LOGOS_TICKET.DUO!.ancho / 8));
   });
-  it('TL2b el relleno del logo es opcional por equipo: apagado (de fábrica) no engorda el trabajo; encendido lo rellena al ancho del papel', async () => {
+  it('TL2b el relleno del logo es opcional por equipo: apagado no engorda el trabajo; encendido lo rellena al ancho del papel', async () => {
     const { construirTicket, renderTicketEscPos, NEGOCIOS } = await import('../src/ticket.ts');
     const v = { sale_id: 's', tienda: 'LON', caja: 1, folio: 1, cajero: 'A', ocurrio_en: '2026-10-31T16:00:00Z', lineas: [{ linea_id: 'l', item_id: 'i', qty: 1, importe: 1000, precio_unit: 1000, codigo: '1', item_no: null, descripcion: 'X', marca: '', estilo: '', descuento: 0 }], total: 1000, pagos: [{ metodo: 'efectivo', monto: 1000 }], estado: 'confirmada' } as never;
     const t = construirTicket(v, NEGOCIOS.LON!, 0, NEGOCIOS);
@@ -41,8 +41,8 @@ describe('Ticket: logo centrado y ancho por equipo', () => {
     assert.equal(a.leer().columnasTicket, 48);
     assert.equal(a.guardar({ columnasTicket: 42 }).columnasTicket, 42);
     assert.equal(a.guardar({ columnasTicket: 5 }).columnasTicket, 42, 'valor absurdo: se ignora');
-    assert.equal(a.leer().logoRelleno, false);
-    assert.equal(a.guardar({ logoRelleno: true }).logoRelleno, true);
+    assert.equal(a.leer().logoRelleno, true, 'de fábrica encendido (la caja 1 lo necesita)');
+    assert.equal(a.guardar({ logoRelleno: false }).logoRelleno, false, 'la caja 2 (POS-X, lenta) lo apaga');
     assert.equal(crearAjustes(join(tmpdir(), 'inexistente-' + Date.now())).leer().columnasTicket, 48);
   });
   it('TL4 con el ancho del equipo en 42 columnas, el ticket se arma a 42 (y sin dato, a 48)', async (t) => {
