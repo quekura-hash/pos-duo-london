@@ -3336,13 +3336,13 @@ async function abrirEspera() {
   const d = dialogo('dlg-espera');
   d.setAttribute('aria-labelledby', 'esp-titulo');
   const tieneArt = (S.carrito?.lineas?.length ?? 0) > 0 || !!S.carrito?.cambio; // un cambio ya aceptado (prenda que regresa) también se puede guardar
-  const filas = lista.map((v) => `<tr data-cart="${esc(v.cart_id)}"><td>${esc(hora(v.desde))}</td><td>${esc(v.nota || '—')}<div class="nota">${v.articulos.map((a) => `${a.qty} ${esc(a.descripcion)}`).join(', ')}${v.piezas > v.articulos.reduce((n, a) => n + a.qty, 0) ? '…' : ''}</div></td><td class="num">${v.piezas}</td><td class="num">${mxn(v.total)}</td><td><button class="btn btn-primario esp-retomar" type="button">Retomar</button> <button class="btn esp-descartar" type="button">Descartar</button></td></tr>`).join('');
+  const filas = lista.map((v) => `<li class="esp-venta" data-cart="${esc(v.cart_id)}"><div class="esp-cab"><span class="esp-hora">${esc(hora(v.desde))}</span><span class="esp-tot"><b>${mxn(v.total)}</b> · ${v.piezas} pza${v.piezas === 1 ? '' : 's'}</span></div><div class="esp-nota">${esc(v.nota || '—')}</div><div class="nota">${v.articulos.map((a) => `${a.qty} ${esc(a.descripcion)}`).join(', ')}${v.piezas > v.articulos.reduce((n, a) => n + a.qty, 0) ? '…' : ''}</div><div class="esp-botones"><button class="btn btn-primario esp-retomar" type="button">Recuperar venta</button><button class="btn esp-descartar" type="button">Descartar</button></div></li>`).join('');
   d.innerHTML = `<h2 id="esp-titulo" style="margin-top:0">Venta en espera</h2>
     <div class="campo"><label for="esp-nota">Nota (nombre del cliente o referencia)</label><input id="esp-nota" class="texto" maxlength="80" placeholder="Opcional" ${tieneArt ? '' : 'disabled'}></div>
     <button class="btn btn-primario" type="button" id="esp-guardar" ${tieneArt ? '' : 'disabled'}>${ico('pause')}<span>Poner esta venta en espera</span></button>
     ${tieneArt ? '' : '<p class="nota">La venta en pantalla no tiene artículos: no hay nada que poner en espera.</p>'}
     <h3>Ventas guardadas (${lista.length})</h3>
-    ${lista.length ? `<table class="tabla"><thead><tr><th>Hora</th><th>Detalle</th><th class="num">Piezas</th><th class="num">Total</th><th></th></tr></thead><tbody>${filas}</tbody></table><p class="nota">Al retomar, los precios y promociones se calculan de nuevo; las existencias no se reservan.</p>` : '<p class="nota">No hay ventas en espera.</p>'}
+    ${lista.length ? `<ul class="esp-lista">${filas}</ul><p class="nota">Al retomar, los precios y promociones se calculan de nuevo; las existencias no se reservan.</p>` : '<p class="nota">No hay ventas en espera.</p>'}
     <div id="msg-espera" class="mensaje" role="status" aria-live="polite"></div>
     <div class="filas"><button class="btn" type="button" id="esp-cerrar">Cerrar</button></div>`;
   const error = (e) => { const m = $('#msg-espera'); m.className = 'mensaje error'; m.textContent = e.message; };
@@ -3355,13 +3355,13 @@ async function abrirEspera() {
   });
   d.querySelectorAll('.esp-retomar').forEach((b) => b.addEventListener('click', async () => {
     try {
-      const r = await api('/api/venta/retomar', { cart: b.closest('tr').dataset.cart, actual: S.cart });
+      const r = await api('/api/venta/retomar', { cart: b.closest('[data-cart]').dataset.cart, actual: S.cart });
       S.cart = r.cart; S.carrito = r.carrito; S.sel = null; d.close(); await ir('venta'); msg('Venta retomada.');
     } catch (e) { error(e); }
   }));
   d.querySelectorAll('.esp-descartar').forEach((b) => b.addEventListener('click', async () => {
     if (!b.dataset.seguro) { b.dataset.seguro = '1'; b.textContent = '¿Descartar? Confirmar'; return; }
-    try { await api('/api/venta/espera/descartar', { cart: b.closest('tr').dataset.cart }); await abrirEspera(); } catch (e) { error(e); }
+    try { await api('/api/venta/espera/descartar', { cart: b.closest('[data-cart]').dataset.cart }); await abrirEspera(); } catch (e) { error(e); }
   }));
   if (!d.open) d.showModal();
 }
@@ -4265,45 +4265,35 @@ async function vistaCajasFondo() {
 }
 
 // ── Feria: billetes y monedas de cambio de cada caja (estimado en el día, exacto desde el conteo del cierre) ──
-const denFeria = (c) => (c >= 2000 ? `Billete de ${mxn(c).replace('.00', '')}` : `Moneda de ${mxn(c).replace('.00', '')}`);
-const listaFeria = (d) => Object.keys(d).map(Number).sort((a, b) => b - a).map((k) => `${d[String(k)]} × ${mxn(k).replace('.00', '')}`).join(', ') || '—';
 const ESTADO_FERIA = {
   bien: ['Feria suficiente', 'var(--ok, #1f7a4d)'], bajo: ['Va a faltar feria pronto', '#b8860b'], critico: ['Estado de feria CRÍTICO', '#b3261e'], sin_dato: ['Sin fondo contado hoy', '#6b7280'],
 };
 async function vistaFeria() {
-  const j = await api('/api/admin/feria'); // solo el día de hoy: la feria de días anteriores ya no se muestra
+  const j = await api('/api/admin/feria'); // estado ACTUAL de cada caja: lo de hoy o, si hoy aún no cuentan el fondo, lo último conocido (cierre de ayer)
   const orden = { critico: 0, bajo: 1, bien: 2, sin_dato: 3 };
   const cajas = [...j.cajas].sort((a, b) => orden[a.estado] - orden[b.estado] || a.tienda.localeCompare(b.tienda) || a.caja - b.caja);
   const hora = (iso) => h12(new Date(Date.parse(iso) - 7 * 3600_000).toISOString().slice(11, 16));
+  const diaCorto = (f) => new Date(`${f}T12:00:00Z`).toLocaleDateString('es-MX', { day: 'numeric', month: 'short', timeZone: 'UTC' }).replace('.', '');
   const tarjeta = (c) => {
     const [rotulo, color] = ESTADO_FERIA[c.estado];
-    const movs = c.eventos.filter((e) => e.tipo !== 'fondo' && e.tipo !== 'conteo');
-    const suma = (campo, d) => movs.reduce((a, e) => a + (e[campo][String(d)] ?? 0), 0);
-    const filas = c.estado === 'sin_dato' ? '' : j.denominaciones.map((d) => {
+    const cuando = c.estado === 'sin_dato' ? 'Sin conteo reciente'
+      : c.de_dia === j.hoy ? `Hoy ${hora(c.confirmado_en)} · ${c.estimado ? 'estimado' : 'contado'}`
+      : `Al cierre del ${diaCorto(c.de_dia)} · contado`;
+    const total = j.denominaciones.reduce((a, d) => a + d * (c.inventario[String(d)] ?? 0), 0);
+    const chips = c.estado === 'sin_dato' ? '' : j.denominaciones.map((d) => {
       const n = c.inventario[String(d)] ?? 0, min = j.minimos[d];
-      const est = n === 0 ? ['Agotada', '#b3261e'] : n < min ? ['Baja', '#b8860b'] : ['OK', 'var(--ok, #1f7a4d)'];
-      return `<tr data-den="${d}"><td>${denFeria(d)}</td><td class="num">+${suma('entra', d)}</td><td class="num">−${suma('sale', d)}</td><td class="num"><b>${n}</b></td><td class="num">${min}</td><td><b style="color:${est[1]}">${est[0]}</b></td></tr>`;
+      const cls = n === 0 ? 'agotada' : n < min ? 'baja' : '';
+      return `<div class="fer-d ${cls}" data-den="${d}"><span>${mxn(d).replace('.00', '')}</span><b>${n}</b></div>`;
     }).join('');
-    const ev = movs.slice().reverse();
-    return `<section class="panel" data-caja="${esc(c.tienda)}/${c.caja}" data-estado="${esc(c.estado)}" style="border-left:8px solid ${color}">
-      <div class="filas" style="align-items:center;justify-content:space-between"><h2 style="margin:0">${esc(c.nombre)} · Caja ${c.caja}</h2><b class="estado-feria" style="color:${color};font-size:1.1em">${rotulo}</b></div>
-      ${c.estado === 'sin_dato' ? '<p class="nota">La cajera todavía no cuenta y confirma el fondo de hoy: sin ese conteo no hay punto de partida.</p>' : `
-      <p class="nota" style="margin:4px 0 8px">${c.estimado ? `<b>Estimado.</b> Último conteo confirmado a las ${hora(c.confirmado_en)}; desde entonces se supone lo más probable que entró y salió en cada operación.` : `<b>Confirmado</b> billete por billete y moneda por moneda a las ${hora(c.confirmado_en)}.`}${c.desfase ? ' <b style="color:#b3261e">La estimación no cuadró con lo que había: conviene contar la caja.</b>' : ''}</p>
-      <div class="tabla-cont"><table><thead><tr><th>Denominación</th><th class="num">Entró hoy</th><th class="num">Salió hoy</th><th class="num">Hay ahora</th><th class="num">Mínimo</th><th>Estado</th></tr></thead><tbody>${filas}</tbody></table></div>
-      <div class="filas" style="margin-top:10px"><button class="btn ver-movimientos" type="button" aria-expanded="false">${ico('clock')}<span>Ver movimientos (${ev.length})</span></button></div>
-      <div class="tabla-cont movimientos-feria" hidden style="max-height:190px;overflow:auto;margin-top:6px"><table><thead><tr><th>Hora</th><th>Movimiento</th><th>Entra</th><th>Sale</th></tr></thead><tbody>${ev.map((e) => `<tr><td>${hora(e.ocurrio_en)}</td><td>${esc(e.descripcion)}${e.estimado ? '' : ' <small><b>(exacto)</b></small>'}</td><td>${listaFeria(e.entra)}</td><td>${listaFeria(e.sale)}</td></tr>`).join('') || '<tr><td colspan="4" class="vacio">Sin movimientos de feria hoy.</td></tr>'}</tbody></table></div>`}
+    return `<section class="panel fer-caja" data-caja="${esc(c.tienda)}/${c.caja}" data-estado="${esc(c.estado)}" style="border-left:6px solid ${color}">
+      <div class="fer-cab"><h2>${esc(c.nombre)} · Caja ${c.caja}</h2><b class="estado-feria" style="color:${color}">${rotulo}</b></div>
+      <p class="nota fer-cuando">${esc(cuando)}${c.estado === 'sin_dato' ? '' : ` · Total <b>${mxn(total)}</b>`}${c.desfase ? ' · <b style="color:#b3261e">conviene contarla</b>' : ''}</p>
+      ${chips ? `<div class="fer-chips">${chips}</div>` : ''}
     </section>`;
   };
-  cuerpoVista().innerHTML = `<section class="panel"><h2 style="margin:0 0 4px">Estado de la feria por caja · hoy</h2>
-      <p class="nota" style="margin:0">Billetes y monedas para dar cambio. Durante el día es un <b>estimado</b> (se supone lo más probable que entrega la clienta, nunca con billete de $1,000, y que da la cajera); en el cierre se cuenta billete por billete y deja de ser estimación. <b>Crítico</b>: ya no hay al menos dos denominaciones. <b>Va a faltar</b>: alguna agotada o por debajo de su mínimo. Solo se muestra el día de hoy.</p></section>
+  cuerpoVista().innerHTML = `<section class="panel"><h2 style="margin:0 0 4px">Feria de las cajas · ahora</h2>
+      <p class="nota" style="margin:0">Cuántos billetes y monedas hay en cada caja. Rojo: agotada · Ámbar: por debajo de su mínimo. Si hoy aún no cuentan el fondo se muestra el último conteo (cierre de ayer).</p></section>
     ${cajas.map(tarjeta).join('')}`;
-  for (const b of cuerpoVista().querySelectorAll('.ver-movimientos')) {
-    b.addEventListener('click', () => {
-      const caja = b.closest('section'), lista = caja.querySelector('.movimientos-feria'), abrir = lista.hidden;
-      lista.hidden = !abrir; b.setAttribute('aria-expanded', String(abrir));
-      b.querySelector('span').textContent = `${abrir ? 'Ocultar' : 'Ver'} movimientos (${lista.querySelectorAll('tbody tr:not(:has(.vacio))').length})`;
-    });
-  }
   await montarInactividad();
 }
 

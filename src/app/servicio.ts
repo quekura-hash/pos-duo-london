@@ -1927,9 +1927,16 @@ export class ServicioAdmin {
     const ops = this.fuente();
     const dia = fecha || fechaLocal(this.reloj.now());
     const nombres = new Map(this.tiendasInfo().map((t) => [t.tienda, t.nombre]));
+    const hoy = fechaLocal(this.reloj.now());
+    const antes = (f: string, n: number) => new Date(Date.parse(`${f}T12:00:00Z`) - n * 86400000).toISOString().slice(0, 10);
     return {
-      fecha: dia, hoy: fechaLocal(this.reloj.now()), denominaciones: [...DENOMS_FERIA], minimos: MINIMO_FERIA,
-      cajas: this.cajas.map((c) => ({ nombre: nombres.get(c.tienda) ?? c.tienda, ...estimarFeria(ops, c.tienda, c.caja, dia) })),
+      fecha: dia, hoy, denominaciones: [...DENOMS_FERIA], minimos: MINIMO_FERIA,
+      cajas: this.cajas.map((c) => {
+        let r = estimarFeria(ops, c.tienda, c.caja, dia);
+        // Sin fecha pedida se muestra el estado ACTUAL de la feria: si hoy aún no cuentan el fondo, lo último conocido (el cierre de ayer o del último día con conteo).
+        if (!fecha) for (let i = 1; i <= 14 && r.estado === 'sin_dato'; i++) r = estimarFeria(ops, c.tienda, c.caja, antes(hoy, i));
+        return { nombre: nombres.get(c.tienda) ?? c.tienda, ...r, de_dia: r.estado === 'sin_dato' ? null : r.fecha };
+      }),
     };
   }
   /** Detalle de una venta de cualquier caja. Revertir y hacer cambios se hace en la caja donde se vendió. */

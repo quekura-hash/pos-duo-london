@@ -461,3 +461,21 @@ input[data-pin] { -webkit-text-security: disc; text-security: disc; }
 .lineas-cobro { list-style: none; margin: 8px 0; padding: 0; max-height: 26vh; overflow: auto; font-size: 14px; }
 .lineas-cobro li { display: flex; justify-content: space-between; gap: 12px; padding: 3px 2px; border-bottom: 1px dotted var(--borde); }
 .tabla-emp { width: max-content; min-width: 100%; } .tabla-emp th, .tabla-emp td { white-space: nowrap; }
+
+/* Feria: una tarjeta compacta por caja (cuántos billetes y monedas hay) */
+.fer-caja { padding: 10px 12px; margin-top: 8px; }
+.fer-cab { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.fer-cab h2 { margin: 0; font-size: 1.05rem; } .fer-cab .estado-feria { font-size: .92rem; }
+.fer-cuando { margin: 2px 0 6px; }
+.fer-chips { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }
+.fer-d { display: flex; justify-content: space-between; align-items: baseline; padding: 4px 8px; border: 1px solid var(--borde); border-radius: 8px; background: var(--superficie); font-size: .95rem; }
+.fer-d span { color: var(--texto-2); } .fer-d b { font-variant-numeric: tabular-nums; }
+.fer-d.baja { border-color: #b8860b; background: rgba(184, 134, 11, .12); } .fer-d.agotada { border-color: #b3261e; background: rgba(179, 38, 30, .12); } .fer-d.agotada b { color: #b3261e; }
+
+/* Ventas en espera: una tarjeta por venta, con los botones siempre a la vista (sin deslizar de lado) */
+#dlg-espera { width: min(94vw, 560px); }
+.esp-lista { list-style: none; margin: 0 0 8px; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.esp-venta { border: 1px solid var(--borde); border-radius: 12px; padding: 10px 12px; background: var(--superficie); }
+.esp-cab { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; } .esp-hora { color: var(--texto-2); }
+.esp-nota { font-weight: 600; overflow-wrap: anywhere; } .esp-venta .nota { margin: 2px 0 8px; overflow-wrap: anywhere; }
+.esp-botones { display: flex; gap: 8px; } .esp-botones .btn { flex: 1; width: auto; margin: 0; } .esp-botones .btn-primario { flex: 2; }
