@@ -73,6 +73,9 @@ describe('[navegador real] Depósitos en la caja', { timeout: 300_000, skip: chr
       await page.waitForSelector('#dep-ticket');
       const ticket = (await page.textContent('#dep-ticket'))!;
       assert.match(ticket, /COMPROBANTE DE DEPÓSITO/);
+      const codigo1 = /Código: (DEP-\S+)/.exec(ticket)![1]!;
+      assert.match(codigo1, /^DEP-D1-0001-[A-Z2-9]{6}$/);
+      assert.equal(await page.locator('#dep-barras svg rect').count() > 20, true, 'la vista previa muestra el código de barras');
       assert.match(ticket, /Folio: DEP-D1-0001/);
       assert.match(ticket, /María González/);
       assert.match(ticket, /DEPÓSITO RECIBIDO\s+\$300\.00/);
@@ -99,6 +102,7 @@ describe('[navegador real] Depósitos en la caja', { timeout: 300_000, skip: chr
 
       // — Aplicar a una compra: sin artículos no se puede; con el vestido ($899) el adicional es $599 y el Resumen lo refleja sin botones nuevos.
       await page.click('#dep-a-aplicar');
+      await page.waitForSelector('#dep-titulo:has-text("Aplicar a una compra")');
       assert.match((await page.textContent('#dlg-depositos'))!, /Primero agregue el vestido/);
       await page.click('#dep-cerrar');
       await page.fill('#scan', VESTIDO); await page.press('#scan', 'Enter');
@@ -108,10 +112,15 @@ describe('[navegador real] Depósitos en la caja', { timeout: 300_000, skip: chr
       await page.fill('#dep-filtro', 'maria');
       await page.click('#dep-lista [data-dep]');
       await page.click('#dep-a-aplicar');
+      await page.waitForSelector('#dep-ap-precio');
       assert.equal((await page.textContent('#dep-ap-precio'))!.trim(), '$899.00');
       assert.equal((await page.textContent('#dep-ap-aplica'))!.trim(), '$300.00');
       assert.equal((await page.textContent('#dep-ap-resta'))!.trim(), '$599.00');
       await page.click('#dep-ap-ejecutar');
+      assert.match((await page.textContent('#dep-msg'))!, /Escanee el código/);
+      await page.fill('#dep-codigo', 'DEP-D1-0001-AAAAAA'); await page.click('#dep-ap-ejecutar');
+      await page.waitForFunction(() => /no corresponde/.test(document.querySelector('#dep-msg')?.textContent ?? ''));
+      await page.fill('#dep-codigo', codigo1); await page.click('#dep-ap-ejecutar');
       await page.waitForSelector('#dlg-depositos', { state: 'hidden' });
       assert.equal((await page.textContent('#total'))!.trim(), '$599.00');
       assert.equal((await page.textContent('#brutas'))!.trim(), '$899.00', 'el precio no cambia');
@@ -124,7 +133,7 @@ describe('[navegador real] Depósitos en la caja', { timeout: 300_000, skip: chr
       await page.click('#dep-quitar');
       await page.waitForSelector('#dep-encarrito', { state: 'detached' });
       assert.equal((await page.textContent('#total'))!.trim(), '$899.00');
-      await page.click('#dep-pendientes'); await page.click('#dep-lista [data-dep]'); await page.click('#dep-a-aplicar'); await page.click('#dep-ap-ejecutar');
+      await page.click('#dep-pendientes'); await page.click('#dep-lista [data-dep]'); await page.click('#dep-a-aplicar'); await page.waitForSelector('#dep-codigo'); await page.fill('#dep-codigo', codigo1); await page.click('#dep-ap-ejecutar');
       await page.waitForSelector('#dlg-depositos', { state: 'hidden' });
       // cobrar la diferencia en efectivo
       await page.fill('#recibido', '600');
@@ -143,12 +152,18 @@ describe('[navegador real] Depósitos en la caja', { timeout: 300_000, skip: chr
         if (!(await page.locator('#dlg-depositos[open]').count())) await page.click('#btn-depositos');
         await page.click('#dep-nuevo');
         await page.fill('#dep-clienta', nombre); await page.fill('#dep-monto', monto);
-        await page.click('#dep-guardar'); await page.waitForSelector('#dep-ticket'); await page.click('#dep-listo');
+        await page.click('#dep-guardar'); await page.waitForSelector('#dep-ticket');
+        const cod = /Código: (DEP-\S+)/.exec((await page.textContent('#dep-ticket'))!)![1]!;
+        await page.click('#dep-listo');
+        return cod;
       };
-      await nuevoDep('Lupe Pérez', '500');
-      await page.click('#dep-buscar'); await page.fill('#dep-q', 'DEP-D1-0002'); await page.press('#dep-q', 'Enter');
+      const codigo2 = await nuevoDep('Lupe Pérez', '500');
+      // escanear el código completo en Buscar deja el comprobante verificado; con solo el folio hay que escanearlo después
+      await page.click('#dep-buscar'); await page.fill('#dep-q', codigo2); await page.press('#dep-q', 'Enter');
       await page.click('#dep-resultados [data-dep]');
       await page.click('#dep-a-devolver');
+      await page.waitForSelector('#dep-verif-ok');
+      assert.equal(await page.locator('#dep-codigo').count(), 0, 'ya está verificado: no vuelve a pedir el código');
       assert.equal(await page.isDisabled('#dep-dev-ejecutar'), true, 'no entrega el dinero sin confirmar');
       await page.check('#dep-dev-ok');
       assert.equal(await page.isDisabled('#dep-dev-ejecutar'), false);

@@ -13,7 +13,8 @@ import { estadoPromo, type Promocion } from '../promociones.ts';
 import { personalConCuenta, mesesVigenciaTarjetas, clientesVip, excepcionesVip, cuentasEmpleadas, configEmpleadas, CRITERIOS_EXPEDIENTE, expedientesDe, expedienteVacio, registradaEn, CAMPOS_EDITABLES, catalogo, historialArticulo, nombresTienda, datosTiendas, departamentos as proyDepartamentos, devoluciones, type Devolucion, promocionesDe, recompensasDe, supervisoresDe, cajerosDe, administradoresDe, configSesionDe, permisos as proyPermisos, tarjetasRegalo, tiposDeCambio, tipoCambioVigente, ventas, type TipoCambio } from '../proyecciones.ts';
 import { hojaAnalisis, hojaAnalisisEmpleadas, hojaDetalleVentas, hojaResumenVentas, hojaDescuentos, hojaEntregas, hojaDolares, hojaInventario, leerInventario, PERFIL_CONFIRMADO, type Hoja } from '../inventario.ts';
 import { LOGOS_TICKET } from '../logos-ticket.ts';
-import type { Deposito, MovDeposito } from '../depositos.ts';
+import { codigoTicketDeposito, type Deposito, type MovDeposito } from '../depositos.ts';
+import { svgCode128 } from '../codigo128.ts';
 import { detalleHistorica, detalleDeVenta, validarDatosClienta, type DatosClienta } from '../detalle-venta.ts';
 import { aplicarDatosTienda, codigoTicket, interpretarFolio, construirTicket, construirTicketRegalo, formatoMXN, NEGOCIOS, renderTextoEscPos, renderTicketCancelacionTexto, renderTicketGastoTexto, renderTicketDepositoTexto, renderTicketResolucionDepositoTexto, renderDepositoEscPos, type DatosTicketResolucion, renderTicketFirmaTexto, renderTicketDevolucionTexto, type ComprobanteClienta, renderTicketRetiroTexto, renderTicketEscPos, renderTicketCorteEscPos, renderTicketCorteTexto, renderTicketTexto, type NegocioCfg } from '../ticket.ts';
 import { promoDeRegla, type ReglaRecompensa } from '../recompensas.ts';
@@ -295,31 +296,42 @@ export class ServicioCaja {
     }
   }
   // ── Depósitos en garantía (pruebas de vestidos): se reciben, se buscan y se resuelven en una ventana propia; la venta solo recibe el saldo aplicado ──
-  depositosPendientes() { return { depositos: this.caja.depositosPendientes() }; }
-  buscarDepositos(q: string) { return { depositos: this.caja.buscarDepositos(q) }; }
-  depositoDetalle(id: string) {
+  /** Lo que ve la interfaz de un depósito: NUNCA el código secreto del comprobante (solo viaja en el ticket que se imprime). */
+  private publicoDeposito(d: Deposito) {
+    const { secreto: _s, ...resto } = d;
+    return resto;
+  }
+  depositosPendientes() { return { depositos: this.caja.depositosPendientes().map((d) => this.publicoDeposito(d)) }; }
+  buscarDepositos(q: string) { return { depositos: this.caja.buscarDepositos(q).map((d) => this.publicoDeposito(d)), ...(this.codigoLeido(q) ? { codigo_leido: true } : {}) }; }
+  /** ¿Lo que escaneó la cajera es el código completo de UN comprobante vigente? (el cliente lo recuerda para no pedirlo dos veces). */
+  private codigoLeido(q: string): boolean {
+    const d = this.caja.buscarDepositos(q);
+    return d.length === 1 && q.trim().toUpperCase() === codigoTicketDeposito(d[0]!).toUpperCase();
+  }
+  private depositoCompleto(id: string): Deposito {
     const d = this.caja.depositoPorId(id);
     if (!d) throw new ErrorDominio('DEPOSITO_INEXISTENTE', 'ese depósito no existe (o aún no llega a esta caja)');
-    return { deposito: d };
+    return d;
   }
+  depositoDetalle(id: string) { return { deposito: this.publicoDeposito(this.depositoCompleto(id)) }; }
   /** Recibe el depósito, abre el cajón e imprime el comprobante. Una falla de impresión no lo deshace ni lo duplica: se reimprime. */
   async recibirDeposito(d: { ref: string; clienta: string; monto: number; concepto?: string }) {
     const deposito = this.caja.recibirDeposito({ ...d, usuario: this.actor.usuario });
     this.revisarFeria();
-    return { deposito, ...(await this.imprimirDeposito(deposito, 0, true)) };
+    return { deposito: this.publicoDeposito(deposito), codigo_barras_svg: svgCode128(codigoTicketDeposito(deposito)), ...(await this.imprimirDeposito(deposito, 0, true)) };
   }
   async reimprimirDeposito(id: string) {
-    const deposito = this.depositoDetalle(id).deposito;
-    return { deposito, ...(await this.imprimirDeposito(deposito, 1, false)) };
+    const deposito = this.depositoCompleto(id);
+    return { deposito: this.publicoDeposito(deposito), codigo_barras_svg: svgCode128(codigoTicketDeposito(deposito)), ...(await this.imprimirDeposito(deposito, 1, false)) };
   }
   private async imprimirDeposito(d: Deposito, reimpresion: number, cajon: boolean) {
     const cfg = this.negociosVivos()[d.tienda]!;
-    const texto = renderTicketDepositoTexto({ folio: d.folio, tienda: d.tienda, caja: d.caja, cajero: d.cajero, clienta: d.clienta, concepto: d.concepto, monto: d.monto, ocurrio_en: d.ocurrio_en }, cfg, reimpresion);
-    return this.imprimirConBarras(`deposito:${d.deposito_id}${reimpresion ? `:re${Date.now()}` : ''}`, texto, d.folio, cajon, d.tienda, cfg.columnas);
+    const texto = renderTicketDepositoTexto({ folio: d.folio, codigo: codigoTicketDeposito(d), tienda: d.tienda, caja: d.caja, cajero: d.cajero, clienta: d.clienta, concepto: d.concepto, monto: d.monto, ocurrio_en: d.ocurrio_en }, cfg, reimpresion);
+    return this.imprimirConBarras(`deposito:${d.deposito_id}${reimpresion ? `:re${Date.now()}` : ''}`, texto, codigoTicketDeposito(d), cajon, d.tienda, cfg.columnas);
   }
-  private async imprimirConBarras(ref: string, texto: string, folio: string, cajon: boolean, tienda: string, columnas: number) {
+  private async imprimirConBarras(ref: string, texto: string, codigo: string, cajon: boolean, tienda: string, columnas: number) {
     try {
-      await this.impresora.imprimir({ ref, texto, bytes: renderDepositoEscPos(texto, folio, { abrirCajon: cajon, logo: LOGOS_TICKET[tienda], logoRelleno: logoRellenoEquipo(), columnas }) });
+      await this.impresora.imprimir({ ref, texto, bytes: renderDepositoEscPos(texto, codigo, { abrirCajon: cajon, logo: LOGOS_TICKET[tienda], logoRelleno: logoRellenoEquipo(), columnas }) });
       return { ticket_texto: texto, impresion: { ok: true as boolean, error: undefined as string | undefined } };
     } catch (e) {
       return { ticket_texto: texto, impresion: { ok: false, error: e instanceof Error ? e.message : String(e) } };
@@ -329,31 +341,32 @@ export class ServicioCaja {
     const despues = d.movimientos.filter((x) => x.tipo !== 'recibido' && x.ocurrio_en <= m.ocurrio_en && x !== m);
     const antes = d.monto - despues.reduce((a, x) => a + (x.tipo === 'reintegrado' ? -x.monto : x.monto), 0);
     return { tipo: m.tipo === 'devuelto' ? 'devolucion' : m.tipo === 'fee' ? 'fee' : 'aplicacion', folio: d.folio, tienda: d.tienda, caja: m.caja, usuario: m.usuario ?? '', clienta: d.clienta, ocurrio_en: m.ocurrio_en,
-      saldo_antes: antes, saldo_despues: antes - m.monto, monto: m.monto, ...(m.motivo ? { motivo: m.motivo } : {}), autorizado_por: m.autorizado_por ?? null };
+      saldo_antes: antes, saldo_despues: antes - m.monto, monto: m.monto, ...(m.motivo ? { motivo: m.motivo } : {}), autorizado_por: m.autorizado_por ?? null, ...(m.verificado_con === 'doble_clave' ? { comprobante_extraviado: true } : {}) };
   }
   private async imprimirResolucion(d: Deposito, opId: string, reimpresion: number) {
     const m = d.movimientos.find((x) => x.op_id === opId);
     if (!m) throw new ErrorDominio('DEPOSITO_INEXISTENTE', 'no existe ese movimiento del depósito');
     const cfg = this.negociosVivos()[d.tienda]!;
     const texto = renderTicketResolucionDepositoTexto(this.datosResolucion(d, m), cfg, reimpresion);
-    // Solo la devolución saca dinero del cajón: es la única que abre el cajón.
+    // Solo la devolución saca dinero del cajón: es la única que abre el cajón. El código de barras de estos comprobantes es SOLO el folio (sin el secreto): no sirve para cobrar nada.
     return this.imprimirConBarras(`depres:${opId}${reimpresion ? `:re${Date.now()}` : ''}`, texto, d.folio, m.tipo === 'devuelto' && reimpresion === 0, d.tienda, cfg.columnas);
   }
   async reimprimirResolucionDeposito(depositoId: string, opId: string) {
-    return { deposito: this.depositoDetalle(depositoId).deposito, ...(await this.imprimirResolucion(this.depositoDetalle(depositoId).deposito, opId, 1)) };
+    const d = this.depositoCompleto(depositoId);
+    return { deposito: this.publicoDeposito(d), ...(await this.imprimirResolucion(d, opId, 1)) };
   }
-  async devolverDeposito(d: { ref: string; deposito_id: string; monto?: number; confirmado: boolean }) {
+  async devolverDeposito(d: { ref: string; deposito_id: string; monto?: number; confirmado: boolean; codigo?: string; autoriza?: Autoriza }) {
     const r = this.caja.devolverDeposito({ ...d, usuario: this.actor.usuario });
     this.revisarFeria();
-    return { deposito: r.deposito, monto: r.monto, op_id: r.op_id, ...(await this.imprimirResolucion(r.deposito, r.op_id, 0)) };
+    return { deposito: this.publicoDeposito(r.deposito), monto: r.monto, op_id: r.op_id, ...(await this.imprimirResolucion(r.deposito, r.op_id, 0)) };
   }
   async cobrarFeeDeposito(d: { ref: string; deposito_id: string; monto: number; motivo: string; autoriza?: Autoriza }) {
     const r = this.caja.cobrarFeeDeposito({ ...d, usuario: this.actor.usuario });
-    return { deposito: r.deposito, monto: r.monto, op_id: r.op_id, ...(await this.imprimirResolucion(r.deposito, r.op_id, 0)) };
+    return { deposito: this.publicoDeposito(r.deposito), monto: r.monto, op_id: r.op_id, ...(await this.imprimirResolucion(r.deposito, r.op_id, 0)) };
   }
-  /** Reserva el depósito para la venta en curso (el saldo se consume hasta confirmar el cobro). */
-  aplicarDeposito(cartId: string, depositoId: string) {
-    const deposito = this.caja.aplicarDepositoACarrito(cartId, depositoId);
+  /** Reserva el depósito para la venta en curso (el saldo se consume hasta confirmar el cobro). Pide el código del comprobante o, si se perdió, doble clave. */
+  aplicarDeposito(cartId: string, depositoId: string, v?: { codigo?: string; autoriza?: Autoriza }) {
+    const deposito = this.caja.aplicarDepositoACarrito(cartId, depositoId, this.actor.usuario, v);
     return { deposito, carrito: this.vista(cartId) };
   }
   quitarDeposito(cartId: string) {

@@ -22,7 +22,7 @@ import { CRITERIOS_EXPEDIENTE, expedientesDe, expedienteVacio, clientesVip, exce
 import { type ConfigEmpleadas, type CuentaEmpleada, configEmpleadas, cuentasEmpleadas, CAMPOS_EDITABLES, CAMPOS_TIENDA, type CampoEditable, departamentos, promocionesDe, recompensasDe, supervisoresDe, cajerosDe, personalConCuenta, administradoresDe, efectivoDeVenta, movimientosCaja, tipoCambioVigente, catalogo, devoluciones, devueltoPorLinea, existenciaVerificada, intentos, perdidasDocumentales, stock, ventas, type Devolucion, type ExistenciaVerificada, type Intento, type PerdidaDocumental, type TarjetaRegalo, type TipoCambio } from './proyecciones.ts';
 import type { Repo } from './repo.ts';
 import { validarOpEntrante } from './reglas.ts';
-import { depositos, folioDeposito, buscarDepositos, resumenDepositosCaja, TIPOS_DEPOSITO, type Deposito } from './depositos.ts';
+import { depositos, folioDeposito, buscarDepositos, resumenDepositosCaja, codigoTicketDeposito, generarSecretoDeposito, interpretarCodigoDeposito, TIPOS_DEPOSITO, type Deposito } from './depositos.ts';
 import { LIMBO, type Articulo, type CajaCfg, type Linea, type Op, type Pago, type Venta } from './tipos.ts';
 import { crearOp, fechaLocal, uuid } from './util.ts';
 import { idVentaHistorica, payloadVentaHistorica, type VentaHistorica } from './ventas-historicas.ts';
@@ -1191,7 +1191,7 @@ interface Carrito {
   /** Venta en espera: el cliente se fue un momento y la caja atiende a otro. No reserva existencias; se recalcula al retomarla. */
   espera?: { desde: string; nota: string; por: string };
   /** Depósito en garantía elegido para pagar parte de esta venta. Es solo una RESERVA de esta venta: el saldo se consume cuando el cobro se confirma. */
-  deposito?: { deposito_id: string };
+  deposito?: { deposito_id: string; verificado_con?: 'ticket' | 'doble_clave'; autorizado_por?: string | null };
 }
 
 export type EstadoFolios = { estado: 'activa' | 'recuperacion'; motivo: string | null; ultimo: number; techo: number | null };
@@ -2428,10 +2428,12 @@ export class Caja {
     const credito = c.cambio ? Math.min(c.cambio.credito, total) : 0;
     if (credito > 0) pagos = [{ metodo: 'credito_cambio', monto: credito, folio_origen: c.cambio!.folio_origen }, ...pagos];
     // Depósito en garantía aplicado: un pago más de la venta (no es dinero nuevo en el cajón). Se verifica que siga disponible justo antes de confirmar.
+    let depPrueba: Record<string, unknown> = {};
     const dep = this.depositoDeCarrito(c);
     if (dep && dep.aplicado > 0) {
       this.depositoResoluble(dep.deposito_id, c.id);
       pagos = [{ metodo: 'deposito', monto: dep.aplicado, deposito_id: dep.deposito_id, folio_deposito: dep.folio }, ...pagos];
+      depPrueba = c.deposito ? { verificado_con: c.deposito.verificado_con, autorizado_por: c.deposito.autorizado_por ?? null } : {};
     }
     // Compra a crédito de una empleada: no entra dinero, así que NO consume folio de venta; lleva su propia serie (CR) por caja.
     const esCredito = !!c.empleada && pagos.length > 0 && pagos.every((p) => p.metodo === 'credito_empleada');
@@ -2454,7 +2456,7 @@ export class Caja {
       }, `sale:${c.id}`);
       this.ctx.fallo?.('tras_venta');
       for (const p of pagos) {
-        if (p.metodo === 'deposito') this.emitir('deposito.aplicado', { deposito_id: p.deposito_id, monto: p.monto, sale_id: c.id, folio_venta: folio, tienda: this.tienda, caja: this.caja, usuario: cajero }, `depapl:${c.id}:${p.deposito_id}`);
+        if (p.metodo === 'deposito') this.emitir('deposito.aplicado', { deposito_id: p.deposito_id, monto: p.monto, sale_id: c.id, folio_venta: folio, tienda: this.tienda, caja: this.caja, usuario: cajero, ...depPrueba }, `depapl:${c.id}:${p.deposito_id}`);
         if (p.metodo === 'tarjeta_regalo') this.emitir('giftcard.uso', { codigo: p.tarjeta, monto: p.monto, sale_id: c.id, tienda: this.tienda, caja: this.caja }, `gcuso:${c.id}:${p.tarjeta}`);
       }
       for (const l of c.lineas) {
@@ -2672,7 +2674,7 @@ export class Caja {
     this.repo.tx(() => {
       const n = this.opsDe('deposito.recibido').filter((o) => o.payload.tienda === this.tienda && o.payload.caja === this.caja).length + 1;
       const folio = folioDeposito(this.tienda, this.caja, n);
-      this.emitir('deposito.recibido', { deposito_id: id, folio, tienda: this.tienda, caja: this.caja, cajero: d.usuario, clienta, concepto, monto: d.monto, fecha }, `dep:${id}`);
+      this.emitir('deposito.recibido', { deposito_id: id, secreto: generarSecretoDeposito(), folio, tienda: this.tienda, caja: this.caja, cajero: d.usuario, clienta, concepto, monto: d.monto, fecha }, `dep:${id}`);
       this.emitir('cash.movement', { tienda: this.tienda, caja: this.caja, tipo: 'deposito_recibido', monto: d.monto, moneda: 'MXN', fecha, deposito_id: id }, `dep:${id}:mov`);
     });
     return this.depositoPorId(id)!;
@@ -2704,8 +2706,24 @@ export class Caja {
     if (reserva) throw new ErrorDominio('DEPOSITO_RESERVADO', `el depósito ${d.folio} está reservado por una venta en curso en esta caja`);
     return d;
   }
+  /**
+   * Comprueba que quien pide resolver el depósito tiene el comprobante: escaneó (o tecleó) el código del ticket, o —si la clienta lo perdió— lo autoriza una
+   * segunda persona con su clave (las reglas de siempre de la doble clave; «no hay nadie más» = la propia clave y queda anotado). Sin cajeros con clave
+   * no hay doble clave posible: entonces solo vale el código. Un código que no corresponde se rechaza, nunca se «cae» a la doble clave solo.
+   */
+  private verificarDueñoDeposito(dep: Deposito, usuario: string, v: { codigo?: string; autoriza?: Autoriza } | undefined): { verificado_con: 'ticket' | 'doble_clave'; autorizado_por: string | null } {
+    const codigo = String(v?.codigo ?? '').trim();
+    if (codigo) {
+      const c = interpretarCodigoDeposito(codigo);
+      if (!c || c.folio !== dep.folio || !c.secreto || !dep.secreto || c.secreto !== dep.secreto) throw new ErrorDominio('DEPOSITO_CODIGO_INVALIDO', `el código no corresponde al depósito ${dep.folio}: escanee el código de barras de su comprobante`);
+      return { verificado_con: 'ticket', autorizado_por: null };
+    }
+    if (!this.controlesConClave()) throw new ErrorDominio('DEPOSITO_CODIGO_REQUERIDO', 'escanee el código de barras del comprobante de la clienta');
+    if (!v?.autoriza) throw new ErrorDominio('DEPOSITO_CODIGO_REQUERIDO', 'escanee el código del comprobante; si la clienta lo perdió, se necesita la clave de otra persona (doble clave)');
+    return { verificado_con: 'doble_clave', autorizado_por: this.verificarAutorizador(usuario, v.autoriza) };
+  }
   /** Devolución del depósito a la clienta (total o parcial): sale efectivo del cajón, asociado al depósito original. Reintentar con la misma referencia no entrega dinero dos veces. */
-  devolverDeposito(d: { ref: string; deposito_id: string; monto?: number; confirmado: boolean; usuario: string }): { deposito: Deposito; monto: number; op_id: string } {
+  devolverDeposito(d: { ref: string; deposito_id: string; monto?: number; confirmado: boolean; usuario: string; codigo?: string; autoriza?: Autoriza }): { deposito: Deposito; monto: number; op_id: string } {
     if (!d.ref) throw new ErrorDominio('DATOS_REQUERIDOS', 'falta la referencia de la devolución');
     const previa = this.repo.getOp(`depres:${d.ref}`);
     if (previa) return { deposito: this.depositoPorId(previa.payload.deposito_id)!, monto: previa.payload.monto, op_id: previa.op_id };
@@ -2714,9 +2732,10 @@ export class Caja {
     const monto = d.monto ?? dep.saldo;
     if (!Number.isInteger(monto) || monto <= 0) throw new ErrorDominio('PAGO_INVALIDO', 'el monto a devolver es un entero positivo en centavos');
     if (monto > dep.saldo) throw new ErrorDominio('DEPOSITO_EXCEDE_SALDO', `solo hay ${dep.saldo / 100} pesos disponibles en el depósito`, { saldo: dep.saldo });
+    const prueba = this.verificarDueñoDeposito(dep, d.usuario, { codigo: d.codigo, autoriza: d.autoriza });
     const fecha = fechaLocal(this.ctx.reloj.now());
     const op = this.repo.tx(() => {
-      const o = this.emitir('deposito.devuelto', { deposito_id: dep.deposito_id, folio: dep.folio, monto, saldo_despues: dep.saldo - monto, tienda: this.tienda, caja: this.caja, usuario: d.usuario }, `depres:${d.ref}`);
+      const o = this.emitir('deposito.devuelto', { deposito_id: dep.deposito_id, folio: dep.folio, monto, saldo_despues: dep.saldo - monto, tienda: this.tienda, caja: this.caja, usuario: d.usuario, ...prueba }, `depres:${d.ref}`);
       this.emitir('cash.movement', { tienda: this.tienda, caja: this.caja, tipo: 'deposito_devuelto', monto, moneda: 'MXN', fecha, deposito_id: dep.deposito_id }, `depres:${d.ref}:mov`);
       return o;
     });
@@ -2752,16 +2771,18 @@ export class Caja {
     return this.depositoDeCarrito(c)?.aplicado ?? 0;
   }
   /** Aplica (reserva) un depósito a la venta en curso. No se consume hasta que el cobro se confirma; si la venta se anula o se cambia, se libera. */
-  aplicarDepositoACarrito(cartId: string, depositoId: string): { deposito_id: string; folio: string; clienta: string; saldo: number; aplicado: number; resto_saldo: number } {
+  aplicarDepositoACarrito(cartId: string, depositoId: string, usuario: string, v?: { codigo?: string; autoriza?: Autoriza }): { deposito_id: string; folio: string; clienta: string; saldo: number; aplicado: number; resto_saldo: number } {
     const c = this.cartGet(cartId);
     this.exigirAbierto(c);
     if (c.lineas.length === 0) throw new ErrorDominio('CARRITO_VACIO', 'agregue primero el vestido (o lo que se compra) a la venta');
     if (c.lineas.some((l) => l.tarjeta_regalo)) throw new ErrorDominio('DEPOSITO_NO_APLICA', 'un depósito no se aplica a la compra de una tarjeta de regalo');
     if (c.empleada) throw new ErrorDominio('DEPOSITO_NO_APLICA', 'un depósito no se combina con una venta a empleada');
     if (c.deposito && c.deposito.deposito_id !== depositoId) throw new ErrorDominio('DEPOSITO_NO_APLICA', 'esta venta ya tiene otro depósito aplicado: quítelo primero');
-    this.depositoResoluble(depositoId, cartId);
-    this.repo.tx(() => { this.repo.kvSet(`cart:${cartId}`, { ...c, deposito: { deposito_id: depositoId } }); });
-    return this.depositoDeCarrito({ ...c, deposito: { deposito_id: depositoId } })!;
+    const dep = this.depositoResoluble(depositoId, cartId);
+    const prueba = c.deposito?.deposito_id === depositoId && c.deposito.verificado_con && !v ? { verificado_con: c.deposito.verificado_con, autorizado_por: c.deposito.autorizado_por ?? null } : this.verificarDueñoDeposito(dep, usuario, v);
+    const nuevo = { ...c, deposito: { deposito_id: depositoId, ...prueba } };
+    this.repo.tx(() => { this.repo.kvSet(`cart:${cartId}`, nuevo); });
+    return this.depositoDeCarrito(nuevo)!;
   }
   /** Libera el depósito reservado en la venta en curso (el saldo no se pierde). */
   quitarDepositoDeCarrito(cartId: string): void {

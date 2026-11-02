@@ -3635,6 +3635,30 @@ const depTarjeta = (d) => `<button type="button" class="dep-fila" data-dep="${es
     <span class="dep-fila-2">${esc(d.clienta)}</span>
     <span class="dep-fila-3"><span>Original ${mxn(d.monto)}</span><span>Saldo <b>${mxn(d.saldo)}</b></span></span>
     <span class="dep-fila-4">${esc(depFecha(d.ocurrio_en))} · ${esc(d.tienda)} · Caja ${d.caja}</span></span>${ico('chevron')}</button>`;
+/** Bloque «¿quién se lleva el dinero?»: el código del comprobante (se escanea) o, si la clienta lo perdió, doble clave con las reglas de siempre. */
+const depVerifHtml = (D) => D.codigo
+  ? `<div class="dep-verif-ok" id="dep-verif-ok">${ico('check')}<span>Comprobante verificado con su código.</span></div>`
+  : `<div class="dep-verif" id="dep-verif"><div class="campo"><label for="dep-codigo">Código del comprobante</label><input id="dep-codigo" class="texto" placeholder="Escanee el código de barras del comprobante" autocomplete="off" spellcheck="false"></div>
+      <label class="dep-confirma"><input type="checkbox" id="dep-perdido"><span>La clienta <b>perdió el comprobante</b> (se pide doble clave)</span></label>
+      <div id="dep-perdido-campos" hidden>${D.autoriza?.pide_clave ? `<div class="campo" id="dep-p-quien-campo"><label for="dep-p-quien">Autoriza</label><select id="dep-p-quien" class="texto">${D.autoriza.autorizadores.map((a) => `<option value="${esc(a.nombre)}">${esc(a.nombre)}${a.tipo === 'supervisor' ? ' (supervisor)' : ''}</option>`).join('')}</select></div>
+        <div class="campo"><label for="dep-p-clave">Clave de quien autoriza</label><input id="dep-p-clave" type="text" data-pin inputmode="numeric" autocomplete="off" style="width:140px"></div>
+        ${casillaSola('dep-p-solo', 'No hay nadie más para autorizar: autorizo yo con mi clave (queda anotado)')}` : '<p class="nota">No hay Vendedoras-Cajeras con clave registradas: sin el código del comprobante no se puede entregar. Avise a Administración.</p>'}</div></div>`;
+const depLigarVerif = () => {
+  $('#dep-perdido')?.addEventListener('change', (e) => { $('#dep-perdido-campos').hidden = !e.target.checked; });
+  $('#dep-p-solo')?.addEventListener('change', (e) => { const c = $('#dep-p-quien-campo'); if (c) c.hidden = e.target.checked; });
+};
+/** Lo que se manda al servidor para comprobar el comprobante; lanza un Error con el aviso si falta algo. */
+const depLeerVerif = (D) => {
+  if (D.codigo) return { codigo: D.codigo };
+  if ($('#dep-perdido')?.checked) {
+    if (!D.autoriza?.pide_clave) throw new Error('No hay doble clave posible: escanee el código del comprobante.');
+    if (!$('#dep-p-clave').value) throw new Error('Teclee la clave de quien autoriza.');
+    return { autoriza: $('#dep-p-solo')?.checked ? { nombre: S.sesion.usuario, clave: $('#dep-p-clave').value, sin_segundo: true } : { nombre: $('#dep-p-quien').value, clave: $('#dep-p-clave').value } };
+  }
+  const c = ($('#dep-codigo')?.value ?? '').trim();
+  if (!c) throw new Error('Escanee el código de barras del comprobante (o marque que la clienta lo perdió).');
+  return { codigo: c };
+};
 const depNavegar = (vista, datos = {}) => { S.dep = { ...(S.dep ?? {}), vista, ...datos }; pintarDepositos(); };
 async function abrirDepositos() {
   const d = dialogo('dlg-depositos');
@@ -3654,6 +3678,7 @@ async function pintarDepositos() {
   const aviso = (t) => { const m = $('#dep-msg'); if (m) { m.className = 'mensaje ok'; m.textContent = t; } };
   const enCarrito = S.carrito?.deposito ?? null;
   let html = '';
+  if (D.vista === 'menu') D.codigo = null;
   if (D.vista === 'menu') {
     const n = D.pendientes?.length ?? 0;
     html = `${cab('Depósitos', false)}
@@ -3705,6 +3730,7 @@ async function pintarDepositos() {
     html = `${cab('Devolver depósito', true)}
       <p class="dep-dato">Depósito disponible: <b>${mxn(x.saldo)}</b></p>
       <div class="campo"><label for="dep-dev-monto">Devolución (MXN)</label><input id="dep-dev-monto" class="texto dep-monto" inputmode="decimal" value="${x.saldo / 100}"></div>
+      ${depVerifHtml(D)}
       <label class="dep-confirma"><input type="checkbox" id="dep-dev-ok"><span>Confirmo que el vestido se devolvió <b>sin daños</b>.</span></label>
       <p class="dep-total">Se entregan a la clienta: <b id="dep-dev-total">${mxn(x.saldo)}</b></p>
       <button class="btn btn-primario dep-principal" id="dep-dev-ejecutar" type="button" disabled>${ico('cash')}<span>Entregar el dinero y devolver depósito</span></button>${pie}`;
@@ -3728,12 +3754,14 @@ async function pintarDepositos() {
     html = `${cab('Aplicar a una compra', true)}
       ${lineas ? `<dl class="dep-calculo"><dt>Precio de la compra</dt><dd id="dep-ap-precio">${mxn(bruto)}</dd><dt>Depósito disponible</dt><dd>${mxn(x.saldo)}</dd><dt>Se aplica</dt><dd id="dep-ap-aplica">${mxn(aplicado)}</dd><dt><b>Importe adicional por pagar</b></dt><dd><b id="dep-ap-resta">${mxn(Math.max(0, bruto - aplicado))}</b></dd>${x.saldo > aplicado ? `<dt>Remanente del depósito</dt><dd>${mxn(x.saldo - aplicado)}</dd>` : ''}</dl>
         <p class="nota">El precio no cambia ni se crea un descuento: el depósito se registra como parte del pago. Queda reservado para esta venta y se consume hasta confirmar el cobro.</p>
+        ${depVerifHtml(D)}
         <button class="btn btn-primario dep-principal" id="dep-ap-ejecutar" type="button">${ico('check')}<span>Aplicar ${mxn(aplicado)} a esta venta</span></button>`
         : '<div class="dep-info">' + ico('info') + '<span>Primero agregue el vestido (o lo que se compra) a la venta en pantalla y vuelva a abrir Depósitos.</span></div>'}${pie}`;
   } else if (D.vista === 'resultado') {
     const r = D.resultado;
     html = `${cab(esc(r.titulo), false)}
       <div class="mensaje ${r.impresion.ok ? 'ok' : 'error'}" id="dep-estado-impresion" role="status">${esc(r.resumen)} ${r.impresion.ok ? 'Ticket enviado a la impresora.' : `La impresora falló: ${esc(r.impresion.error ?? '')}. El movimiento SÍ quedó registrado: reimprima el comprobante.`}</div>
+      ${r.svg ? `<div class="dep-barras" id="dep-barras">${r.svg}<small>Código de barras del comprobante: se escanea para devolver o aplicar el depósito.</small></div>` : ''}
       <pre class="ticket" id="dep-ticket" tabindex="0">${esc(r.ticket_texto)}</pre>
       <div class="filas">${r.impresion.ok ? '' : '<button class="btn" id="dep-reimp-res" type="button">' + ico('printer') + '<span>Reimprimir</span></button>'}<button class="btn btn-primario" id="dep-listo" type="button">${ico('check')}<span>Listo</span></button></div>${pie}`;
   }
@@ -3758,6 +3786,7 @@ async function pintarDepositos() {
     try {
       const x = (await api(`/api/deposito?id=${encodeURIComponent(id)}`)).deposito;
       D.desde = desde;
+      if (desde !== 'buscar') D.codigo = null;
       depNavegar('detalle', { deposito: x });
     } catch (e) { error(e); }
   };
@@ -3780,7 +3809,7 @@ async function pintarDepositos() {
         const r = await api('/api/deposito', { ref: S.refDeposito, clienta, monto, concepto: $('#dep-concepto').value });
         S.refDeposito = null;
         D.pendientes = (await api('/api/depositos')).depositos;
-        depNavegar('resultado', { resultado: { titulo: 'Depósito recibido', resumen: `Depósito ${r.deposito.folio} por ${mxn(r.deposito.monto)} recibido de ${r.deposito.clienta}.`, ticket_texto: r.ticket_texto, impresion: r.impresion, deposito_id: r.deposito.deposito_id } });
+        depNavegar('resultado', { resultado: { titulo: 'Depósito recibido', resumen: `Depósito ${r.deposito.folio} por ${mxn(r.deposito.monto)} recibido de ${r.deposito.clienta}.`, ticket_texto: r.ticket_texto, impresion: r.impresion, deposito_id: r.deposito.deposito_id, svg: r.codigo_barras_svg } });
       } catch (e) { b.disabled = false; error(e); }
     });
   }
@@ -3790,15 +3819,16 @@ async function pintarDepositos() {
       ev.preventDefault();
       D.q = $('#dep-q').value.trim();
       if (!D.q) return;
-      try { D.resultados = (await api(`/api/depositos?q=${encodeURIComponent(D.q)}`)).depositos; pintarDepositos(); } catch (e) { error(e); }
+      try { const r = await api(`/api/depositos?q=${encodeURIComponent(D.q)}`); D.resultados = r.depositos; D.codigo = r.codigo_leido ? D.q : null; pintarDepositos(); } catch (e) { error(e); }
     });
   }
   if (D.vista === 'pendientes') {
     $('#dep-filtro').addEventListener('input', (ev) => { D.filtro = ev.target.value; const pos = ev.target.selectionStart; pintarDepositos().then(() => { const f = $('#dep-filtro'); f.focus(); f.setSelectionRange(pos, pos); }); });
   }
   if (D.vista === 'detalle') {
-    $('#dep-a-devolver')?.addEventListener('click', () => { S.refDepRes = nuevaRef(); depNavegar('devolver'); });
-    $('#dep-a-aplicar')?.addEventListener('click', () => depNavegar('aplicar'));
+    const conAutorizadores = async (vista) => { try { const au = await api('/api/venta/autorizadores'); depNavegar(vista, { autoriza: au }); } catch (e) { error(e); } };
+    $('#dep-a-devolver')?.addEventListener('click', () => { S.refDepRes = nuevaRef(); conAutorizadores('devolver'); });
+    $('#dep-a-aplicar')?.addEventListener('click', () => conAutorizadores('aplicar'));
     $('#dep-a-fee')?.addEventListener('click', async () => {
       S.refDepRes = nuevaRef();
       try { const au = await api('/api/venta/autorizadores'); depNavegar('fee', { autoriza: au }); } catch (e) { error(e); }
@@ -3812,13 +3842,16 @@ async function pintarDepositos() {
     const leer = () => { const v = parseMXN($('#dep-dev-monto').value); return v !== null && v > 0 && v <= x.saldo ? v : null; };
     const revisar = () => { const v = leer(); $('#dep-dev-total').textContent = mxn(v ?? 0); $('#dep-dev-ejecutar').disabled = !($('#dep-dev-ok').checked && v); };
     $('#dep-dev-monto').addEventListener('input', revisar); $('#dep-dev-ok').addEventListener('change', revisar);
+    depLigarVerif();
     $('#dep-dev-ejecutar').addEventListener('click', async () => {
       const b = $('#dep-dev-ejecutar'); const monto = leer();
       if (!monto) return error({ message: 'La devolución no puede ser mayor que el saldo ni menor o igual a cero.' });
+      let verif;
+      try { verif = depLeerVerif(D); } catch (e) { return error(e); }
       if (b.disabled) return;
       b.disabled = true;
       try {
-        const r = await api('/api/deposito/devolver', { ref: S.refDepRes, deposito_id: x.deposito_id, monto, confirmado: true });
+        const r = await api('/api/deposito/devolver', { ref: S.refDepRes, deposito_id: x.deposito_id, monto, confirmado: true, ...verif });
         S.refDepRes = null;
         D.pendientes = (await api('/api/depositos')).depositos;
         depNavegar('resultado', { resultado: { titulo: 'Depósito devuelto', resumen: `Se devolvieron ${mxn(r.monto)} de ${r.deposito.folio}. Saldo restante: ${mxn(r.deposito.saldo)}.`, ticket_texto: r.ticket_texto, impresion: r.impresion, deposito_id: x.deposito_id, op_id: r.op_id } });
@@ -3851,10 +3884,14 @@ async function pintarDepositos() {
     });
   }
   if (D.vista === 'aplicar') {
+    depLigarVerif();
     $('#dep-ap-ejecutar')?.addEventListener('click', async () => {
-      const b = $('#dep-ap-ejecutar'); if (b.disabled) return; b.disabled = true;
+      const b = $('#dep-ap-ejecutar'); if (b.disabled) return;
+      let verif;
+      try { verif = depLeerVerif(D); } catch (e) { return error(e); }
+      b.disabled = true;
       try {
-        const r = await api('/api/deposito/aplicar', { cart: S.cart, deposito_id: D.deposito.deposito_id });
+        const r = await api('/api/deposito/aplicar', { cart: S.cart, deposito_id: D.deposito.deposito_id, ...verif });
         S.carrito = r.carrito; pintarCarrito(); d.close();
         msg(`Depósito ${r.deposito.folio} aplicado a la venta: ${mxn(r.deposito.aplicado)}. Falta cobrar ${mxn(r.carrito.total)}.`);
       } catch (e) { b.disabled = false; error(e); }

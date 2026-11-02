@@ -406,7 +406,7 @@ export function aCP858(s: string): number[] {
 
 // ── depósitos en garantía (pruebas de vestidos de noche) ──
 export interface DatosTicketDeposito {
-  folio: string; tienda: string; caja: number; cajero: string; clienta: string; concepto: string; monto: number; ocurrio_en: string;
+  folio: string; /** Folio + código secreto (lo que lleva el código de barras). */ codigo?: string; tienda: string; caja: number; cajero: string; clienta: string; concepto: string; monto: number; ocurrio_en: string;
 }
 /** Comprobante de depósito: es la prueba de la clienta para recuperar o aplicar el dinero. El folio también va como código de barras (lo imprime `renderDepositoEscPos`). */
 export function renderTicketDepositoTexto(d: DatosTicketDeposito, cfg: NegocioCfg, reimpresion = 0): string {
@@ -418,9 +418,9 @@ export function renderTicketDepositoTexto(d: DatosTicketDeposito, cfg: NegocioCf
   for (const x of encabezadoDe(cfg)) L.push(...envolver(x, c).map((y2) => centrar(y2, c)));
   L.push(centrar(`Tienda ${d.tienda} - Caja ${d.caja}`, c), '', centrar('COMPROBANTE DE DEPÓSITO', c));
   if (reimpresion > 0) L.push(centrar(`REIMPRESIÓN ${reimpresion}`, c));
-  L.push('', `Folio: ${d.folio}`, `Fecha: ${dd}/${mo}/${y}  ${hora12(local.slice(11, 16))}`, ...envolver(`Clienta: ${d.clienta}`, c), ...envolver(`Concepto: ${d.concepto}`, c), regla);
+  L.push('', `Folio: ${d.folio}`, ...(d.codigo ? [`Código: ${d.codigo}`.slice(0, c)] : []), `Fecha: ${dd}/${mo}/${y}  ${hora12(local.slice(11, 16))}`, ...envolver(`Clienta: ${d.clienta}`, c), ...envolver(`Concepto: ${d.concepto}`, c), regla);
   L.push(dos('DEPÓSITO RECIBIDO', formatoMXN(d.monto), c), regla);
-  L.push(...envolver('Este depósito NO es una venta. Conserve este comprobante: con él se recupera el depósito o se aplica a una compra, sujeto a la revisión de la prenda.', c));
+  L.push(...envolver('Este depósito NO es una venta. Conserve este comprobante: con él se recupera el depósito o se aplica a una compra, sujeto a la revisión de la prenda. Sin el código no se entrega: si lo pierde, se pide la autorización de una segunda persona.', c));
   L.push('', `Recibió: ${d.cajero}`.slice(0, c), '');
   return L.join('\n') + '\n';
 }
@@ -430,6 +430,8 @@ export interface DatosTicketResolucion {
   /** Saldo antes y después de esta operación. */
   saldo_antes: number; saldo_despues: number; monto: number;
   motivo?: string; autorizado_por?: string | null; folio_venta?: number;
+  /** El comprobante se perdió: se resolvió con doble clave. */
+  comprobante_extraviado?: boolean;
 }
 /** Comprobante de una resolución del depósito: devolución de dinero, fee retenido por daño o saldo aplicado a una compra. */
 export function renderTicketResolucionDepositoTexto(r: DatosTicketResolucion, cfg: NegocioCfg, reimpresion = 0): string {
@@ -448,6 +450,7 @@ export function renderTicketResolucionDepositoTexto(r: DatosTicketResolucion, cf
   L.push(dos('Saldo restante', formatoMXN(r.saldo_despues), c), regla);
   if (r.tipo === 'aplicacion' && r.folio_venta != null) L.push(`Compra: folio ${String(r.folio_venta).padStart(6, '0')}`);
   if (r.motivo) L.push(...envolver(`Motivo: ${r.motivo}`, c));
+  if (r.comprobante_extraviado) L.push(...envolver('Comprobante extraviado: autorizado con doble clave.', c));
   if (r.autorizado_por) L.push(`Autorizó: ${r.autorizado_por}`.slice(0, c));
   if (r.tipo === 'devolucion') L.push('', ...envolver('Recibí la cantidad indicada. La prenda se devolvió sin daños.', c), '', '', '_'.repeat(c), 'Firma de la clienta', ...envolver(r.clienta, c));
   if (r.tipo === 'fee') L.push('', ...envolver('Se retuvo del depósito el importe del daño a la prenda.', c));
@@ -455,14 +458,15 @@ export function renderTicketResolucionDepositoTexto(r: DatosTicketResolucion, cf
   return L.join('\n') + '\n';
 }
 /** ESC/POS de un comprobante con el folio como código de barras Code128 (el mismo que lee el lector de la caja); abre el cajón solo si se pide. */
-export function renderDepositoEscPos(texto: string, folio: string, opts: { abrirCajon?: boolean; logo?: import('./logos-ticket.ts').LogoRaster; logoRelleno?: boolean; columnas?: number } = {}): Uint8Array {
+export function renderDepositoEscPos(texto: string, codigo: string, opts: { abrirCajon?: boolean; logo?: import('./logos-ticket.ts').LogoRaster; logoRelleno?: boolean; columnas?: number } = {}): Uint8Array {
   const b: number[] = [0x1b, 0x40, 0x1b, 0x74, 19];
   if (opts.abrirCajon) b.push(0x1b, 0x70, 0x00, 25, 250);
   if (opts.logo) b.push(...rasterEscPos(opts.logo, opts.logoRelleno ? (opts.columnas ?? 42) * 12 : 0));
   b.push(...aCP858(texto.replace(/\n$/, '')), 0x0a);
-  if (folio) {
-    const datos = aCP858(`{B${folio}`); // Code128 juego B
-    b.push(0x1b, 0x61, 1, 0x1d, 0x68, 80, 0x1d, 0x77, 2, 0x1d, 0x48, 2, 0x1d, 0x6b, 73, datos.length, ...datos, 0x0a, 0x1b, 0x61, 0); // centrado, con el folio escrito debajo
+  if (codigo) {
+    const datos = aCP858(`{B${codigo}`); // Code128 juego B
+    const ancho = (opts.columnas ?? 42) * 12 >= 480 ? 2 : 1; // papel de 80 mm: módulo de 2 puntos; de 58 mm: 1, para que quepa el código largo
+    b.push(0x1b, 0x61, 1, 0x1d, 0x68, 80, 0x1d, 0x77, ancho, 0x1d, 0x48, 2, 0x1d, 0x6b, 73, datos.length, ...datos, 0x0a, 0x1b, 0x61, 0); // centrado, con el folio escrito debajo
   }
   b.push(0x0a, 0x0a, 0x1d, 0x56, 66, 0);
   return Uint8Array.from(b);
