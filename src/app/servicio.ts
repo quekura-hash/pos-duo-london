@@ -13,8 +13,9 @@ import { estadoPromo, type Promocion } from '../promociones.ts';
 import { personalConCuenta, mesesVigenciaTarjetas, clientesVip, excepcionesVip, cuentasEmpleadas, configEmpleadas, CRITERIOS_EXPEDIENTE, expedientesDe, expedienteVacio, registradaEn, CAMPOS_EDITABLES, catalogo, historialArticulo, nombresTienda, datosTiendas, departamentos as proyDepartamentos, devoluciones, type Devolucion, promocionesDe, recompensasDe, supervisoresDe, cajerosDe, administradoresDe, configSesionDe, permisos as proyPermisos, tarjetasRegalo, tiposDeCambio, tipoCambioVigente, ventas, type TipoCambio } from '../proyecciones.ts';
 import { hojaAnalisis, hojaAnalisisEmpleadas, hojaDetalleVentas, hojaResumenVentas, hojaDescuentos, hojaEntregas, hojaDolares, hojaInventario, leerInventario, PERFIL_CONFIRMADO, type Hoja } from '../inventario.ts';
 import { LOGOS_TICKET } from '../logos-ticket.ts';
+import type { Deposito, MovDeposito } from '../depositos.ts';
 import { detalleHistorica, detalleDeVenta, validarDatosClienta, type DatosClienta } from '../detalle-venta.ts';
-import { aplicarDatosTienda, codigoTicket, interpretarFolio, construirTicket, construirTicketRegalo, formatoMXN, NEGOCIOS, renderTextoEscPos, renderTicketCancelacionTexto, renderTicketGastoTexto, renderTicketFirmaTexto, renderTicketDevolucionTexto, type ComprobanteClienta, renderTicketRetiroTexto, renderTicketEscPos, renderTicketCorteEscPos, renderTicketCorteTexto, renderTicketTexto, type NegocioCfg } from '../ticket.ts';
+import { aplicarDatosTienda, codigoTicket, interpretarFolio, construirTicket, construirTicketRegalo, formatoMXN, NEGOCIOS, renderTextoEscPos, renderTicketCancelacionTexto, renderTicketGastoTexto, renderTicketDepositoTexto, renderTicketResolucionDepositoTexto, renderDepositoEscPos, type DatosTicketResolucion, renderTicketFirmaTexto, renderTicketDevolucionTexto, type ComprobanteClienta, renderTicketRetiroTexto, renderTicketEscPos, renderTicketCorteEscPos, renderTicketCorteTexto, renderTicketTexto, type NegocioCfg } from '../ticket.ts';
 import { promoDeRegla, type ReglaRecompensa } from '../recompensas.ts';
 import { adminDueno, adminProtegido, hashClave, nombreClave, supervisorPorClave, type Perfil, type RolAdmin } from '../supervisores.ts';
 import { LIMBO, type Actor, type Articulo, type Linea, type Op, type Venta } from '../tipos.ts';
@@ -37,6 +38,8 @@ export interface VistaCarrito {
   empleada?: { id: string; nombre: string; pct: number; pct_uniforme: number; credito_disponible: number; credito_limite: number; credito_saldo: number; abonos_recientes: { fecha: string; monto: number }[] } | null;
   /** Cliente VIP de la venta (su descuento compite con las promociones). */
   vip?: { id: string; nombre: string; pct: number } | null;
+  /** Depósito en garantía aplicado a esta venta (lo que cubre ya está descontado de `total`). */
+  deposito?: { deposito_id: string; folio: string; clienta: string; saldo: number; aplicado: number; resto_saldo: number } | null;
   id: string;
   lineas: Linea[];
   piezas: number;
@@ -291,6 +294,72 @@ export class ServicioCaja {
       return { ticket_texto: texto, impresion: { ok: false, error: e instanceof Error ? e.message : String(e) } };
     }
   }
+  // ── Depósitos en garantía (pruebas de vestidos): se reciben, se buscan y se resuelven en una ventana propia; la venta solo recibe el saldo aplicado ──
+  depositosPendientes() { return { depositos: this.caja.depositosPendientes() }; }
+  buscarDepositos(q: string) { return { depositos: this.caja.buscarDepositos(q) }; }
+  depositoDetalle(id: string) {
+    const d = this.caja.depositoPorId(id);
+    if (!d) throw new ErrorDominio('DEPOSITO_INEXISTENTE', 'ese depósito no existe (o aún no llega a esta caja)');
+    return { deposito: d };
+  }
+  /** Recibe el depósito, abre el cajón e imprime el comprobante. Una falla de impresión no lo deshace ni lo duplica: se reimprime. */
+  async recibirDeposito(d: { ref: string; clienta: string; monto: number; concepto?: string }) {
+    const deposito = this.caja.recibirDeposito({ ...d, usuario: this.actor.usuario });
+    this.revisarFeria();
+    return { deposito, ...(await this.imprimirDeposito(deposito, 0, true)) };
+  }
+  async reimprimirDeposito(id: string) {
+    const deposito = this.depositoDetalle(id).deposito;
+    return { deposito, ...(await this.imprimirDeposito(deposito, 1, false)) };
+  }
+  private async imprimirDeposito(d: Deposito, reimpresion: number, cajon: boolean) {
+    const cfg = this.negociosVivos()[d.tienda]!;
+    const texto = renderTicketDepositoTexto({ folio: d.folio, tienda: d.tienda, caja: d.caja, cajero: d.cajero, clienta: d.clienta, concepto: d.concepto, monto: d.monto, ocurrio_en: d.ocurrio_en }, cfg, reimpresion);
+    return this.imprimirConBarras(`deposito:${d.deposito_id}${reimpresion ? `:re${Date.now()}` : ''}`, texto, d.folio, cajon, d.tienda, cfg.columnas);
+  }
+  private async imprimirConBarras(ref: string, texto: string, folio: string, cajon: boolean, tienda: string, columnas: number) {
+    try {
+      await this.impresora.imprimir({ ref, texto, bytes: renderDepositoEscPos(texto, folio, { abrirCajon: cajon, logo: LOGOS_TICKET[tienda], logoRelleno: logoRellenoEquipo(), columnas }) });
+      return { ticket_texto: texto, impresion: { ok: true as boolean, error: undefined as string | undefined } };
+    } catch (e) {
+      return { ticket_texto: texto, impresion: { ok: false, error: e instanceof Error ? e.message : String(e) } };
+    }
+  }
+  private datosResolucion(d: Deposito, m: MovDeposito): DatosTicketResolucion {
+    const despues = d.movimientos.filter((x) => x.tipo !== 'recibido' && x.ocurrio_en <= m.ocurrio_en && x !== m);
+    const antes = d.monto - despues.reduce((a, x) => a + (x.tipo === 'reintegrado' ? -x.monto : x.monto), 0);
+    return { tipo: m.tipo === 'devuelto' ? 'devolucion' : m.tipo === 'fee' ? 'fee' : 'aplicacion', folio: d.folio, tienda: d.tienda, caja: m.caja, usuario: m.usuario ?? '', clienta: d.clienta, ocurrio_en: m.ocurrio_en,
+      saldo_antes: antes, saldo_despues: antes - m.monto, monto: m.monto, ...(m.motivo ? { motivo: m.motivo } : {}), autorizado_por: m.autorizado_por ?? null };
+  }
+  private async imprimirResolucion(d: Deposito, opId: string, reimpresion: number) {
+    const m = d.movimientos.find((x) => x.op_id === opId);
+    if (!m) throw new ErrorDominio('DEPOSITO_INEXISTENTE', 'no existe ese movimiento del depósito');
+    const cfg = this.negociosVivos()[d.tienda]!;
+    const texto = renderTicketResolucionDepositoTexto(this.datosResolucion(d, m), cfg, reimpresion);
+    // Solo la devolución saca dinero del cajón: es la única que abre el cajón.
+    return this.imprimirConBarras(`depres:${opId}${reimpresion ? `:re${Date.now()}` : ''}`, texto, d.folio, m.tipo === 'devuelto' && reimpresion === 0, d.tienda, cfg.columnas);
+  }
+  async reimprimirResolucionDeposito(depositoId: string, opId: string) {
+    return { deposito: this.depositoDetalle(depositoId).deposito, ...(await this.imprimirResolucion(this.depositoDetalle(depositoId).deposito, opId, 1)) };
+  }
+  async devolverDeposito(d: { ref: string; deposito_id: string; monto?: number; confirmado: boolean }) {
+    const r = this.caja.devolverDeposito({ ...d, usuario: this.actor.usuario });
+    this.revisarFeria();
+    return { deposito: r.deposito, monto: r.monto, op_id: r.op_id, ...(await this.imprimirResolucion(r.deposito, r.op_id, 0)) };
+  }
+  async cobrarFeeDeposito(d: { ref: string; deposito_id: string; monto: number; motivo: string; autoriza?: Autoriza }) {
+    const r = this.caja.cobrarFeeDeposito({ ...d, usuario: this.actor.usuario });
+    return { deposito: r.deposito, monto: r.monto, op_id: r.op_id, ...(await this.imprimirResolucion(r.deposito, r.op_id, 0)) };
+  }
+  /** Reserva el depósito para la venta en curso (el saldo se consume hasta confirmar el cobro). */
+  aplicarDeposito(cartId: string, depositoId: string) {
+    const deposito = this.caja.aplicarDepositoACarrito(cartId, depositoId);
+    return { deposito, carrito: this.vista(cartId) };
+  }
+  quitarDeposito(cartId: string) {
+    this.caja.quitarDepositoDeCarrito(cartId);
+    return { carrito: this.vista(cartId) };
+  }
   /** Cancela la venta EN CURSO (aún sin cobrar): no pide clave. Queda el registro de auditoría con lo que tenía y se abre una venta nueva. */
   anularVenta(cartId: string, motivo: string) {
     this.caja.anularCarrito(cartId, motivo, this.actor.usuario);
@@ -416,7 +485,8 @@ export class ServicioCaja {
       id: c.id, lineas: c.lineas, piezas: c.lineas.reduce((a, l) => a + l.qty, 0),
       ventas_brutas: c.lineas.reduce((a, l) => a + l.qty * l.precio_unit, 0),
       descuentos: c.lineas.reduce((a, l) => a + l.descuento, 0),
-      total: Math.max(0, c.lineas.reduce((a, l) => a + l.importe, 0) - (c.cambio?.credito ?? 0)),
+      total: Math.max(0, c.lineas.reduce((a, l) => a + l.importe, 0) - (c.cambio?.credito ?? 0) - (this.caja.depositoDeCarrito(c)?.aplicado ?? 0)),
+      deposito: this.caja.depositoDeCarrito(c),
       cambio: c.cambio ? (() => {
         const bruto = c.lineas.reduce((a, l) => a + l.importe, 0);
         return { sale_id: c.cambio.sale_id, folio_origen: c.cambio.folio_origen, credito: c.cambio.credito, aplicado: Math.min(c.cambio.credito, bruto), saldo_favor: Math.max(0, c.cambio.credito - bruto), lineas: c.cambio.lineas };

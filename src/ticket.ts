@@ -186,7 +186,7 @@ export function construirTicket(v: Venta, cfg: NegocioCfg = NEGOCIOS[v.tienda]!,
     ...(cambio ? { cambio: cambioDeTicket(v, cambio.dev, cambio.origen, negocios) } : {}),
     ...(v.empleada ? { empleada: { nombre: v.empleada.nombre, credito: v.pagos.some((p) => p.metodo === 'credito_empleada') } } : {}),
     ...(v.vip ? { vip: { nombre: v.vip.nombre, pct: v.vip.pct } } : {}),
-    pagos: v.pagos.filter((p) => !(cambio && p.metodo === 'credito_cambio')).map((p) => ({ etiqueta: p.metodo === 'efectivo' ? 'Efectivo MXN' : p.metodo === 'efectivo_usd' ? 'Efectivo (dólares)' : p.metodo === 'tarjeta_regalo' ? 'Tarjeta de regalo' : p.metodo === 'credito_empleada' ? 'Crédito de empleada (nómina)' : p.metodo === 'credito_cambio' ? `Mercancía recibida a cambio (folio ${String(p.folio_origen ?? 0).padStart(6, '0')})` : 'Tarjeta', monto: p.monto, recibido: p.recibido, cambio: p.cambio, tarjeta: p.tarjeta, saldo_despues: p.saldo_despues, autorizacion: p.autorizacion, marca: p.marca, ultimos4: p.ultimos4, dolares: p.metodo === 'efectivo_usd' ? { usd: p.usd!, tasa: p.tasa!, version: p.tasa_version!, equivalente: p.equivalente!, pesos: p.pesos_recibidos!, cambio: p.cambio_mxn! } : undefined })),
+    pagos: v.pagos.filter((p) => !(cambio && p.metodo === 'credito_cambio')).map((p) => ({ etiqueta: p.metodo === 'efectivo' ? 'Efectivo MXN' : p.metodo === 'efectivo_usd' ? 'Efectivo (dólares)' : p.metodo === 'tarjeta_regalo' ? 'Tarjeta de regalo' : p.metodo === 'credito_empleada' ? 'Crédito de empleada (nómina)' : p.metodo === 'deposito' ? `Depósito ${p.folio_deposito ?? ''}`.trim() : p.metodo === 'credito_cambio' ? `Mercancía recibida a cambio (folio ${String(p.folio_origen ?? 0).padStart(6, '0')})` : 'Tarjeta', monto: p.monto, recibido: p.recibido, cambio: p.cambio, tarjeta: p.tarjeta, saldo_despues: p.saldo_despues, autorizacion: p.autorizacion, marca: p.marca, ultimos4: p.ultimos4, dolares: p.metodo === 'efectivo_usd' ? { usd: p.usd!, tasa: p.tasa!, version: p.tasa_version!, equivalente: p.equivalente!, pesos: p.pesos_recibidos!, cambio: p.cambio_mxn! } : undefined })),
     encabezado: encabezadoDe(cfg), telefono: cfg.telefono ?? '', leyendas: cfg.leyendas, columnas: cfg.columnas, reimpresion,
   };
 }
@@ -402,6 +402,70 @@ export function aCP858(s: string): number[] {
     else out.push(CP858[ch] ?? 0x3f); // carácter no representable -> '?'
   }
   return out;
+}
+
+// ── depósitos en garantía (pruebas de vestidos de noche) ──
+export interface DatosTicketDeposito {
+  folio: string; tienda: string; caja: number; cajero: string; clienta: string; concepto: string; monto: number; ocurrio_en: string;
+}
+/** Comprobante de depósito: es la prueba de la clienta para recuperar o aplicar el dinero. El folio también va como código de barras (lo imprime `renderDepositoEscPos`). */
+export function renderTicketDepositoTexto(d: DatosTicketDeposito, cfg: NegocioCfg, reimpresion = 0): string {
+  const c = cfg.columnas;
+  const regla = '-'.repeat(c);
+  const local = new Date(Date.parse(d.ocurrio_en) - 7 * 3600_000).toISOString();
+  const [y, mo, dd] = fechaLocal(d.ocurrio_en).split('-');
+  const L: string[] = [centrar(cfg.nombre, c)];
+  for (const x of encabezadoDe(cfg)) L.push(...envolver(x, c).map((y2) => centrar(y2, c)));
+  L.push(centrar(`Tienda ${d.tienda} - Caja ${d.caja}`, c), '', centrar('COMPROBANTE DE DEPÓSITO', c));
+  if (reimpresion > 0) L.push(centrar(`REIMPRESIÓN ${reimpresion}`, c));
+  L.push('', `Folio: ${d.folio}`, `Fecha: ${dd}/${mo}/${y}  ${hora12(local.slice(11, 16))}`, ...envolver(`Clienta: ${d.clienta}`, c), ...envolver(`Concepto: ${d.concepto}`, c), regla);
+  L.push(dos('DEPÓSITO RECIBIDO', formatoMXN(d.monto), c), regla);
+  L.push(...envolver('Este depósito NO es una venta. Conserve este comprobante: con él se recupera el depósito o se aplica a una compra, sujeto a la revisión de la prenda.', c));
+  L.push('', `Recibió: ${d.cajero}`.slice(0, c), '');
+  return L.join('\n') + '\n';
+}
+export type ResolucionDeposito = 'devolucion' | 'fee' | 'aplicacion';
+export interface DatosTicketResolucion {
+  tipo: ResolucionDeposito; folio: string; tienda: string; caja: number; usuario: string; clienta: string; ocurrio_en: string;
+  /** Saldo antes y después de esta operación. */
+  saldo_antes: number; saldo_despues: number; monto: number;
+  motivo?: string; autorizado_por?: string | null; folio_venta?: number;
+}
+/** Comprobante de una resolución del depósito: devolución de dinero, fee retenido por daño o saldo aplicado a una compra. */
+export function renderTicketResolucionDepositoTexto(r: DatosTicketResolucion, cfg: NegocioCfg, reimpresion = 0): string {
+  const c = cfg.columnas;
+  const regla = '-'.repeat(c);
+  const local = new Date(Date.parse(r.ocurrio_en) - 7 * 3600_000).toISOString();
+  const [y, mo, dd] = fechaLocal(r.ocurrio_en).split('-');
+  const titulo = r.tipo === 'devolucion' ? 'DEVOLUCIÓN DE DEPÓSITO' : r.tipo === 'fee' ? 'FEE POR DAÑO' : 'DEPÓSITO APLICADO A COMPRA';
+  const L: string[] = [centrar(cfg.nombre, c)];
+  for (const x of encabezadoDe(cfg)) L.push(...envolver(x, c).map((y2) => centrar(y2, c)));
+  L.push(centrar(`Tienda ${r.tienda} - Caja ${r.caja}`, c), '', centrar(titulo, c));
+  if (reimpresion > 0) L.push(centrar(`REIMPRESIÓN ${reimpresion}`, c));
+  L.push('', `Depósito: ${r.folio}`, `Fecha: ${dd}/${mo}/${y}  ${hora12(local.slice(11, 16))}`, ...envolver(`Clienta: ${r.clienta}`, c), regla);
+  L.push(dos('Saldo antes', formatoMXN(r.saldo_antes), c));
+  L.push(dos(r.tipo === 'devolucion' ? 'DEVUELTO A LA CLIENTA' : r.tipo === 'fee' ? 'RETENIDO POR DAÑO' : 'APLICADO A LA COMPRA', formatoMXN(r.monto), c));
+  L.push(dos('Saldo restante', formatoMXN(r.saldo_despues), c), regla);
+  if (r.tipo === 'aplicacion' && r.folio_venta != null) L.push(`Compra: folio ${String(r.folio_venta).padStart(6, '0')}`);
+  if (r.motivo) L.push(...envolver(`Motivo: ${r.motivo}`, c));
+  if (r.autorizado_por) L.push(`Autorizó: ${r.autorizado_por}`.slice(0, c));
+  if (r.tipo === 'devolucion') L.push('', ...envolver('Recibí la cantidad indicada. La prenda se devolvió sin daños.', c), '', '', '_'.repeat(c), 'Firma de la clienta', ...envolver(r.clienta, c));
+  if (r.tipo === 'fee') L.push('', ...envolver('Se retuvo del depósito el importe del daño a la prenda.', c));
+  L.push('', `Atendió: ${r.usuario}`.slice(0, c), '');
+  return L.join('\n') + '\n';
+}
+/** ESC/POS de un comprobante con el folio como código de barras Code128 (el mismo que lee el lector de la caja); abre el cajón solo si se pide. */
+export function renderDepositoEscPos(texto: string, folio: string, opts: { abrirCajon?: boolean; logo?: import('./logos-ticket.ts').LogoRaster; logoRelleno?: boolean; columnas?: number } = {}): Uint8Array {
+  const b: number[] = [0x1b, 0x40, 0x1b, 0x74, 19];
+  if (opts.abrirCajon) b.push(0x1b, 0x70, 0x00, 25, 250);
+  if (opts.logo) b.push(...rasterEscPos(opts.logo, opts.logoRelleno ? (opts.columnas ?? 42) * 12 : 0));
+  b.push(...aCP858(texto.replace(/\n$/, '')), 0x0a);
+  if (folio) {
+    const datos = aCP858(`{B${folio}`); // Code128 juego B
+    b.push(0x1b, 0x61, 1, 0x1d, 0x68, 80, 0x1d, 0x77, 2, 0x1d, 0x48, 2, 0x1d, 0x6b, 73, datos.length, ...datos, 0x0a, 0x1b, 0x61, 0); // centrado, con el folio escrito debajo
+  }
+  b.push(0x0a, 0x0a, 0x1d, 0x56, 66, 0);
+  return Uint8Array.from(b);
 }
 
 export function renderTicketEscPos(t: Ticket, opts: { abrirCajon?: boolean; logo?: import('./logos-ticket.ts').LogoRaster; /** Rellena el logo con blanco hasta el ancho del papel (para impresoras que no centran imágenes); manda más datos y en algunas impresoras lentas provoca pausas. */ logoRelleno?: boolean } = {}): Uint8Array {
@@ -660,11 +724,18 @@ export function lineasTicketCorte(k: DatosCorte, cfg: NegocioCfg = NEGOCIOS[k.ti
   if (k.tickets_cancelados) L.push(t(dos('Ventas canceladas', String(k.tickets_cancelados), c)));
   // VENTAS NETAS sobresale del resto: título en negritas y el importe en doble tamaño, como la venta total del día.
   L.push(t(regla), { texto: centrar('VENTAS NETAS', c), negrita: true }, { texto: centrar(formatoMXN(k.ventas_netas), c), negrita: true, grande: true }, t(doble));
+  // Depósitos en garantía: NO son ventas; se muestran aparte para que el efectivo esperado se pueda conciliar.
+  const dp = k.depositos as { recibidos: number; devueltos: number; aplicados: number; fees: number; pendiente: number; pendiente_n: number } | undefined;
+  if (dp && (dp.recibidos || dp.devueltos || dp.aplicados || dp.fees || dp.pendiente)) {
+    L.push(b('DEPÓSITOS EN GARANTÍA (no son venta)'), t(dos('Depósitos recibidos', formatoMXN(dp.recibidos), c)), t(dos('Depósitos devueltos', formatoMXN(dp.devueltos), c)), t(dos('Aplicados a compras', formatoMXN(dp.aplicados), c)), t(dos('Fees retenidos por daños', formatoMXN(dp.fees), c)), b(dos(`Saldo pendiente (${dp.pendiente_n})`, formatoMXN(dp.pendiente), c)), t(doble));
+  }
   // 5) conciliación del efectivo
   L.push(b('CONCILIACIÓN DEL EFECTIVO EN PESOS'), t(dos('Cobros recibidos', formatoMXN(m.cobros ?? 0), c)), t(dos('Cambio entregado', `-${formatoMXN(m.cambio ?? 0)}`, c)), t(dos('Devoluciones en efectivo', `-${formatoMXN(m.devoluciones ?? 0)}`, c)));
   if (m.cancelaciones) L.push(t(dos('Cancelaciones', `-${formatoMXN(m.cancelaciones)}`, c)));
   if (m.retiros) L.push(t(dos('Retiros', `-${formatoMXN(m.retiros)}`, c)));
   if (m.gastos) L.push(t(dos('Gastos de caja', `-${formatoMXN(m.gastos)}`, c)));
+  if (m.depositos_recibidos) L.push(t(dos('Depósitos recibidos (no son venta)', formatoMXN(m.depositos_recibidos), c)));
+  if (m.depositos_devueltos) L.push(t(dos('Depósitos devueltos', `-${formatoMXN(m.depositos_devueltos)}`, c)));
   if (m.entradas) L.push(t(dos('Entradas extraordinarias', formatoMXN(m.entradas), c)));
   if (m.ajustes) L.push(t(dos('Ajustes de Administración', formatoMXN(m.ajustes), c)));
   L.push(t(regla), b(dos('Efectivo de ventas esperado', dato(k.efectivo_ventas_esperado), c)));

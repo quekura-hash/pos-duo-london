@@ -521,11 +521,12 @@
   .panel-ha { display: flex; flex-direction: column; gap: 12px; padding: 14px; }
   .panel-ha .ha-campos { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; flex: none; width: 100%; }
   .panel-ha .ha-campos label { display: flex; flex-direction: column; gap: 4px; margin: 0; min-width: 0; }
-  .panel-ha .ha-campos label:nth-child(3) { grid-column: 1 / -1; }
   .panel-ha .ha-campos input, .panel-ha .ha-campos select { width: 100%; min-width: 0; min-height: 46px; font-size: 16px; }
-  .panel-ha #ha-consultar { grid-column: 1 / -1; width: 100%; min-height: 48px; }
+  .panel-ha #ha-consultar { width: 100%; min-height: 46px; align-self: end; padding-left: 8px; padding-right: 8px; }
+  .panel-ha { padding: 12px; gap: 10px; }
+  .ha-resumen { padding: 10px 14px; gap: 2px; }
   .ha-resumen { order: -1; min-width: 0; width: 100%; box-sizing: border-box; }
-  .ha-r-total { font-size: clamp(28px, 8vw, 34px); white-space: nowrap; }
+  .ha-r-total { font-size: clamp(26px, 7vw, 30px); white-space: nowrap; }
   #lista-historial-admin { display: flex; flex-direction: column; gap: 8px; }
   #lista-historial-admin .fila-venta { display: flex; align-items: center; gap: 8px; padding: 12px 10px 12px 14px; border: 1px solid var(--borde); border-radius: 14px; background: var(--superficie); min-height: 64px; }
   #lista-historial-admin .fv-cuerpo { display: flex; flex-direction: column; gap: 3px; flex: 1; min-width: 0; }

@@ -95,6 +95,15 @@ export async function atender(o: { cajero?: ServicioCaja; admin?: ServicioAdmin 
       case 'POST /api/venta/espera/descartar': return ok(exigirCajero().descartarEnEspera(b.cart));
       case 'GET /api/retiro': return ok({ retiro: exigirCajero().estadoRetiro() });
       case 'POST /api/gasto': return ok(await exigirCajero().registrarGasto({ ref: String(b.ref ?? ''), monto: Number(b.monto), concepto: String(b.concepto ?? ''), recibio: String(b.recibio ?? ''), autoriza: b.autoriza }));
+      case 'GET /api/depositos': return ok(q.get('q') ? exigirCajero().buscarDepositos(q.get('q') ?? '') : exigirCajero().depositosPendientes());
+      case 'GET /api/deposito': return ok(exigirCajero().depositoDetalle(q.get('id') ?? ''));
+      case 'POST /api/deposito': return ok(await exigirCajero().recibirDeposito({ ref: String(b.ref ?? ''), clienta: String(b.clienta ?? ''), monto: Number(b.monto), concepto: b.concepto === undefined ? undefined : String(b.concepto) }));
+      case 'POST /api/deposito/reimprimir': return ok(await exigirCajero().reimprimirDeposito(String(b.deposito_id ?? '')));
+      case 'POST /api/deposito/reimprimir-resolucion': return ok(await exigirCajero().reimprimirResolucionDeposito(String(b.deposito_id ?? ''), String(b.op_id ?? '')));
+      case 'POST /api/deposito/devolver': return ok(await exigirCajero().devolverDeposito({ ref: String(b.ref ?? ''), deposito_id: String(b.deposito_id ?? ''), monto: b.monto === undefined || b.monto === null ? undefined : Number(b.monto), confirmado: b.confirmado === true }));
+      case 'POST /api/deposito/fee': return ok(await exigirCajero().cobrarFeeDeposito({ ref: String(b.ref ?? ''), deposito_id: String(b.deposito_id ?? ''), monto: Number(b.monto), motivo: String(b.motivo ?? ''), autoriza: b.autoriza }));
+      case 'POST /api/deposito/aplicar': return ok(exigirCajero().aplicarDeposito(String(b.cart ?? ''), String(b.deposito_id ?? '')));
+      case 'POST /api/deposito/quitar': return ok(exigirCajero().quitarDeposito(String(b.cart ?? '')));
       case 'POST /api/gasto/reimprimir': return ok(await exigirCajero().reimprimirGasto(String(b.gasto_id ?? '')));
       case 'POST /api/retiro': return ok(await exigirCajero().registrarRetiro({ retiro_id: String(b.retiro_id ?? ''), mxn: b.mxn ?? {}, usd: b.usd ?? {}, clave: b.clave === undefined ? undefined : String(b.clave) }));
       case 'POST /api/retiro/reimprimir': return ok(await exigirCajero().reimprimirRetiro(String(b.retiro_id ?? '')));

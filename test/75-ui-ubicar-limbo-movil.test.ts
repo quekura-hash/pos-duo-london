@@ -119,9 +119,9 @@ describe('[iPhone] Inventario: seleccionar y ubicar piezas de El Limbo', { timeo
     assert.equal(await page.locator('#lista-historial-admin .fila-inv').count(), 6);
     assert.equal(await page.locator('#tabla-historial-admin').isVisible(), false, 'en el teléfono no se usa la tabla de tarjetas');
     const alto = await page.locator('#lista-historial-admin .fila-inv').first().boundingBox();
-    assert.ok(alto && alto.height < 100, `cada venta es una fila compacta (${alto?.height}px)`);
+    assert.ok(alto && alto.height < 130, `cada venta es una fila compacta (${alto?.height}px)`); // rediseño: tarjeta de 3 renglones con chevron
     const visibles = await page.evaluate(() => [...document.querySelectorAll('#lista-historial-admin .fila-inv')].filter((e) => { const r = e.getBoundingClientRect(); return r.bottom <= window.innerHeight; }).length);
-    assert.ok(visibles >= 3, `caben varias ventas en la pantalla (${visibles})`);
+    assert.ok(visibles >= 2, `caben varias ventas en la pantalla junto al panel de filtros y resumen (${visibles})`);
     assert.match((await page.textContent('#lista-historial-admin .fila-inv'))!, /000006[\s\S]*Caja 2[\s\S]*Efectivo/);
     // segundo renglón: tienda, caja y el artículo (descripción y marca) en letra más grande; donde iba «confirmada» va quien vendió
     assert.match((await page.textContent('#lista-historial-admin .fila-inv .fi-quien'))!, /DUO · Caja 2 · BLUSA TM/);

@@ -71,6 +71,11 @@ const I = {
   printer: '<path d="M7 9V3h10v6M7 17H5a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-2"/><rect x="7" y="14" width="10" height="7"/>',
   download: '<path d="M12 4v11m0 0-4-4m4 4 4-4M5 20h14"/>',
   chevron: '<path d="m9 6 6 6-6 6"/>',
+  wallet: '<path d="M19 7V4a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-3a2 2 0 0 0 0 4h3a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1"/><path d="M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4"/>',
+  'mas-circulo': '<circle cx="12" cy="12" r="10"/><path d="M8 12h8M12 8v8"/>',
+  lista: '<path d="M3 5h.01M3 12h.01M3 19h.01M8 5h13M8 12h13M8 19h13"/>',
+  alerta: '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4M12 17h.01"/>',
+  'flecha-izq': '<path d="m12 19-7-7 7-7M19 12H5"/>',
   file: '<path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/>',
   check: '<path d="m5 12.5 4.5 4.5L19 7.5"/>',
   menu: '<path d="M4 6h16M4 12h16M4 18h16"/>',
@@ -636,7 +641,7 @@ async function vistaVenta() {
         </section>
         <div class="acciones-inf" id="acciones-inf">
           <button class="btn" id="btn-buscar-ticket" type="button" title="Abre el historial de ventas de esta caja">${ico('search')}<span>Buscar ticket</span></button>
-          <button class="btn" id="btn-devolucion" type="button" title="Buscar la venta y cambiar piezas (solo en la caja donde se vendió)">${ico('undo')}<span>Hacer Cambio</span></button><button class="btn" id="btn-descuento" type="button" title="Descuento con su clave (queda anotado quién lo hizo)">${ico('tag')}<span>Aplicar descuento</span></button><button class="btn" id="btn-cupon" type="button" title="Capturar o escanear un cupón de descuento">${ico('gift')}<span>Cupón</span></button><button class="btn" id="btn-espera" type="button" title="Guardar esta venta y atender a otro cliente, o retomar una venta guardada">${ico('pause')}<span id="txt-espera">Venta en espera</span></button><button class="btn" id="btn-abrir-caja" type="button" title="Abre el cajón de dinero sin hacer una venta (queda registrado). Atajo: Ctrl + F8">${ico('cash')}<span>Abrir caja</span></button><button class="btn btn-peligro" id="btn-cancelar-venta" type="button" title="Cancelar la venta en curso (aún sin cobrar)">${ico('trash')}<span>Cancelar venta</span></button>
+          <button class="btn" id="btn-devolucion" type="button" title="Buscar la venta y cambiar piezas (solo en la caja donde se vendió)">${ico('undo')}<span>Hacer Cambio</span></button><button class="btn" id="btn-descuento" type="button" title="Descuento con su clave (queda anotado quién lo hizo)">${ico('tag')}<span>Aplicar descuento</span></button><button class="btn" id="btn-cupon" type="button" title="Capturar o escanear un cupón de descuento">${ico('gift')}<span>Cupón</span></button><button class="btn" id="btn-espera" type="button" title="Guardar esta venta y atender a otro cliente, o retomar una venta guardada">${ico('pause')}<span id="txt-espera">Venta en espera</span></button><button class="btn" id="btn-depositos" type="button" title="Recibir, buscar y resolver depósitos en garantía (pruebas de vestidos)">${ico('wallet')}<span>Depósitos</span></button><button class="btn" id="btn-abrir-caja" type="button" title="Abre el cajón de dinero sin hacer una venta (queda registrado). Atajo: Ctrl + F8">${ico('cash')}<span>Abrir caja</span></button><button class="btn btn-peligro" id="btn-cancelar-venta" type="button" title="Cancelar la venta en curso (aún sin cobrar)">${ico('trash')}<span>Cancelar venta</span></button>
         <button class="btn" id="btn-empleada" type="button" title="Venta a una empleada: descuento de empleada y, si quiere, crédito a su cuenta">${ico('user')}<span>Venta a empleada</span></button>
         </div>
       </div>
@@ -647,6 +652,7 @@ async function vistaVenta() {
           <dt>Importe</dt><dd id="brutas">$0.00</dd>
           <dt>Descuentos</dt><dd id="descuentos">$0.00</dd>
           <dt id="dt-cambio" hidden>Mercancía recibida a cambio</dt><dd id="dd-cambio" hidden>$0.00</dd>
+          <dt id="dt-deposito" hidden>Depósito aplicado</dt><dd id="dd-deposito" hidden>$0.00</dd>
         </dl>
         <div id="saldo-favor" class="mensaje aviso" role="status" hidden><span id="saldo-favor-texto"></span><br><button type="button" id="btn-devolver-dinero" style="background:none;border:0;padding:4px 0 0;color:var(--texto-2);font-size:12px;text-decoration:underline;cursor:pointer;display:inline-flex;gap:4px;align-items:center">${ico('cash')}<span>No hay cambio posible, devolver dinero</span></button></div>
         <div id="promos-aplicadas" aria-live="polite"></div>
@@ -677,6 +683,7 @@ async function vistaVenta() {
   $('#btn-uniforme').addEventListener('click', alternarUniforme);
   $('#btn-cupon').addEventListener('click', () => abrirCupon());
   $('#btn-espera').addEventListener('click', () => abrirEspera());
+  $('#btn-depositos').addEventListener('click', () => abrirDepositos());
   $('#btn-cancelar-venta').addEventListener('click', abrirCancelarVenta);
   $('#btn-abrir-caja').addEventListener('click', async () => {
     try {
@@ -890,6 +897,9 @@ function pintarCarrito() {
   const cb = c.cambio;
   $('#dt-cambio').hidden = $('#dd-cambio').hidden = !cb;
   if (cb) $('#dd-cambio').textContent = `-${mxn(cb.credito)}`;
+  const dp = c.deposito;
+  $('#dt-deposito').hidden = $('#dd-deposito').hidden = !(dp && dp.aplicado > 0);
+  if (dp && dp.aplicado > 0) { $('#dd-deposito').textContent = `-${mxn(dp.aplicado)}`; $('#dt-deposito').title = `Depósito ${dp.folio}`; }
   $('#saldo-favor').hidden = !(cb && cb.saldo_favor > 0);
   if (cb && cb.saldo_favor > 0) $('#saldo-favor-texto').innerHTML = `Saldo a favor de la clienta: <b id="saldo-favor-monto">${mxn(cb.saldo_favor)}</b>. Agregue más artículos o devuélvale el dinero.`;
   const cuerpo = $('#cuerpo');
@@ -1009,7 +1019,7 @@ function recalcular() {
   const saldo = S.carrito.cambio?.saldo_favor ?? 0; // con saldo a favor no se cobra: se agregan artículos o se devuelve el dinero
   $('#btn-cobrar').disabled = !ok || saldo > 0 || (hay && exigeVendedora());
   pintarVendedora();
-  $('#txt-cobrar').textContent = S.carrito.cambio && hay && total === 0 && saldo === 0 ? 'CONFIRMAR CAMBIO' : hay && total === 0 && S.forma !== 'regalo' ? 'REGISTRAR VENTA SIN COBRO' : hay && (S.forma === 'tarjeta' || S.forma === 'mixto') ? 'TRANSACCIÓN CONFIRMADA' : `COBRAR ${mxn(total)}`;
+  $('#txt-cobrar').textContent = S.carrito.cambio && hay && total === 0 && saldo === 0 ? 'CONFIRMAR CAMBIO' : hay && total === 0 && S.carrito.deposito?.aplicado > 0 && S.forma !== 'regalo' ? 'CONFIRMAR VENTA CON DEPÓSITO' : hay && total === 0 && S.forma !== 'regalo' ? 'REGISTRAR VENTA SIN COBRO' : hay && (S.forma === 'tarjeta' || S.forma === 'mixto') ? 'TRANSACCIÓN CONFIRMADA' : `COBRAR ${mxn(total)}`;
 }
 
 async function escanear() {
@@ -1430,6 +1440,7 @@ async function vistaCorte() {
         ${fila('rc-tarjeta', 'Cobros con tarjeta / banco (no es efectivo)', mxn(v.cobros_tarjeta))}
         ${fila('rc-reembolsos-banco', 'Reembolsos a tarjeta / banco (no es efectivo)', mxn(v.devoluciones_a_tarjeta))}
         ${fila('rc-retiros', 'Retiros registrados', mxn(v.retiros))}
+        ${v.depositos && (v.depositos.recibidos || v.depositos.devueltos || v.depositos.aplicados || v.depositos.fees || v.depositos.pendiente) ? `${fila('rc-dep-recibidos', 'Depósitos recibidos (no son venta; ya están en el efectivo esperado)', mxn(v.depositos.recibidos))}${fila('rc-dep-devueltos', 'Depósitos devueltos', mxn(v.depositos.devueltos))}${fila('rc-dep-aplicados', 'Depósitos aplicados a compras', mxn(v.depositos.aplicados))}${fila('rc-dep-fees', 'Fees retenidos por daños', mxn(v.depositos.fees))}${fila('rc-dep-pendiente', `Saldo pendiente de depósitos (${v.depositos.pendiente_n})`, mxn(v.depositos.pendiente))}` : ''}
         ${fila('rc-entradas', 'Entradas y ajustes extraordinarios', mxn(v.entradas + (v.ajustes_admin ?? 0)))}
         ${fila('rc-dif-mxn', 'Diferencia en pesos (contado − esperado)', dif === null || v.conteo_alcance !== 'ventas' ? '—' : `<b style="color:${dif === 0 ? 'var(--ok,#0a7a4b)' : 'var(--error,#b3261e)'}">${dif$(dif)}</b> ${dif === 0 ? '· Sin diferencias' : dif > 0 ? '· Sobrante' : '· Faltante'}`)}
         ${fila('rc-dif-usd', 'Diferencia en dólares', difUsd === null ? '—' : `${dif$(difUsd, usd)}${difUsd === 0 ? ' · Sin diferencias' : difUsd > 0 ? ' · Sobrante' : ' · Faltante'}`)}
@@ -3614,6 +3625,251 @@ async function abrirEspera() {
     try { await api('/api/venta/espera/descartar', { cart: b.closest('[data-cart]').dataset.cart }); await abrirEspera(); } catch (e) { error(e); }
   }));
   if (!d.open) d.showModal();
+}
+// ── Depósitos en garantía (pruebas de vestidos de noche): toda la gestión vive en esta ventana; la venta solo recibe el saldo aplicado ──
+const DEP_ESTADO = { pendiente: 'Pendiente', parcial: 'Parcial', cerrado: 'Cerrado' };
+const depFecha = (iso) => fechaHora(iso);
+const depInsignia = (d) => `<span class="dep-badge dep-${esc(d.estado)}">${esc(DEP_ESTADO[d.estado] ?? d.estado)}</span>`;
+const depTarjeta = (d) => `<button type="button" class="dep-fila" data-dep="${esc(d.deposito_id)}"><span class="dep-fila-cuerpo">
+    <span class="dep-fila-1"><b>${esc(d.folio)}</b>${depInsignia(d)}</span>
+    <span class="dep-fila-2">${esc(d.clienta)}</span>
+    <span class="dep-fila-3"><span>Original ${mxn(d.monto)}</span><span>Saldo <b>${mxn(d.saldo)}</b></span></span>
+    <span class="dep-fila-4">${esc(depFecha(d.ocurrio_en))} · ${esc(d.tienda)} · Caja ${d.caja}</span></span>${ico('chevron')}</button>`;
+const depNavegar = (vista, datos = {}) => { S.dep = { ...(S.dep ?? {}), vista, ...datos }; pintarDepositos(); };
+async function abrirDepositos() {
+  const d = dialogo('dlg-depositos');
+  d.classList.add('dlg-dep');
+  d.setAttribute('aria-labelledby', 'dep-titulo');
+  S.dep = { vista: 'menu', pendientes: null };
+  try { S.dep.pendientes = (await api('/api/depositos')).depositos; } catch (e) { S.dep.error = e.message; }
+  await pintarDepositos();
+  if (!d.open) d.showModal();
+}
+async function pintarDepositos() {
+  const d = dialogo('dlg-depositos');
+  const D = S.dep;
+  const cab = (titulo, atras) => `<div class="dep-cab">${atras ? `<button type="button" class="dep-atras" id="dep-atras" aria-label="Volver">${ico('flecha-izq')}</button>` : `<span class="dep-ico-cab">${ico('wallet')}</span>`}<h2 id="dep-titulo">${titulo}</h2>${D.vista === 'detalle' && D.deposito ? depInsignia(D.deposito) : ''}<button type="button" class="dep-cerrar" id="dep-cerrar" aria-label="Cerrar">${ico('x')}</button></div>`;
+  const pie = '<div id="dep-msg" class="mensaje" role="status" aria-live="polite"></div>';
+  const error = (e) => { const m = $('#dep-msg'); if (m) { m.className = 'mensaje error'; m.textContent = e.message; } };
+  const aviso = (t) => { const m = $('#dep-msg'); if (m) { m.className = 'mensaje ok'; m.textContent = t; } };
+  const enCarrito = S.carrito?.deposito ?? null;
+  let html = '';
+  if (D.vista === 'menu') {
+    const n = D.pendientes?.length ?? 0;
+    html = `${cab('Depósitos', false)}
+      ${enCarrito ? `<div class="dep-encarrito" id="dep-encarrito">${ico('check')}<span><b>${esc(enCarrito.folio)}</b> aplicado a esta venta: <b>${mxn(enCarrito.aplicado)}</b> · se consume al cobrar</span><button type="button" class="btn" id="dep-quitar">Quitar</button></div>` : ''}
+      <div class="dep-opciones">
+        <button type="button" class="dep-op dep-op-principal" id="dep-nuevo"><span class="dep-op-ico">${ico('mas-circulo')}</span><span class="dep-op-txt"><b>Nuevo depósito</b><small>Recibe un depósito por prueba de vestido y genera su ticket con código.</small></span>${ico('chevron')}</button>
+        <button type="button" class="dep-op" id="dep-buscar"><span class="dep-op-ico">${ico('search')}</span><span class="dep-op-txt"><b>Buscar depósito</b><small>Consulta por código, nombre o folio y gestiona (devolver, aplicar o cobrar fee).</small></span>${ico('chevron')}</button>
+        <button type="button" class="dep-op" id="dep-pendientes"><span class="dep-op-ico">${ico('lista')}</span><span class="dep-op-txt"><b>Depósitos pendientes</b><small>Depósitos activos por reclamar.</small></span><span class="dep-cuenta" id="dep-cuenta">${n}</span>${ico('chevron')}</button>
+      </div>${pie}`;
+  } else if (D.vista === 'nuevo') {
+    const hub = S.estado?.negocio ?? S.estado?.tienda ?? '';
+    html = `${cab('Nuevo depósito', true)}
+      <form id="dep-form" autocomplete="off">
+        <div class="campo"><label for="dep-clienta">Nombre de la clienta <span class="dep-req">*</span></label><input id="dep-clienta" class="texto" maxlength="80" placeholder="Nombre y apellido" value="${esc(D.clienta ?? '')}"></div>
+        <div class="campo"><label for="dep-monto">Monto del depósito (MXN) <span class="dep-req">*</span></label><input id="dep-monto" class="texto dep-monto" inputmode="decimal" placeholder="$0.00" value="${D.monto ? esc(String(D.monto / 100)) : ''}">
+          <div class="dep-rapidos" role="group" aria-label="Montos rápidos">${[100, 200, 300, 500].map((v) => `<button type="button" class="dep-rapido" data-monto="${v}">$${v}</button>`).join('')}</div></div>
+        <div class="campo"><label for="dep-concepto">Concepto / observaciones</label><textarea id="dep-concepto" class="texto" rows="2" maxlength="120">${esc(D.concepto ?? 'Prueba de vestido de noche')}</textarea></div>
+        <p class="dep-donde">${ico('store')}<span>${esc(hub)}${hub ? ' · ' : ''}Caja ${esc(String(S.estado?.caja ?? ''))} · Recibe: <b>${esc(S.sesion?.usuario ?? '')}</b></span></p>
+        <div class="dep-info">${ico('info')}<span>Este depósito <b>no se registra como venta</b>. Se registrará como depósito en caja y se imprimirá un ticket con código para su devolución o uso.</span></div>
+        <p class="dep-total">Depósito a recibir: <b id="dep-total">${mxn(D.monto ?? 0)}</b></p>
+        <button class="btn btn-primario dep-principal" id="dep-guardar" type="submit">${ico('printer')}<span>Recibir depósito e imprimir ticket</span></button>
+      </form>${pie}`;
+  } else if (D.vista === 'buscar') {
+    html = `${cab('Buscar depósito', true)}
+      <form id="dep-busqueda" autocomplete="off" class="dep-buscador"><input id="dep-q" class="texto" placeholder="Escanee el código o escriba folio o nombre" value="${esc(D.q ?? '')}" autofocus><button class="btn btn-primario" type="submit">${ico('search')}<span>Buscar</span></button></form>
+      <div id="dep-resultados" class="dep-lista">${D.resultados ? (D.resultados.length ? D.resultados.map(depTarjeta).join('') : '<p class="ps-vacio">No hay depósitos con ese código o nombre.</p>') : '<p class="nota">Escanee el código de barras del comprobante o escriba el folio (DEP-D1-0001) o el nombre de la clienta.</p>'}</div>${pie}`;
+  } else if (D.vista === 'pendientes') {
+    const sinAcentos = (t) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+    const lista = (D.pendientes ?? []).filter((x) => !D.filtro || sinAcentos(`${x.folio} ${x.clienta}`).includes(sinAcentos(D.filtro)));
+    html = `${cab('Depósitos pendientes', true)}
+      <input id="dep-filtro" class="texto" placeholder="Filtrar por folio o nombre" value="${esc(D.filtro ?? '')}">
+      <div class="dep-lista" id="dep-lista">${lista.length ? lista.map(depTarjeta).join('') : '<p class="ps-vacio">No hay depósitos pendientes.</p>'}</div>${pie}`;
+  } else if (D.vista === 'detalle') {
+    const x = D.deposito;
+    const abierto = x.saldo > 0;
+    html = `${cab(`Depósito ${esc(x.folio)}`, true)}
+      <div class="dep-ficha"><span class="dep-ficha-ico">${ico('ticket')}</span><div><b class="dep-folio">${esc(x.folio)}</b>
+        <p>${ico('user')}<span>${esc(x.clienta)}</span></p><p>${ico('cash')}<span>Original ${mxn(x.monto)} · Saldo <b id="dep-saldo">${mxn(x.saldo)}</b></span></p>
+        <p>${ico('calendar')}<span>${esc(depFecha(x.ocurrio_en))} · ${esc(x.tienda)} · Caja ${x.caja}</span></p><p>${ico('receipt')}<span>${esc(x.concepto)}</span></p></div></div>
+      ${x.inconsistente ? '<div class="mensaje error">Este depósito tiene movimientos que no cuadran. Avise a Administración: no se puede resolver aquí.</div>' : ''}
+      ${abierto && !x.inconsistente ? `<h3 class="dep-que">¿Qué deseas hacer?</h3><div class="dep-acciones">
+        <button type="button" class="dep-accion dep-a-devolver" id="dep-a-devolver">${ico('check')}<span><b>Devolver depósito</b><small>Regresa el monto a la clienta.</small></span></button>
+        <button type="button" class="dep-accion dep-a-aplicar" id="dep-a-aplicar">${ico('tag')}<span><b>Aplicar a una compra</b><small>Usa el depósito como parte del pago.</small></span></button>
+        <button type="button" class="dep-accion dep-a-fee" id="dep-a-fee">${ico('alerta')}<span><b>Cobrar fee por daño</b><small>Retén un monto y devuelve el resto.</small></span></button></div>` : '<p class="nota">Este depósito ya no tiene saldo: está cerrado.</p>'}
+      <h3 class="dep-que">Historial</h3><ul class="dep-hist">${x.movimientos.map((m) => `<li><b>${esc({ recibido: 'Recibido', devuelto: 'Devuelto', fee: 'Fee por daño', aplicado: 'Aplicado a compra', reintegrado: 'Regresado al saldo' }[m.tipo] ?? m.tipo)}</b> ${mxn(m.monto)}<small>${esc(depFecha(m.ocurrio_en))} · Caja ${m.caja}${m.usuario ? ` · ${esc(m.usuario)}` : ''}${m.autorizado_por ? ` · autorizó ${esc(m.autorizado_por)}` : ''}${m.motivo ? ` · ${esc(m.motivo)}` : ''}</small></li>`).join('')}</ul>
+      <div class="filas"><button class="btn" id="dep-reimprimir" type="button">${ico('printer')}<span>Reimprimir comprobante</span></button></div>${pie}`;
+  } else if (D.vista === 'devolver') {
+    const x = D.deposito;
+    html = `${cab('Devolver depósito', true)}
+      <p class="dep-dato">Depósito disponible: <b>${mxn(x.saldo)}</b></p>
+      <div class="campo"><label for="dep-dev-monto">Devolución (MXN)</label><input id="dep-dev-monto" class="texto dep-monto" inputmode="decimal" value="${x.saldo / 100}"></div>
+      <label class="dep-confirma"><input type="checkbox" id="dep-dev-ok"><span>Confirmo que el vestido se devolvió <b>sin daños</b>.</span></label>
+      <p class="dep-total">Se entregan a la clienta: <b id="dep-dev-total">${mxn(x.saldo)}</b></p>
+      <button class="btn btn-primario dep-principal" id="dep-dev-ejecutar" type="button" disabled>${ico('cash')}<span>Entregar el dinero y devolver depósito</span></button>${pie}`;
+  } else if (D.vista === 'fee') {
+    const x = D.deposito; const au = D.autoriza;
+    html = `${cab('Cobrar fee por daño', true)}
+      <p class="dep-dato">Depósito disponible: <b>${mxn(x.saldo)}</b></p>
+      <div class="campo"><label for="dep-fee-monto">Importe del daño (MXN)</label><input id="dep-fee-monto" class="texto dep-monto" inputmode="decimal" placeholder="$0.00"></div>
+      <div class="campo"><label for="dep-fee-motivo">Motivo</label><input id="dep-fee-motivo" class="texto" maxlength="120" placeholder="Ej. Cierre roto"></div>
+      ${au?.pide_clave ? `<div class="campo" id="dep-fee-quien-campo"><label for="dep-fee-quien">Autoriza</label><select id="dep-fee-quien" class="texto">${au.autorizadores.map((a) => `<option value="${esc(a.nombre)}">${esc(a.nombre)}${a.tipo === 'supervisor' ? ' (supervisor)' : ''}</option>`).join('')}</select></div>
+        <div class="campo"><label for="dep-fee-clave">Clave de quien autoriza</label><input id="dep-fee-clave" type="text" data-pin inputmode="numeric" autocomplete="off" style="width:140px"></div>
+        ${casillaSola('dep-fee-solo', 'No hay nadie más para autorizar: autorizo yo con mi clave (queda anotado)')}` : ''}
+      <p class="dep-total">Saldo a devolver después: <b id="dep-fee-resto">${mxn(x.saldo)}</b></p>
+      <p class="nota">El fee se retiene del depósito: no entra efectivo nuevo. El resto se devuelve o se aplica a una compra.</p>
+      <button class="btn btn-primario dep-principal" id="dep-fee-ejecutar" type="button">${ico('alerta')}<span>Cobrar fee y continuar</span></button>${pie}`;
+  } else if (D.vista === 'aplicar') {
+    const x = D.deposito; const c = S.carrito;
+    const lineas = (c?.lineas?.length ?? 0) > 0;
+    const bruto = (c?.lineas ?? []).reduce((a, l) => a + l.importe, 0) - (c?.cambio?.credito ?? 0);
+    const aplicado = Math.max(0, Math.min(x.saldo, bruto));
+    html = `${cab('Aplicar a una compra', true)}
+      ${lineas ? `<dl class="dep-calculo"><dt>Precio de la compra</dt><dd id="dep-ap-precio">${mxn(bruto)}</dd><dt>Depósito disponible</dt><dd>${mxn(x.saldo)}</dd><dt>Se aplica</dt><dd id="dep-ap-aplica">${mxn(aplicado)}</dd><dt><b>Importe adicional por pagar</b></dt><dd><b id="dep-ap-resta">${mxn(Math.max(0, bruto - aplicado))}</b></dd>${x.saldo > aplicado ? `<dt>Remanente del depósito</dt><dd>${mxn(x.saldo - aplicado)}</dd>` : ''}</dl>
+        <p class="nota">El precio no cambia ni se crea un descuento: el depósito se registra como parte del pago. Queda reservado para esta venta y se consume hasta confirmar el cobro.</p>
+        <button class="btn btn-primario dep-principal" id="dep-ap-ejecutar" type="button">${ico('check')}<span>Aplicar ${mxn(aplicado)} a esta venta</span></button>`
+        : '<div class="dep-info">' + ico('info') + '<span>Primero agregue el vestido (o lo que se compra) a la venta en pantalla y vuelva a abrir Depósitos.</span></div>'}${pie}`;
+  } else if (D.vista === 'resultado') {
+    const r = D.resultado;
+    html = `${cab(esc(r.titulo), false)}
+      <div class="mensaje ${r.impresion.ok ? 'ok' : 'error'}" id="dep-estado-impresion" role="status">${esc(r.resumen)} ${r.impresion.ok ? 'Ticket enviado a la impresora.' : `La impresora falló: ${esc(r.impresion.error ?? '')}. El movimiento SÍ quedó registrado: reimprima el comprobante.`}</div>
+      <pre class="ticket" id="dep-ticket" tabindex="0">${esc(r.ticket_texto)}</pre>
+      <div class="filas">${r.impresion.ok ? '' : '<button class="btn" id="dep-reimp-res" type="button">' + ico('printer') + '<span>Reimprimir</span></button>'}<button class="btn btn-primario" id="dep-listo" type="button">${ico('check')}<span>Listo</span></button></div>${pie}`;
+  }
+  d.innerHTML = html;
+  $('#dep-cerrar')?.addEventListener('click', () => d.close());
+  $('#dep-atras')?.addEventListener('click', () => {
+    const v = D.vista;
+    if (v === 'detalle') depNavegar(D.desde ?? 'menu');
+    else if (v === 'devolver' || v === 'fee' || v === 'aplicar') depNavegar('detalle');
+    else depNavegar('menu');
+  });
+  if (D.error) error({ message: D.error });
+  if (D.vista === 'menu') {
+    $('#dep-nuevo').addEventListener('click', () => { S.refDeposito ??= nuevaRef(); depNavegar('nuevo', { clienta: '', monto: 0, concepto: 'Prueba de vestido de noche' }); });
+    $('#dep-buscar').addEventListener('click', () => depNavegar('buscar', { q: '', resultados: null }));
+    $('#dep-pendientes').addEventListener('click', () => depNavegar('pendientes', { filtro: '' }));
+    $('#dep-quitar')?.addEventListener('click', async () => {
+      try { const r = await api('/api/deposito/quitar', { cart: S.cart }); S.carrito = r.carrito; pintarCarrito(); depNavegar('menu'); } catch (e) { error(e); }
+    });
+  }
+  const abrirDetalle = async (id, desde) => {
+    try {
+      const x = (await api(`/api/deposito?id=${encodeURIComponent(id)}`)).deposito;
+      D.desde = desde;
+      depNavegar('detalle', { deposito: x });
+    } catch (e) { error(e); }
+  };
+  d.querySelectorAll('[data-dep]').forEach((b) => b.addEventListener('click', () => abrirDetalle(b.dataset.dep, D.vista)));
+  if (D.vista === 'nuevo') {
+    const sincronizar = () => { const m = parseMXN($('#dep-monto').value); D.monto = m && m > 0 ? m : 0; $('#dep-total').textContent = mxn(D.monto); };
+    $('#dep-monto').addEventListener('input', sincronizar);
+    d.querySelectorAll('.dep-rapido').forEach((b) => b.addEventListener('click', () => { $('#dep-monto').value = b.dataset.monto; sincronizar(); d.querySelectorAll('.dep-rapido').forEach((x) => x.classList.toggle('activo', x === b)); }));
+    $('#dep-form').addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const b = $('#dep-guardar');
+      const clienta = $('#dep-clienta').value.trim();
+      const monto = parseMXN($('#dep-monto').value);
+      const falla = (t, id) => { error({ message: t }); const c = $(`#${id}`); if (c) { marcarCampoFalta(c); c.focus(); } };
+      if (clienta.length < 2) return falla('Escriba el nombre de la clienta.', 'dep-clienta');
+      if (monto === null || monto <= 0) return falla('Escriba el monto del depósito (por ejemplo 300 o 300.00).', 'dep-monto');
+      if (b.disabled) return;
+      b.disabled = true; // doble clic: un solo envío; el reintento por falla de red usa la misma referencia
+      try {
+        const r = await api('/api/deposito', { ref: S.refDeposito, clienta, monto, concepto: $('#dep-concepto').value });
+        S.refDeposito = null;
+        D.pendientes = (await api('/api/depositos')).depositos;
+        depNavegar('resultado', { resultado: { titulo: 'Depósito recibido', resumen: `Depósito ${r.deposito.folio} por ${mxn(r.deposito.monto)} recibido de ${r.deposito.clienta}.`, ticket_texto: r.ticket_texto, impresion: r.impresion, deposito_id: r.deposito.deposito_id } });
+      } catch (e) { b.disabled = false; error(e); }
+    });
+  }
+  if (D.vista === 'buscar') {
+    $('#dep-q').focus();
+    $('#dep-busqueda').addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      D.q = $('#dep-q').value.trim();
+      if (!D.q) return;
+      try { D.resultados = (await api(`/api/depositos?q=${encodeURIComponent(D.q)}`)).depositos; pintarDepositos(); } catch (e) { error(e); }
+    });
+  }
+  if (D.vista === 'pendientes') {
+    $('#dep-filtro').addEventListener('input', (ev) => { D.filtro = ev.target.value; const pos = ev.target.selectionStart; pintarDepositos().then(() => { const f = $('#dep-filtro'); f.focus(); f.setSelectionRange(pos, pos); }); });
+  }
+  if (D.vista === 'detalle') {
+    $('#dep-a-devolver')?.addEventListener('click', () => { S.refDepRes = nuevaRef(); depNavegar('devolver'); });
+    $('#dep-a-aplicar')?.addEventListener('click', () => depNavegar('aplicar'));
+    $('#dep-a-fee')?.addEventListener('click', async () => {
+      S.refDepRes = nuevaRef();
+      try { const au = await api('/api/venta/autorizadores'); depNavegar('fee', { autoriza: au }); } catch (e) { error(e); }
+    });
+    $('#dep-reimprimir').addEventListener('click', async () => {
+      try { const r = await api('/api/deposito/reimprimir', { deposito_id: D.deposito.deposito_id }); const m = $('#dep-msg'); m.className = `mensaje ${r.impresion.ok ? 'ok' : 'error'}`; m.textContent = r.impresion.ok ? 'Comprobante reimpreso.' : `La impresora falló: ${r.impresion.error}`; } catch (e) { error(e); }
+    });
+  }
+  if (D.vista === 'devolver') {
+    const x = D.deposito;
+    const leer = () => { const v = parseMXN($('#dep-dev-monto').value); return v !== null && v > 0 && v <= x.saldo ? v : null; };
+    const revisar = () => { const v = leer(); $('#dep-dev-total').textContent = mxn(v ?? 0); $('#dep-dev-ejecutar').disabled = !($('#dep-dev-ok').checked && v); };
+    $('#dep-dev-monto').addEventListener('input', revisar); $('#dep-dev-ok').addEventListener('change', revisar);
+    $('#dep-dev-ejecutar').addEventListener('click', async () => {
+      const b = $('#dep-dev-ejecutar'); const monto = leer();
+      if (!monto) return error({ message: 'La devolución no puede ser mayor que el saldo ni menor o igual a cero.' });
+      if (b.disabled) return;
+      b.disabled = true;
+      try {
+        const r = await api('/api/deposito/devolver', { ref: S.refDepRes, deposito_id: x.deposito_id, monto, confirmado: true });
+        S.refDepRes = null;
+        D.pendientes = (await api('/api/depositos')).depositos;
+        depNavegar('resultado', { resultado: { titulo: 'Depósito devuelto', resumen: `Se devolvieron ${mxn(r.monto)} de ${r.deposito.folio}. Saldo restante: ${mxn(r.deposito.saldo)}.`, ticket_texto: r.ticket_texto, impresion: r.impresion, deposito_id: x.deposito_id, op_id: r.op_id } });
+      } catch (e) { b.disabled = false; error(e); }
+    });
+  }
+  if (D.vista === 'fee') {
+    const x = D.deposito;
+    const leer = () => { const v = parseMXN($('#dep-fee-monto').value); return v !== null && v > 0 ? v : null; };
+    $('#dep-fee-monto').addEventListener('input', () => { const v = leer() ?? 0; $('#dep-fee-resto').textContent = v > x.saldo ? 'El daño supera el saldo' : mxn(x.saldo - v); });
+    $('#dep-fee-solo')?.addEventListener('change', (e) => { const c = $('#dep-fee-quien-campo'); if (c) c.hidden = e.target.checked; });
+    $('#dep-fee-ejecutar').addEventListener('click', async () => {
+      const b = $('#dep-fee-ejecutar'); const monto = leer(); const motivo = $('#dep-fee-motivo').value.trim();
+      if (!monto) return error({ message: 'Escriba el importe del daño.' });
+      if (monto > x.saldo) return error({ message: `El daño (${mxn(monto)}) es mayor que el saldo (${mxn(x.saldo)}). Un cobro adicional se hace por el flujo normal de cobro.` });
+      if (motivo.length < 3) return error({ message: 'Escriba el motivo del daño.' });
+      let autoriza;
+      if (D.autoriza?.pide_clave) {
+        if (!$('#dep-fee-clave').value) return error({ message: 'Teclee la clave de quien autoriza.' });
+        autoriza = $('#dep-fee-solo')?.checked ? { nombre: S.sesion.usuario, clave: $('#dep-fee-clave').value, sin_segundo: true } : { nombre: $('#dep-fee-quien').value, clave: $('#dep-fee-clave').value };
+      }
+      if (b.disabled) return;
+      b.disabled = true;
+      try {
+        const r = await api('/api/deposito/fee', { ref: S.refDepRes, deposito_id: x.deposito_id, monto, motivo, ...(autoriza ? { autoriza } : {}) });
+        S.refDepRes = null;
+        D.pendientes = (await api('/api/depositos')).depositos;
+        depNavegar('resultado', { resultado: { titulo: 'Fee por daño cobrado', resumen: `Se retuvieron ${mxn(r.monto)} de ${r.deposito.folio}. Saldo restante: ${mxn(r.deposito.saldo)} (devuélvalo o aplíquelo a una compra desde Depósitos).`, ticket_texto: r.ticket_texto, impresion: r.impresion, deposito_id: x.deposito_id, op_id: r.op_id } });
+      } catch (e) { b.disabled = false; error(e); }
+    });
+  }
+  if (D.vista === 'aplicar') {
+    $('#dep-ap-ejecutar')?.addEventListener('click', async () => {
+      const b = $('#dep-ap-ejecutar'); if (b.disabled) return; b.disabled = true;
+      try {
+        const r = await api('/api/deposito/aplicar', { cart: S.cart, deposito_id: D.deposito.deposito_id });
+        S.carrito = r.carrito; pintarCarrito(); d.close();
+        msg(`Depósito ${r.deposito.folio} aplicado a la venta: ${mxn(r.deposito.aplicado)}. Falta cobrar ${mxn(r.carrito.total)}.`);
+      } catch (e) { b.disabled = false; error(e); }
+    });
+  }
+  if (D.vista === 'resultado') {
+    $('#dep-listo').addEventListener('click', () => { D.vista = 'menu'; pintarDepositos(); });
+    $('#dep-reimp-res')?.addEventListener('click', async () => {
+      const r0 = D.resultado;
+      try {
+        const r = r0.op_id ? await api('/api/deposito/reimprimir-resolucion', { deposito_id: r0.deposito_id, op_id: r0.op_id }) : await api('/api/deposito/reimprimir', { deposito_id: r0.deposito_id });
+        const e = $('#dep-estado-impresion'); e.className = `mensaje ${r.impresion.ok ? 'ok' : 'error'}`; e.textContent = r.impresion.ok ? 'Comprobante reimpreso.' : `La impresora falló: ${r.impresion.error}`;
+      } catch (e) { error(e); }
+    });
+  }
 }
 /** «Sesión de Carmen · ¿No eres tú? Cambiar usuario»: se muestra junto a toda clave propia para que, si quien teclea no es quien tiene la sesión, cambie de usuario antes. */
 const rotuloSesion = () => (S.sesion?.autenticado && S.sesion.usuario
