@@ -1875,7 +1875,19 @@ export class ServicioAdmin {
         return { ...r, articulo, mas: new Set(merc.map((l) => l.item_id)).size - 1 };
       });
     }
-    return { ventas: ventasConArticulo, total_filas: ordenadas.length, truncado: ordenadas.length > 500, retiros, gastos };
+    // Resumen del periodo con la MISMA fórmula de las ventas netas del resumen del día: mercancía de los tickets confirmados (sin tarjetas de regalo)
+    // menos las devoluciones registradas en el periodo y cajas elegidos. Los tickets son las ventas confirmadas (no cuentan canceladas ni devoluciones).
+    const confirmadasVenta = ordenadas.filter((r) => r.estado !== 'cancelada' && r.tipo_ticket === 'venta');
+    const devsPeriodo = buscado || origen === 'anterior' ? [] : devoluciones(this.fuente()).filter((d) => {
+      const dia = fechaLocal(d.ocurrio_en);
+      return (!filtro.desde || dia >= filtro.desde) && (!filtro.hasta || dia <= filtro.hasta) && (!filtro.cajas || filtro.cajas.some((c) => c.tienda === d.tienda && c.caja === d.caja));
+    });
+    const mercancia = confirmadasVenta.reduce((a, r) => a + r.total_mercancia, 0);
+    const devuelto = devsPeriodo.reduce((a, d) => a + d.importe, 0);
+    const nTickets = confirmadasVenta.length;
+    const totalNeto = mercancia - devuelto;
+    const resumen = { total_ventas: totalNeto, tickets: nTickets, ticket_promedio: nTickets ? Math.round(totalNeto / nTickets) : 0, mercancia, devoluciones: devuelto };
+    return { ventas: ventasConArticulo, total_filas: ordenadas.length, truncado: ordenadas.length > 500, retiros, gastos, resumen };
   }
   /**
    * Resumen del día de TODAS las tiendas (el mismo que llega como aviso a las 9 p. m.): por tienda y en total, la venta total, cómo se cobró

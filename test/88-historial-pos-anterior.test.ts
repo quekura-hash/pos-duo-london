@@ -65,11 +65,10 @@ describe('[navegador real] Historial con ventas del POS anterior', { timeout: 24
     await page.click('#nav button[data-vista="historial"]');
     await page.waitForSelector('#ha-filtros');
     await page.fill('#ha-desde', '2026-09-01'); await page.fill('#ha-hasta', '2026-10-31');
-    await page.fill('#ha-folio', '1001');
     await page.click('#ha-filtros button[type="submit"]');
-    await page.waitForSelector('#tabla-historial-admin tr[data-detalle]');
+    await page.waitForSelector('#tabla-historial-admin tr[data-detalle]:has-text("1001")');
     assert.match((await page.textContent('#tabla-historial-admin tbody'))!, /1001[\s\S]*POS anterior[\s\S]*\$899\.00/);
-    await page.click('#tabla-historial-admin tr[data-detalle] td:first-child');
+    await page.click('#tabla-historial-admin tr[data-detalle]:has-text("1001") td:first-child');
     await page.waitForSelector('#dlg-detalle-venta[open] #dv-historica');
     assert.match((await page.textContent('#dv-titulo'))!, /POS anterior · folio 1001/);
     assert.match((await page.textContent('#dv-datos'))!, /Total\s*\$899\.00[\s\S]*Piezas\s*2[\s\S]*Efectivo/);

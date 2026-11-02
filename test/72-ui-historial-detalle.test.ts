@@ -121,9 +121,9 @@ describe('[navegador real] Historial con detalle de venta y «Revertir venta»',
     assert.equal(await page.locator('#dv-revertir').count(), 0, 'en Administración solo se consulta');
     assert.equal(await page.locator('#dv-cambio').count(), 0);
     assert.match((await page.textContent('#dlg-detalle-venta'))!, /hágalo en la caja donde se vendió/);
-    // un folio que no existe no devuelve filas
+    // un periodo sin ventas no devuelve filas
     await page.click('#dv-cerrar');
-    await page.fill('#ha-folio', '99');
+    await page.fill('#ha-desde', '2026-01-01'); await page.fill('#ha-hasta', '2026-01-02');
     await page.click('#ha-filtros button[type="submit"]');
     await page.waitForFunction(() => /No hay ventas con esos datos/.test(document.querySelector('#ha-resultado')?.textContent ?? ''));
     assert.deepEqual(errores.filter((e) => !/401|403|Failed to load resource/.test(e)), []);

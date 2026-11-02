@@ -562,3 +562,24 @@ dialog.hoja-inv { width: min(94vw, 560px); max-height: 90vh; overflow: auto; }
 .claves-quien { display: flex; align-items: center; gap: 8px; margin: 0 0 4px; font-size: 18px; }
 @media (min-width: 821px) { #tabla-personal .p-acc { gap: 6px; flex-wrap: nowrap; } #tabla-personal .p-acc .btn { padding: 0 10px; font-size: 14px; gap: 5px; } }
 .p-fila1 { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; flex-wrap: wrap; } .p-fila1 .estado-pill { margin-left: auto; }
+
+/* ── Historial de ventas: filtros + resumen del periodo, y secciones de Retiros / Gastos ── */
+.panel-ha { display: flex; flex-wrap: wrap; gap: 14px 24px; align-items: stretch; }
+.panel-ha .ha-campos { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: flex-end; flex: 1 1 360px; }
+.panel-ha .ha-campos label { display: flex; flex-direction: column; gap: 4px; font-weight: 600; font-size: 14px; }
+.panel-ha .ha-campos input, .panel-ha .ha-campos select { padding: 8px 10px; border: 2px solid var(--borde); border-radius: 10px; background: var(--superficie); color: var(--texto); font: inherit; min-height: 42px; }
+.panel-ha #ha-consultar { width: auto; min-height: 42px; }
+.ha-resumen { display: flex; flex-direction: column; gap: 4px; justify-content: center; min-width: 240px; padding: 14px 18px; border-radius: 16px; background: var(--acento-suave); border: 1px solid color-mix(in srgb, var(--acento) 35%, transparent); color: var(--texto); }
+.ha-r-tit { font-size: 14px; font-weight: 600; color: var(--acento); }
+.ha-r-total { font-size: 30px; line-height: 1.1; font-variant-numeric: tabular-nums; color: var(--texto); }
+.ha-r-sub { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 14px; color: var(--texto-2); font-variant-numeric: tabular-nums; }
+.ha-r-sub b { color: var(--texto); }
+.panel-ha #ha-msg { flex: 1 1 100%; }
+.panel-seccion .ps-cab { display: flex; gap: 12px; align-items: flex-start; margin-bottom: 8px; }
+.panel-seccion .ps-cab h2 { margin: 0; font-size: 19px; color: var(--texto); }
+.panel-seccion .ps-cab .nota { margin: 2px 0 0; font-size: 14px; color: var(--texto-2); }
+.panel-seccion .ps-ico { flex: none; width: 40px; height: 40px; border-radius: 12px; background: var(--acento-suave); color: var(--acento); display: inline-flex; align-items: center; justify-content: center; }
+.panel-seccion .ps-ico .ico { width: 22px; height: 22px; }
+.ps-vacio { margin: 8px 0 0; padding: 14px; text-align: center; color: var(--texto-2); border: 1px dashed var(--borde); border-radius: 12px; }
+.fila-venta .fi-flecha { display: none; }
+.fv-hora { font-weight: 500; color: var(--texto-2); }

@@ -1825,20 +1825,22 @@ async function vistaVentas() {
 function panelRetiros(retiros) {
   const lista = retiros ?? [];
   const total = lista.reduce((a, r) => a + r.equivalente_mxn, 0);
-  return `<div class="panel" id="panel-retiros"><h2 style="margin-top:0">Retiros de efectivo</h2>
-    <p class="nota" style="margin-top:0">Dinero que salió de las cajas en el periodo. No son ventas: no restan a las ventas netas, pero sí al efectivo de la caja.</p>
-    <div class="tabla-cont"><table id="tabla-retiros"><thead><tr><th>Caja</th><th>Retiro</th><th>Fecha</th><th>Hora</th><th>Lo retiró</th><th class="num">Pesos</th><th class="num">Dólares</th><th class="num">Total en pesos</th></tr></thead><tbody>
-    ${lista.map((r) => `<tr data-retiro="${esc(r.retiro_id)}"><td>${esc(r.tienda)} · ${r.caja}</td><td>${esc(r.folio_retiro)}</td><td>${esc(r.fecha_local.split('-').reverse().join('/'))}</td><td>${esc(h12(r.hora))}</td><td>${esc(r.usuario)}</td><td class="num">${mxn(r.pesos)}</td><td class="num">${r.dolares ? usd(r.dolares) : '—'}</td><td class="num"><b>${mxn(r.equivalente_mxn)}</b></td></tr>`).join('') || '<tr><td colspan="8" class="vacio">Sin retiros en el periodo.</td></tr>'}
+  return `<div class="panel panel-seccion" id="panel-retiros"><div class="ps-cab"><span class="ps-ico" aria-hidden="true">${ico('cash')}</span><div><h2>Retiros de efectivo</h2>
+    <p class="nota">Dinero que salió de las cajas en el periodo. No son ventas: no restan a las ventas netas, pero sí al efectivo de la caja.</p></div></div>
+    ${lista.length ? '' : '<p class="ps-vacio" id="vacio-retiros">Sin retiros en el periodo.</p>'}
+    <div class="tabla-cont" ${lista.length ? '' : 'hidden'}><table id="tabla-retiros"><thead><tr><th>Caja</th><th>Retiro</th><th>Fecha</th><th>Hora</th><th>Lo retiró</th><th class="num">Pesos</th><th class="num">Dólares</th><th class="num">Total en pesos</th></tr></thead><tbody>
+    ${lista.map((r) => `<tr data-retiro="${esc(r.retiro_id)}"><td>${esc(r.tienda)} · ${r.caja}</td><td>${esc(r.folio_retiro)}</td><td>${esc(r.fecha_local.split('-').reverse().join('/'))}</td><td>${esc(h12(r.hora))}</td><td>${esc(r.usuario)}</td><td class="num">${mxn(r.pesos)}</td><td class="num">${r.dolares ? usd(r.dolares) : '—'}</td><td class="num"><b>${mxn(r.equivalente_mxn)}</b></td></tr>`).join('')}
     </tbody>${lista.length ? `<tfoot><tr><th colspan="7">Total retirado (${lista.length})</th><td class="num"><b id="total-retiros">${mxn(total)}</b></td></tr></tfoot>` : ''}</table></div></div>`;
 }
 /** Gastos de caja: pagos con efectivo del cajón, con el nombre de quien recibió el dinero y quién lo autorizó. */
 function panelGastos(gastos) {
   const lista = gastos ?? [];
   const total = lista.reduce((a, r) => a + r.monto, 0);
-  return `<div class="panel" id="panel-gastos"><h2 style="margin-top:0">Gastos de caja</h2>
-    <p class="nota" style="margin-top:0">Pagos con efectivo del cajón (limpieza, proveedores…). Cada uno tiene su recibo firmado.</p>
-    <div class="tabla-cont"><table id="tabla-gastos"><thead><tr><th>Caja</th><th>Recibo</th><th>Fecha</th><th>Hora</th><th>Concepto</th><th>Recibió</th><th>Entregó</th><th>Autorizó</th><th class="num">Importe</th></tr></thead><tbody>
-    ${lista.map((r) => `<tr data-gasto="${esc(r.gasto_id)}"><td>${esc(r.tienda)} · ${r.caja}</td><td>${esc(r.folio_gasto)}</td><td>${esc(r.fecha_local.split('-').reverse().join('/'))}</td><td>${esc(h12(r.hora))}</td><td>${esc(r.concepto)}</td><td>${esc(r.recibio)}</td><td>${esc(r.usuario)}</td><td>${esc(r.autorizado_por ?? '—')}</td><td class="num"><b>${mxn(r.monto)}</b></td></tr>`).join('') || '<tr><td colspan="9" class="vacio">Sin gastos en el periodo.</td></tr>'}
+  return `<div class="panel panel-seccion" id="panel-gastos"><div class="ps-cab"><span class="ps-ico" aria-hidden="true">${ico('receipt')}</span><div><h2>Gastos de caja</h2>
+    <p class="nota">Pagos con efectivo del cajón (limpieza, proveedores…). Cada uno tiene su recibo firmado.</p></div></div>
+    ${lista.length ? '' : '<p class="ps-vacio" id="vacio-gastos">Sin gastos en el periodo.</p>'}
+    <div class="tabla-cont" ${lista.length ? '' : 'hidden'}><table id="tabla-gastos"><thead><tr><th>Caja</th><th>Recibo</th><th>Fecha</th><th>Hora</th><th>Concepto</th><th>Recibió</th><th>Entregó</th><th>Autorizó</th><th class="num">Importe</th></tr></thead><tbody>
+    ${lista.map((r) => `<tr data-gasto="${esc(r.gasto_id)}"><td>${esc(r.tienda)} · ${r.caja}</td><td>${esc(r.folio_gasto)}</td><td>${esc(r.fecha_local.split('-').reverse().join('/'))}</td><td>${esc(h12(r.hora))}</td><td>${esc(r.concepto)}</td><td>${esc(r.recibio)}</td><td>${esc(r.usuario)}</td><td>${esc(r.autorizado_por ?? '—')}</td><td class="num"><b>${mxn(r.monto)}</b></td></tr>`).join('')}
     </tbody>${lista.length ? `<tfoot><tr><th colspan="8">Total de gastos (${lista.length})</th><td class="num"><b id="total-gastos">${mxn(total)}</b></td></tr></tfoot>` : ''}</table></div></div>`;
 }
 
@@ -1846,30 +1848,30 @@ function panelGastos(gastos) {
 async function vistaHistorialAdmin() {
   const { cajas } = await api('/api/admin/cajas');
   const hoy = new Date(Date.now() - 7 * 3600e3).toISOString().slice(0, 10);
-  const H = (S.historialAdmin ??= { desde: hoy, hasta: hoy, caja: '', folio: '', origen: '' });
+  const H = (S.historialAdmin ??= { desde: hoy, hasta: hoy, caja: '' });
   cuerpoVista().innerHTML = `<div class="titulo-vista">${ico('clock')}<h1>Historial de ventas</h1></div>
-    <form class="filtros panel" id="ha-filtros" autocomplete="off">
-      <label>Desde <input type="date" id="ha-desde" value="${esc(H.desde)}"></label><label>Hasta <input type="date" id="ha-hasta" value="${esc(H.hasta)}"></label>
-      <label>Caja <select id="ha-caja" style="width:105px;padding:8px;border:2px solid var(--borde);border-radius:10px;background:var(--superficie)"><option value="">Todas</option>${cajas.map((c) => `<option value="${esc(c.tienda)}/${c.caja}" ${H.caja === `${c.tienda}/${c.caja}` ? 'selected' : ''}>${esc(c.tienda)} · Caja ${c.caja}</option>`).join('')}</select></label>
-      <label>Origen <select id="ha-origen" style="width:95px;padding:8px;border:2px solid var(--borde);border-radius:10px;background:var(--superficie)"><option value="">Todos</option><option value="nuevo" ${H.origen === 'nuevo' ? 'selected' : ''}>POS nuevo</option><option value="anterior" ${H.origen === 'anterior' ? 'selected' : ''}>POS anterior</option></select></label>
-      <label>Folio <input id="ha-folio" placeholder="D2-000003" value="${esc(H.folio)}" style="width:95px;padding:6px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie)"></label>
-      <button class="btn btn-primario" type="submit" style="width:auto">${ico('search')}<span>Consultar</span></button>
+    <form class="filtros panel panel-ha" id="ha-filtros" autocomplete="off">
+      <div class="ha-campos"><label>Desde <input type="date" id="ha-desde" value="${esc(H.desde)}"></label><label>Hasta <input type="date" id="ha-hasta" value="${esc(H.hasta)}"></label>
+      <label>Caja <select id="ha-caja"><option value="">Todas</option>${cajas.map((c) => `<option value="${esc(c.tienda)}/${c.caja}" ${H.caja === `${c.tienda}/${c.caja}` ? 'selected' : ''}>${esc(c.tienda)} · Caja ${c.caja}</option>`).join('')}</select></label>
+      <button class="btn btn-primario" type="submit" id="ha-consultar">${ico('search')}<span>Consultar</span></button></div>
+      <div class="ha-resumen" id="ha-resumen" aria-live="polite"><span class="ha-r-tit">Total de ventas</span><b class="ha-r-total" id="ha-total">—</b>
+        <span class="ha-r-sub"><span><b id="ha-tickets">—</b> tickets</span><span>Ticket promedio <b id="ha-promedio">—</b></span></span></div>
       <div id="ha-msg" class="mensaje" role="status" aria-live="polite"></div></form>
     <div id="ha-resultado"></div>`;
   const consultar = async () => {
-    H.desde = $('#ha-desde').value; H.hasta = $('#ha-hasta').value; H.caja = $('#ha-caja').value; H.origen = $('#ha-origen').value; H.folio = $('#ha-folio').value.trim();
+    H.desde = $('#ha-desde').value; H.hasta = $('#ha-hasta').value; H.caja = $('#ha-caja').value;
     const m = $('#ha-msg'); m.className = 'mensaje'; m.textContent = '';
     const p = new URLSearchParams({ desde: H.desde, hasta: H.hasta });
     if (H.caja) p.set('cajas', H.caja);
-    if (H.folio) p.set('folio', H.folio);
-    if (H.origen) p.set('origen', H.origen);
     let j;
     try { j = await api(`/api/admin/ventas?${p}`); } catch (e) { m.className = 'mensaje error'; m.textContent = e.message; return; }
+    const R = j.resumen ?? { total_ventas: 0, tickets: 0, ticket_promedio: 0 };
+    $('#ha-total').textContent = mxn(R.total_ventas); $('#ha-tickets').textContent = String(R.tickets); $('#ha-promedio').textContent = mxn(R.ticket_promedio);
     if (j.truncado) { m.className = 'mensaje aviso'; m.textContent = `Hay ${j.total_filas} ventas; se muestran las 500 más recientes. Acote las fechas.`; }
     $('#ha-resultado').innerHTML = `<div class="panel"><p class="nota" style="margin-top:0">Toque una venta para ver el detalle y el ticket.</p><div class="tabla-cont"><table id="tabla-historial-admin" class="solo-escritorio"><thead><tr><th>Caja</th><th>Folio</th><th>Fecha</th><th>Hora</th><th>Vendedora-Cajera</th><th>Venta por</th><th>Pago</th><th class="num">Total</th><th>Estado</th></tr></thead><tbody>
       ${j.ventas.length ? j.ventas.map((r) => `<tr data-detalle="${esc(r.sale_id)}" tabindex="0" style="cursor:pointer"><td>${esc(r.tienda)} · ${r.caja}</td><td>${r.historico ? `${esc(String(r.folio))} <span class="insignia" title="Venta importada del POS anterior: solo se conserva folio, fecha, total, piezas y forma de pago">POS anterior</span>` : esc(r.codigo_ticket)}</td><td>${esc(r.fecha_local.split('-').reverse().join('/'))}</td><td>${esc(h12(r.hora) || '—')}</td><td>${esc(r.cajero)}</td><td data-col="vendio">${esc(r.vendedora || '—')}</td><td>${esc(r.pago)}</td><td class="num">${mxn(r.total)}</td><td><span class="insignia ${esc(r.estado)}">${esc(r.estado)}</span></td></tr>`).join('') : '<tr><td colspan="9" class="vacio">No hay ventas con esos datos.</td></tr>'}
       </tbody></table>
-      <div class="lista-inv solo-movil" id="lista-historial-admin" role="list">${j.ventas.map((r) => `<button type="button" class="fila-inv" role="listitem" data-detalle="${esc(r.sale_id)}"><span class="fi-linea"><b class="fi-desc">${r.historico ? `${esc(String(r.folio))} · POS anterior` : `${esc(r.codigo_ticket)} · ${esc(h12(r.hora))}`}</b><span class="fi-precio">${mxn(r.total)}</span></span><span class="fi-quien fi-quien-art">${esc(r.tienda)} · Caja ${r.caja}${r.historico ? ' · POS anterior' : r.articulo ? ` · ${esc(r.articulo)}${r.mas > 0 ? ` +${r.mas} más` : ''}` : ''}</span><span class="fi-sub"><span>${esc(r.fecha_local.split('-').reverse().join('/'))}</span><span>${esc(r.pago)}</span>${r.estado === 'cancelada' ? '<span class="insignia cancelada" data-quien="cancelada">CANCELADA</span>' : `<span class="insignia" data-quien="vendio">${esc(r.historico ? '—' : r.vendedora === 'Autocompra' ? `Autocompra · ${r.cajero}` : r.vendedora || r.cajero)}</span>`}</span></button>`).join('') || '<p class="vacio">No hay ventas con esos datos.</p>'}</div></div></div>${panelRetiros(j.retiros)}${panelGastos(j.gastos)}`;
+      <div class="lista-inv solo-movil" id="lista-historial-admin" role="list">${j.ventas.map((r) => `<button type="button" class="fila-inv fila-venta" role="listitem" data-detalle="${esc(r.sale_id)}"><span class="fv-cuerpo"><span class="fi-linea"><b class="fi-desc">${r.historico ? `${esc(String(r.folio))}` : esc(r.codigo_ticket)}${r.historico ? '' : ` <span class="fv-hora">· ${esc(h12(r.hora))}</span>`}</b><span class="fi-precio">${mxn(r.total)}</span></span><span class="fi-quien fi-quien-art">${esc(r.tienda)} · Caja ${r.caja}${r.historico ? '' : r.articulo ? ` · ${esc(r.articulo)}${r.mas > 0 ? ` +${r.mas} más` : ''}` : ''}</span><span class="fi-sub"><span>${esc(r.fecha_local.split('-').reverse().join('/'))}</span><span>${esc(r.pago)}</span>${r.historico ? '<span class="insignia" data-quien="historico">POS anterior</span>' : ''}${r.estado === 'cancelada' ? '<span class="insignia cancelada" data-quien="cancelada">CANCELADA</span>' : r.historico ? '' : `<span class="insignia" data-quien="vendio">${esc(r.vendedora === 'Autocompra' ? `Autocompra · ${r.cajero}` : r.vendedora || r.cajero)}</span>`}</span></span><span class="fi-flecha" aria-hidden="true">${ico('chevron')}</span></button>`).join('') || '<p class="vacio">No hay ventas con esos datos.</p>'}</div></div></div>${panelRetiros(j.retiros)}${panelGastos(j.gastos)}`;
     for (const fila of $('#ha-resultado').querySelectorAll('[data-detalle]')) {
       const abrir = () => abrirDetalleVenta(fila.dataset.detalle, { acciones: false, ruta: `/api/admin/venta?sale_id=${encodeURIComponent(fila.dataset.detalle)}` }).catch((e) => { m.className = 'mensaje error'; m.textContent = e.message; });
       fila.addEventListener('click', abrir);
