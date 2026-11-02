@@ -141,7 +141,7 @@ describe('[navegador real] Navegación inferior tipo isla (teléfono)', { timeou
       });
       let m = await medir();
       assert.ok(m.botones.every((b) => !b.corta && b.h >= 48 && b.w === m.botones[0]!.w), `${ancho}px isla: ${JSON.stringify(m)}`);
-      assert.ok(m.pagina <= m.ventana + 1, `${ancho}px sin desborde horizontal`);
+      assert.ok(m.pagina <= ancho + 1 && m.ventana === ancho, `${ancho}px sin desborde horizontal (página ${m.pagina}, ventana ${m.ventana})`);
       await page.click('#isla-menu');
       const tiles = await page.$$eval('#menu-hoja .menu-tile', (e) => e.map((x) => { const r = x.getBoundingClientRect(); return { dentro: r.left >= 0 && r.right <= window.innerWidth, w: Math.round(r.width) }; }));
       assert.ok(tiles.every((x) => x.dentro), `${ancho}px: las secciones caben en el panel`);

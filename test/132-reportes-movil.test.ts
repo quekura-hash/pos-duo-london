@@ -128,6 +128,7 @@ describe('[navegador real] Reportes en el teléfono: tres bloques claros', { tim
         const cortos = [...document.querySelectorAll('.acciones-reporte .btn, .rc-caja .btn, .isla-btn')].filter((e) => e.scrollWidth > e.clientWidth + 1 || e.scrollHeight > e.clientHeight + 1).map((e) => e.textContent!.trim());
         return { pagina: document.documentElement.scrollWidth, ventana: window.innerWidth, malos, cortos };
       });
+      r.malos.push(...(r.ventana !== ancho ? [`la pantalla se ensanchó a ${r.ventana}`] : []));
       assert.ok(r.pagina <= r.ventana + 1 && r.malos.length === 0, `${ancho}px sin desborde: ${JSON.stringify(r)}`);
       assert.deepEqual(r.cortos, [], `${ancho}px: botones con texto recortado`);
       assert.deepEqual(errores, []);

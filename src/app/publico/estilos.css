@@ -520,3 +520,8 @@ dialog.hoja-inv { width: min(94vw, 560px); max-height: 90vh; overflow: auto; }
 .rc-puntos { list-style: none; margin: 0 0 8px; padding: 0; } .rc-puntos li { margin: 0 0 6px; }
 .filtros-cuerpo, .filtro-fechas, .cajas-lista { display: contents; } .campo-fecha, .campo-correo { display: contents; }
 .rd-dia .campo-fecha { display: inline; }
+
+/* ── Análisis: lo nuevo del teléfono (encabezado plegable, chips, iconos, detalle por fila) no cambia el escritorio ── */
+#an-cuerpo-filtros, #an-cuerpo-filtros[hidden], .an-chips, .an-pie { display: contents; }
+.chip { display: block; margin: 8px 0; font-weight: 600; } .chip span { display: inline; } .an-cajas { border: 1px solid var(--borde); border-radius: 8px; }
+.an-col-chev, .an-det, .an-h2-ico, .an-ico { display: none; }

@@ -74,6 +74,9 @@ const I = {
   file: '<path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/>',
   check: '<path d="m5 12.5 4.5 4.5L19 7.5"/>',
   menu: '<path d="M4 6h16M4 12h16M4 18h16"/>',
+  receipt: '<path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z"/><path d="M14 8H8"/><path d="M16 12H8"/><path d="M13 16H8"/>',
+  trophy: '<path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/>',
+  chevarriba: '<path d="m18 15-6-6-6 6"/>',
   bag: '<path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"/><path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/>',
   funnel: '<path d="M10 20a1 1 0 0 0 .553.895l2 1A1 1 0 0 0 14 21v-7a2 2 0 0 1 .517-1.341L21.74 4.67A1 1 0 0 0 21 3H3a1 1 0 0 0-.742 1.67l7.225 7.989A2 2 0 0 1 10 14z"/>',
   mail: '<rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/>',
@@ -5135,6 +5138,12 @@ const AN_METRICAS = [['total', 'Total vendido ($)'], ['tickets', 'Tickets'], ['p
 const AN_DIAS = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
 const anValor = (f, m) => (m === 'promedio_dia' ? (f.promedio_dia ?? 0) : f[m] ?? 0);
 const anTexto = (v, m) => (m === 'tickets' || m === 'piezas' ? Number(v).toLocaleString('es-MX') : mxn(v));
+/** Versión corta para las barras en el teléfono («310k», «1.2M»; el título de la gráfica ya dice «($)»): el monto exacto sale al tocar la barra y en la tabla. */
+const anAbrev = (v, m) => {
+  if (m === 'tickets' || m === 'piezas') return v >= 10000 ? `${Math.round(v / 1000)}k` : Number(v).toLocaleString('es-MX');
+  const p = v / 100, f = (n) => String(Math.round(n * 10) / 10).replace(/\.0$/, '');
+  return p >= 1e6 ? `${f(p / 1e6)}M` : p >= 1e5 ? `${Math.round(p / 1000)}k` : p >= 1000 ? `${f(p / 1000)}k` : `${Math.round(p)}`;
+};
 const anCorto = (ag, f) => (ag === 'anio' ? f.etiqueta : ag === 'mes' ? f.etiqueta.slice(0, 3) : ag === 'semana' ? `S${f.etiqueta.split(' ')[1]}` : ag === 'dia' ? f.etiqueta.split(' ')[1] : ag === 'hora' ? `${f.etiqueta.split(':')[0]}h` : ag === 'dia_semana' ? f.etiqueta.slice(0, 3) : f.etiqueta);
 const anFechas = (A) => {
   const hoy = new Date(Date.now() - 7 * 3600e3).toISOString().slice(0, 10), y = Number(hoy.slice(0, 4));
@@ -5151,30 +5160,47 @@ async function vistaAnalisis() {
   A.desglose ??= 'todo'; A.vistaEmp ??= 'juntas';
   const anios = Array.from({ length: Math.max(1, y - 2022) }, (_, i) => String(y - i));
   const sel = (id, ops, v) => `<select id="${id}" style="padding:8px;border:2px solid var(--borde);border-radius:10px;background:var(--superficie)">${ops.map(([k, t]) => `<option value="${k}" ${String(k) === String(v) ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select>`;
-  cuerpoVista().innerHTML = `<div class="titulo-vista">${ico('trend')}<h1>Análisis de ventas</h1></div>
-    <form class="filtros panel" id="an-filtros" autocomplete="off">
-      <div class="an-fila">
-        <label>Periodo ${sel('an-rango', [['anio', 'Un año'], ['mes', 'Un mes'], ['ult30', 'Últimos 30 días'], ['personalizado', 'Fechas a elegir']], A.rango)}</label>
+  A.filtrosAbiertos ??= true;
+  const chev = () => ico(A.filtrosAbiertos ? 'chevarriba' : 'chevabajo');
+  cuerpoVista().innerHTML = `<div class="titulo-vista an-titulo">${ico('trend')}<h1>Análisis de ventas</h1></div>
+    <form class="filtros panel panel-an" id="an-filtros" autocomplete="off" data-rango="${esc(A.rango)}">
+      <button type="button" class="an-cab deco-movil" id="an-toggle" aria-expanded="${A.filtrosAbiertos}" aria-controls="an-cuerpo-filtros"><span class="an-cab-ico">${ico('funnel')}</span><span class="an-cab-tit">Filtros</span><span class="an-chev" id="an-chev">${chev()}</span></button>
+      <p class="an-resumen deco-movil" id="an-resumen-filtros" ${A.filtrosAbiertos ? 'hidden' : ''}></p>
+      <div id="an-cuerpo-filtros" ${A.filtrosAbiertos ? '' : 'hidden'}>
+      <div class="an-fila an-fila-1">
+        <label id="an-l-rango">Periodo ${sel('an-rango', [['anio', 'Un año'], ['mes', 'Un mes'], ['ult30', 'Últimos 30 días'], ['personalizado', 'Fechas a elegir']], A.rango)}</label>
         <label id="an-l-anio">Año ${sel('an-anio', anios.map((a) => [a, a]), A.anio)}</label>
         <label id="an-l-mes">Mes <input type="month" id="an-mes" value="${esc(A.mes)}"></label>
         <label id="an-l-desde">Desde <input type="date" id="an-desde" value="${esc(A.desde)}"></label><label id="an-l-hasta">Hasta <input type="date" id="an-hasta" value="${esc(A.hasta)}"></label>
       </div>
-      <div class="an-fila">
+      <div class="an-fila an-fila-2">
         <label>Desglose ${sel('an-desglose', [['todo', 'Todo junto'], ['empleada', 'Por empleada']], A.desglose)}</label>
         <label>Ver ${sel('an-agrupar', AN_AGRUP, A.agrupar)}</label>
         <label id="an-l-vista">Gráficas ${sel('an-vista', [['juntas', 'Una con todas (apilada)'], ['separadas', 'Una por empleada']], A.vistaEmp)}</label>
         <label id="an-l-metrica">Medir ${sel('an-metrica', AN_METRICAS, A.metrica)}</label>
       </div>
-      <fieldset><legend>Cajas</legend><label><input type="checkbox" id="an-todas" checked> Todas</label>
-        ${cajas.map((c) => `<label><input type="checkbox" class="an-caja" value="${esc(c.tienda)}/${c.caja}" checked> ${esc(c.tienda)} · Caja ${c.caja}</label>`).join('')}</fieldset>
-      <label class="check-hist"><input type="checkbox" id="an-hist" ${A.historicas ? 'checked' : ''}> Incluir ventas del POS anterior (históricas)</label>
-      <div class="filas"><button class="btn" type="button" id="an-excel">${ico('download')}<span>Exportar esta tabla a Excel</span></button></div>
+      <fieldset class="an-cajas"><legend>Cajas</legend><div class="an-chips"><label class="chip chip-todas"><input type="checkbox" id="an-todas" checked><span>Todas</span></label>
+        ${cajas.map((c) => `<label class="chip"><input type="checkbox" class="an-caja" value="${esc(c.tienda)}/${c.caja}" checked><span>${esc(c.tienda)} · Caja ${c.caja}</span></label>`).join('')}</div></fieldset>
+      <div class="an-pie"><label class="check-hist"><input type="checkbox" id="an-hist" ${A.historicas ? 'checked' : ''}> Incluir ventas del POS anterior (históricas)</label>
+      <div class="filas"><button class="btn" type="button" id="an-excel">${ico('download')}<span>Exportar esta tabla a Excel</span></button></div></div>
       <div id="an-msg" class="mensaje" role="status" aria-live="polite"></div>
+      </div>
     </form>
     <div id="an-resultado"></div>`;
   const marcas = () => [...document.querySelectorAll('.an-caja')];
   const seleccion = () => marcas().filter((m) => m.checked).map((m) => m.value);
   const ruta = () => { const f = anFechas(A); const sel2 = seleccion(); return `/api/admin/analisis?agrupar=${A.agrupar}&desde=${f.desde}&hasta=${f.hasta}&cajas=${sel2.join(',')}&historicas=${A.historicas ? 1 : 0}${A.desglose === 'empleada' ? `&desglose=empleada&medida=${A.metrica}` : ''}`; };
+  const resumenFiltros = () => {
+    const txt = (id) => $(`#${id}`).selectedOptions[0]?.textContent ?? '';
+    const per = A.rango === 'anio' ? A.anio : A.rango === 'mes' ? A.mes : A.rango === 'ult30' ? 'Últimos 30 días' : `${A.desde} → ${A.hasta}`;
+    const todas = marcas().every((m) => m.checked);
+    return [per, A.desglose === 'empleada' ? 'Por empleada' : '', txt('an-agrupar'), A.desglose !== 'empleada' && A.agrupar === 'mapa_calor' ? '' : txt('an-metrica'), todas ? 'Todas las cajas' : `${seleccion().length} de ${marcas().length} cajas`, A.historicas ? 'Con históricas' : 'Sin históricas'].filter(Boolean).join(' · ');
+  };
+  const pintarResumenFiltros = () => { const p = $('#an-resumen-filtros'); p.textContent = resumenFiltros(); p.hidden = A.filtrosAbiertos; };
+  $('#an-toggle').addEventListener('click', () => {
+    A.filtrosAbiertos = !A.filtrosAbiertos; // solo se muestra u oculta: los filtros y los resultados no se tocan
+    $('#an-cuerpo-filtros').hidden = !A.filtrosAbiertos; $('#an-toggle').setAttribute('aria-expanded', String(A.filtrosAbiertos)); $('#an-chev').innerHTML = chev(); pintarResumenFiltros();
+  });
   const llenar = (id, ops, v) => { $(`#${id}`).innerHTML = ops.map(([k, t]) => `<option value="${k}" ${String(k) === String(v) ? 'selected' : ''}>${esc(t)}</option>`).join(''); };
   const visibilidad = () => {
     // Por empleada solo se agrupa por día, semana, mes o año y se mide en pesos, tickets o piezas.
@@ -5183,6 +5209,7 @@ async function vistaAnalisis() {
     llenar('an-agrupar', emp ? AN_AGRUP.filter((x) => ['dia', 'semana', 'mes', 'anio'].includes(x[0])) : AN_AGRUP, A.agrupar);
     llenar('an-metrica', emp ? AN_MEDIDAS_EMP : AN_METRICAS, A.metrica);
     $('#an-l-vista').hidden = !emp;
+    $('#an-filtros').dataset.rango = A.rango; pintarResumenFiltros();
     $('#an-l-anio').hidden = A.rango !== 'anio'; $('#an-l-mes').hidden = A.rango !== 'mes';
     $('#an-l-desde').hidden = $('#an-l-hasta').hidden = A.rango !== 'personalizado';
     $('#an-l-metrica').hidden = !emp && A.agrupar === 'mapa_calor';
@@ -5256,9 +5283,9 @@ function pintarAnalisisEmpleadas(el, j, medida, vista) {
 }
 function pintarAnalisis(el, j, metrica) {
   const r = j.resumen, ag = j.agrupar;
-  const kpi = (t, v, nota = '') => `<div class="an-kpi"><span>${esc(t)}</span><b>${esc(v)}</b>${nota ? `<small>${esc(nota)}</small>` : ''}</div>`;
+  const kpi = (t, v, nota = '', cls = '', icono = '') => `<div class="an-kpi ${cls}">${icono ? `<i class="ic an-ico" aria-hidden="true">${ico(icono)}</i>` : ''}<span>${esc(t)}</span><b>${esc(v)}</b>${nota ? `<small>${esc(nota)}</small>` : ''}</div>`;
   const NOM = { anio: 'año', mes: 'mes', semana: 'semana', dia: 'día', dia_semana: 'día de la semana', hora: 'hora', mapa_calor: 'hora', forma_pago: 'forma de pago', caja: 'caja', tienda: 'tienda' }[ag];
-  const kpis = `<div class="an-kpis">${kpi('Total vendido', mxn(r.total), r.fees ? `incluye ${mxn(r.fees)} de fees por daño` : '')}${kpi('Tickets', r.tickets.toLocaleString('es-MX'))}${kpi('Piezas', r.piezas.toLocaleString('es-MX'))}${kpi('Ticket promedio', mxn(r.promedio_ticket))}${kpi('Días con ventas', `${r.dias_con_ventas} de ${r.dias}`)}${j.mejor.por_total ? kpi(`Mejor ${NOM}`, j.mejor.por_total.etiqueta, mxn(j.mejor.por_total.total)) : ''}</div>`;
+  const kpis = `<div class="an-kpis">${kpi('Total vendido', mxn(r.total), r.fees ? `incluye ${mxn(r.fees)} de fees por daño` : '', 'an-kpi-total', 'coins')}${kpi('Tickets', r.tickets.toLocaleString('es-MX'), '', '', 'ticket')}${kpi('Piezas', r.piezas.toLocaleString('es-MX'), '', '', 'box')}${kpi('Ticket promedio', mxn(r.promedio_ticket), '', '', 'receipt')}${kpi('Días con ventas', `${r.dias_con_ventas} de ${r.dias}`, '', '', 'calendar')}${j.mejor.por_total ? kpi(`Mejor ${NOM}`, j.mejor.por_total.etiqueta, mxn(j.mejor.por_total.total), 'an-kpi-mejor', 'trophy') : ''}</div>`;
   const notas = `${j.sin_hora ? `<p class="nota">${j.sin_hora} ticket(s) del POS anterior no traen hora y no entran en esta vista.</p>` : ''}<p class="nota">Los fees por daño suman al total pero no cuentan como ticket; los cambios sin diferencia no cuentan. No incluye tickets cancelados.</p>`;
   if (!r.tickets && !r.fees) { el.innerHTML = `${kpis}<div class="panel"><p class="vacio">No hay ventas en este periodo.</p></div>${notas}`; return; }
   if (ag === 'mapa_calor') {
@@ -5276,11 +5303,34 @@ function pintarAnalisis(el, j, metrica) {
   const vals = j.filas.map((f) => anValor(f, metrica)), max = Math.max(1, ...vals);
   const mejorI = vals.indexOf(Math.max(...vals));
   const muchas = j.filas.length > 24;
-  const grafica = ['forma_pago', 'caja', 'tienda'].includes(ag) ? '' : `<div class="grafica-cont"><div class="grafica ${muchas ? 'ancha' : ''}" id="an-grafica" role="img" aria-label="Gráfica de barras ${esc(AN_METRICAS.find((x) => x[0] === metrica)[1])} ${esc(NOM)}">${j.filas.map((f, i) => `<div class="gb ${i === mejorI && vals[i] > 0 ? 'mejor' : ''}" title="${esc(f.etiqueta)} · ${esc(anTexto(vals[i], metrica))}"><span class="gb-valor">${muchas || !vals[i] ? '' : esc(anTexto(vals[i], metrica).replace(/\.00$/, ''))}</span><span class="gb-barra" style="height:${((vals[i] / max) * 100).toFixed(1)}%"></span><span class="gb-eti">${esc(anCorto(ag, f))}</span></div>`).join('')}</div></div>`;
-  const filas = j.filas.map((f, i) => `<tr class="${i === mejorI && vals[i] > 0 ? 'fila-mejor' : ''}"><td data-etiqueta>${esc(f.etiqueta)}</td><td class="celda-barra"><span class="barra-h" style="width:${((vals[i] / max) * 100).toFixed(1)}%"></span></td><td class="num">${f.tickets}</td><td class="num">${f.piezas}</td><td class="num">${mxn(f.total)}</td><td class="num">${mxn(f.promedio_ticket)}</td><td class="num">${f.promedio_dia == null ? '' : mxn(f.promedio_dia)}</td><td class="num">${f.porcentaje.toFixed(1)}%</td></tr>`).join('');
-  el.innerHTML = `${kpis}<section class="panel"><h2 style="margin-top:0">${esc(AN_AGRUP.find((x) => x[0] === ag)[1])} · ${esc(AN_METRICAS.find((x) => x[0] === metrica)[1])}</h2>${grafica}
-    <div class="tabla-cont"><table class="tabla-analisis" id="an-tabla"><thead><tr><th>${esc(NOM[0].toUpperCase() + NOM.slice(1))}</th><th>${esc(AN_METRICAS.find((x) => x[0] === metrica)[1])}</th><th class="num">Tickets</th><th class="num">Piezas</th><th class="num">Total</th><th class="num">Ticket prom.</th><th class="num">Prom. por día</th><th class="num">% del total</th></tr></thead><tbody>${filas}
-      <tr class="fila-total"><th scope="row">Total</th><td></td><td class="num">${r.tickets}</td><td class="num">${r.piezas}</td><td class="num">${mxn(r.total)}</td><td class="num">${mxn(r.promedio_ticket)}</td><td></td><td class="num">100%</td></tr></tbody></table></div></section>${notas}`;
+  const grafica = ['forma_pago', 'caja', 'tienda'].includes(ag) ? '' : `<div class="grafica-cont"><div class="grafica ${muchas ? 'ancha' : ''}" id="an-grafica" role="img" aria-label="Gráfica de barras ${esc(AN_METRICAS.find((x) => x[0] === metrica)[1])} ${esc(NOM)}">${j.filas.map((f, i) => `<div class="gb ${i === mejorI && vals[i] > 0 ? 'mejor' : ''}" data-i="${i}" title="${esc(f.etiqueta)} · ${esc(anTexto(vals[i], metrica))}"><span class="gb-valor"${j.filas.length <= 12 || i === mejorI ? ` data-corto="${esc(anAbrev(vals[i], metrica))}"` : ''}>${muchas || !vals[i] ? '' : esc(anTexto(vals[i], metrica).replace(/\.00$/, ''))}</span><span class="gb-barra" style="height:${((vals[i] / max) * 100).toFixed(1)}%"></span><span class="gb-eti">${esc(anCorto(ag, f))}</span></div>`).join('')}</div></div><p class="an-detalle deco-movil" id="an-detalle" role="status" aria-live="polite">Toque una barra para ver su monto exacto.</p>`;
+  const filas = j.filas.map((f, i) => `<tr class="${i === mejorI && vals[i] > 0 ? 'fila-mejor' : ''}" data-i="${i}" style="--p:${((vals[i] / max) * 100).toFixed(1)}%;--p-num:${(vals[i] / max).toFixed(3)}"><td data-etiqueta>${esc(f.etiqueta)}</td><td class="celda-barra"><span class="barra-h" style="width:${((vals[i] / max) * 100).toFixed(1)}%"></span></td><td class="num">${f.tickets}</td><td class="num">${f.piezas}</td><td class="num">${mxn(f.total)}</td><td class="num">${mxn(f.promedio_ticket)}</td><td class="num">${f.promedio_dia == null ? '' : mxn(f.promedio_dia)}</td><td class="num">${f.porcentaje.toFixed(1)}%</td><td class="an-col-chev"><i class="ic" aria-hidden="true">${ico('chevron')}</i></td></tr>`).join('');
+  el.innerHTML = `${kpis}<section class="panel an-res"><div class="an-card-graf"><h2 style="margin-top:0"><i class="ic an-h2-ico" aria-hidden="true">${ico('chart')}</i>${esc(AN_AGRUP.find((x) => x[0] === ag)[1])} · ${esc(AN_METRICAS.find((x) => x[0] === metrica)[1])}</h2>${grafica}</div>
+    <div class="tabla-cont an-card-tabla"><table class="tabla-analisis" id="an-tabla"><thead><tr><th>${esc(NOM[0].toUpperCase() + NOM.slice(1))}</th><th>${esc(AN_METRICAS.find((x) => x[0] === metrica)[1])}</th><th class="num">Tickets</th><th class="num">Piezas</th><th class="num">Total</th><th class="num">Ticket prom.</th><th class="num">Prom. por día</th><th class="num">% del total</th><th class="an-col-chev"></th></tr></thead><tbody>${filas}
+      <tr class="fila-total"><th scope="row">Total</th><td></td><td class="num">${r.tickets}</td><td class="num">${r.piezas}</td><td class="num">${mxn(r.total)}</td><td class="num">${mxn(r.promedio_ticket)}</td><td></td><td class="num">100%</td><td class="an-col-chev"></td></tr></tbody></table></div></section>${notas}`;
+  // En el teléfono: tocar una barra muestra su monto exacto y tocar una fila despliega sus demás datos (piezas, ticket promedio, promedio por día).
+  const movil = () => window.matchMedia?.('(max-width: 820px)').matches;
+  const det = $('#an-detalle');
+  for (const b of el.querySelectorAll('#an-grafica .gb')) b.addEventListener('click', () => {
+    if (!movil() || !det) return;
+    const f = j.filas[Number(b.dataset.i)];
+    el.querySelectorAll('#an-grafica .gb.sel').forEach((x) => x.classList.remove('sel')); b.classList.add('sel');
+    det.textContent = `${f.etiqueta} · ${anTexto(vals[Number(b.dataset.i)], metrica)} · ${f.tickets} ticket${f.tickets === 1 ? '' : 's'}`;
+  });
+  for (const tr of el.querySelectorAll('#an-tabla tbody tr[data-i]')) {
+    const alternar = () => {
+      if (!movil()) return;
+      const abierta = tr.nextElementSibling?.classList.contains('an-det');
+      el.querySelectorAll('#an-tabla tr.an-det').forEach((x) => { x.previousElementSibling?.setAttribute('aria-expanded', 'false'); x.remove(); });
+      if (abierta) return;
+      const f = j.filas[Number(tr.dataset.i)];
+      tr.setAttribute('aria-expanded', 'true');
+      tr.insertAdjacentHTML('afterend', `<tr class="an-det"><td colspan="9"><dl><div><dt>Piezas</dt><dd>${f.piezas.toLocaleString('es-MX')}</dd></div><div><dt>Total</dt><dd>${mxn(f.total)}</dd></div><div><dt>Ticket promedio</dt><dd>${mxn(f.promedio_ticket)}</dd></div>${f.promedio_dia == null ? '' : `<div><dt>Promedio por día</dt><dd>${mxn(f.promedio_dia)}</dd></div>`}</dl></td></tr>`);
+    };
+    tr.setAttribute('tabindex', '0'); tr.setAttribute('role', 'button'); tr.setAttribute('aria-expanded', 'false');
+    tr.addEventListener('click', alternar);
+    tr.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); alternar(); } });
+  }
 }
 
 async function vistaTipoCambio() {
