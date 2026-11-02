@@ -74,6 +74,9 @@ const I = {
   file: '<path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/>',
   check: '<path d="m5 12.5 4.5 4.5L19 7.5"/>',
   menu: '<path d="M4 6h16M4 12h16M4 18h16"/>',
+  phone: '<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/>',
+  key: '<path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z"/><circle cx="16.5" cy="7.5" r=".5" fill="currentColor"/>',
+  power: '<path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.77.04"/>',
   receipt: '<path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z"/><path d="M14 8H8"/><path d="M16 12H8"/><path d="M13 16H8"/>',
   trophy: '<path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/>',
   chevarriba: '<path d="m18 15-6-6-6 6"/>',
@@ -4563,7 +4566,9 @@ const avatar = (x, tam = 44) => (x.perfil?.foto
   ? `<img data-ampliar src="${esc(x.perfil.foto)}" alt="Foto de ${esc(x.nombre)}" title="Ver la foto grande" style="width:${tam}px;height:${tam}px;border-radius:50%;object-fit:cover;flex:none;cursor:zoom-in">`
   : `<span aria-hidden="true" style="width:${tam}px;height:${tam}px;border-radius:50%;background:var(--superficie-2);display:inline-flex;align-items:center;justify-content:center;flex:none">${ico('user')}</span>`);
 const nombreCompleto = (x) => [x.perfil?.nombres, x.perfil?.apellidos].filter(Boolean).join(' ');
-const celdaPersona = (x) => `<div style="display:flex;gap:10px;align-items:center">${avatar(x)}<div><b data-alias>${esc(x.nombre)}</b><br><small data-nombre-completo>${nombreCompleto(x) ? esc(nombreCompleto(x)) : '<span class="nota">sin datos completos</span>'}</small>${x.perfil?.telefono ? `<br><small>${esc(x.perfil.telefono)}</small>` : ''}</div></div>`;
+/** Encabezado de la tarjeta de una persona: foto circular, alias en negritas, nombre completo, teléfono y su estado. */
+const celdaPersona = (x, pill = '', nota = '') => `<div class="p-linea">${avatar(x, 56)}<div class="p-datos"><div class="p-fila1"><b data-alias>${esc(x.nombre)}</b>${pill}</div>${nota || `<span class="p-nombre" data-nombre-completo>${nombreCompleto(x) ? esc(nombreCompleto(x)) : '<span class="nota">sin datos completos</span>'}</span>`}${x.perfil?.telefono ? `<span class="p-tel"><i class="ic" aria-hidden="true">${ico('phone')}</i>${esc(x.perfil.telefono)}</span>` : ''}</div></div>`;
+const estadoPill = (x) => `<span class="estado-pill ${x.activo ? '' : 'off'}" data-estado>${x.activo ? 'Activo' : 'Desactivado'}</span>`;
 const perfilCampos = (p) => `<div class="campo"><label for="${p}-nombres">Nombres</label><input id="${p}-nombres" class="texto" maxlength="60" autocomplete="off" required></div>
   <div class="campo"><label for="${p}-apellidos">Apellidos</label><input id="${p}-apellidos" class="texto" maxlength="60" autocomplete="off" required></div>
   <div class="campo"><label for="${p}-telefono">Teléfono</label><input id="${p}-telefono" class="texto" inputmode="tel" maxlength="20" autocomplete="off"></div>
@@ -4820,34 +4825,83 @@ function abrirEditarEmpleado(tipo, x, recargar) {
   $('#ed-nombres').focus();
 }
 
+/** «Roles y permisos»: lo que antes era un bloque largo de texto en la pantalla, ahora en un cuadro (el contenido y las reglas son las mismas). */
+function abrirRolesPermisos(hayAdmins) {
+  const d = dialogo('dlg-per-roles');
+  d.setAttribute('aria-labelledby', 'roles-titulo');
+  const rol = (icono, titulo, texto) => `<section class="rol-item"><h3>${ico(icono)}${titulo}</h3><p>${texto}</p></section>`;
+  d.innerHTML = `<h2 id="roles-titulo" style="margin-top:0">${ico('info')} Roles y permisos</h2>
+    ${hayAdmins ? '' : '<div class="mensaje aviso"><b>Esta consola está abierta: cualquiera que la abra puede entrar.</b> Cree el primer usuario (debe ser supervisor) para que pida usuario y contraseña. Quien lo crea queda dentro.</div>'}
+    ${rol('user', 'Supervisor', 'Ve todo Administración, autoriza operaciones en la caja y también puede iniciar sesión y cobrar en la caja con su clave de caja (4 a 8 dígitos).')}
+    ${rol('warehouse', 'Almacenista', 'Solo Inventario y Almacén, con permiso para cambiar precios y fijar las existencias reales; si también cobra, ponle una clave de caja (cobra, pero no autoriza descuentos).')}
+    ${rol('lock', 'Entrada a Administración', 'Entran con su usuario y contraseña (6 a 40 caracteres), que solo viven en el servidor central. Las Vendedoras-Cajeras no entran a Administración.')}
+    ${rol('cash', 'Vendedora-Cajera', 'Cada Vendedora-Cajera tiene su propia clave (4 a 8 dígitos) para confirmar operaciones a su nombre, como dar de alta un artículo en la caja.')}
+    ${rol('tag', 'Usuario (alias)', 'El <b>usuario (alias)</b> es con el que entra a la caja y el que sale en tickets y reportes; los nombres, apellidos, teléfono, dirección y foto son su registro.')}
+    ${rol('key', 'Claves', 'La clave no se puede volver a ver: si se olvida, se cambia.')}
+    <div class="filas"><button class="btn btn-primario" type="button" id="roles-ok">${ico('check')}<span>Entendido</span></button></div>`;
+  $('#roles-ok').addEventListener('click', () => d.close());
+  d.showModal();
+}
+/** «Gestionar claves»: las claves ya no se escriben en la tarjeta. `tipo`: admin (contraseña de Administración + clave de caja), cajero o sup (clave de caja). Nunca se muestra una clave actual. */
+function abrirClaves(tipo, x, avisar) {
+  const d = dialogo('dlg-claves');
+  d.setAttribute('aria-labelledby', 'claves-titulo');
+  const admin = tipo === 'admin';
+  d.innerHTML = `<h2 id="claves-titulo" style="margin-top:0">${ico('key')} Gestionar claves</h2>
+    <p class="claves-quien"><b data-alias>${esc(x.nombre)}</b></p>
+    <p class="nota" style="margin-top:0">Las claves actuales no se pueden ver. Escriba una nueva solo si quiere cambiarla: lo que deje vacío no cambia.</p>
+    <form id="form-claves" autocomplete="off">
+      ${admin ? `<div class="campo"><label for="cl-clave">Nueva contraseña de Administración (6 a 40 caracteres)</label><input id="cl-clave" type="password" autocomplete="new-password" aria-label="Nueva contraseña de ${esc(x.nombre)}"></div>` : ''}
+      <div class="campo"><label for="cl-clave-caja">${admin ? (x.clave_caja ? 'Nueva clave de caja (4 a 8 dígitos)' : 'Clave de caja (4 a 8 dígitos; no cobra sin ella)') : 'Nueva clave de caja (4 a 8 dígitos)'}</label><input id="cl-clave-caja" type="text" data-pin inputmode="numeric" autocomplete="off" aria-label="Nueva clave de caja de ${esc(x.nombre)}"></div>
+      <div id="msg-claves" class="mensaje" role="alert"></div>
+      <div class="filas"><button class="btn" type="button" id="cl-cerrar">Cancelar</button><button class="btn btn-primario" type="submit" id="cl-guardar" style="width:auto;flex:1">${ico('check')}<span>${admin ? 'Guardar cambios' : 'Cambiar clave'}</span></button></div></form>`;
+  $('#cl-cerrar').addEventListener('click', () => d.close());
+  $('#form-claves').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const m = $('#msg-claves'), error = (t) => { m.className = 'mensaje error'; m.textContent = t; };
+    const clave = admin ? $('#cl-clave').value : '', claveCaja = $('#cl-clave-caja').value;
+    if (admin && !clave && !claveCaja) return error('Escriba la nueva contraseña o la nueva clave de caja.');
+    if (!admin && !claveCaja) return error('Escriba la nueva clave.');
+    try {
+      if (admin) await api('/api/admin/administradores', { id: x.id, ...(clave ? { clave } : {}), ...(claveCaja ? { clave_caja: claveCaja } : {}) });
+      else await api(tipo === 'cajero' ? '/api/admin/cajeros' : '/api/admin/supervisores', { id: x.id, clave: claveCaja });
+      d.close();
+      await vistaCajeros();
+      avisar(admin ? 'Cambios guardados.' : 'Clave cambiada.', 'ok');
+    } catch (e) { error(e.message); }
+  });
+  d.showModal();
+  (admin ? $('#cl-clave') : $('#cl-clave-caja')).focus();
+}
+
 // ── Usuarios: alias, datos completos y clave propia ──
 async function vistaCajeros() {
   const [{ cajeros }, { administradores }, { supervisores }] = await Promise.all([api('/api/admin/cajeros'), api('/api/admin/administradores'), api('/api/admin/supervisores')]);
   // Supervisores que solo existen como «supervisor de caja» (sin acceso a Administración): también son personal y también cobran.
   const supsSolos = supervisores.filter((x) => !administradores.some((a) => `sup-${a.id.slice(4)}` === x.id));
-  const celdaClave = 'style="padding:4px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie)"';
   const esYo = (x) => String(S.sesion?.usuario ?? '').trim().toLowerCase() === String(x.nombre).trim().toLowerCase();
   const botonEliminar = (cls, motivoNo) => `<button class="btn btn-peligro ${cls}" type="button" ${motivoNo ? `disabled title="${esc(motivoNo)}"` : 'title="Quitarla por completo (pide su clave corta)"'}>${ico('trash')}<span>Eliminar</span></button>`;
-  const filaAdmin = (x) => `<tr data-admin="${esc(x.id)}" data-rol="${x.rol}" class="fila-usuario" tabindex="0" title="Clic para editar los datos de ${esc(x.nombre)}"><td>${celdaPersona(x)}</td><td>${x.rol === 'almacenista' ? 'Almacenista' : 'Supervisor'}</td><td data-col="tienda">—</td><td>${x.activo ? 'Activo' : 'Desactivado'}</td>
-    <td class="filas" style="flex-wrap:nowrap"><button class="btn a-editar" type="button">${ico('pencil')}<span>Editar datos</span></button><button class="btn a-activo" type="button">${x.activo ? 'Desactivar' : 'Activar'}</button>${botonEliminar('a-eliminar', x.protegido ? 'Cuenta protegida: no se puede eliminar' : esYo(x) ? 'Es su propio usuario' : '')}</td>
-    <td><div class="claves-celda"><input type="password" class="a-clave" placeholder="Nueva contraseña (Administración)" aria-label="Nueva contraseña de ${esc(x.nombre)}" ${celdaClave}><input type="text" data-pin inputmode="numeric" class="a-clave-caja" placeholder="${x.clave_caja ? 'Nueva clave de caja' : 'Clave de caja (no cobra sin ella)'}" aria-label="Clave de caja de ${esc(x.nombre)}" ${celdaClave}><button class="btn a-guardar" type="button">${ico('check')}<span>Guardar cambios</span></button></div></td></tr>`;
-  const filaCajera = (x) => `<tr data-cajero="${esc(x.id)}" data-rol="cajero" class="fila-usuario" tabindex="0" title="Clic para editar los datos de ${esc(x.nombre)}"><td>${celdaPersona(x)}</td><td>Vendedora-Cajera</td><td data-col="tienda">${esc(NOM_TIENDA_TRAB[x.tienda ?? ''] ?? x.tienda)}</td><td>${x.activo ? 'Activo' : 'Desactivado'}</td>
-    <td class="filas" style="flex-wrap:nowrap"><button class="btn c-editar" type="button">${ico('pencil')}<span>Editar datos</span></button><button class="btn c-activo" type="button">${x.activo ? 'Desactivar' : 'Activar'}</button><button class="btn btn-peligro c-eliminar" type="button" title="Quitarla por completo (pide su clave corta)">${ico('trash')}<span>Eliminar</span></button></td>
-    <td><div class="claves-celda"><input type="text" data-pin inputmode="numeric" class="c-clave" placeholder="Nueva clave de caja" aria-label="Nueva clave de ${esc(x.nombre)}" ${celdaClave}><button class="btn c-guardar" type="button">${ico('check')}<span>Cambiar clave</span></button></div></td></tr>`;
-  const filaSup = (x) => `<tr data-sup="${esc(x.id)}" data-rol="supervisor" class="fila-usuario"><td><b data-alias>${esc(x.nombre)}</b><div class="nota">Supervisor de caja (sin acceso a Administración)</div></td><td>Supervisor</td><td data-col="tienda">—</td><td>${x.activo ? 'Activo' : 'Desactivado'}</td>
-    <td class="filas" style="flex-wrap:nowrap"><button class="btn s-activo" type="button">${x.activo ? 'Desactivar' : 'Activar'}</button>${botonEliminar('s-eliminar', esYo(x) ? 'Es su propio usuario' : '')}</td>
-    <td><div class="claves-celda"><input type="text" data-pin inputmode="numeric" class="s-clave" placeholder="Nueva clave de caja" aria-label="Nueva clave de ${esc(x.nombre)}" ${celdaClave}><button class="btn s-guardar" type="button">${ico('check')}<span>Cambiar clave</span></button></div></td></tr>`;
+  const btnP = (cls, icono, texto, titulo) => `<button class="btn ${cls}" type="button" title="${titulo}">${ico(icono)}<span>${texto}</span></button>`;
+  const btnActivo = (cls, x) => btnP(cls, 'power', x.activo ? 'Desactivar' : 'Activar', x.activo ? 'Desactivar (ya no podrá entrar)' : 'Volver a activar');
+  const filaAdmin = (x) => `<tr data-admin="${esc(x.id)}" data-rol="${x.rol}" class="fila-usuario persona-card" tabindex="0" title="Clic para editar los datos de ${esc(x.nombre)}"><td class="p-cab">${celdaPersona(x, estadoPill(x))}</td><td class="p-rol" data-label="Rol">${x.rol === 'almacenista' ? 'Almacenista' : 'Supervisor'}</td><td class="p-tienda" data-col="tienda" data-label="Tienda">—</td>
+    <td class="p-acc">${btnP('a-editar', 'pencil', 'Editar', 'Editar sus datos')}${btnP('a-claves', 'key', 'Gestionar claves', 'Contraseña de Administración y clave de caja')}${btnActivo('a-activo', x)}${botonEliminar('a-eliminar', x.protegido ? 'Cuenta protegida: no se puede eliminar' : esYo(x) ? 'Es su propio usuario' : '')}</td></tr>`;
+  const filaCajera = (x) => `<tr data-cajero="${esc(x.id)}" data-rol="cajero" class="fila-usuario persona-card" tabindex="0" title="Clic para editar los datos de ${esc(x.nombre)}"><td class="p-cab">${celdaPersona(x, estadoPill(x))}</td><td class="p-rol" data-label="Rol">Vendedora-Cajera</td><td class="p-tienda" data-col="tienda" data-label="Tienda">${esc(NOM_TIENDA_TRAB[x.tienda ?? ''] ?? x.tienda)}</td>
+    <td class="p-acc">${btnP('c-editar', 'pencil', 'Editar', 'Editar sus datos')}${btnP('c-claves', 'key', 'Gestionar claves', 'Clave de caja')}${btnActivo('c-activo', x)}<button class="btn btn-peligro c-eliminar" type="button" title="Quitarla por completo (pide su clave corta)">${ico('trash')}<span>Eliminar</span></button></td></tr>`;
+  const filaSup = (x) => `<tr data-sup="${esc(x.id)}" data-rol="supervisor" class="fila-usuario persona-card"><td class="p-cab">${celdaPersona(x, estadoPill(x), '<span class="p-nombre">Supervisor de caja (sin acceso a Administración)</span>')}</td><td class="p-rol" data-label="Rol">Supervisor</td><td class="p-tienda" data-col="tienda" data-label="Tienda">—</td>
+    <td class="p-acc">${btnP('s-claves', 'key', 'Gestionar claves', 'Clave de caja')}${btnActivo('s-activo', x)}${botonEliminar('s-eliminar', esYo(x) ? 'Es su propio usuario' : '')}</td></tr>`;
   // Activos primero y, dentro de cada grupo, por orden alfabético; el personal inactivo se va al final.
   const personas = [...administradores.map((x) => ({ x, html: filaAdmin(x) })), ...supsSolos.map((x) => ({ x, html: filaSup(x) })), ...cajeros.map((x) => ({ x, html: filaCajera(x) }))]
     .sort((a, b) => Number(b.x.activo) - Number(a.x.activo) || a.x.nombre.localeCompare(b.x.nombre, 'es', { sensitivity: 'base' }));
   const filas = personas.map((q) => q.html).join('') || '<tr><td colspan="6" class="vacio">Aún no hay personal registrado.</td></tr>';
-  cuerpoVista().innerHTML = `<section class="panel" id="panel-personal"><h2 style="margin-top:0">Perfiles</h2>
-    <p class="nota" style="margin-top:0">${administradores.some((a) => a.activo) ? '<b>Supervisor</b>: ve todo Administración, autoriza operaciones en la caja y también puede iniciar sesión y cobrar en la caja con su clave de caja (4 a 8 dígitos). <b>Almacenista</b>: solo Inventario y Almacén, con permiso para cambiar precios y fijar las existencias reales; si también cobra, ponle una clave de caja (cobra, pero no autoriza descuentos). Entran con su usuario y contraseña (6 a 40 caracteres), que solo viven en el servidor central. Las Vendedoras-Cajeras no entran a Administración.' : '<b>Esta consola está abierta: cualquiera que la abra puede entrar.</b> Cree el primer usuario (debe ser supervisor) para que pida usuario y contraseña. Quien lo crea queda dentro.'}</p>
-    <p class="nota">Cada Vendedora-Cajera tiene su propia clave (4 a 8 dígitos) para confirmar operaciones a su nombre, como dar de alta un artículo en la caja. El <b>usuario (alias)</b> es con el que entra a la caja y el que sale en tickets y reportes; los nombres, apellidos, teléfono, dirección y foto son su registro. La clave no se puede volver a ver: si se olvida, se cambia.</p>
-    <div class="filas" style="align-items:center;margin:8px 0"><input id="per-buscar" type="search" placeholder="Buscar por nombre, alias o teléfono" autocomplete="off" aria-label="Buscar personal" style="flex:1 1 260px;padding:9px 12px;border:2px solid var(--borde);border-radius:10px;background:var(--superficie);font:inherit"><label for="per-filtro" style="flex:none">Mostrar</label><select id="per-filtro" style="flex:none;padding:8px;border:2px solid var(--borde);border-radius:10px;background:var(--superficie)"><option value="">Todo el personal</option><option value="cajero">Vendedoras-Cajeras</option><option value="supervisor">Supervisores</option><option value="almacenista">Almacenistas</option></select></div>
+  const hayAdmins = administradores.some((a) => a.activo);
+  cuerpoVista().innerHTML = `<section class="panel" id="panel-personal"><div class="per-cab"><h2>Perfiles</h2><button class="btn btn-roles" type="button" id="per-roles" aria-haspopup="dialog">${ico('info')}<span>Roles y permisos</span></button></div>
+    ${hayAdmins ? '' : '<div class="mensaje aviso" id="per-aviso-abierta" role="status"><b>Esta consola está abierta: cualquiera que la abra puede entrar.</b> Cree el primer usuario (debe ser supervisor) para que pida usuario y contraseña. Quien lo crea queda dentro.</div>'}
+    <div class="per-controles"><div class="per-buscador"><i class="ic per-lupa" aria-hidden="true">${ico('search')}</i><input id="per-buscar" type="search" placeholder="Buscar por nombre, alias o teléfono" autocomplete="off" aria-label="Buscar personal"></div>
+      <select id="per-filtro" aria-label="Mostrar personal"><option value="">Todo el personal</option><option value="cajero">Vendedoras-Cajeras</option><option value="supervisor">Supervisores</option><option value="almacenista">Almacenistas</option></select>
+      <span class="per-contador" id="per-contador" role="status" aria-live="polite"></span></div>
     <div id="msg-admins" class="mensaje" role="status" aria-live="polite"></div>
     <div id="msg-cajeros" class="mensaje" role="status" aria-live="polite"></div>
-    <div class="tabla-cont"><table id="tabla-personal"><thead><tr><th>Persona</th><th>Rol</th><th>Tienda</th><th>Estado</th><th>Acciones</th><th>Claves</th></tr></thead><tbody>${filas}</tbody></table></div><p id="per-vacio" class="nota" hidden>Nadie coincide con la búsqueda.</p></section>
+    <div class="tabla-cont per-lista"><table id="tabla-personal"><thead><tr><th>Persona</th><th>Rol</th><th>Tienda</th><th>Acciones</th></tr></thead><tbody>${filas}</tbody></table></div><p id="per-vacio" class="nota" hidden>Nadie coincide con la búsqueda.</p></section>
     <section class="panel" id="panel-alta" style="margin-top:12px"><h2 style="margin-top:0">Agregar persona</h2>
     <div class="campo" style="max-width:320px"><label for="alta-rol">¿A quién vas a dar de alta?</label><select id="alta-rol" style="width:100%;padding:10px;border:2px solid var(--borde);border-radius:10px;background:var(--superficie)"><option value="cajero">Vendedora-Cajera</option><option value="supervisor">Supervisor</option><option value="almacenista" ${administradores.length ? '' : 'disabled'}>Almacenista</option></select></div>
     <div id="alta-cajero">
@@ -4864,13 +4918,16 @@ async function vistaCajeros() {
     const f = $('#per-filtro').value, q = norm($('#per-buscar').value.trim());
     let visibles = 0;
     for (const tr of $('#tabla-personal').querySelectorAll('tbody tr[data-rol]')) {
-      tr.hidden = (!!f && tr.dataset.rol !== f) || (!!q && !norm(tr.cells[0].textContent).includes(q));
+      tr.hidden = (!!f && tr.dataset.rol !== f) || (!!q && !norm([...tr.querySelectorAll('[data-alias], .p-nombre, .p-tel')].map((e) => e.textContent).join(' ')).includes(q));
       if (!tr.hidden) visibles++;
     }
     $('#per-vacio').hidden = visibles > 0 || !$('#tabla-personal').querySelector('tbody tr[data-rol]');
+    $('#per-contador').textContent = `${visibles} perfil${visibles === 1 ? '' : 'es'}`;
   };
   $('#per-filtro').addEventListener('change', filtrarPersonal);
   $('#per-buscar').addEventListener('input', filtrarPersonal);
+  filtrarPersonal();
+  $('#per-roles').addEventListener('click', () => abrirRolesPermisos(hayAdmins));
   // Alta única: según el rol salen los campos que le tocan y el botón dice a quién se agrega.
   const rolAlta = () => {
     const r = $('#alta-rol').value;
@@ -4895,12 +4952,7 @@ async function vistaCajeros() {
   for (const tr of $('#tabla-personal').querySelectorAll('tr[data-admin]')) {
     const id = tr.dataset.admin;
     const activo = administradores.find((c) => c.id === id).activo;
-    tr.querySelector('.a-guardar').addEventListener('click', async () => {
-      const clave = tr.querySelector('.a-clave').value;
-      const claveCaja = tr.querySelector('.a-clave-caja')?.value ?? '';
-      if (!clave && !claveCaja) return msgA('Escriba la nueva contraseña o la nueva clave de caja.');
-      try { await api('/api/admin/administradores', { id, ...(clave ? { clave } : {}), ...(claveCaja ? { clave_caja: claveCaja } : {}) }); await vistaCajeros(); msgA('Cambios guardados.', 'ok'); } catch (e) { msgA(e.message); }
-    });
+    tr.querySelector('.a-claves').addEventListener('click', (ev) => { ev.stopPropagation(); abrirClaves('admin', administradores.find((c) => c.id === id), msgA); });
     const editarA = () => abrirEditarEmpleado('admin', administradores.find((c) => c.id === id), vistaCajeros);
     tr.querySelector('.a-editar').addEventListener('click', editarA);
     tr.addEventListener('click', (ev) => { if (!ev.target.closest('input, button, a')) editarA(); });
@@ -4921,11 +4973,7 @@ async function vistaCajeros() {
   for (const tr of $('#tabla-personal').querySelectorAll('tr[data-cajero]')) {
     const id = tr.dataset.cajero;
     const activo = cajeros.find((c) => c.id === id).activo;
-    tr.querySelector('.c-guardar').addEventListener('click', async () => {
-      const clave = tr.querySelector('.c-clave').value;
-      if (!clave) return msgC('Escriba la nueva clave.');
-      try { await api('/api/admin/cajeros', { id, clave }); await vistaCajeros(); msgC('Clave cambiada.', 'ok'); } catch (e) { msgC(e.message); }
-    });
+    tr.querySelector('.c-claves').addEventListener('click', (ev) => { ev.stopPropagation(); abrirClaves('cajero', cajeros.find((c) => c.id === id), msgC); });
     const editarC = () => abrirEditarEmpleado('cajero', cajeros.find((c) => c.id === id), vistaCajeros);
     tr.querySelector('.c-editar').addEventListener('click', editarC);
     tr.addEventListener('click', (ev) => { if (!ev.target.closest('input, button, a')) editarC(); });
@@ -4936,11 +4984,7 @@ async function vistaCajeros() {
   for (const tr of $('#tabla-personal').querySelectorAll('tr[data-sup]')) {
     const id = tr.dataset.sup;
     const activo = supsSolos.find((c) => c.id === id).activo;
-    tr.querySelector('.s-guardar').addEventListener('click', async () => {
-      const clave = tr.querySelector('.s-clave').value;
-      if (!clave) return msgA('Escriba la nueva clave.');
-      try { await api('/api/admin/supervisores', { id, clave }); await vistaCajeros(); msgA('Clave cambiada.', 'ok'); } catch (e) { msgA(e.message); }
-    });
+    tr.querySelector('.s-claves').addEventListener('click', (ev) => { ev.stopPropagation(); abrirClaves('sup', supsSolos.find((c) => c.id === id), msgA); });
     tr.querySelector('.s-eliminar').addEventListener('click', (ev) => { ev.stopPropagation(); abrirEliminarTrabajadora(supsSolos.find((c) => c.id === id), msgA, vistaCajeros, '/api/admin/supervisores/eliminar'); });
     tr.querySelector('.s-activo').addEventListener('click', async () => { try { await api('/api/admin/supervisores', { id, activo: !activo }); await vistaCajeros(); } catch (e) { msgA(e.message); } });
   }

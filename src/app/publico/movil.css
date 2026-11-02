@@ -501,3 +501,17 @@
 }
 @media (max-width: 820px) { .panel-an .an-chips .chip { display: inline-flex; align-items: center; justify-content: center; } }
 @media (max-width: 820px) { .panel-an .an-chips { gap: 6px; } .panel-an .an-chips .chip { padding: 0 8px; font-size: 14px; } .panel-an .an-chips .chip:has(input:checked) span::before { margin-right: 5px; } }
+
+/* Personal › Perfiles en el teléfono: controles apilados y acciones en 2×2 (táctiles, sin desbordes) */
+@media (max-width: 820px) {
+  .per-cab h2 { font-size: 22px; }
+  .per-buscador { flex: 1 1 100%; }
+  #per-filtro { flex: 1 1 auto; min-width: 0; } .per-contador { margin-left: auto; }
+  #tabla-personal tbody td { font-size: 17px; }
+  #tabla-personal tbody tr.persona-card { padding: 14px 14px 12px; border-radius: 18px; margin: 0; }
+  #tabla-personal .p-acc { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; } #tabla-personal .p-acc .btn { min-height: 44px; width: 100%; padding: 0 8px; font-size: 15px; }
+  #tabla-personal .p-acc .btn.a-claves, #tabla-personal .p-acc .btn.c-claves, #tabla-personal .p-acc .btn.s-claves { grid-column: auto; }
+  #tabla-personal .p-acc .btn span { overflow: hidden; text-overflow: ellipsis; }
+  dialog#dlg-per-roles, dialog#dlg-claves { max-height: 90vh; overflow: auto; }
+}
+@media (max-width: 379px) { .p-linea { flex-wrap: wrap; } .estado-pill { margin-left: 0; } #tabla-personal .p-acc { grid-template-columns: 1fr; } }

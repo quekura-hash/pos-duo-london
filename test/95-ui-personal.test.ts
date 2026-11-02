@@ -42,8 +42,10 @@ describe('[navegador real] Personal: una sola lista de perfiles y sus pestañas'
     assert.deepEqual((await filas()).sort(), ['Edgardo|Supervisor', 'Evelin|Supervisor']);
     await page.selectOption('#per-filtro', '');
     // la supervisora de caja puede cambiar su clave desde aquí
-    await page.fill('#tabla-personal tr[data-sup] .s-clave', '2222');
-    await page.click('#tabla-personal tr[data-sup] .s-guardar');
+    await page.click('#tabla-personal tr[data-sup] .s-claves');
+    await page.waitForSelector('#dlg-claves[open]');
+    await page.fill('#cl-clave-caja', '2222');
+    await page.click('#form-claves button[type="submit"]');
     await page.waitForFunction(() => /Clave cambiada/.test(document.querySelector('#msg-admins')!.textContent!));
     // las otras pestañas
     await page.click('#per-tab-descuento');
