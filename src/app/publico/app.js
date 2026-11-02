@@ -74,6 +74,12 @@ const I = {
   file: '<path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/>',
   check: '<path d="m5 12.5 4.5 4.5L19 7.5"/>',
   menu: '<path d="M4 6h16M4 12h16M4 18h16"/>',
+  bag: '<path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"/><path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/>',
+  funnel: '<path d="M10 20a1 1 0 0 0 .553.895l2 1A1 1 0 0 0 14 21v-7a2 2 0 0 1 .517-1.341L21.74 4.67A1 1 0 0 0 21 3H3a1 1 0 0 0-.742 1.67l7.225 7.989A2 2 0 0 1 10 14z"/>',
+  mail: '<rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/>',
+  star: '<path d="M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z"/>',
+  ticket: '<path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z"/><path d="M13 5v2"/><path d="M13 17v2"/><path d="M13 11v2"/>',
+  coins: '<circle cx="8" cy="8" r="6"/><path d="M18.09 10.37A6 6 0 1 1 10.34 18"/><path d="M7 6h1v4"/><path d="m16.71 13.88.7.71-2.82 2.82"/>',
   rejilla: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/>',
   chevabajo: '<path d="m6 9 6 6 6-6"/>',
   more: '<circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/>',
@@ -1407,8 +1413,8 @@ async function vistaCorte() {
         <table><tbody>
           <tr><th scope="row">Mercancía recibida a cambio</th><td class="num" id="rc-recibida-cambio">${mxnODisp(v.mercancia_recibida_por_cambio)}</td></tr>
           <tr><th scope="row">Diferencias cobradas en cambios</th><td class="num" id="rc-dif-cambios">${mxnODisp(v.diferencias_cobradas_en_cambios)}</td></tr>
-          <tr><th scope="row">Devoluciones con reembolso</th><td class="num" id="rc-devoluciones">${mxnODisp(v.devoluciones_con_reembolso)}</td></tr>
-          <tr><th scope="row" style="font-size:18px">VENTAS NETAS</th><td class="num" style="font-size:20px" id="rc-ventas-netas"><b>${mxn(v.ventas_netas)}</b></td></tr></tbody></table></div>
+          <tr><th scope="row"><i class="ic" aria-hidden="true">${ico('undo')}</i>Devoluciones con reembolso</th><td class="num" id="rc-devoluciones">${mxnODisp(v.devoluciones_con_reembolso)}</td></tr>
+          <tr class="fila-netas-total"><th scope="row" style="font-size:18px"><i class="ic" aria-hidden="true">${ico('chart')}</i>VENTAS NETAS</th><td class="num" style="font-size:20px" id="rc-ventas-netas"><b>${mxn(v.ventas_netas)}</b></td></tr></tbody></table></div>
       <h3 style="margin:14px 0 6px">Conciliación del efectivo</h3>
       <div class="tabla-cont"><table id="resumen-cierre"><tbody>
         ${fila('rc-contado-mxn', 'Efectivo MXN de ventas contado', v.conteo_mxn && v.conteo_alcance === 'ventas' ? mxn(v.conteo_mxn.contado) : '—')}
@@ -1980,15 +1986,19 @@ async function pintarPanelContadora(cajas) {
   try { d = await R.leer(); } catch (e) { cont.innerHTML = `<h2 style="margin-top:0">Envío mensual a la contadora</h2><div class="mensaje error">No se pudo leer la configuración: ${esc(e.message)}</div>`; return; }
   const mesTxt = (p) => `${['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'][Number(p.slice(5, 7)) - 1]} ${p.slice(0, 4)}`;
   const cajaTxt = (t, n) => (n > 100 ? `Reporte Especial Caja ${n - 100} · ${nombre[t] ?? t}` : `${nombre[t] ?? t} · Caja ${n}`);
-  const filaContadora = (k, especial) => { const c = d.config.find((x) => x.tienda === k.tienda && x.caja === k.caja) ?? { activo: false, correos: [] }; return `<fieldset class="rc-caja${especial ? ' rc-especial' : ''}" data-tienda="${esc(k.tienda)}" data-caja="${k.caja}"><legend>${esc(cajaTxt(k.tienda, k.caja))}</legend>
+  const filaContadora = (k, especial) => { const c = d.config.find((x) => x.tienda === k.tienda && x.caja === k.caja) ?? { activo: false, correos: [] }; return `<fieldset class="rc-caja${especial ? ' rc-especial' : ''}" data-tienda="${esc(k.tienda)}" data-caja="${k.caja}"><legend><i class="ic" aria-hidden="true">${ico(especial ? 'star' : 'store')}</i>${esc(cajaTxt(k.tienda, k.caja))}</legend>
       <label class="check-hist"><input type="checkbox" class="rc-activo" ${c.activo ? 'checked' : ''}> Enviar el informe mensual${especial ? '' : ' de esta caja'}</label>
-      <div class="campo"><label for="rc-correos-${esc(k.tienda)}-${k.caja}">Enviar a (correos separados por coma)</label><input id="rc-correos-${esc(k.tienda)}-${k.caja}" class="texto rc-correos" type="text" inputmode="email" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="${especial ? 'auxiliar@despacho.mx, tu@correo.com' : 'contadora@despacho.mx, tu@correo.com'}" value="${esc((c.correos ?? []).join(', '))}" style="width:100%;box-sizing:border-box"></div>
+      <div class="campo"><label for="rc-correos-${esc(k.tienda)}-${k.caja}">Enviar a (correos separados por coma)</label><span class="campo-correo"><i class="ic" aria-hidden="true">${ico('mail')}</i><input id="rc-correos-${esc(k.tienda)}-${k.caja}" class="texto rc-correos" type="text" inputmode="email" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="${especial ? 'auxiliar@despacho.mx, tu@correo.com' : 'contadora@despacho.mx, tu@correo.com'}" value="${esc((c.correos ?? []).join(', '))}" style="width:100%;box-sizing:border-box"></span></div>
       <div class="filas"><button class="btn btn-primario rc-guardar" type="button" style="width:auto">${ico('check')}<span>Guardar</span></button><button class="btn rc-probar" type="button" title="Te manda a TU correo el reporte de lo que va del mes${especial ? '' : ' de esta caja'}">${ico('bell')}<span>Enviarme una prueba</span></button></div>
       <div class="mensaje rc-msg" role="status" aria-live="polite"></div></fieldset>`; };
-  cont.innerHTML = `<h2 style="margin-top:0">Envío mensual a la contadora</h2>
-    <p class="nota">El último día de cada mes a las <b>9:00 p. m.</b> (hora de Hermosillo) se manda por correo el Excel del mes de <b>cada caja a sus propios correos</b>, con el detalle de tickets y el resumen por día (la Caja 1 de DÚO incluye las ventas del POS anterior). Cada caja es un correo aparte; una caja sin correos activados no manda nada. Si falla, se reintenta a las 10:00 p. m., a las 11:00 p. m. y a las 9:00 a. m. del día siguiente; si los 4 intentos fallan te llega un aviso al teléfono («El reporte no se envió»). Lo que se venda después de las 9:00 p. m. del último día no entra en ese archivo.</p>
+  cont.innerHTML = `<div class="sec-cab"><span class="sec-ico">${ico('mail')}</span><div><h2>Envío mensual a la contadora</h2><p class="sec-sub deco-movil">Un correo aparte por caja, a sus propios destinatarios.</p></div></div>
+    <ul class="rc-puntos nota">
+      <li><i class="ic" aria-hidden="true">${ico('clock')}</i><span>El último día de cada mes a las <b>9:00 p. m.</b> (hora de Hermosillo) se manda por correo el Excel del mes de <b>cada caja a sus propios correos</b>, con el detalle de tickets y el resumen por día (la Caja 1 de DÚO incluye las ventas del POS anterior).</span></li>
+      <li><i class="ic" aria-hidden="true">${ico('mail')}</i><span>Cada caja es un correo aparte; una caja sin correos activados no manda nada.</span></li>
+      <li><i class="ic" aria-hidden="true">${ico('refresh')}</i><span>Si falla, se reintenta a las 10:00 p. m., a las 11:00 p. m. y a las 9:00 a. m. del día siguiente; si los 4 intentos fallan te llega un aviso al teléfono («El reporte no se envió»).</span></li>
+      <li><i class="ic" aria-hidden="true">${ico('info')}</i><span>Lo que se venda después de las 9:00 p. m. del último día no entra en ese archivo.</span></li></ul>
     ${cajas.map((k) => filaContadora(k, false)).join('')}
-    <div class="rc-especial-bloque" id="rc-especial"><h3 style="margin:0 0 4px">Reporte Especial Caja 1</h3>
+    <div class="rc-especial-bloque" id="rc-especial"><h3 style="margin:0 0 4px"><i class="ic" aria-hidden="true">${ico('star')}</i>Reporte Especial Caja 1</h3>
       <p class="nota" style="margin-top:0">Para la auxiliar de la contadora (<b>L.C.P. Elva Saldaña</b>): el último día de cada mes, a la misma hora, solo de la <b>Caja 1</b> de cada tienda y con un Excel aparte: una sola hoja, «Detalle de ventas», con las columnas Fecha, Folio, Tipo, Piezas, Total, Forma de pago y Tienda. El correo saluda a «Contadora Elva» y no dice ni «Caja 1» ni «Reporte especial». Incluye las ventas del POS anterior de esa caja.</p>
       ${[{ tienda: 'DUO', caja: 101 }, { tienda: 'LON', caja: 101 }].map((k) => filaContadora(k, true)).join('')}</div>
     ${d.envios.length ? `<h3 style="margin-bottom:4px">Últimos envíos</h3><table id="tabla-envios"><thead><tr><th>Mes</th><th>Caja</th><th>Estado</th><th class="num">Tickets</th><th class="num">Total</th><th>A</th></tr></thead><tbody>${d.envios.map((e) => `<tr class="${!e.enviado_en && e.intentos >= 4 ? 'fila-fallo' : ''}"><td>${esc(mesTxt(e.periodo))}</td><td>${esc(cajaTxt(e.tienda, e.caja))}</td><td>${e.enviado_en ? `Enviado ${esc(fechaHora(e.enviado_en))}` : e.intentos >= 4 ? `<b>No se envió</b> · 4 de 4 intentos${e.avisado_en ? ' · se avisó a tu teléfono' : ''}<br><small>${esc(e.ultimo_error ?? '')}</small>` : e.intentos > 0 ? `Reintentando · ${e.intentos} de 4 intentos<br><small>${esc(e.ultimo_error ?? '')}</small>` : 'En proceso'}</td><td class="num">${e.tickets ?? ''}</td><td class="num">${e.total == null ? '' : mxn(e.total)}</td><td>${esc((e.correos ?? []).join(', '))}</td></tr>`).join('')}</tbody></table>` : '<p class="nota">Todavía no se ha intentado ningún envío.</p>'}`;
@@ -2017,7 +2027,8 @@ async function pintarPanelContadora(cajas) {
 // ── Resumen del día de todas las tiendas (el mismo que llega como aviso al teléfono a la hora elegida) ──
 /** Una caja del resumen del día: su venta y cómo se cobró (efectivo, tarjeta de crédito/débito, tarjeta de regalo), con cambios, devoluciones, retiros y gastos cuando los hubo. */
 function bloqueCajaResumen(x, c) {
-  const fila = (rotulo, valor, col, fuerte = false) => `<tr><th scope="row">${rotulo}</th><td class="num" data-col="${col}">${fuerte ? `<b>${mxn(valor)}</b>` : mxn(valor)}</td></tr>`;
+  const IC = { efectivo: 'banknote', tarjeta: 'card', 'tarjeta-regalo': 'gift', netas: 'chart', dolares: 'dollar', credito: 'user', cambio: 'box', devoluciones: 'undo', retiros: 'cash', gastos: 'box' };
+  const fila = (rotulo, valor, col, fuerte = false) => `<tr class="fila-${col}"><th scope="row">${IC[col] ? `<i class="ic" aria-hidden="true">${ico(IC[col])}</i>` : ''}${rotulo}</th><td class="num" data-col="${col}">${fuerte ? `<b>${mxn(valor)}</b>` : mxn(valor)}</td></tr>`;
   const si = (n, rotulo, col) => (n ? fila(rotulo, n, col) : '');
   return `<div class="caja-detalle" data-caja="${esc(x.tienda)}/${c.caja}"><table class="tabla-caja-detalle"><tbody>
     <tr class="caja-titulo"><th scope="row">Caja ${esc(letraTienda(x.tienda))}${c.caja}${c.corte_cerrado ? ' <small>· corte cerrado</small>' : ''}</th><td class="num" data-col="venta"><b>${mxn(c.venta_total)}</b></td></tr>
@@ -2025,7 +2036,7 @@ function bloqueCajaResumen(x, c) {
     ${fila('T. Cred.', c.tarjeta, 'tarjeta')}${fila('T. Reg.', c.tarjeta_regalo, 'tarjeta-regalo')}${si(c.credito_empleadas, 'Crédito empleadas', 'credito')}
     ${si(c.mercancia_recibida_por_cambio, 'Recibido a cambio', 'cambio')}${si(c.devoluciones_con_reembolso, 'Devoluciones', 'devoluciones')}
     ${fila('Ventas netas', c.ventas_netas, 'netas', true)}${si(c.retiros, 'Retiros', 'retiros')}${si(c.gastos, 'Gastos de caja', 'gastos')}
-    <tr class="caja-pie"><td colspan="2" data-label=""><small>${c.tickets} ticket${c.tickets === 1 ? '' : 's'}${c.canceladas ? ` · ${c.canceladas} cancelada${c.canceladas === 1 ? '' : 's'}` : ''}</small></td></tr>
+    <tr class="caja-pie"><td colspan="2" data-label=""><small><i class="ic" aria-hidden="true">${ico('ticket')}</i>${c.tickets} ticket${c.tickets === 1 ? '' : 's'}${c.canceladas ? ` · ${c.canceladas} cancelada${c.canceladas === 1 ? '' : 's'}` : ''}</small></td></tr>
   </tbody></table></div>`;
 }
 async function pintarResumenDia(fecha) {
@@ -2036,30 +2047,30 @@ async function pintarResumenDia(fecha) {
   S.resumenDiaFecha = j.fecha;
   const t = j.total;
   const f = (iso) => iso.split('-').reverse().join('/');
-  cont.innerHTML = `<div class="filas" style="align-items:center;justify-content:space-between"><h2 style="margin:0">${ico('store')} Resumen del día — todas las tiendas</h2>
-      <label>Día <input type="date" id="rd-fecha" value="${esc(j.fecha)}" max="${esc(j.hoy)}"></label></div>
+  cont.innerHTML = `<div class="filas rd-cab" style="align-items:center;justify-content:space-between"><div class="sec-cab"><span class="sec-ico">${ico('store')}</span><div><h2>Resumen del día — todas las tiendas</h2><p class="sec-sub deco-movil">Ventas, cobros y operación del día seleccionado.</p></div></div>
+      <label class="rd-dia">Día <span class="campo-fecha"><i class="ic" aria-hidden="true">${ico('calendar')}</i><input type="date" id="rd-fecha" value="${esc(j.fecha)}" max="${esc(j.hoy)}"></span></label></div>
     <div class="kpi-grande" id="rd-venta-total"><span class="kpi-rotulo">VENTA TOTAL DEL DÍA · ${esc(f(j.fecha))}</span><span class="kpi-valor" id="rd-total">${mxn(t.venta_total)}</span><span class="kpi-sub">${t.tickets} ticket${t.tickets === 1 ? '' : 's'} de venta${t.canceladas ? ` · ${t.canceladas} cancelada${t.canceladas === 1 ? '' : 's'}` : ''}</span></div>
-    <div class="kpi-grid" id="rd-tiendas">${j.tiendas.map((x) => `<div class="kpi" data-tienda="${esc(x.tienda)}"><span class="kpi-rotulo">${esc(x.nombre).toUpperCase()}</span><b data-col="venta">${mxn(x.venta_total)}</b><small>${x.tickets} ticket${x.tickets === 1 ? '' : 's'} · netas ${mxn(x.ventas_netas)}</small><small>Efectivo ${mxn(x.efectivo)} · Tarjeta ${mxn(x.tarjeta)}</small><small>Cortes cerrados: ${x.cajas_con_corte} de ${x.cajas} cajas</small><small data-col="retiros">Retiros: ${mxn(x.retiros)}${x.retiros_n ? ` (${x.retiros_n})` : ''}</small><small data-col="gastos">Gastos de caja: ${mxn(x.gastos)}${x.gastos_n ? ` (${x.gastos_n})` : ''}</small></div>`).join('')}</div>
-    <h3 style="margin:14px 0 6px">Cómo se cobró</h3>
-    <div class="kpi-grid">
-      <div class="kpi" style="border-color:var(--acento)"><span class="kpi-rotulo">TOTAL EN EFECTIVO</span><b id="rd-efectivo">${mxn(t.efectivo)}</b></div>
-      <div class="kpi"><span class="kpi-rotulo">Total en pesos</span><b id="rd-pesos">${mxn(t.pesos)}</b></div>
-      <div class="kpi"><span class="kpi-rotulo">Total en dólares</span><b id="rd-dolares">${mxn(t.dolares_mxn)}</b><small>equivalente en pesos</small></div>
-      <div class="kpi" style="border-color:var(--acento)"><span class="kpi-rotulo">TOTAL EN TARJETA</span><b id="rd-tarjeta">${mxn(t.tarjeta)}</b></div>
-      ${t.credito_empleadas ? `<div class="kpi"><span class="kpi-rotulo">Crédito de empleadas</span><b id="rd-credito">${mxn(t.credito_empleadas)}</b><small>se descuenta de nómina; no es cobro</small></div>` : ''}
+    <div class="kpi-grid" id="rd-tiendas">${j.tiendas.map((x) => `<div class="kpi kpi-tienda" data-tienda="${esc(x.tienda)}"><span class="kpi-rotulo"><i class="ic" aria-hidden="true">${ico('bag')}</i>${esc(x.nombre).toUpperCase()}</span><b data-col="venta">${mxn(x.venta_total)}</b><small><i class="ic" aria-hidden="true">${ico('ticket')}</i>${x.tickets} ticket${x.tickets === 1 ? '' : 's'} · netas ${mxn(x.ventas_netas)}</small><small><i class="ic" aria-hidden="true">${ico('banknote')}</i>Efectivo ${mxn(x.efectivo)} · Tarjeta ${mxn(x.tarjeta)}</small><small><i class="ic" aria-hidden="true">${ico('box')}</i>Cortes cerrados: ${x.cajas_con_corte} de ${x.cajas} cajas</small><small data-col="retiros"><i class="ic" aria-hidden="true">${ico('cash')}</i>Retiros: ${mxn(x.retiros)}${x.retiros_n ? ` (${x.retiros_n})` : ''}</small><small data-col="gastos"><i class="ic" aria-hidden="true">${ico('box')}</i>Gastos de caja: ${mxn(x.gastos)}${x.gastos_n ? ` (${x.gastos_n})` : ''}</small></div>`).join('')}</div>
+    <h3 class="sec-h3" style="margin:14px 0 6px"><i class="ic" aria-hidden="true">${ico('coins')}</i>Cómo se cobró</h3>
+    <div class="kpi-grid kpi-cobro">
+      <div class="kpi kpi-acento"><i class="kpi-ico ic" aria-hidden="true">${ico('banknote')}</i><span class="kpi-rotulo">TOTAL EN EFECTIVO</span><b id="rd-efectivo">${mxn(t.efectivo)}</b></div>
+      <div class="kpi"><i class="kpi-ico ic" aria-hidden="true">${ico('dollar')}</i><span class="kpi-rotulo">Total en pesos</span><b id="rd-pesos">${mxn(t.pesos)}</b></div>
+      <div class="kpi"><i class="kpi-ico ic kpi-ico-txt" aria-hidden="true">US$</i><span class="kpi-rotulo">Total en dólares</span><b id="rd-dolares">${mxn(t.dolares_mxn)}</b><small>equivalente en pesos</small></div>
+      <div class="kpi kpi-acento"><i class="kpi-ico ic" aria-hidden="true">${ico('card')}</i><span class="kpi-rotulo">TOTAL EN TARJETA</span><b id="rd-tarjeta">${mxn(t.tarjeta)}</b></div>
+      ${t.credito_empleadas ? `<div class="kpi"><i class="kpi-ico ic" aria-hidden="true">${ico('user')}</i><span class="kpi-rotulo">Crédito de empleadas</span><b id="rd-credito">${mxn(t.credito_empleadas)}</b><small>se descuenta de nómina; no es cobro</small></div>` : ''}
     </div>
-    <h3 style="margin:14px 0 6px">Por tienda y por caja</h3>
+    <h3 class="sec-h3" style="margin:14px 0 6px"><i class="ic" aria-hidden="true">${ico('store')}</i>Por tienda y por caja</h3>
     <div id="rd-por-caja">${j.tiendas.map((x) => `<div class="panel tienda-detalle" data-detalle-tienda="${esc(x.tienda)}" style="margin:0 0 10px">
-      <div class="filas" style="align-items:baseline;justify-content:space-between;margin-bottom:8px"><h4 style="margin:0">${esc(x.nombre)}</h4><b>${mxn(x.venta_total)}</b></div>
+      <div class="filas tienda-barra" style="align-items:baseline;justify-content:space-between;margin-bottom:8px"><h4 style="margin:0"><i class="ic" aria-hidden="true">${ico('bag')}</i>${esc(x.nombre)}</h4><b>${mxn(x.venta_total)}</b></div>
       <div class="cajas-detalle">${x.detalle_cajas.map((c) => bloqueCajaResumen(x, c)).join('')}</div></div>`).join('')}</div>
-    <div class="panel" style="margin:10px 0"><h3 style="margin:0 0 6px">Cambios y devoluciones</h3><table><tbody>
-      <tr><th scope="row">Mercancía recibida a cambio</th><td class="num" id="rd-cambio">${mxn(t.mercancia_recibida_por_cambio)}</td></tr>
+    <div class="panel panel-resumen" style="margin:10px 0"><h3 class="sec-h3" style="margin:0 0 6px"><i class="ic" aria-hidden="true">${ico('refresh')}</i>Cambios y devoluciones</h3><table class="tabla-resumen"><tbody>
+      <tr><th scope="row"><i class="ic" aria-hidden="true">${ico('box')}</i>Mercancía recibida a cambio</th><td class="num" id="rd-cambio">${mxn(t.mercancia_recibida_por_cambio)}</td></tr>
       <tr><th scope="row">Devoluciones con reembolso</th><td class="num" id="rd-devoluciones">${mxn(t.devoluciones_con_reembolso)}</td></tr>
       <tr><th scope="row" style="font-size:18px">VENTAS NETAS</th><td class="num" style="font-size:20px" id="rd-netas"><b>${mxn(t.ventas_netas)}</b></td></tr></tbody></table></div>
-    <div class="panel" style="margin:10px 0"><h3 style="margin:0 0 6px">Retiros y gastos de efectivo</h3><table><tbody>
-      <tr><th scope="row">Retirado de las cajas${t.retiros_n ? ` (${t.retiros_n} retiro${t.retiros_n === 1 ? '' : 's'})` : ''}</th><td class="num" id="rd-retiros"><b>${mxn(t.retiros)}</b></td></tr>
-      <tr><th scope="row">Gastos de caja${t.gastos_n ? ` (${t.gastos_n})` : ''}</th><td class="num" id="rd-gastos"><b>${mxn(t.gastos)}</b></td></tr></tbody></table>
-      <p class="nota" style="margin:6px 0 0">No es venta: es dinero que salió del cajón. El detalle (quién y cuánto) está en Historial de ventas.</p></div>
+    <div class="panel panel-resumen" style="margin:10px 0"><h3 class="sec-h3" style="margin:0 0 6px"><i class="ic" aria-hidden="true">${ico('coins')}</i>Retiros y gastos de efectivo</h3><table class="tabla-resumen"><tbody>
+      <tr><th scope="row"><i class="ic" aria-hidden="true">${ico('cash')}</i>Retirado de las cajas${t.retiros_n ? ` (${t.retiros_n} retiro${t.retiros_n === 1 ? '' : 's'})` : ''}</th><td class="num" id="rd-retiros"><b>${mxn(t.retiros)}</b></td></tr>
+      <tr><th scope="row"><i class="ic" aria-hidden="true">${ico('box')}</i>Gastos de caja${t.gastos_n ? ` (${t.gastos_n})` : ''}</th><td class="num" id="rd-gastos"><b>${mxn(t.gastos)}</b></td></tr></tbody></table>
+      <p class="nota nota-info" style="margin:6px 0 0"><i class="ic" aria-hidden="true">${ico('info')}</i>No es venta: es dinero que salió del cajón. El detalle (quién y cuánto) está en Historial de ventas.</p></div>
     <p class="nota">Este es el mismo resumen que llega como aviso al teléfono (menú Avisos, hora configurable). Las pruebas que aún no se hayan borrado también cuentan.</p>`;
   $('#rd-fecha').addEventListener('change', (ev) => pintarResumenDia(ev.target.value || j.hoy));
 }
@@ -2069,12 +2080,16 @@ async function vistaReportes() {
   const hoy = new Date(Date.now() - 7 * 3600e3).toISOString().slice(0, 10);
   $('#vista').innerHTML = `<div class="titulo-vista">${ico('chart')}<h1>Reportes de ventas</h1></div>
     <section class="panel" id="resumen-dia" aria-label="Resumen del día de las tiendas"></section>
-    <form class="filtros panel" id="filtros">
-    <fieldset><legend>Cajas</legend><label><input type="checkbox" id="todas" checked> Todas</label>
-      ${cajas.map((c) => `<label><input type="checkbox" class="caja" value="${c.tienda}/${c.caja}" checked> ${esc(c.tienda)} · Caja ${c.caja}</label>`).join('')}</fieldset>
-    <label>Desde <input type="date" id="desde" value="${hoy}"></label><label>Hasta <input type="date" id="hasta" value="${hoy}"></label>
+    <form class="filtros panel panel-filtros" id="filtros">
+    <div class="sec-cab deco-movil"><span class="sec-ico">${ico('funnel')}</span><div><h2>Filtros del reporte</h2><p class="sec-sub">Define las cajas y el periodo a consultar.</p></div></div>
+    <div class="filtros-cuerpo">
+    <fieldset class="filtro-cajas"><legend>Cajas</legend><div class="cajas-lista"><label class="caja-todas"><input type="checkbox" id="todas" checked> Todas</label>
+      ${cajas.map((c) => `<label><input type="checkbox" class="caja" value="${c.tienda}/${c.caja}" checked> ${esc(c.tienda)} · Caja ${c.caja}</label>`).join('')}</div></fieldset>
+    <div class="filtro-fechas"><p class="rango-tit deco-movil"><i class="ic" aria-hidden="true">${ico('calendar')}</i><b>Rango de fechas</b></p>
+      <label>Desde <span class="campo-fecha"><i class="ic" aria-hidden="true">${ico('calendar')}</i><input type="date" id="desde" value="${hoy}"></span></label><label>Hasta <span class="campo-fecha"><i class="ic" aria-hidden="true">${ico('calendar')}</i><input type="date" id="hasta" value="${hoy}"></span></label></div>
+    </div>
     <label class="check-hist"><input type="checkbox" id="hist" checked> Incluir ventas del POS anterior (históricas)</label>
-    <div class="filas"><button class="btn btn-primario" type="submit" style="width:auto">${ico('search')}<span>Consultar</span></button>
+    <div class="filas acciones-reporte"><button class="btn btn-primario" type="submit" style="width:auto">${ico('search')}<span>Consultar</span></button>
       <button class="btn" type="button" id="rep-excel" title="Excel para la contadora: detalle de tickets y resumen por día">${ico('download')}<span>Exportar a Excel (contadora)</span></button>
       <button class="btn" type="button" id="rep-importar" title="Importa el reporte «Sales Detail» del POS anterior">${ico('upload')}<span>Importar ventas del POS anterior</span></button>
       <button class="btn" type="button" id="rep-duplicadas" title="Tickets del POS anterior importados dos veces con otra caja">${ico('search')}<span>Revisar ventas duplicadas</span></button></div>

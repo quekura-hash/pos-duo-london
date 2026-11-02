@@ -512,3 +512,11 @@ dialog.hoja-inv { width: min(94vw, 560px); max-height: 90vh; overflow: auto; }
 .opcion-orden { display: flex; justify-content: space-between; align-items: center; gap: 10px; width: 100%; min-height: 48px; padding: 0 14px; border: 1px solid var(--borde); border-radius: 12px; background: var(--superficie); color: var(--texto); font: inherit; text-align: left; cursor: pointer; }
 .opcion-orden.activa { border-color: var(--acento); background: var(--acento-suave); font-weight: 700; } .opcion-orden .ico { color: var(--acento); width: 22px; height: 22px; }
 .ayuda-inv td { padding: 6px 8px; vertical-align: top; } .ayuda-inv code { white-space: nowrap; }
+
+/* ── Reportes: lo decorativo (iconos, subtítulos, encabezados nuevos) solo se ve en el teléfono; en escritorio todo se ve como antes ── */
+.ic, .deco-movil, .sec-ico { display: none; }
+.rd-cab .sec-ico { display: inline-flex; margin-right: 6px; } .rd-cab .sec-ico .ico { width: 1.1em; height: 1.1em; }
+.sec-cab { display: flex; align-items: center; } .sec-cab h2 { margin: 0; } .sec-cab.deco-movil { display: none; }
+.rc-puntos { list-style: none; margin: 0 0 8px; padding: 0; } .rc-puntos li { margin: 0 0 6px; }
+.filtros-cuerpo, .filtro-fechas, .cajas-lista { display: contents; } .campo-fecha, .campo-correo { display: contents; }
+.rd-dia .campo-fecha { display: inline; }
