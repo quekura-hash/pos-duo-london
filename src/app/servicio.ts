@@ -1173,7 +1173,7 @@ export class ServicioAdmin {
   editarArticulo(itemId: string, cambios: Record<string, unknown>) {
     if (!this.central) throw new ErrorDominio('SIN_CENTRAL', 'esta sesión no tiene acceso al servicio central');
     const lim: Record<string, string | number> = {};
-    for (const k of CAMPOS_EDITABLES) if (k in cambios) lim[k] = k === 'precio' ? Number(cambios[k]) : String(cambios[k] ?? '');
+    for (const k of [...CAMPOS_EDITABLES, 'codigo'] as const) if (k in cambios) lim[k] = k === 'precio' ? Number(cambios[k]) : String(cambios[k] ?? '');
     const a = this.central.editarArticulo(itemId, lim, this.actor.usuario);
     return { articulo: this.vistaArticulo(a, existenciaAlmacen(this.fuente()).get(itemId)?.existencia ?? 0) };
   }
@@ -1184,7 +1184,7 @@ export class ServicioAdmin {
     if (!a) throw new ErrorDominio('ARTICULO_INEXISTENTE', itemId);
     const nombres = nombresTienda(ops);
     const t = (c: string) => nombres.get(c) ?? NEGOCIOS[c]?.nombre ?? c;
-    const NOM: Record<string, string> = { descripcion: 'Descripción', marca: 'Marca', estilo: 'Estilo', lote: 'Lote', departamento: 'Departamento', precio: 'Precio' };
+    const NOM: Record<string, string> = { descripcion: 'Descripción', marca: 'Marca', estilo: 'Estilo', lote: 'Lote', departamento: 'Departamento', precio: 'Precio', codigo: 'Código de barras' };
     const val = (campo: string, v: unknown) => (campo === 'precio' ? formatoMXN(Number(v)) : `«${String(v ?? '')}»`);
     const pza = (n: number) => `${n} pieza${n === 1 ? '' : 's'}`;
     const eventos = historialArticulo(ops, itemId).map((e) => {

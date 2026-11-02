@@ -98,15 +98,17 @@ describe('[iPhone] Administración en el teléfono', { timeout: 180_000, skip: c
     assert.equal(await page.locator('#btn-catalogo-inicial, #btn-conteo-limbo').count(), 0);
     const filas = page.locator('#lista-inv .fila-inv');
     assert.equal(await filas.count(), 3);
-    assert.ok((await filas.first().boundingBox())!.height < 110, 'cada artículo ocupa pocos renglones');
+    assert.ok((await filas.first().boundingBox())!.height < 170, `cada artículo es una tarjeta compacta: ${(await filas.first().boundingBox())!.height}px`);
     assert.match((await filas.first().textContent())!, /BLUSA|FALDA/);
     // Orden y filtros por campo: lo más nuevo primero; «Lote= 20261015» filtra por lote.
     const caja = await page.locator('#inv-q').boundingBox();
     assert.ok(caja!.height >= 40 && caja!.height <= 56, `el buscador mide ${caja!.height}px de alto (no debe crecer)`);
     assert.ok(caja!.width >= 220, `y ocupa el ancho (menos el botón de cámara): ${caja!.width}`);
-    assert.equal(await page.inputValue('#inv-orden'), 'nuevo');
+    await page.click('#inv-ordenar');
+    assert.equal(await page.getAttribute('#dlg-inv-orden [data-orden="nuevo"]', 'aria-checked'), 'true', 'el orden marcado es el actual');
+    await page.click('#orden-cerrar');
     assert.equal(await filas.first().locator('.fi-desc').textContent(), 'FALDA', 'más nuevo primero');
-    await page.selectOption('#inv-orden', 'cara');
+    await page.click('#inv-ordenar'); await page.click('#dlg-inv-orden [data-orden="cara"]');
     await page.waitForFunction(() => /\$/.test(document.querySelector('#lista-inv .fila-inv .fi-precio')?.textContent ?? ''));
     const precios = await page.$$eval('#lista-inv .fi-precio', (x) => x.map((e) => Number(e.textContent!.replace(/[$,]/g, ''))));
     assert.deepEqual(precios, [...precios].sort((a, b) => b - a), 'más caro primero');
@@ -117,7 +119,7 @@ describe('[iPhone] Administración en el teléfono', { timeout: 180_000, skip: c
     assert.match((await filas.first().textContent())!, /123L-N/);
     await page.fill('#inv-q', '');
     await page.waitForFunction(() => document.querySelectorAll('#lista-inv .fila-inv').length === 3);
-    await page.selectOption('#inv-orden', 'nuevo');
+    await page.click('#inv-ordenar'); await page.click('#dlg-inv-orden [data-orden="nuevo"]');
     await sinDesborde(page, 'Inventario con orden y buscador');
     assert.equal(await page.locator('.barra-nube').isVisible(), false, 'ya no hay barra amarilla');
     assert.match((await page.textContent('#estado-nube'))!, /Sincronizado/);

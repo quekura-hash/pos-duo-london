@@ -100,7 +100,7 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     // Administración: ve las ventas de las cajas con sus folios originales
     await page.uncheck('#falla-hub');
     await page.selectOption('#sesion-prueba', 'admin');
-    await page.waitForSelector('#tabla-inv-resumen'); // Administración abre en Inventario
+    await page.waitForSelector('#inv-q'); // Administración abre en Inventario
     assert.deepEqual(await page.$$eval('#nav button', (b) => b.map((x) => x.textContent)), ['Inventario', 'Almacén', 'Promociones', 'Tarjetas de regalo', 'Reportes', 'Historial de ventas', 'Análisis', 'Cortes', 'Personal', 'Configuración', 'Caja']);
     await page.click('#nav button[data-vista="reportes"]');
     await page.waitForSelector('#filtros');
@@ -181,12 +181,15 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     // Administración: inventario y exportación
     await page.selectOption('#sesion-prueba', 'admin');
     await page.click('#nav button[data-vista="inventario"]');
+    await page.waitForSelector('#inv-q');
+    await page.click('#inv-resumen-btn');
     await page.waitForSelector('#tabla-inv-resumen');
     assert.equal(await page.textContent('#tabla-inv-resumen [data-campo="articulos"]'), '13');
     assert.equal(await page.textContent('#tabla-inv-resumen [data-campo="sin_codigo"]'), '2');
     assert.equal(await page.textContent('#tabla-inv-resumen [data-campo="precio_no_vendible"]'), '1');
+    await page.click('#resumen-cerrar');
     await page.screenshot({ path: join(RAIZ, 'docs', 'capturas', '11-inventario-en-la-pagina.png') });
-    const [descarga] = await Promise.all([page.waitForEvent('download'), page.click('#btn-exportar')]);
+    const [descarga] = await Promise.all([page.waitForEvent('download'), (async () => { await page.click('#inv-menu'); await page.click('#btn-exportar'); })()]);
     const filas = (await leerXlsxNode(readFileSync((await descarga.path())!)))[0]!.filas;
     assert.equal(filas.length, 14);
     const f1 = filas.find((f) => f[0] === 1)!;
@@ -913,7 +916,10 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     await page.waitForFunction(() => document.querySelectorAll('#tabla-inv-lista tbody tr[data-item]').length === 1);
     assert.equal(await page.textContent('#tabla-inv-lista tr[data-item] [data-col="limbo"]'), '3');
     assert.equal(await page.locator('#btn-catalogo-inicial, #btn-conteo-limbo').count(), 0, 'Inventario ya no ofrece cargar el catálogo inicial ni el conteo de El Limbo');
+    await page.click('#inv-resumen-btn');
+    await page.waitForSelector('#tabla-inv-tiendas');
     assert.equal(await page.textContent('#tabla-inv-tiendas tr[data-tienda="LIMBO"] td'), 'El Limbo');
+    await page.click('#resumen-cerrar');
     await page.screenshot({ path: join(RAIZ, 'docs', 'capturas', '43-inventario-el-limbo.png') });
     assert.deepEqual(errores, []);
   });

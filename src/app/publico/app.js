@@ -73,6 +73,10 @@ const I = {
   chevron: '<path d="m9 6 6 6-6 6"/>',
   file: '<path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/>',
   check: '<path d="m5 12.5 4.5 4.5L19 7.5"/>',
+  more: '<circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/>',
+  info: '<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>',
+  sliders: '<line x1="21" x2="14" y1="4" y2="4"/><line x1="10" x2="3" y1="4" y2="4"/><line x1="21" x2="12" y1="12" y2="12"/><line x1="8" x2="3" y1="12" y2="12"/><line x1="21" x2="16" y1="20" y2="20"/><line x1="12" x2="3" y1="20" y2="20"/><line x1="14" x2="14" y1="2" y2="6"/><line x1="8" x2="8" y1="10" y2="14"/><line x1="16" x2="16" y1="18" y2="22"/>',
+  sortud: '<path d="m3 16 4 4 4-4"/><path d="M7 20V4"/><path d="m21 8-4-4-4 4"/><path d="M17 4v16"/>',
   refresh: '<path d="M20 11a8 8 0 0 0-14.5-4M4 4v4h4M4 13a8 8 0 0 0 14.5 4M20 20v-4h-4"/>',
   x: '<path d="M6 6l12 12M18 6 6 18"/>',
   dollar: '<path d="M12 3v18M16 7.5c0-1.7-1.8-3-4-3s-4 1.3-4 3 1.8 2.8 4 3.2 4 1.5 4 3.3-1.8 3-4 3-4-1.3-4-3"/>',
@@ -2030,54 +2034,177 @@ async function exportarInventario() {
   return 'Descarga iniciada.';
 }
 const ORDENES_INV = [['nuevo', 'Más nuevo primero'], ['viejo', 'Más viejo primero'], ['abc', 'Descripción (A-Z)'], ['marca', 'Marca (A-Z)'], ['estilo', 'Estilo (A-Z)'], ['lote', 'Lote (más reciente)'], ['cara', 'Más caro primero'], ['barata', 'Más barato primero']];
+// ── Búsqueda del Inventario: la MISMA gramática que el servidor (analizarBusqueda en servicio.ts). Aquí solo se lee para llenar los Filtros y se reescribe sin tocar nada más. ──
+const INV_CAMPOS = { lote: 'lote', marca: 'marca', estilo: 'estilo', codigo: 'codigo', item: 'item', 'item#': 'item', desc: 'desc', descripcion: 'desc', depto: 'depto', departamento: 'depto', precio: 'precio', limbo: 'limbo', almacen: 'alm', alm: 'alm' };
+const sinAcentosInv = (x) => x.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+function partirBusquedaInv(texto) {
+  const compacto = String(texto ?? '').replace(/\s*(>=|<=|[=:<>])\s*/g, '$1');
+  const trozos = [];
+  for (const m of compacto.matchAll(/(?:([\p{L}#]+)(>=|<=|[=:<>])(?:"([^"]*)"|(\S*)))|"([^"]*)"|(\S+)/gu)) {
+    trozos.push({ crudo: m[0], campo: m[1] ? INV_CAMPOS[sinAcentosInv(m[1])] : undefined, op: m[2], valor: (m[3] ?? m[4] ?? '').trim() });
+  }
+  return trozos;
+}
+/** Condiciones que los Filtros saben mostrar y reescribir; todo lo demás (otros operadores, palabras sueltas, Lote=0…) se queda tal cual en el buscador. */
+const claveFiltroInv = (t) => {
+  if (!t.campo || t.valor === '') return null;
+  if (['lote', 'marca', 'estilo', 'codigo', 'item', 'desc', 'depto'].includes(t.campo)) return t.op === '=' || t.op === ':' ? t.campo : null;
+  if (t.campo === 'precio') return t.op === '>=' || t.op === '<=' ? `precio${t.op}` : null;
+  if ((t.campo === 'limbo' || t.campo === 'alm') && t.op === '>' && Number(t.valor) === 0) return t.campo;
+  return null;
+};
+function estadoFiltrosInv(q) {
+  const trozos = partirBusquedaInv(q);
+  const veces = {};
+  for (const t of trozos) { const k = claveFiltroInv(t); if (k) veces[k] = (veces[k] ?? 0) + 1; }
+  const valores = {}, resto = [];
+  for (const t of trozos) { const k = claveFiltroInv(t); if (k && veces[k] === 1) valores[k] = t.valor; else resto.push(t.crudo); }
+  return { valores, resto };
+}
+function armarBusquedaInv(resto, v) {
+  const tok = (c, x) => `${c}=${/\s/.test(x) ? `"${x.replace(/"/g, '')}"` : x}`;
+  const t = [...resto];
+  for (const c of ['marca', 'estilo', 'lote', 'codigo', 'item', 'desc', 'depto']) if ((v[c] ?? '').trim()) t.push(tok(c, v[c].trim()));
+  for (const c of ['precio>=', 'precio<=']) { const n = String(v[c] ?? '').replace(/[$,\s]/g, ''); if (n && Number.isFinite(Number(n))) t.push(`${c}${n}`); }
+  if (v.limbo) t.push('limbo>0');
+  if (v.alm) t.push('alm>0');
+  return t.join(' ');
+}
+const hojaInv = (id, rotulo) => {
+  const d = dialogo(id);
+  d.classList.add('hoja-inv');
+  d.setAttribute('aria-label', rotulo);
+  return d;
+};
+function abrirAyudaInv() {
+  const d = hojaInv('dlg-inv-ayuda', 'Cómo buscar en Inventario');
+  const ej = (q, t) => `<tr><td><code>${esc(q)}</code></td><td>${t}</td></tr>`;
+  d.innerHTML = `<h2 style="margin-top:0">Cómo buscar</h2>
+    <p class="nota" style="margin-top:0">Escriba palabras sueltas (se buscan en el código, Item #, descripción, marca, estilo, lote y departamento; <b>todas</b> deben coincidir) o filtre por un campo con <b>campo=valor</b>. Se pueden combinar.</p>
+    <div class="tabla-cont"><table class="ayuda-inv"><tbody>
+      ${ej('Lote=202610', 'el lote contiene ese texto')}${ej('Lote=0', 'sin lote (también <code>Lote=sin</code>)')}
+      ${ej('Marca=levis', 'marca')}${ej('Estilo=123L', 'estilo')}${ej('Depto=dama', 'departamento')}
+      ${ej('Codigo=834', 'código de barras')}${ej('Item=23139', 'Item #')}${ej('Desc=bolsa', 'descripción')}
+      ${ej('Precio>200', 'precio en pesos; también <code>&gt;=</code>, <code>&lt;</code>, <code>&lt;=</code> y <code>=</code>')}
+      ${ej('Limbo>0', 'con piezas en El Limbo (también <code>Alm&gt;0</code> para Almacén)')}
+      ${ej('levis Precio>=200 Limbo>0', 'palabras y filtros combinados')}
+      ${ej('Marca="la mar"', 'con comillas si el valor lleva espacios')}</tbody></table></div>
+    <div class="filas"><button class="btn btn-primario" type="button" id="ayuda-inv-ok">${ico('check')}<span>Entendido</span></button></div>`;
+  $('#ayuda-inv-ok').addEventListener('click', () => d.close());
+  d.showModal();
+}
+async function abrirFiltrosInv() {
+  const { departamentos } = await api('/api/admin/departamentos');
+  const { valores, resto } = estadoFiltrosInv(S.inv.q);
+  const d = hojaInv('dlg-inv-filtros', 'Filtros de Inventario');
+  const deptos = departamentos.filter((x) => x.activo).map((x) => x.nombre);
+  if (valores.depto && !deptos.some((n) => sinAcentosInv(n) === sinAcentosInv(valores.depto))) deptos.unshift(valores.depto);
+  const idf = (k) => `fi-${k === 'precio>=' ? 'precio-min' : k === 'precio<=' ? 'precio-max' : k}`;
+  const txt = (k, rotulo, extra = '') => `<div class="campo"><label for="${idf(k)}">${rotulo}</label><input id="${idf(k)}" class="texto" data-k="${k}" value="${esc(valores[k] ?? '')}" autocapitalize="none" autocorrect="off" spellcheck="false" ${extra}></div>`;
+  d.innerHTML = `<div class="hoja-cab"><h2 style="margin:0">Filtros</h2><button class="btn" type="button" id="fi-ayuda" aria-label="Cómo buscar">${ico('info')}<span>Ayuda</span></button></div>
+    <p class="nota" style="margin-top:4px">Se escriben en el buscador como <b>campo=valor</b>; lo que ya tenía escrito se conserva.</p>
+    <form id="form-inv-filtros" autocomplete="off">
+      <div class="rejilla-filtros">${txt('marca', 'Marca')}${txt('estilo', 'Estilo')}${txt('lote', 'Lote (0 = sin lote)')}</div>
+      <div class="campo"><label for="fi-depto">Departamento</label><select id="fi-depto" data-k="depto"><option value="">Todos</option>${deptos.map((n) => `<option value="${esc(n)}" ${valores.depto && sinAcentosInv(valores.depto) === sinAcentosInv(n) ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></div>
+      <div class="rejilla-filtros">${txt('codigo', 'Código de barras')}${txt('item', 'Item #')}</div>
+      ${txt('desc', 'Descripción')}
+      <div class="rejilla-filtros">${txt('precio>=', 'Precio desde ($)', 'inputmode="decimal"')}${txt('precio<=', 'Precio hasta ($)', 'inputmode="decimal"')}</div>
+      <label class="casilla-filtro"><input type="checkbox" id="fi-limbo" ${valores.limbo ? 'checked' : ''}> Con piezas en El Limbo</label>
+      <label class="casilla-filtro"><input type="checkbox" id="fi-alm" ${valores.alm ? 'checked' : ''}> Con piezas en Almacén</label>
+      <div class="filas"><button class="btn" type="button" id="fi-limpiar">Limpiar filtros</button><button class="btn" type="button" id="fi-cerrar">Cancelar</button><button class="btn btn-primario" type="submit" style="width:auto;flex:1">${ico('check')}<span>Aplicar</span></button></div>
+    </form>`;
+  const leer = () => {
+    const v = {};
+    for (const el of d.querySelectorAll('[data-k]')) v[el.dataset.k] = el.value;
+    v.limbo = $('#fi-limbo').checked; v.alm = $('#fi-alm').checked;
+    return v;
+  };
+  $('#fi-ayuda').addEventListener('click', () => abrirAyudaInv());
+  $('#fi-cerrar').addEventListener('click', () => d.close());
+  $('#fi-limpiar').addEventListener('click', () => { d.close(); buscarInv(armarBusquedaInv(resto, {})); });
+  $('#form-inv-filtros').addEventListener('submit', (ev) => { ev.preventDefault(); d.close(); buscarInv(armarBusquedaInv(resto, leer())); });
+  d.showModal();
+}
+function abrirOrdenInv() {
+  const d = hojaInv('dlg-inv-orden', 'Ordenar Inventario');
+  d.innerHTML = `<h2 style="margin-top:0">Ordenar por</h2>
+    <div class="lista-orden" role="radiogroup" aria-label="Orden">${ORDENES_INV.map(([v, t]) => `<button type="button" class="opcion-orden ${S.inv.orden === v ? 'activa' : ''}" role="radio" aria-checked="${S.inv.orden === v}" data-orden="${v}"><span>${esc(t)}</span>${S.inv.orden === v ? ico('check') : ''}</button>`).join('')}</div>
+    <div class="filas"><button class="btn" type="button" id="orden-cerrar">Cerrar</button></div>`;
+  for (const b of d.querySelectorAll('[data-orden]')) b.addEventListener('click', () => { S.inv.orden = b.dataset.orden; S.inv.pag = 0; d.close(); cargarListaInventario(); });
+  $('#orden-cerrar').addEventListener('click', () => d.close());
+  d.showModal();
+}
+function abrirResumenInv() {
+  const r = S.inv.resumen;
+  const tiendas = Object.entries(r.por_tienda);
+  const d = hojaInv('dlg-inv-resumen', 'Resumen de Inventario');
+  d.innerHTML = `<h2 style="margin-top:0">Resumen del inventario</h2>
+    <div class="cuadricula">
+      <table id="tabla-inv-resumen"><caption class="sr-only">Resumen del catálogo</caption><tbody>
+        <tr><th scope="row">Artículos</th><td class="num" data-campo="articulos">${r.articulos}</td></tr>
+        <tr><th scope="row">Con código</th><td class="num" data-campo="con_codigo">${r.con_codigo}</td></tr>
+        <tr><th scope="row">Sin código (no se escanean)</th><td class="num" data-campo="sin_codigo">${r.sin_codigo}</td></tr>
+        <tr><th scope="row">Con precio no vendible (0 o negativo)</th><td class="num" data-campo="precio_no_vendible">${r.precio_no_vendible}</td></tr></tbody></table>
+      <div class="tabla-cont"><table id="tabla-inv-tiendas"><thead><tr><th>Tienda</th><th class="num">Piezas</th><th class="num">Artículos con existencia</th><th class="num">Sin verificar</th></tr></thead><tbody>
+        ${tiendas.map(([t, x]) => `<tr data-tienda="${esc(t)}"><td>${esc(t === 'LIMBO' ? 'El Limbo' : t)}</td><td class="num">${x.piezas}</td><td class="num">${x.articulos_con_existencia}</td><td class="num">${x.no_verificados}</td></tr>`).join('')}</tbody></table></div>
+    </div>
+    <p class="nota">La existencia es la que conoce el central (lo ya sincronizado). Las cantidades de prueba están marcadas como tales en los movimientos.</p>
+    <div class="filas"><button class="btn btn-primario" type="button" id="resumen-cerrar">${ico('check')}<span>Cerrar</span></button></div>`;
+  $('#resumen-cerrar').addEventListener('click', () => d.close());
+  d.showModal();
+}
+/** Pone un texto en el buscador y busca (lo mismo que escribir en él): la selección de «todo lo del buscador» no sobrevive a un cambio de búsqueda. */
+function buscarInv(q) {
+  $('#inv-q').value = q;
+  S.inv.q = q.trim(); S.inv.pag = 0;
+  if (S.inv.sel && S.inv.sel.modo === 'filtro') { S.inv.sel = { modo: 'manual', ids: new Set(), filtro: null, excluir: new Set() }; pintarSel(); $('#inv-msg').className = 'mensaje aviso'; $('#inv-msg').textContent = 'Cambió la búsqueda: la selección de «todo lo del buscador» se quitó.'; }
+  return cargarListaInventario();
+}
 async function vistaInventario() {
   const j = await api('/api/admin/inventario');
   const r = j.resumen;
-  const tiendas = Object.entries(r.por_tienda);
-  S.inv = { q: S.inv?.q ?? '', orden: S.inv?.orden ?? 'nuevo', pag: 0, por: 50, total: 0, tiendas: [], articulos: [], sel: S.inv?.sel ?? null };
+  S.inv = { q: S.inv?.q ?? '', orden: S.inv?.orden ?? 'nuevo', pag: 0, por: 50, total: 0, tiendas: [], articulos: [], sel: S.inv?.sel ?? null, resumen: r };
   $('#vista').innerHTML = `
-    <div class="titulo-vista">${ico('box')}<h1>Inventario</h1></div>
-    <div class="panel">
-      <div class="filas" style="align-items:center;margin-bottom:12px">
-        <button class="btn btn-primario" id="btn-exportar" type="button" style="width:auto">${ico('download')}<span>Exportar inventario a Excel</span></button>
-        <span id="estado-exportar" role="status" aria-live="polite"></span>
-      </div>
-      <div class="cuadricula">
-        <table id="tabla-inv-resumen"><caption class="sr-only">Resumen del catálogo</caption><tbody>
-          <tr><th scope="row">Artículos</th><td class="num" data-campo="articulos">${r.articulos}</td></tr>
-          <tr><th scope="row">Con código</th><td class="num" data-campo="con_codigo">${r.con_codigo}</td></tr>
-          <tr><th scope="row">Sin código (no se escanean)</th><td class="num" data-campo="sin_codigo">${r.sin_codigo}</td></tr>
-          <tr><th scope="row">Con precio no vendible (0 o negativo)</th><td class="num" data-campo="precio_no_vendible">${r.precio_no_vendible}</td></tr></tbody></table>
-        <table id="tabla-inv-tiendas"><thead><tr><th>Tienda</th><th class="num">Piezas</th><th class="num">Artículos con existencia</th><th class="num">Sin verificar</th></tr></thead><tbody>
-          ${tiendas.map(([t, x]) => `<tr data-tienda="${esc(t)}"><td>${esc(t === 'LIMBO' ? 'El Limbo' : t)}</td><td class="num">${x.piezas}</td><td class="num">${x.articulos_con_existencia}</td><td class="num">${x.no_verificados}</td></tr>`).join('')}</tbody></table>
-      </div>
-      <p class="nota">La existencia es la que conoce el central (lo ya sincronizado). Las cantidades de prueba están marcadas como tales en los movimientos.</p>
-      <h2>Todos los artículos</h2>
-      <div class="filas barra-busqueda-inv" style="align-items:center"><input id="inv-q" data-camara type="search" class="texto" placeholder="Buscar… (ej. Lote=202610)" value="${esc(S.inv.q)}" style="padding:6px 8px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie);min-width:320px" autocapitalize="none" autocorrect="off" spellcheck="false">
-        <label class="orden-inv" for="inv-orden"><span>Ordenar por</span><select id="inv-orden" style="padding:6px 8px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie)">${ORDENES_INV.map(([v, t]) => `<option value="${v}" ${S.inv.orden === v ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
-        <button class="btn btn-primario" id="inv-sel-modo" type="button" aria-pressed="false" style="width:auto">${ico('check')}<span>Seleccionar</span></button></div>
-      <p class="nota" id="inv-nota">Toque un artículo para editarlo, ver su historial o crearle una promoción. Para filtrar por un campo escriba, por ejemplo, <b>Lote=202610</b>, <b>Lote=0</b> (sin lote), <b>Marca=levis</b>, <b>Estilo=123L</b>, <b>Depto=dama</b>, <b>Precio&gt;200</b> o <b>Limbo&gt;0</b> (con piezas en El Limbo); se pueden combinar con palabras. Con <b>Seleccionar</b> puede marcar varios artículos y darles su ubicación real.</p>
-      <div id="inv-msg" class="mensaje" role="status" aria-live="polite"></div>
-      <div id="inv-sel" class="barra-sel" hidden></div>
-      <div id="inv-res" class="tabla-cont"></div>
-      <div class="filas" id="inv-pag" style="align-items:center;margin-top:8px"></div>
-    </div>`;
+    <div class="titulo-vista inv-titulo">${ico('box')}<h1>Inventario</h1>
+      <div class="inv-menu-cont"><button class="btn-icono" id="inv-menu" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="inv-menu-lista" aria-label="Más opciones" title="Más opciones">${ico('more')}</button>
+        <div class="menu-pop" id="inv-menu-lista" role="menu" hidden><button class="menu-item" id="btn-exportar" type="button" role="menuitem">${ico('download')}<span>Exportar inventario a Excel</span></button></div></div>
+    </div>
+    <div id="estado-exportar" class="nota" role="status" aria-live="polite"></div>
+    <div class="inv-buscador"><span class="inv-lupa" aria-hidden="true">${ico('search')}</span><input id="inv-q" data-camara type="search" class="texto" placeholder="${window.matchMedia?.('(max-width: 359px)').matches ? 'Buscar artículo o código' : 'Buscar artículo, código, marca o lote'}" value="${esc(S.inv.q)}" autocapitalize="none" autocorrect="off" spellcheck="false" aria-label="Buscar en el inventario">
+      <button class="inv-ayuda-btn" id="inv-ayuda" type="button" aria-label="Cómo buscar (ejemplos y filtros)" title="Cómo buscar">${ico('info')}</button></div>
+    <div class="inv-acciones" role="group" aria-label="Filtrar, ordenar y seleccionar">
+      <button class="btn" id="inv-filtros" type="button" aria-haspopup="dialog">${ico('sliders')}<span>Filtros</span></button>
+      <button class="btn" id="inv-ordenar" type="button" aria-haspopup="dialog">${ico('sortud')}<span>Ordenar</span></button>
+      <button class="btn" id="inv-sel-modo" type="button" aria-pressed="false">${ico('check')}<span>Seleccionar</span></button>
+    </div>
+    <div class="inv-contador"><span id="inv-contador" role="status" aria-live="polite">${r.articulos.toLocaleString('es-MX')} artículos</span>
+      <button class="btn-resumen" id="inv-resumen-btn" type="button" aria-haspopup="dialog"><span>Ver resumen</span>${ico('chevron')}</button></div>
+    <div id="inv-msg" class="mensaje" role="status" aria-live="polite"></div>
+    <div id="inv-sel" class="barra-sel" hidden></div>
+    <div id="inv-res" class="tabla-cont"></div>
+    <div class="filas" id="inv-pag" style="align-items:center;margin-top:8px"></div>`;
   let tmp;
-  $('#inv-orden').addEventListener('change', () => { S.inv.orden = $('#inv-orden').value; S.inv.pag = 0; cargarListaInventario(); });
   $('#inv-q').addEventListener('input', () => {
     clearTimeout(tmp);
-    tmp = setTimeout(() => {
-      S.inv.q = $('#inv-q').value.trim(); S.inv.pag = 0;
-      // «Todo lo del buscador» solo vale para la búsqueda en que se marcó: al cambiarla se empieza de nuevo (lo marcado uno por uno se conserva).
-      if (S.inv.sel && S.inv.sel.modo === 'filtro') { S.inv.sel = { modo: 'manual', ids: new Set(), filtro: null, excluir: new Set() }; pintarSel(); $('#inv-msg').className = 'mensaje aviso'; $('#inv-msg').textContent = 'Cambió la búsqueda: la selección de «todo lo del buscador» se quitó.'; }
-      cargarListaInventario();
-    }, 250);
+    tmp = setTimeout(() => buscarInv($('#inv-q').value), 250);
   });
   $('#inv-sel-modo').addEventListener('click', () => {
     S.inv.sel = S.inv.sel ? null : { modo: 'manual', ids: new Set(), filtro: null, excluir: new Set() };
     cargarListaInventario();
   });
+  $('#inv-filtros').addEventListener('click', () => abrirFiltrosInv().catch((e) => { const m = $('#inv-msg'); m.className = 'mensaje error'; m.textContent = e.message; }));
+  $('#inv-ordenar').addEventListener('click', abrirOrdenInv);
+  $('#inv-ayuda').addEventListener('click', abrirAyudaInv);
+  $('#inv-resumen-btn').addEventListener('click', abrirResumenInv);
+  // Menú de tres puntos (Exportar a Excel): se cierra al elegir, al tocar fuera o con Esc.
+  const menu = $('#inv-menu-lista'), btnMenu = $('#inv-menu');
+  const cerrarMenu = () => { menu.hidden = true; btnMenu.setAttribute('aria-expanded', 'false'); };
+  btnMenu.addEventListener('click', (ev) => { ev.stopPropagation(); menu.hidden = !menu.hidden; btnMenu.setAttribute('aria-expanded', String(!menu.hidden)); });
+  menu.addEventListener('click', (ev) => ev.stopPropagation());
+  document.addEventListener('click', () => { if (!menu.isConnected) return; cerrarMenu(); });
+  document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape' && menu.isConnected && !menu.hidden) { cerrarMenu(); btnMenu.focus(); } });
   $('#btn-exportar').addEventListener('click', async () => {
+    cerrarMenu();
     const e = $('#estado-exportar');
     e.textContent = 'Preparando el archivo…';
     try { e.textContent = await exportarInventario(); } catch (err) { e.textContent = `No se pudo exportar: ${err.message}`; }
@@ -2097,7 +2224,8 @@ function alternarSel(id) {
 function pintarSel() {
   const I = S.inv, s = I.sel;
   $('#inv-sel-modo').setAttribute('aria-pressed', String(!!s));
-  $('#inv-sel-modo').querySelector('span').textContent = s ? 'Salir de selección' : 'Seleccionar';
+  $('#inv-sel-modo').querySelector('span').textContent = s ? 'Cancelar' : 'Seleccionar';
+  $('#inv-sel-modo').setAttribute('aria-label', s ? 'Salir de la selección y volver a la navegación normal' : 'Seleccionar varios artículos');
   for (const el of $('#inv-res').querySelectorAll('[data-item]')) {
     const on = estaSel(el.dataset.item);
     el.classList.toggle('sel', !!s && on);
@@ -2192,13 +2320,14 @@ async function cargarListaInventario() {
   if (mia !== I.carga) return; // llegó otra búsqueda más reciente: esta respuesta ya no vale
   Object.assign(I, { total: r.total, tiendas: r.tiendas ?? [], articulos: r.articulos });
   const paginas = Math.max(1, Math.ceil(r.total / I.por));
+  { const cat = I.resumen.articulos, fn = (n) => n.toLocaleString('es-MX'); $('#inv-contador').textContent = I.q.trim() ? `${fn(r.total)} ${r.total === 1 ? 'artículo' : 'artículos'} · de ${fn(cat)}` : `${fn(r.total)} ${r.total === 1 ? 'artículo' : 'artículos'}`; }
   $('#inv-res').innerHTML = `<table id="tabla-inv-lista" class="solo-escritorio"><thead><tr>${I.sel ? '<th class="chk"></th>' : ''}<th>Item #</th><th>Código</th><th>Descripción</th><th>Marca</th><th>Estilo</th><th>Lote</th><th>Departamento</th><th class="num">Precio</th>${I.tiendas.map((t) => `<th class="num">${esc(t)}</th>`).join('')}<th class="num">Almacén</th><th class="num">El Limbo</th></tr></thead><tbody>
     ${r.articulos.map((a) => `<tr data-item="${esc(a.item_id)}" tabindex="0" style="cursor:pointer">${I.sel ? `<td class="chk"><input type="checkbox" data-sel="${esc(a.item_id)}" aria-label="Seleccionar ${esc(a.descripcion)}"></td>` : ''}<td>${esc(a.item_no ?? '')}</td><td>${esc(a.codigo)}</td><td>${esc(a.descripcion)}</td><td>${esc(a.marca)}</td><td>${esc(a.estilo)}</td><td>${esc(a.lote)}</td><td>${esc(a.departamento)}</td><td class="num">${mxn(a.precio)}</td>${I.tiendas.map((t) => `<td class="num">${a.existencias[t] ?? 0}</td>`).join('')}<td class="num">${a.almacen}</td><td class="num" data-col="limbo">${a.limbo}</td></tr>`).join('') || `<tr><td colspan="${11 + I.tiendas.length}" class="vacio">Ningún artículo coincide.</td></tr>`}</tbody></table>`;
   // En el teléfono la lista es de filas compactas (dos renglones por artículo), no tarjetas con todas las columnas.
   $('#inv-res').insertAdjacentHTML('beforeend', `<div class="lista-inv solo-movil" id="lista-inv" role="list">${r.articulos.map((a) => {
     const quien = [a.marca, a.estilo].filter(Boolean).map(esc).join(' · ');
-    const ex = [...I.tiendas.map((t) => [t, a.existencias[t] ?? 0]), ['Alm', a.almacen], ['Limbo', a.limbo]].map(([t, n]) => `<span class="${n > 0 ? 'hay' : n < 0 ? 'neg' : ''}">${esc(t)} ${n}</span>`).join('');
-    return `<button type="button" class="fila-inv" role="listitem" data-item="${esc(a.item_id)}">${I.sel ? '<span class="fi-chk" aria-hidden="true"></span>' : ''}<span class="fi-linea"><b class="fi-desc">${esc(a.descripcion) || '(sin descripción)'}</b><span class="fi-precio">${mxn(a.precio)}</span></span>${quien ? `<span class="fi-quien">${quien}</span>` : ''}<span class="fi-sub"><span>#${esc(a.item_no ?? '—')}</span><span>${esc(a.codigo) || 'sin código'}</span></span><span class="fi-ex">${ex}</span></button>`;
+    const ex = [...I.tiendas.map((t) => [t, a.existencias[t] ?? 0]), ['Alm', a.almacen], ['Limbo', a.limbo]].map(([t, n]) => `<span class="${n < 0 ? 'neg' : t === 'Limbo' && n > 0 ? 'hay-limbo' : n > 0 ? 'hay' : ''}">${esc(t)} ${n}</span>`).join('');
+    return `<button type="button" class="fila-inv" role="listitem" data-item="${esc(a.item_id)}">${I.sel ? '<span class="fi-chk" aria-hidden="true"></span>' : ''}<span class="fi-linea"><b class="fi-desc">${esc(a.descripcion) || '(sin descripción)'}</b><span class="fi-precio">${mxn(a.precio)}</span></span>${quien ? `<span class="fi-quien">${quien}</span>` : ''}<span class="fi-sub"><span>#${esc(a.item_no ?? '—')}</span><span>${esc(a.codigo) || 'sin código'}</span></span><span class="fi-ex">${ex}</span><span class="fi-flecha" aria-hidden="true">${ico('chevron')}</span></button>`;
   }).join('') || '<p class="vacio">Sin resultados.</p>'}</div>`);
   for (const tr of $('#inv-res').querySelectorAll('[data-item]')) {
     // En modo selección, tocar el renglón lo marca o desmarca; fuera de él abre el artículo.
@@ -2288,6 +2417,8 @@ async function abrirArticulo(a) {
   d.innerHTML = `<h2 id="art-titulo" style="margin-top:0">Artículo ${esc(a.item_no ?? '(sin Item #)')}</h2>
     <p class="nota" style="margin-top:0">Código <b>${esc(a.codigo || '(sin código)')}</b> · ${Object.entries(a.existencias).map(([t, n]) => `${esc(t)}: ${n}`).join(' · ')} · Almacén: ${a.almacen} · El Limbo: ${a.limbo}</p>
     <form id="form-articulo" autocomplete="off">
+      ${campo('art-codigo', 'Código de barras', a.codigo, 'inputmode="numeric" autocapitalize="none" autocorrect="off" spellcheck="false" maxlength="64" placeholder="(sin código)"')}
+      <p class="nota" id="art-codigo-nota" hidden>El código cambia para <b>todas las cajas</b>: desde ahora el artículo se escanea con el código nuevo (las etiquetas con el código anterior ya no lo encontrarán). Queda en el historial.</p>
       ${campo('art-descripcion', 'Descripción', a.descripcion)}${campo('art-marca', 'Marca', a.marca)}${campo('art-estilo', 'Estilo', a.estilo)}${campo('art-lote', 'Lote', a.lote)}
       <div class="campo"><label for="art-depto">Departamento</label><select id="art-depto" style="width:100%;padding:10px;border:2px solid var(--borde);border-radius:10px;background:var(--superficie)">${deptos.map((n) => `<option ${n === a.departamento ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></div>
       ${campo('art-precio', 'Precio de venta (MXN)', centavosAPesos(a.precio), 'inputmode="decimal"')}
@@ -2297,6 +2428,7 @@ async function abrirArticulo(a) {
     </form>
     <div id="art-hist" class="tabla-cont" hidden></div>`;
   $('#art-cerrar').addEventListener('click', () => d.close());
+  $('#art-codigo').addEventListener('input', () => { $('#art-codigo-nota').hidden = $('#art-codigo').value.trim() === (a.codigo ?? ''); });
   if ($('#art-promo')) $('#art-promo').addEventListener('click', async () => { d.close(); S.hoyPromo = S.hoyPromo ?? new Date(Date.now() - 7 * 3600e3).toISOString().slice(0, 10); await abrirPromo(null, { item: a }); });
   if ($('#art-existencias')) $('#art-existencias').addEventListener('click', () => { d.close(); abrirExistencias(a).catch((e) => { const m = $('#inv-msg'); if (m) { m.className = 'mensaje error'; m.textContent = e.message; } }); });
   if ($('#art-ubicar')) $('#art-ubicar').addEventListener('click', () => { d.close(); abrirReubicar('almacen', { items: [{ item_id: a.item_id }] }, `Ubicar piezas · ${a.descripcion}`); });
@@ -2315,7 +2447,7 @@ async function abrirArticulo(a) {
     const precio = parseMXN($('#art-precio').value);
     if (precio === null) { m.className = 'mensaje error'; m.textContent = 'Escriba el precio en pesos (por ejemplo 899 o 899.50).'; return; }
     try {
-      const r = await api('/api/admin/articulos', { item_id: a.item_id, cambios: { descripcion: $('#art-descripcion').value, marca: $('#art-marca').value, estilo: $('#art-estilo').value, lote: $('#art-lote').value, departamento: $('#art-depto').value, precio } });
+      const r = await api('/api/admin/articulos', { item_id: a.item_id, cambios: { ...($('#art-codigo').value.trim() !== (a.codigo ?? '') ? { codigo: $('#art-codigo').value.trim() } : {}), descripcion: $('#art-descripcion').value, marca: $('#art-marca').value, estilo: $('#art-estilo').value, lote: $('#art-lote').value, departamento: $('#art-depto').value, precio } });
       d.close();
       await cargarListaInventario();
       const mm = $('#inv-msg'); mm.className = 'mensaje ok'; mm.textContent = `Artículo ${r.articulo.item_no ?? ''} guardado.`;

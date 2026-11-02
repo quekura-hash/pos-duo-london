@@ -472,6 +472,9 @@ export function historialArticulo(ops: Op[], itemId: string): EventoArticulo[] {
       case 'item.editado':
         if (p.item_id === itemId) ev.push({ ocurrio_en: o.ocurrio_en, tipo: 'cambio', datos: { cambios: p.cambios }, por: p.por ?? '' });
         break;
+      case 'item.codigo_corregido':
+        if (p.item_id === itemId) ev.push({ ocurrio_en: o.ocurrio_en, tipo: 'cambio', datos: { cambios: { codigo: { antes: p.codigo_anterior, despues: p.codigo_nuevo } } }, por: p.usuario ?? '' });
+        break;
       case 'alm.entrada':
         if (p.item_id === itemId) { ev.push({ ocurrio_en: o.ocurrio_en, tipo: 'almacen_entrada', datos: { qty: p.qty, pedimento: p.pedimento, fuente: p.fuente }, por: p.por ?? '' }); entradas.set(p.entrada_id, { qty: p.qty, pedimento: p.pedimento ?? null }); }
         break;

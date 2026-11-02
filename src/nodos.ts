@@ -402,10 +402,11 @@ export class Central {
 
   /**
    * Edición de un artículo del catálogo desde Administración (marca, descripción, estilo, lote, departamento y precio). Queda
-   * registrada con el valor anterior y el nuevo (historial) y llega a todas las cajas. El código no se edita aquí. Un cambio de
+   * registrada con el valor anterior y el nuevo (historial) y llega a todas las cajas. El código de barras también se edita aquí: no puede quedar vacío ni repetirse
+   * con el de otro artículo, y las cajas lo reindexan para escanearlo con el código nuevo (evento `item.codigo_corregido`). Un cambio de
    * precio vale para las ventas siguientes: lo ya vendido conserva su precio.
    */
-  editarArticulo(itemId: string, nuevos: Partial<Record<CampoEditable, string | number>>, por: string): Articulo {
+  editarArticulo(itemId: string, nuevos: Partial<Record<CampoEditable | 'codigo', string | number>>, por: string): Articulo {
     const actual = catalogo(this.repo.ops()).get(itemId);
     if (!actual) throw new ErrorDominio('ARTICULO_INEXISTENTE', itemId);
     const activos = departamentos(this.repo.ops()).filter((d) => d.activo).map((d) => d.nombre);
@@ -422,9 +423,21 @@ export class Central {
       if (campo === 'departamento' && t !== actual.departamento && !activos.includes(t)) throw new ErrorDominio('DEPARTAMENTO_INVALIDO', `el departamento «${t}» no existe o está desactivado`);
       if (t !== (actual as any)[campo]) cambios[campo] = { antes: (actual as any)[campo], despues: t };
     }
-    if (!Object.keys(cambios).length) return actual;
-    this.emitirAdmin('item.editado', { item_id: itemId, cambios, por });
-    return { ...actual, ...Object.fromEntries(Object.entries(cambios).map(([k, c]) => [k, c.despues])) } as Articulo;
+    let codigoNuevo: string | undefined;
+    if ('codigo' in nuevos) {
+      const c = String(nuevos.codigo ?? '').trim();
+      if (c !== (actual.codigo ?? '')) {
+        if (!c) throw new ErrorDominio('CODIGO_INVALIDO', 'el código de barras no puede quedar vacío');
+        if (c.length > 64 || /\s/.test(c)) throw new ErrorDominio('CODIGO_INVALIDO', 'el código de barras lleva hasta 64 caracteres, sin espacios');
+        const otro = [...catalogo(this.repo.ops()).values()].find((x) => x.item_id !== itemId && (x.codigo === c || x.codigo_alterno === c));
+        if (otro) throw new ErrorDominio('CODIGO_EXISTE', `el código ${c} ya pertenece al artículo ${otro.item_no ?? ''} ${otro.descripcion}`.replace(/\s+/g, ' ').trim());
+        codigoNuevo = c;
+      }
+    }
+    if (!Object.keys(cambios).length && codigoNuevo === undefined) return actual;
+    if (Object.keys(cambios).length) this.emitirAdmin('item.editado', { item_id: itemId, cambios, por });
+    if (codigoNuevo !== undefined) this.emitirAdmin('item.codigo_corregido', { item_id: itemId, codigo_anterior: actual.codigo, codigo_nuevo: codigoNuevo, motivo: 'Edición del artículo en Administración', usuario: por });
+    return { ...actual, ...Object.fromEntries(Object.entries(cambios).map(([k, c]) => [k, c.despues])), ...(codigoNuevo !== undefined ? { codigo: codigoNuevo } : {}) } as Articulo;
   }
 
   /**

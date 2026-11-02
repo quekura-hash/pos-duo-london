@@ -277,12 +277,10 @@ tr.fila-usuario:focus-visible { outline: 2px solid var(--primario, currentColor)
 .sincro-nube.sync .btn-sync .ico { animation: giro 1s linear infinite; }
 @keyframes giro { to { transform: rotate(360deg); } }
 
-.orden-inv { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; }
 
 .check-hist { display: block; margin: 8px 0; font-weight: 600; }
 tr.fila-hist td { background: color-mix(in srgb, var(--texto) 5%, transparent); }
 #dlg-hist { max-width: min(760px, 96vw); width: 96vw; max-height: 92vh; overflow: auto; } #dlg-hist table { width: 100%; }
-.barra-busqueda-inv #inv-q { flex: 1 1 320px; }
 tr.fila-fallo td { background: color-mix(in srgb, #ef4444 12%, transparent); }
 
 /* Análisis de ventas: tarjetas, gráfica de barras, tabla con barras y mapa de calor */
@@ -329,7 +327,6 @@ tr.fila-fallo td { background: color-mix(in srgb, #ef4444 12%, transparent); }
 #tabla-inv-lista tbody tr.sel { background: var(--acento-suave); }
 .ru-opciones { border: 1px solid var(--borde); border-radius: 10px; margin: 0 0 10px; padding: 8px 12px; } .ru-opciones label { display: flex; gap: 8px; align-items: center; padding: 6px 0; }
 
-#inv-sel-modo { flex: none; width: auto; height: auto; align-self: center; }
 
 /* Expediente privado de las trabajadoras */
 .exp-fechas { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 8px 14px; }
@@ -441,8 +438,6 @@ input[data-pin] { -webkit-text-security: disc; text-security: disc; }
 .con-camara { display: flex; flex: 1 1 auto; gap: 6px; align-items: center; min-width: 0; }
 .con-camara > input { flex: 1 1 auto; min-width: 0 !important; }
 .con-camara > .btn-camara { flex: none; width: 48px; min-width: 48px; padding: 6px 0; justify-content: center; }
-.barra-busqueda-inv .con-camara { flex: 1 1 320px; }
-.barra-busqueda-inv .con-camara #inv-q { flex: 1 1 auto; }
 
 /* foto de una persona ampliada */
 #dlg-foto-grande { width: min(92vw, 520px); padding: 12px; text-align: center; }
@@ -479,3 +474,41 @@ input[data-pin] { -webkit-text-security: disc; text-security: disc; }
 .esp-cab { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; } .esp-hora { color: var(--texto-2); }
 .esp-nota { font-weight: 600; overflow-wrap: anywhere; } .esp-venta .nota { margin: 2px 0 8px; overflow-wrap: anywhere; }
 .esp-botones { display: flex; gap: 8px; } .esp-botones .btn { flex: 1; width: auto; margin: 0; } .esp-botones .btn-primario { flex: 2; }
+
+/* ── Inventario: buscador primero, tres botones iguales, contador y lista (diseño nuevo) ── */
+.inv-titulo { display: flex; align-items: center; gap: 10px; } .inv-titulo h1 { flex: 1; margin: 0; }
+.inv-menu-cont { position: relative; margin-left: auto; }
+.btn-icono { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; padding: 0; border: 1px solid var(--borde); border-radius: 12px; background: transparent; color: var(--texto); cursor: pointer; }
+.btn-icono .ico { width: 22px; height: 22px; }
+.menu-pop { position: absolute; right: 0; top: calc(100% + 6px); z-index: 30; min-width: 250px; padding: 6px; border: 1px solid var(--borde); border-radius: 12px; background: var(--superficie); box-shadow: 0 10px 28px rgba(0, 0, 0, .25); }
+.menu-pop[hidden] { display: none; }
+.menu-item { display: flex; align-items: center; gap: 10px; width: 100%; padding: 12px; border: 0; border-radius: 8px; background: transparent; color: var(--texto); font: inherit; text-align: left; cursor: pointer; } .menu-item:hover, .menu-item:focus-visible { background: var(--superficie-2); }
+.inv-buscador { position: relative; margin: 10px 0 12px; display: flex; }
+.inv-buscador .con-camara { flex: 1 1 auto; width: 100%; gap: 8px; }
+.inv-lupa { position: absolute; left: 16px; top: 26px; transform: translateY(-50%); color: var(--texto-2); pointer-events: none; z-index: 1; display: inline-flex; } .inv-lupa .ico { width: 22px; height: 22px; }
+.inv-buscador #inv-q { flex: 1 1 auto; min-width: 0 !important; height: 52px; box-sizing: border-box; padding: 0 16px 0 48px; border: 2px solid var(--acento); border-radius: 14px; background: var(--superficie); color: var(--texto); font-size: 17px; }
+.inv-buscador #inv-q::placeholder { color: var(--texto-2); opacity: 1; }
+.inv-buscador .con-camara > .btn-camara { height: 52px; width: 56px; min-width: 56px; border: 0; border-radius: 14px; background: var(--acento); color: var(--acento-texto); }
+.inv-buscador .con-camara > .btn-camara .ico { width: 26px; height: 26px; }
+.inv-ayuda-btn { position: absolute; top: 26px; right: 12px; transform: translateY(-50%); display: none; align-items: center; justify-content: center; width: 34px; height: 34px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--texto-2); cursor: pointer; }
+@media (min-width: 821px) { .inv-ayuda-btn { display: inline-flex; } .inv-buscador #inv-q { padding-right: 46px; } }
+.inv-buscador:has(.btn-camara) .inv-ayuda-btn { right: 76px; } .inv-ayuda-btn .ico { width: 20px; height: 20px; }
+.inv-acciones { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.inv-acciones .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; width: 100%; min-width: 0; height: 52px; margin: 0; padding: 0 4px; border: 1px solid color-mix(in srgb, var(--acento) 45%, var(--borde)); border-radius: 14px; background: var(--superficie); color: var(--texto); font-size: clamp(13px, 3.4vw, 17px); font-weight: 700; white-space: nowrap; }
+.inv-acciones .btn .ico { width: clamp(16px, 4.6vw, 22px); height: clamp(16px, 4.6vw, 22px); flex: none; color: var(--acento); }
+.inv-acciones .btn[aria-pressed="true"] { background: var(--acento); border-color: var(--acento); color: var(--acento-texto); } .inv-acciones .btn[aria-pressed="true"] .ico { color: var(--acento-texto); }
+@media (max-width: 480px) { .inv-buscador #inv-q::placeholder { font-size: 13px; } .inv-buscador #inv-q { padding: 0 12px 0 44px; } }
+@media (max-width: 379px) { .inv-acciones .btn { flex-direction: column; gap: 2px; height: 56px; font-size: 13px; } .inv-acciones .btn .ico { width: 18px; height: 18px; } .inv-buscador #inv-q { font-size: 16px; } }
+.inv-contador { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin: 12px 0 8px; padding: 8px 12px; border: 1px solid var(--borde); border-radius: 12px; background: var(--superficie); }
+#inv-contador { font-weight: 700; font-variant-numeric: tabular-nums; }
+.btn-resumen { display: inline-flex; align-items: center; gap: 4px; height: 36px; padding: 0 10px 0 12px; border: 1px solid color-mix(in srgb, var(--acento) 55%, var(--borde)); border-radius: 10px; background: transparent; color: var(--acento); font: inherit; font-weight: 700; cursor: pointer; white-space: nowrap; } .btn-resumen .ico { width: 18px; height: 18px; }
+/* Hojas (Filtros, Ordenar, Resumen, Ayuda) */
+dialog.hoja-inv { width: min(94vw, 560px); max-height: 90vh; overflow: auto; }
+.hoja-cab { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.rejilla-filtros { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0 12px; }
+#dlg-inv-filtros select { width: 100%; padding: 10px; border: 2px solid var(--borde); border-radius: 10px; background: var(--superficie); color: var(--texto); font: inherit; }
+.casilla-filtro { display: flex; align-items: center; gap: 10px; margin: 6px 0; min-height: 44px; } .casilla-filtro input { width: 22px; height: 22px; }
+.lista-orden { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+.opcion-orden { display: flex; justify-content: space-between; align-items: center; gap: 10px; width: 100%; min-height: 48px; padding: 0 14px; border: 1px solid var(--borde); border-radius: 12px; background: var(--superficie); color: var(--texto); font: inherit; text-align: left; cursor: pointer; }
+.opcion-orden.activa { border-color: var(--acento); background: var(--acento-suave); font-weight: 700; } .opcion-orden .ico { color: var(--acento); width: 22px; height: 22px; }
+.ayuda-inv td { padding: 6px 8px; vertical-align: top; } .ayuda-inv code { white-space: nowrap; }
