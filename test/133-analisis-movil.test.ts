@@ -101,7 +101,7 @@ describe('[navegador real] Análisis de ventas en el teléfono', { timeout: 300_
     await page.waitForFunction((v) => document.querySelector('.an-kpi-total b')?.textContent === v, conHist);
     // — Indicadores: Total vendido (hero, el valor más grande), cuatro tarjetas en dos columnas y Mejor mes (naranja).
     const fs = { hero: await tam(page, '.an-kpi-total b'), k: await tam(page, '.an-kpi:not(.an-kpi-total):not(.an-kpi-mejor) b'), h1: await tam(page, '.an-titulo h1'), etiqueta: await tam(page, '.an-kpi span'), mejor: await tam(page, '.an-kpi-mejor b') };
-    assert.ok(fs.hero >= 34 && fs.hero > fs.k && fs.k >= 24 && fs.h1 >= 24 && fs.etiqueta >= 13 && fs.mejor >= 26, JSON.stringify(fs));
+    assert.ok(fs.hero >= 34 && fs.hero > fs.k && fs.k >= 18 && fs.k <= 23 && fs.h1 >= 24 && fs.etiqueta >= 13 && fs.mejor >= 18 && fs.mejor <= 22, JSON.stringify(fs));
     const ks = await page.$$eval('.an-kpi:not(.an-kpi-total):not(.an-kpi-mejor)', (k) => k.map((e) => { const r = e.getBoundingClientRect(); return { x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height) }; }));
     assert.equal(ks.length, 4); assert.ok(ks[0]!.y === ks[1]!.y && ks[2]!.y === ks[3]!.y && ks[2]!.y > ks[0]!.y && ks[0]!.w === ks[1]!.w, `2×2: ${JSON.stringify(ks)}`);
     assert.deepEqual(await page.$$eval('.an-kpi:not(.an-kpi-total):not(.an-kpi-mejor) > span', (e) => e.map((x) => x.textContent)), ['Tickets', 'Piezas', 'Ticket promedio', 'Días con ventas']);
@@ -176,7 +176,11 @@ describe('[navegador real] Análisis de ventas en el teléfono', { timeout: 300_
       const partidos2 = await page.evaluate(() => [...document.querySelectorAll('.an-kpi b')].filter((c) => { const r = document.createRange(); r.selectNodeContents(c); return new Set([...r.getClientRects()].map((q) => Math.round(q.top))).size > 1 || c.scrollWidth > c.clientWidth + 1; }).map((c) => c.textContent));
       assert.deepEqual(partidos2, [], `${ancho}px: valores de indicadores partidos o recortados`);
       const chips = await page.$$eval('.an-chips .chip', (c) => c.map((x) => { const r = x.getBoundingClientRect(); return { h: Math.round(r.height), corta: x.scrollWidth > x.clientWidth + 1, dentro: r.right <= window.innerWidth }; }));
-      assert.ok(chips.every((c) => c.h >= 44 && !c.corta && c.dentro), `${ancho}px chips: ${JSON.stringify(chips)}`);
+      assert.ok(chips.every((c) => c.h >= 38 && c.h <= 42 && !c.corta && c.dentro), `${ancho}px chips: ${JSON.stringify(chips)}`);
+      const chipsForma = await page.evaluate(() => ({ radios: [...document.querySelectorAll('.an-chips .chip')].map((c) => parseFloat(getComputedStyle(c).borderTopLeftRadius)), texto: [...document.querySelectorAll('.an-chips .chip')].map((c) => { const s = c.querySelector('span')!.getBoundingClientRect(), r = c.getBoundingClientRect(); return Math.abs((s.top + s.height / 2) - (r.top + r.height / 2)); }), alto: Math.round(document.querySelector('.an-cajas')!.getBoundingClientRect().height) }));
+      assert.ok(chipsForma.radios.every((r) => r <= 10), `${ancho}px chips rectangulares: ${chipsForma.radios}`);
+      assert.ok(chipsForma.texto.every((d) => d <= 2), `${ancho}px texto centrado en el chip (sin espacio muerto): ${chipsForma.texto}`);
+      if (ancho >= 390) assert.ok(chipsForma.alto <= 140, `${ancho}px bloque de cajas compacto: ${chipsForma.alto}px`);
       for (const ver of ['anio', 'semana', 'dia', 'dia_semana', 'hora', 'mapa_calor', 'forma_pago', 'caja', 'tienda', 'mes']) {
         await page.selectOption('#an-agrupar', ver);
         await page.waitForFunction((v) => !!document.querySelector(v === 'mapa_calor' ? '#an-calor' : '#an-tabla'), ver, { timeout: 10_000 });
