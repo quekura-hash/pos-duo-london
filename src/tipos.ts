@@ -4,7 +4,7 @@
 /** Almacén virtual del catálogo inicial: su existencia se descuenta directamente al vender en cualquier tienda o caja. */
 export const LIMBO = 'LIMBO';
 export const NOMBRE_LIMBO = 'El Limbo';
-export type Metodo = 'efectivo' | 'efectivo_usd' | 'tarjeta' | 'tarjeta_regalo' | 'credito_cambio' | 'credito_empleada';
+export type Metodo = 'efectivo' | 'efectivo_usd' | 'tarjeta' | 'tarjeta_regalo' | 'credito_cambio' | 'credito_empleada' | 'deposito';
 
 export interface Op {
   op_id: string;
@@ -45,6 +45,9 @@ export interface Pago {
   cambio_mxn?: number;
   /** Solo `credito_cambio`: folio de la venta cuyas piezas regresó la clienta; su importe liquida parte de esta venta. */
   folio_origen?: number;
+  /** Solo `deposito`: depósito en garantía (de una prueba de vestido) cuyo saldo se aplica a esta venta; no es dinero nuevo en el cajón. */
+  deposito_id?: string;
+  folio_deposito?: string;
   /** Solo `credito_empleada`: la empleada a cuya cuenta se carga la venta (no es dinero cobrado: se descuenta de su nómina). */
   empleada_id?: string;
   empleada?: string;

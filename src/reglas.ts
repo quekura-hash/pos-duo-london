@@ -11,7 +11,8 @@ export function validarOpEntrante(op: Op, cfg: CajaCfg[]): string | null {
     if (!c) return `caja_desconocida:${op.tienda}/${op.caja}`;
     for (const p of op.payload.pagos ?? []) {
       // El efectivo en dólares es efectivo: lo admite toda caja que admita efectivo.
-      if (p.metodo !== 'credito_cambio' && p.metodo !== 'credito_empleada' && !c.metodos.includes(p.metodo === 'efectivo_usd' ? 'efectivo' : p.metodo)) return `metodo_no_permitido:${p.metodo}@${op.tienda}/${op.caja}`;
+      if (p.metodo === 'deposito' && !p.deposito_id) return 'deposito_sin_id';
+      if (p.metodo !== 'credito_cambio' && p.metodo !== 'credito_empleada' && p.metodo !== 'deposito' && !c.metodos.includes(p.metodo === 'efectivo_usd' ? 'efectivo' : p.metodo)) return `metodo_no_permitido:${p.metodo}@${op.tienda}/${op.caja}`;
       if (p.metodo === 'efectivo_usd') {
         const bad = !Number.isInteger(p.usd) || p.usd <= 0 || !Number.isInteger(p.tasa) || p.tasa <= 0 || !Number.isInteger(p.tasa_version) || p.tasa_version < 1
           || !Number.isInteger(p.pesos_recibidos) || p.pesos_recibidos < 0 || !Number.isInteger(p.cambio_mxn) || p.cambio_mxn < 0;

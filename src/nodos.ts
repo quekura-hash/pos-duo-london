@@ -22,6 +22,7 @@ import { CRITERIOS_EXPEDIENTE, expedientesDe, expedienteVacio, clientesVip, exce
 import { type ConfigEmpleadas, type CuentaEmpleada, configEmpleadas, cuentasEmpleadas, CAMPOS_EDITABLES, CAMPOS_TIENDA, type CampoEditable, departamentos, promocionesDe, recompensasDe, supervisoresDe, cajerosDe, personalConCuenta, administradoresDe, efectivoDeVenta, movimientosCaja, tipoCambioVigente, catalogo, devoluciones, devueltoPorLinea, existenciaVerificada, intentos, perdidasDocumentales, stock, ventas, type Devolucion, type ExistenciaVerificada, type Intento, type PerdidaDocumental, type TarjetaRegalo, type TipoCambio } from './proyecciones.ts';
 import type { Repo } from './repo.ts';
 import { validarOpEntrante } from './reglas.ts';
+import { depositos, folioDeposito, buscarDepositos, resumenDepositosCaja, TIPOS_DEPOSITO, type Deposito } from './depositos.ts';
 import { LIMBO, type Articulo, type CajaCfg, type Linea, type Op, type Pago, type Venta } from './tipos.ts';
 import { crearOp, fechaLocal, uuid } from './util.ts';
 import { idVentaHistorica, payloadVentaHistorica, type VentaHistorica } from './ventas-historicas.ts';
@@ -107,7 +108,7 @@ interface Reserva {
 const esMovimientoLimbo = (op: Op) => op.tipo === 'inv.movement' && op.payload.tienda === LIMBO;
 /** Corrección de existencias hecha por el propietario en Administración: la tienda y sus cajas deben enterarse (no pasa por la confirmación de recepción). */
 const esAjusteAdmin = (op: Op) => (op.tipo === 'inv.movement' && op.payload.tipo === 'ajuste_admin') || (op.tipo === 'inv.conteo' && op.payload.admin === true);
-const BROADCAST_TIENDA = new Set(['cajero.ubicacion', 'alm.recibida', 'inv.movement', 'inv.conteo', 'inv.verificacion_pendiente', 'doc.perdida_posible', 'item.created', 'item.item_no_assigned', 'giftcard.emitida', 'giftcard.recarga', 'giftcard.uso', 'giftcard.reintegro']);
+const BROADCAST_TIENDA = new Set(['cajero.ubicacion', 'alm.recibida', 'inv.movement', 'inv.conteo', 'inv.verificacion_pendiente', 'doc.perdida_posible', 'item.created', 'item.item_no_assigned', 'giftcard.emitida', 'giftcard.recarga', 'giftcard.uso', 'giftcard.reintegro', 'deposito.recibido', 'deposito.devuelto', 'deposito.fee', 'deposito.aplicado', 'deposito.reintegrado']);
 // Lo que el central baja a hubs y cajas (catálogo y resoluciones administrativas).
 const CATALOGO = new Set(['cajero.ubicacion', 'item.created', 'item.item_no_assigned', 'item.codigo_corregido', 'doc.perdida_resuelta', 'giftcard.emitida', 'giftcard.recarga', 'giftcard.uso', 'giftcard.reintegro', 'config.tipo_cambio', 'permiso.asignado', 'depto.alta', 'depto.editado', 'alm.entrega', 'alm.faltante', 'promo.guardada', 'recompensa.guardada', 'supervisor.guardado', 'cajero.guardado', 'config.sesion', 'config.negocio', 'item.editado', 'caja.fondo_autorizado', 'cash.ajuste_admin', 'empleadas.config', 'empleada.credito', 'empleada.movimiento', 'venta.consulta', 'folio.continuacion', 'vip.guardado', 'vip.excepciones', 'metas.config', 'giftcard.config', 'caja.limite_efectivo']);
 /** Días de ventas del POS anterior que las cajas conservan para consulta. */
@@ -1189,6 +1190,8 @@ interface Carrito {
   cambio?: CambioEnCurso;
   /** Venta en espera: el cliente se fue un momento y la caja atiende a otro. No reserva existencias; se recalcula al retomarla. */
   espera?: { desde: string; nota: string; por: string };
+  /** Depósito en garantía elegido para pagar parte de esta venta. Es solo una RESERVA de esta venta: el saldo se consume cuando el cobro se confirma. */
+  deposito?: { deposito_id: string };
 }
 
 export type EstadoFolios = { estado: 'activa' | 'recuperacion'; motivo: string | null; ultimo: number; techo: number | null };
@@ -2104,7 +2107,7 @@ export class Caja {
   // ── cobro en efectivo / mixto ──
   /** Lo que se cobra: los artículos de la venta menos el crédito del cambio (negativo = saldo a favor de la clienta). */
   private totalNeto(c: Carrito): number {
-    return c.lineas.reduce((a, l) => a + l.importe, 0) - (c.cambio?.credito ?? 0);
+    return c.lineas.reduce((a, l) => a + l.importe, 0) - (c.cambio?.credito ?? 0) - this.depositoAplicado(c);
   }
   private exigirSinCobroPendiente(c: Carrito) {
     if (!c.intent_id) return;
@@ -2424,6 +2427,12 @@ export class Caja {
     // El crédito del cambio liquida parte (o todo) el total como un pago más; el resto lo paga la clienta con los pagos recibidos.
     const credito = c.cambio ? Math.min(c.cambio.credito, total) : 0;
     if (credito > 0) pagos = [{ metodo: 'credito_cambio', monto: credito, folio_origen: c.cambio!.folio_origen }, ...pagos];
+    // Depósito en garantía aplicado: un pago más de la venta (no es dinero nuevo en el cajón). Se verifica que siga disponible justo antes de confirmar.
+    const dep = this.depositoDeCarrito(c);
+    if (dep && dep.aplicado > 0) {
+      this.depositoResoluble(dep.deposito_id, c.id);
+      pagos = [{ metodo: 'deposito', monto: dep.aplicado, deposito_id: dep.deposito_id, folio_deposito: dep.folio }, ...pagos];
+    }
     // Compra a crédito de una empleada: no entra dinero, así que NO consume folio de venta; lleva su propia serie (CR) por caja.
     const esCredito = !!c.empleada && pagos.length > 0 && pagos.every((p) => p.metodo === 'credito_empleada');
     return this.repo.tx(() => {
@@ -2445,6 +2454,7 @@ export class Caja {
       }, `sale:${c.id}`);
       this.ctx.fallo?.('tras_venta');
       for (const p of pagos) {
+        if (p.metodo === 'deposito') this.emitir('deposito.aplicado', { deposito_id: p.deposito_id, monto: p.monto, sale_id: c.id, folio_venta: folio, tienda: this.tienda, caja: this.caja, usuario: cajero }, `depapl:${c.id}:${p.deposito_id}`);
         if (p.metodo === 'tarjeta_regalo') this.emitir('giftcard.uso', { codigo: p.tarjeta, monto: p.monto, sale_id: c.id, tienda: this.tienda, caja: this.caja }, `gcuso:${c.id}:${p.tarjeta}`);
       }
       for (const l of c.lineas) {
@@ -2477,9 +2487,13 @@ export class Caja {
     if (v.lineas.some((l) => l.tarjeta_regalo)) throw new ErrorDominio('CANCELACION_BLOQUEADA', 'la venta o recarga de una tarjeta de regalo no se cancela (pendiente de definir)');
     if (devoluciones(this.opsDe('return.registered')).some((x) => x.sale_id === saleId)) throw new ErrorDominio('CANCELACION_BLOQUEADA', 'la venta ya tiene devoluciones: no se cancela completa, se sigue devolviendo');
     const autorizo = this.verificarAutorizador(usuario, autoriza); // cancelar una venta ya cobrada la autoriza otra persona
-    const reembolsos = this.repartirReembolso(v, v.total, [], 0);
+    // El depósito aplicado NO se devuelve en efectivo al cancelar: vuelve a quedar como saldo del depósito (el efectivo que entró como depósito sigue en el cajón).
+    const depositosAplicados = v.pagos.filter((p) => p.metodo === 'deposito');
+    const aplicadoDep = depositosAplicados.reduce((a, p) => a + p.monto, 0);
+    const reembolsos = aplicadoDep === 0 ? this.repartirReembolso(v, v.total, [], 0) : v.total - aplicadoDep === 0 ? [] : this.repartirReembolso({ ...v, pagos: v.pagos.filter((p) => p.metodo !== 'deposito'), total: v.total - aplicadoDep }, v.total - aplicadoDep, [], 0);
     this.repo.tx(() => {
       this.emitir('sale.cancelled', { sale_id: saleId, motivo, reembolsos, cancelo: usuario, ...(clienta ? { clienta } : {}), ...(autorizo ? { autorizado_por: autorizo } : {}) }, `cancel:${saleId}`);
+      for (const p of depositosAplicados) this.emitir('deposito.reintegrado', { deposito_id: p.deposito_id, monto: p.monto, sale_id: saleId, tienda: this.tienda, caja: this.caja, usuario, motivo: 'cancelacion de la compra' }, `depre:${saleId}:${p.deposito_id}`);
       for (const p of v.pagos) {
         if (p.metodo === 'tarjeta_regalo') this.emitir('giftcard.reintegro', { codigo: p.tarjeta, monto: p.monto, sale_id: saleId, tienda: this.tienda, caja: this.caja, motivo: 'cancelacion' }, `gcre:${saleId}:${p.tarjeta}`);
       }
@@ -2622,6 +2636,140 @@ export class Caja {
     for (const v of remotas ?? []) if (!mapa.has(v.sale_id)) mapa.set(v.sale_id, { ...v, propia: v.caja === this.caja && v.tienda === this.tienda });
     const resultados = [...mapa.values()].sort((a, b) => b.ocurrio_en.localeCompare(a.ocurrio_en));
     return { resultados, hub: remotas !== null };
+  }
+
+  // ── depósitos en garantía (pruebas de vestidos) ──
+  // El saldo de un depósito sale SIEMPRE de las operaciones `deposito.*` (nunca se edita). El efectivo físico entra y sale por `cash.movement`;
+  // aplicar el saldo a una compra o retenerlo como fee por daño no mueve efectivo. Toda resolución exige poder verificar que el depósito sigue disponible.
+  private opsDepositos(): Op[] {
+    return this.opsDe(...TIPOS_DEPOSITO);
+  }
+  depositosTodos(): Deposito[] {
+    return [...depositos(this.opsDepositos()).values()].sort((a, b) => b.ocurrio_en.localeCompare(a.ocurrio_en));
+  }
+  depositoPorId(id: string): Deposito | undefined {
+    return depositos(this.opsDepositos()).get(id);
+  }
+  /** Depósitos con saldo (pendientes o parcialmente usados), los más recientes primero. */
+  depositosPendientes(): Deposito[] {
+    return this.depositosTodos().filter((d) => d.saldo > 0);
+  }
+  /** Búsqueda por folio (el que lee el lector del código de barras) o por nombre de la clienta. Nunca autoriza nada: solo muestra coincidencias. */
+  buscarDepositos(q: string): Deposito[] {
+    return buscarDepositos(this.depositosTodos(), q);
+  }
+  /** Recibe un depósito: lo registra, suma el efectivo al cajón (como depósito, NO como venta) y le da su folio propio. Reintentar con la misma referencia no lo duplica. */
+  recibirDeposito(d: { ref: string; clienta: string; monto: number; concepto?: string; usuario: string }): Deposito {
+    if (!d.ref) throw new ErrorDominio('DATOS_REQUERIDOS', 'falta la referencia del depósito');
+    const id = d.ref;
+    const previo = this.repo.getOp(`dep:${id}`);
+    if (previo) return this.depositoPorId(id)!;
+    const clienta = String(d.clienta ?? '').trim().replace(/\s+/g, ' ');
+    if (clienta.length < 2 || clienta.length > 80) throw new ErrorDominio('DATOS_REQUERIDOS', 'escriba el nombre de la clienta');
+    if (!Number.isInteger(d.monto) || d.monto <= 0) throw new ErrorDominio('PAGO_INVALIDO', 'el monto del depósito es un entero positivo en centavos');
+    const concepto = String(d.concepto ?? '').trim().replace(/\s+/g, ' ').slice(0, 120) || 'Prueba de vestido de noche';
+    const fecha = fechaLocal(this.ctx.reloj.now());
+    this.repo.tx(() => {
+      const n = this.opsDe('deposito.recibido').filter((o) => o.payload.tienda === this.tienda && o.payload.caja === this.caja).length + 1;
+      const folio = folioDeposito(this.tienda, this.caja, n);
+      this.emitir('deposito.recibido', { deposito_id: id, folio, tienda: this.tienda, caja: this.caja, cajero: d.usuario, clienta, concepto, monto: d.monto, fecha }, `dep:${id}`);
+      this.emitir('cash.movement', { tienda: this.tienda, caja: this.caja, tipo: 'deposito_recibido', monto: d.monto, moneda: 'MXN', fecha, deposito_id: id }, `dep:${id}:mov`);
+    });
+    return this.depositoPorId(id)!;
+  }
+  /** ¿Algún carrito abierto de ESTA caja tiene reservado el depósito? (excepto el indicado). */
+  private carritoQueReserva(depositoId: string, exceptoCart?: string): string | null {
+    for (const id of this.carritoIds()) {
+      if (id === exceptoCart) continue;
+      const c = this.repo.kvGet<Carrito>(`cart:${id}`);
+      if (c && c.estado === 'abierto' && c.deposito?.deposito_id === depositoId) return id;
+    }
+    return null;
+  }
+  /**
+   * Verifica que un depósito se pueda resolver AHORA: existe, es de esta tienda, no está cerrado ni inconsistente, no lo reserva otra venta en curso y —si otra caja
+   * pudo haberlo movido— que hay comunicación con el hub para confiar en lo que se ve. Ante la duda se bloquea: es preferible impedir una devolución dudosa que entregar dinero dos veces.
+   */
+  private depositoResoluble(id: string, exceptoCart?: string): Deposito {
+    const d = this.depositoPorId(id);
+    if (!d) throw new ErrorDominio('DEPOSITO_INEXISTENTE', 'ese depósito no existe (o aún no llega a esta caja)');
+    if (d.tienda !== this.tienda) throw new ErrorDominio('DEPOSITO_OTRA_TIENDA', `el depósito ${d.folio} se recibió en otra tienda: se resuelve allá`, { tienda: d.tienda });
+    if (d.inconsistente) throw new ErrorDominio('DEPOSITO_INCONSISTENTE', `el depósito ${d.folio} tiene movimientos que no cuadran: avise a Administración`);
+    if (d.saldo <= 0) throw new ErrorDominio('DEPOSITO_CERRADO', `el depósito ${d.folio} ya no tiene saldo`);
+    const otrasCajas = this.ctx.cajasCfg.some((c) => c.tienda === this.tienda && c.caja !== this.caja);
+    if ((otrasCajas || d.caja !== this.caja) && !this.enlace.hubAlcanzable()) {
+      throw new ErrorDominio('DEPOSITO_NO_VERIFICABLE', 'sin comunicación con el hub: no se puede verificar que el depósito siga disponible. Espere a que vuelva la conexión.');
+    }
+    const reserva = this.carritoQueReserva(id, exceptoCart);
+    if (reserva) throw new ErrorDominio('DEPOSITO_RESERVADO', `el depósito ${d.folio} está reservado por una venta en curso en esta caja`);
+    return d;
+  }
+  /** Devolución del depósito a la clienta (total o parcial): sale efectivo del cajón, asociado al depósito original. Reintentar con la misma referencia no entrega dinero dos veces. */
+  devolverDeposito(d: { ref: string; deposito_id: string; monto?: number; confirmado: boolean; usuario: string }): { deposito: Deposito; monto: number; op_id: string } {
+    if (!d.ref) throw new ErrorDominio('DATOS_REQUERIDOS', 'falta la referencia de la devolución');
+    const previa = this.repo.getOp(`depres:${d.ref}`);
+    if (previa) return { deposito: this.depositoPorId(previa.payload.deposito_id)!, monto: previa.payload.monto, op_id: previa.op_id };
+    if (d.confirmado !== true) throw new ErrorDominio('CONFIRMACION_REQUERIDA', 'confirme que el vestido se devolvió sin daños antes de entregar el dinero');
+    const dep = this.depositoResoluble(d.deposito_id);
+    const monto = d.monto ?? dep.saldo;
+    if (!Number.isInteger(monto) || monto <= 0) throw new ErrorDominio('PAGO_INVALIDO', 'el monto a devolver es un entero positivo en centavos');
+    if (monto > dep.saldo) throw new ErrorDominio('DEPOSITO_EXCEDE_SALDO', `solo hay ${dep.saldo / 100} pesos disponibles en el depósito`, { saldo: dep.saldo });
+    const fecha = fechaLocal(this.ctx.reloj.now());
+    const op = this.repo.tx(() => {
+      const o = this.emitir('deposito.devuelto', { deposito_id: dep.deposito_id, folio: dep.folio, monto, saldo_despues: dep.saldo - monto, tienda: this.tienda, caja: this.caja, usuario: d.usuario }, `depres:${d.ref}`);
+      this.emitir('cash.movement', { tienda: this.tienda, caja: this.caja, tipo: 'deposito_devuelto', monto, moneda: 'MXN', fecha, deposito_id: dep.deposito_id }, `depres:${d.ref}:mov`);
+      return o;
+    });
+    return { deposito: this.depositoPorId(dep.deposito_id)!, monto, op_id: op.op_id };
+  }
+  /**
+   * Fee por daño: se retiene una parte del saldo (nunca más que el saldo). NO entra efectivo nuevo; la autoriza otra persona o un supervisor con su clave.
+   * El resto del saldo sigue disponible para devolverse o aplicarse a una compra.
+   */
+  cobrarFeeDeposito(d: { ref: string; deposito_id: string; monto: number; motivo: string; usuario: string; autoriza?: Autoriza }): { deposito: Deposito; monto: number; op_id: string } {
+    if (!d.ref) throw new ErrorDominio('DATOS_REQUERIDOS', 'falta la referencia del fee');
+    const previa = this.repo.getOp(`depres:${d.ref}`);
+    if (previa) return { deposito: this.depositoPorId(previa.payload.deposito_id)!, monto: previa.payload.monto, op_id: previa.op_id };
+    const motivo = String(d.motivo ?? '').trim().replace(/\s+/g, ' ');
+    if (motivo.length < 3 || motivo.length > 120) throw new ErrorDominio('DATOS_REQUERIDOS', 'escriba el motivo del daño (de 3 a 120 caracteres)');
+    if (!Number.isInteger(d.monto) || d.monto <= 0) throw new ErrorDominio('PAGO_INVALIDO', 'el importe del daño es un entero positivo en centavos');
+    const dep = this.depositoResoluble(d.deposito_id);
+    if (d.monto > dep.saldo) throw new ErrorDominio('DEPOSITO_EXCEDE_SALDO', `el daño (${d.monto / 100}) es mayor que el saldo del depósito (${dep.saldo / 100}): un cobro adicional se hace por el flujo normal de cobro`, { saldo: dep.saldo });
+    const autorizo = this.verificarAutorizador(d.usuario, d.autoriza);
+    const op = this.emitir('deposito.fee', { deposito_id: dep.deposito_id, folio: dep.folio, monto: d.monto, motivo, saldo_despues: dep.saldo - d.monto, tienda: this.tienda, caja: this.caja, usuario: d.usuario, autorizado_por: autorizo }, `depres:${d.ref}`);
+    return { deposito: this.depositoPorId(dep.deposito_id)!, monto: d.monto, op_id: op.op_id };
+  }
+  /** Cuánto del depósito reservado en un carrito se aplicaría hoy (nunca más que el saldo ni que lo que falta por pagar). */
+  depositoDeCarrito(c: Carrito): { deposito_id: string; folio: string; clienta: string; saldo: number; aplicado: number; resto_saldo: number } | null {
+    if (!c.deposito) return null;
+    const d = this.depositoPorId(c.deposito.deposito_id);
+    if (!d) return null;
+    const porPagar = Math.max(0, c.lineas.reduce((a, l) => a + l.importe, 0) - (c.cambio?.credito ?? 0));
+    const aplicado = d.saldo > 0 ? Math.min(d.saldo, porPagar) : 0;
+    return { deposito_id: d.deposito_id, folio: d.folio, clienta: d.clienta, saldo: d.saldo, aplicado, resto_saldo: d.saldo - aplicado };
+  }
+  private depositoAplicado(c: Carrito): number {
+    return this.depositoDeCarrito(c)?.aplicado ?? 0;
+  }
+  /** Aplica (reserva) un depósito a la venta en curso. No se consume hasta que el cobro se confirma; si la venta se anula o se cambia, se libera. */
+  aplicarDepositoACarrito(cartId: string, depositoId: string): { deposito_id: string; folio: string; clienta: string; saldo: number; aplicado: number; resto_saldo: number } {
+    const c = this.cartGet(cartId);
+    this.exigirAbierto(c);
+    if (c.lineas.length === 0) throw new ErrorDominio('CARRITO_VACIO', 'agregue primero el vestido (o lo que se compra) a la venta');
+    if (c.lineas.some((l) => l.tarjeta_regalo)) throw new ErrorDominio('DEPOSITO_NO_APLICA', 'un depósito no se aplica a la compra de una tarjeta de regalo');
+    if (c.empleada) throw new ErrorDominio('DEPOSITO_NO_APLICA', 'un depósito no se combina con una venta a empleada');
+    if (c.deposito && c.deposito.deposito_id !== depositoId) throw new ErrorDominio('DEPOSITO_NO_APLICA', 'esta venta ya tiene otro depósito aplicado: quítelo primero');
+    this.depositoResoluble(depositoId, cartId);
+    this.repo.tx(() => { this.repo.kvSet(`cart:${cartId}`, { ...c, deposito: { deposito_id: depositoId } }); });
+    return this.depositoDeCarrito({ ...c, deposito: { deposito_id: depositoId } })!;
+  }
+  /** Libera el depósito reservado en la venta en curso (el saldo no se pierde). */
+  quitarDepositoDeCarrito(cartId: string): void {
+    const c = this.cartGet(cartId);
+    this.exigirAbierto(c);
+    if (!c.deposito) return;
+    const { deposito: _quitado, ...resto } = c;
+    this.repo.tx(() => { this.repo.kvSet(`cart:${cartId}`, resto as Carrito); });
   }
 
   // ── reparto de un reembolso entre los métodos con que se pagó ──
@@ -3125,7 +3273,7 @@ export class Caja {
       const deVentas = conteo?.payload.alcance === 'ventas';
       const comparable = deVentas ? esperado - de('fondo_inicial') : esperado;
       return {
-        fondo: de('fondo_inicial'), cobros: de('cobro'), cambio: -de('cambio'), entradas: de('entrada'), ajustes: de('ajuste'), devoluciones: -de('devolucion'), cancelaciones: -de('cancelacion'), retiros: -de('retiro'), gastos: -de('gasto'),
+        fondo: de('fondo_inicial'), depositos_recibidos: de('deposito_recibido'), depositos_devueltos: -de('deposito_devuelto'), cobros: de('cobro'), cambio: -de('cambio'), entradas: de('entrada'), ajustes: de('ajuste'), devoluciones: -de('devolucion'), cancelaciones: -de('cancelacion'), retiros: -de('retiro'), gastos: -de('gasto'),
         esperado,
         contado: conteo ? (conteo.payload.total as number) : null,
         diferencia: conteo ? (conteo.payload.total as number) - comparable : null,
@@ -3192,6 +3340,8 @@ export class Caja {
       diferencia_mxn: mxn.diferencia,
       // Detalle por moneda para Administración (columnas separadas). `usd.equivalente_historico_mxn` es contable, no dinero físico.
       mxn, usd: { ...usd, equivalente_historico_mxn: usdEquivalenteHistorico },
+      // Depósitos en garantía (no son ventas): recibidos, devueltos, aplicados a compras, fees retenidos por daños y lo que sigue pendiente de las clientas.
+      depositos: resumenDepositosCaja(this.opsDe(...TIPOS_DEPOSITO), this.tienda, this.caja, fecha),
       billetes_usd_rechazados: suma(rechazados.map((o) => o.payload.cantidad as number)),
       aperturas_cajon_sin_venta: ops.filter((o) => o.tipo === 'cash.cajon_abierto' && propia(o.payload.tienda, o.payload.caja) && o.payload.fecha === fecha && o.payload.resultado === 'ok').length,
       folio_inicial: folios.length ? Math.min(...folios) : null, folio_final: folios.length ? Math.max(...folios) : null,

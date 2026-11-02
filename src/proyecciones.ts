@@ -300,7 +300,7 @@ export interface MovimientoCaja {
   ocurrio_en: string;
   fecha: string;
   moneda: 'MXN' | 'USD';
-  tipo: 'fondo_inicial' | 'entrada' | 'retiro' | 'gasto' | 'cobro' | 'cambio' | 'devolucion' | 'cancelacion' | 'ajuste';
+  tipo: 'fondo_inicial' | 'entrada' | 'retiro' | 'gasto' | 'cobro' | 'cambio' | 'devolucion' | 'cancelacion' | 'ajuste' | 'deposito_recibido' | 'deposito_devuelto';
   monto: number;
   ref?: string;
   /** Solo dólares de un cobro: tasa de ESA operación. */
@@ -317,7 +317,7 @@ export function movimientosCaja(ops: Op[], tienda: string, caja: number): Movimi
   for (const o of ops) {
     const p = o.payload;
     if (o.tipo === 'cash.movement' && propia(p.tienda, p.caja)) {
-      out.push({ ocurrio_en: o.ocurrio_en, fecha: p.fecha, moneda: p.moneda ?? 'MXN', tipo: p.tipo, monto: p.tipo === 'retiro' || p.tipo === 'gasto' ? -p.monto : p.monto, ref: o.op_id });
+      out.push({ ocurrio_en: o.ocurrio_en, fecha: p.fecha, moneda: p.moneda ?? 'MXN', tipo: p.tipo, monto: p.tipo === 'retiro' || p.tipo === 'gasto' || p.tipo === 'deposito_devuelto' ? -p.monto : p.monto, ref: o.op_id });
     } else if (o.tipo === 'cash.ajuste_admin' && propia(p.tienda, p.caja)) {
       // Entrega o ajuste hecho por Administración: suma (entrega) o resta (salida) en pesos; no es venta ni retiro.
       out.push({ ocurrio_en: o.ocurrio_en, fecha: p.fecha, moneda: 'MXN', tipo: 'ajuste', monto: p.tipo === 'salida' ? -p.monto : p.monto, ref: o.op_id });
