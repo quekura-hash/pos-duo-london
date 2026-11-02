@@ -7,6 +7,7 @@ import { describe, it } from 'node:test';
 import { chromium, devices, type Page } from 'playwright-core';
 import { centralLocal, usuario } from './ayudas/central-pglite.ts';
 import { simularSupabase, URL_CENTRAL } from './ayudas/supabase-simulado.ts';
+import { irASeccion, esperarNavegacion } from './ayudas/navegacion.ts';
 
 const RAIZ = join(import.meta.dirname, '..');
 const chromiumPath = [process.env.POS_CHROMIUM, '/opt/pw-browsers/chromium-1194/chrome-linux/chrome', '/opt/pw-browsers/chromium/chrome-linux/chrome'].find((p) => p && existsSync(p));
@@ -41,7 +42,7 @@ describe('[navegador real] Análisis por empleada', { timeout: 240_000, skip: ch
       await page.fill('#pu-correo', 'edgardo@x.mx'); await page.fill('#pu-clave', 'buena'); await page.click('#pu-entrar');
       await page.waitForSelector('#puerta', { state: 'hidden' });
       await page.waitForFunction(() => /Sincronizado/.test(document.querySelector('#estado-nube')?.textContent ?? ''));
-      await page.click('#nav button[data-vista="analisis"]');
+      await irASeccion(page, 'analisis');
       await page.waitForSelector('#an-resultado .an-kpis');
       await page.selectOption('#an-anio', '2026');
       await page.selectOption('#an-desglose', 'empleada');

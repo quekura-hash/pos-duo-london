@@ -7,6 +7,7 @@ import { describe, it } from 'node:test';
 import { chromium, devices } from 'playwright-core';
 import { centralLocal, usuario } from './ayudas/central-pglite.ts';
 import { pruebas, simularSupabase, URL_CENTRAL } from './ayudas/supabase-simulado.ts';
+import { irASeccion, esperarNavegacion } from './ayudas/navegacion.ts';
 
 const RAIZ = join(import.meta.dirname, '..');
 const DIST = mkdtempSync(join(tmpdir(), 'londuo-admin-'));
@@ -43,7 +44,7 @@ describe('[iPhone] Avisos de la Administración', { timeout: 180_000, skip: chro
     await page.waitForSelector('#puerta:not([hidden])');
     await page.fill('#pu-correo', 'edgardo@x.mx'); await page.fill('#pu-clave', 'buena'); await page.click('#pu-entrar');
     await page.waitForSelector('#puerta', { state: 'hidden' });
-    await page.click('#nav button[data-vista=avisos]');
+    await irASeccion(page, 'avisos');
     await page.waitForSelector('#av-activar');
     assert.match((await page.textContent('#av-texto'))!, /desactivados/);
 

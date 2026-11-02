@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { chromium, devices } from 'playwright-core';
 import { URL_CENTRAL } from './ayudas/supabase-simulado.ts';
+import { irASeccion, esperarNavegacion } from './ayudas/navegacion.ts';
 
 const RAIZ = join(import.meta.dirname, '..');
 const DIST = mkdtempSync(join(tmpdir(), 'londuo-admin-'));
@@ -55,7 +56,7 @@ describe('[iPhone] Administración › Cortes', { timeout: 120_000, skip: chromi
     await page.waitForSelector('#puerta:not([hidden])');
     await page.fill('#pu-correo', 'edgardo@x.mx'); await page.fill('#pu-clave', 'buena'); await page.click('#pu-entrar');
     await page.waitForSelector('#puerta', { state: 'hidden' });
-    await page.waitForSelector('#nav');
+    await esperarNavegacion(page);
     const bloque = { fondo: 500000, cobros: 120000, cambio: -3000, entradas: 0, devoluciones: 0, cancelaciones: 0, retiros: 0, esperado: 617000, contado: 617000, diferencia: 0 };
     await page.evaluate((b) => {
       const w = window as unknown as { __POS_ATENDER__: (m: string, r: string, c?: unknown) => Promise<unknown> };

@@ -10,6 +10,7 @@ import { simularSupabase, URL_CENTRAL } from './ayudas/supabase-simulado.ts';
 import { leerXlsxNode } from '../src/xlsx-node.ts';
 import { api, appAdmin, appCajero } from './ayudas/app.ts';
 import { ALMACENES, nuevoMundo, politica } from './ayudas/comun.ts';
+import { irASeccion, esperarNavegacion } from './ayudas/navegacion.ts';
 
 const RAIZ = join(import.meta.dirname, '..');
 const chromiumPath = [process.env.POS_CHROMIUM, '/opt/pw-browsers/chromium-1194/chrome-linux/chrome', '/opt/pw-browsers/chromium/chrome-linux/chrome'].find((p) => p && existsSync(p));
@@ -49,7 +50,7 @@ async function preparar(t: { after: (f: () => unknown) => void }) {
   };
   return { abrir, sembrar };
 }
-const ir = async (page: Page) => { await page.click('#nav button[data-vista="inventario"]'); await page.waitForSelector('#inv-q'); };
+const ir = async (page: Page) => { await irASeccion(page, 'inventario'); await page.waitForSelector('#inv-q'); };
 const filasDe = (page: Page) => page.locator('#tabla-inv-lista tbody tr[data-item]');
 const buscar = async (page: Page, q: string, n: number) => {
   await page.fill('#inv-q', q);

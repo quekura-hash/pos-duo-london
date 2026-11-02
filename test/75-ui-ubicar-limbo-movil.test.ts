@@ -7,6 +7,7 @@ import { describe, it } from 'node:test';
 import { chromium, devices } from 'playwright-core';
 import { centralLocal, usuario } from './ayudas/central-pglite.ts';
 import { simularSupabase, URL_CENTRAL } from './ayudas/supabase-simulado.ts';
+import { irASeccion, esperarNavegacion } from './ayudas/navegacion.ts';
 
 const RAIZ = join(import.meta.dirname, '..');
 const DIST = mkdtempSync(join(tmpdir(), 'londuo-admin-'));
@@ -43,8 +44,8 @@ describe('[iPhone] Inventario: seleccionar y ubicar piezas de El Limbo', { timeo
     await page.waitForSelector('#puerta:not([hidden])');
     await page.fill('#pu-correo', 'edgardo@x.mx'); await page.fill('#pu-clave', 'buena'); await page.click('#pu-entrar');
     await page.waitForSelector('#puerta', { state: 'hidden' });
-    await page.waitForSelector('#nav button');
-    await page.click('#nav button[data-vista="inventario"]');
+    await esperarNavegacion(page);
+    await irASeccion(page, 'inventario');
     await page.waitForSelector('#inv-q');
     await page.fill('#inv-q', 'lote=0');
     await esperarTexto(page, '#inv-pag-info', /de 8\b/);
@@ -68,7 +69,7 @@ describe('[iPhone] Inventario: seleccionar y ubicar piezas de El Limbo', { timeo
 
     const m = await page.evaluate(() => {
       const b = document.querySelector('#inv-sel')!.getBoundingClientRect();
-      const nav = document.querySelector('.nav')!.getBoundingClientRect();
+      const nav = document.querySelector('#isla')!.getBoundingClientRect();
       return { izq: b.left, der: b.right, ancho: window.innerWidth, abajoBarra: b.bottom, arribaNav: nav.top, desborda: document.documentElement.scrollWidth > window.innerWidth + 1 };
     });
     assert.equal(m.desborda, false, 'sin desplazamiento horizontal');
@@ -109,8 +110,8 @@ describe('[iPhone] Inventario: seleccionar y ubicar piezas de El Limbo', { timeo
     await page.waitForSelector('#puerta:not([hidden])');
     await page.fill('#pu-correo', 'edgardo@x.mx'); await page.fill('#pu-clave', 'buena'); await page.click('#pu-entrar');
     await page.waitForSelector('#puerta', { state: 'hidden' });
-    await page.waitForSelector('#nav button');
-    await page.click('#nav button[data-vista="historial"]');
+    await esperarNavegacion(page);
+    await irASeccion(page, 'historial');
     await page.waitForSelector('#ha-filtros');
     await page.fill('#ha-desde', '2026-10-21'); await page.fill('#ha-hasta', '2026-10-21');
     await page.tap('#ha-filtros button[type="submit"]');
@@ -149,8 +150,8 @@ describe('[iPhone] Inventario: seleccionar y ubicar piezas de El Limbo', { timeo
     await page.waitForSelector('#puerta:not([hidden])');
     await page.fill('#pu-correo', 'edgardo@x.mx'); await page.fill('#pu-clave', 'buena'); await page.click('#pu-entrar');
     await page.waitForSelector('#puerta', { state: 'hidden' });
-    await page.waitForSelector('#nav button');
-    await page.click('#nav button[data-vista="inventario"]');
+    await esperarNavegacion(page);
+    await irASeccion(page, 'inventario');
     await page.waitForSelector('#lista-inv .fila-inv[data-item="p1"]');
     await page.tap('#lista-inv .fila-inv[data-item="p1"]');
     await page.waitForSelector('#dlg-articulo[open]');
@@ -187,10 +188,10 @@ describe('[iPhone] Inventario: seleccionar y ubicar piezas de El Limbo', { timeo
     await page.waitForSelector('#puerta:not([hidden])');
     await page.fill('#pu-correo', 'edgardo@x.mx'); await page.fill('#pu-clave', 'buena'); await page.click('#pu-entrar');
     await page.waitForSelector('#puerta', { state: 'hidden' });
-    await page.waitForSelector('#nav button');
+    await esperarNavegacion(page);
     const atender = (metodo: string, ruta: string, cuerpo?: unknown) => page.evaluate(async (d) => (await (window as unknown as { __POS_ATENDER__: (m: string, r: string, c?: unknown) => Promise<{ status: number; json: Record<string, unknown> }> }).__POS_ATENDER__(d.m, d.r, d.c)).status, { m: metodo, r: ruta, c: cuerpo });
     assert.equal(await atender('POST', '/api/admin/cajeros', { nombre: 'Ana', clave: '1111', tienda: 'DUO', perfil: { nombres: 'Ana', apellidos: 'López' } }), 200);
-    await page.click('#nav button[data-vista="empleadas"]');
+    await irASeccion(page, 'empleadas');
     await page.click('#per-tab-perfiles');
     await page.waitForSelector('#tabla-personal tr[data-cajero]');
     assert.match((await page.textContent('#tabla-personal tr[data-cajero]'))!, /DÚO/);

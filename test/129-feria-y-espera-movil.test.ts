@@ -7,6 +7,7 @@ import { describe, it } from 'node:test';
 import { chromium, devices } from 'playwright-core';
 import { centralLocal, usuario } from './ayudas/central-pglite.ts';
 import { simularSupabase, URL_CENTRAL } from './ayudas/supabase-simulado.ts';
+import { irASeccion, esperarNavegacion } from './ayudas/navegacion.ts';
 
 const RAIZ = join(import.meta.dirname, '..');
 const chromiumPath = [process.env.POS_CHROMIUM, '/opt/pw-browsers/chromium-1194/chrome-linux/chrome', '/opt/pw-browsers/chromium/chrome-linux/chrome'].find((p) => p && existsSync(p));
@@ -37,7 +38,7 @@ describe('[navegador real] feria resumida (iPhone SE) y ventas en espera sin des
     await page.fill('#pu-correo', 'edgardo@x.mx'); await page.fill('#pu-clave', 'buena'); await page.click('#pu-entrar');
     await page.waitForSelector('#puerta', { state: 'hidden' });
     await page.waitForFunction(() => /Sincronizado/.test(document.querySelector('#estado-nube')?.textContent ?? ''));
-    await page.click('#nav button[data-vista="configuracion"]');
+    await irASeccion(page, 'configuracion');
     await page.click('button:has-text("Feria")');
     await page.waitForSelector('.fer-caja');
     assert.equal(await page.locator('.fer-caja').count(), 4, 'una tarjeta por caja');

@@ -7,6 +7,7 @@ import { describe, it } from 'node:test';
 import { chromium, devices, type Page } from 'playwright-core';
 import { como, usuario, centralLocal } from './ayudas/central-pglite.ts';
 import { simularSupabase, URL_CENTRAL } from './ayudas/supabase-simulado.ts';
+import { irASeccion, esperarNavegacion } from './ayudas/navegacion.ts';
 
 const RAIZ = join(import.meta.dirname, '..');
 const DIST = mkdtempSync(join(tmpdir(), 'londuo-admin-'));
@@ -46,21 +47,23 @@ describe('[iPhone] Administración en el teléfono', { timeout: 180_000, skip: c
     assert.equal(await page.locator('#pu-proyecto').isVisible(), false, 'con el proyecto fijado solo se piden correo y contraseña');
     await page.fill('#pu-correo', 'edgardo@x.mx'); await page.fill('#pu-clave', 'buena'); await page.click('#pu-entrar');
     await page.waitForSelector('#puerta', { state: 'hidden' });
-    await page.waitForSelector('#nav button');
+    await esperarNavegacion(page);
 
-    // El menú es una barra inferior (pegada al borde de abajo) y el encabezado queda arriba.
-    const dim = await page.evaluate(() => { const n = document.querySelector('.nav')!.getBoundingClientRect(); return { abajo: Math.round(n.bottom), alto: window.innerHeight, ancho: Math.round(n.width), ventana: window.innerWidth }; });
-    assert.ok(Math.abs(dim.abajo - dim.alto) <= 1 && dim.ancho === dim.ventana, JSON.stringify(dim));
+    // La navegación es una isla inferior fija con tres botones (no una barra deslizante) y el encabezado queda arriba.
+    const dim = await page.evaluate(() => { const n = document.querySelector('#isla')!.getBoundingClientRect(); return { abajo: Math.round(n.bottom), alto: window.innerHeight, izq: Math.round(n.left), der: Math.round(n.right), ventana: window.innerWidth, fija: getComputedStyle(document.querySelector('#isla')!).position, deslizante: getComputedStyle(document.querySelector('#isla')!).overflowX }; });
+    assert.ok(dim.abajo <= dim.alto && dim.alto - dim.abajo <= 40 && dim.izq >= 0 && dim.der <= dim.ventana && dim.fija === 'fixed' && dim.deslizante !== 'auto' && dim.deslizante !== 'scroll', JSON.stringify(dim));
+    assert.equal(await page.locator('.nav').isVisible(), false, 'la barra deslizante de 11 secciones ya no se muestra');
     await sinDesborde(page, 'Inventario');
-    const botonMin = await page.$$eval('#nav button', (b) => Math.min(...b.map((x) => x.getBoundingClientRect().height)));
-    assert.ok(botonMin >= 48, `los botones del menú son táctiles (${botonMin}px)`);
+    assert.equal(await page.locator('#isla button').count(), 3, 'tres botones: acceso rápido, Menú y acceso rápido');
+    const botonMin = await page.$$eval('#isla button', (b) => Math.min(...b.map((x) => x.getBoundingClientRect().height)));
+    assert.ok(botonMin >= 48, `los botones de la isla son táctiles (${botonMin}px)`);
 
     // Almacén: tres artículos dados de alta (dos del estilo 123L, uno de otro).
     const alta = (codigo: string, desc: string, estilo: string, lote: string) => page.evaluate(async (d) => (await (window as unknown as Atender).__POS_ATENDER__('POST', '/api/admin/almacen/manual', { lote_id: `m-${d.codigo}`, cantidad: 40, codigo: d.codigo, descripcion: d.desc, marca: 'LEVIS', estilo: d.estilo, lote: d.lote, precio: 499, departamento: 'Dama' })).status, { codigo, desc, estilo, lote });
     assert.equal(await alta('7500000000011', 'BLUSA', '123L', '20261014'), 200);
     assert.equal(await alta('7500000000028', 'BLUSA', '123L-N', '20261015'), 200);
     assert.equal(await alta('7500000000035', 'FALDA', 'ABC9', '20261016'), 200);
-    await page.click('#nav button[data-vista="almacen"]');
+    await irASeccion(page, 'almacen');
     await page.waitForSelector('#alm-tarjetas article[data-item]');
     assert.equal(await page.locator('#tabla-almacen').isVisible(), false, 'en el teléfono la tabla de escritorio no se ve');
     assert.equal(await page.locator('#alm-tarjetas article').count(), 3);
@@ -91,7 +94,7 @@ describe('[iPhone] Administración en el teléfono', { timeout: 180_000, skip: c
     assert.deepEqual(entregas.map((e) => [e.payload.tienda, e.payload.qty, e.payload.etiqueta_precio, e.payload.etiqueta_costura]).sort(), [['DUO', 15, true, true], ['LON', 15, true, true]]);
 
     // Las demás pantallas con tablas pasan a tarjetas sin desbordarse.
-    await page.click('#nav button[data-vista="inventario"]');
+    await irASeccion(page, 'inventario');
     await page.waitForSelector('#lista-inv .fila-inv');
     // El inventario es una lista de filas compactas (no tarjetas), sin los botones del Limbo, y el estado de la conexión es un chip en el encabezado.
     assert.equal(await page.locator('#tabla-inv-lista').isVisible(), false, 'la tabla de escritorio no se ve en el teléfono');
@@ -135,12 +138,12 @@ describe('[iPhone] Administración en el teléfono', { timeout: 180_000, skip: c
     await page.screenshot({ path: join(RAIZ, 'docs', 'capturas', '61-movil-inventario.png') });
     assert.ok((await page.locator('#vista').boundingBox())!.y >= (await page.locator('.encabezado').boundingBox())!.height - 1, 'el contenido empieza debajo del encabezado');
     for (const v of ['promociones', 'tarjetas', 'reportes', 'cortes', 'configuracion']) {
-      await page.click(`#nav button[data-vista="${v}"]`);
+      await irASeccion(page, v);
       await page.waitForTimeout(400);
       await sinDesborde(page, v);
     }
     // Diálogo a pantalla completa (edición de un artículo).
-    await page.click('#nav button[data-vista="inventario"]');
+    await irASeccion(page, 'inventario');
     await page.waitForSelector('#lista-inv .fila-inv');
     await page.click('#lista-inv .fila-inv');
     await page.waitForSelector('#dlg-articulo[open]');
@@ -151,7 +154,7 @@ describe('[iPhone] Administración en el teléfono', { timeout: 180_000, skip: c
     assert.deepEqual(await tocable(), { dentro: true, encima: true }, 'Guardar visible al abrir');
     await page.evaluate(() => { document.querySelector('#dlg-articulo')!.scrollTop = 99999; });
     assert.deepEqual(await tocable(), { dentro: true, encima: true }, 'Guardar visible al final de la hoja');
-    assert.equal(await page.locator('.nav').isVisible(), false, 'el menú inferior no tapa la hoja');
+    assert.equal(await page.locator('#isla').isVisible(), false, 'la isla inferior no tapa la hoja');
     await page.screenshot({ path: join(RAIZ, 'docs', 'capturas', '62-movil-articulo.png') });
     assert.deepEqual(errores, []);
   });

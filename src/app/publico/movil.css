@@ -180,3 +180,59 @@
   #lista-inv .fi-ex .hay-limbo { background: var(--acento); border-color: var(--acento); color: var(--acento-texto); font-weight: 700; }
   #lista-inv .fi-flecha { position: absolute; right: 10px; top: 50%; margin-top: -11px; color: var(--texto); } #lista-inv .fi-flecha .ico { width: 22px; height: 22px; }
 }
+
+/* ── Navegación inferior tipo «isla»: Acceso rápido · Menú · Acceso rápido (reemplaza la barra deslizante). Solo teléfono. ── */
+@media (max-width: 820px) {
+  body.con-isla .nav { display: none !important; }
+  body.con-isla { padding-bottom: calc(108px + env(safe-area-inset-bottom, 0px)); }
+  body:has(dialog[open]) .isla, body:has(dialog[open]) .menu-hoja, body:has(dialog[open]) #menu-fondo { display: none !important; }
+  .isla { position: fixed; z-index: 40; left: 12px; right: 12px; bottom: calc(10px + env(safe-area-inset-bottom, 0px)); display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; padding: 8px; border: 1.5px solid rgba(45, 212, 191, .55); border-radius: 30px; background: color-mix(in srgb, var(--marino) 94%, transparent); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); box-shadow: 0 0 22px rgba(45, 212, 191, .22), 0 14px 30px rgba(0, 0, 0, .45); }
+  .isla-btn { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; min-width: 0; height: 64px; padding: 0 2px; border: 1px solid rgba(159, 179, 200, .28); border-radius: 22px; background: rgba(255, 255, 255, .04); color: var(--marino-texto); font: inherit; font-size: clamp(11px, 3.5vw, 14px); font-weight: 600; line-height: 1.1; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+  .isla-btn .ico { width: 24px; height: 24px; flex: none; } .isla-btn span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .isla-btn:active { transform: scale(.97); }
+  .isla-btn[aria-current="page"], .isla-menu[aria-expanded="true"] { border-color: transparent; background: #2dd4bf; color: #04201e; font-weight: 800; box-shadow: 0 0 18px rgba(45, 212, 191, .55); }
+  .isla[data-menu-abierto] .isla-btn[aria-current="page"] { border-color: rgba(159, 179, 200, .28); background: rgba(255, 255, 255, .04); color: var(--marino-texto); font-weight: 600; box-shadow: none; }
+  .isla-btn:focus-visible, .menu-tile:focus-visible, .menu-lapiz:focus-visible, .slot-isla:focus-visible { outline: 3px solid #fff; outline-offset: 2px; }
+  #menu-fondo { position: fixed; inset: 0; z-index: 35; background: rgba(2, 8, 16, .55); }
+  #menu-fondo[hidden], .menu-hoja[hidden] { display: none; }
+  .menu-hoja { position: fixed; z-index: 38; left: 8px; right: 8px; bottom: calc(96px + env(safe-area-inset-bottom, 0px)); max-height: calc(100dvh - 190px - env(safe-area-inset-bottom, 0px)); overflow-y: auto; overscroll-behavior: contain; padding: 8px 12px 14px; border: 1.5px solid rgba(45, 212, 191, .4); border-radius: 28px; background: var(--marino); color: var(--marino-texto); box-shadow: 0 -8px 34px rgba(0, 0, 0, .5); }
+  .hoja-asa { width: 44px; height: 5px; margin: 2px auto 8px; border-radius: 3px; background: rgba(159, 179, 200, .55); }
+  .menu-cab { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+  .menu-cab-ico { width: 34px; height: 34px; flex: none; color: #2dd4bf; }
+  .menu-cab-txt { flex: 1; min-width: 0; } .menu-cab-txt h2 { margin: 0; font-size: 20px; color: #fff; } .menu-cab-txt p { margin: 2px 0 0; font-size: 13px; color: var(--marino-texto-2); }
+  .menu-lapiz { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 48px; height: 48px; padding: 0; border: 1.5px solid rgba(45, 212, 191, .7); border-radius: 14px; background: transparent; color: var(--marino-texto); cursor: pointer; } .menu-lapiz .ico { width: 24px; height: 24px; }
+  .menu-rejilla { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .menu-tile { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; min-width: 0; min-height: 62px; padding: 6px 4px; border: 1px solid rgba(159, 179, 200, .28); border-radius: 16px; background: rgba(255, 255, 255, .04); color: var(--marino-texto); font: inherit; font-size: 14px; line-height: 1.12; text-align: center; cursor: pointer; }
+  .menu-tile .ico { width: 24px; height: 24px; flex: none; } .menu-tile span { overflow-wrap: anywhere; }
+  .menu-tile[aria-current="page"] { border-color: transparent; background: #2dd4bf; color: #04201e; font-weight: 800; box-shadow: 0 0 16px rgba(45, 212, 191, .45); }
+  .pers-guia { margin: 0 0 12px; font-size: 14px; color: var(--marino-texto-2); line-height: 1.35; }
+  .slots-isla { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .slot-isla { position: relative; display: flex; flex-direction: column; align-items: flex-start; gap: 6px; min-width: 0; padding: 10px 34px 10px 12px; border: 1.5px solid rgba(159, 179, 200, .35); border-radius: 16px; background: rgba(255, 255, 255, .03); color: var(--marino-texto); font: inherit; text-align: left; cursor: pointer; }
+  .slot-isla small { font-size: 13px; color: var(--marino-texto-2); }
+  .slot-isla[aria-pressed="true"] { border-color: #2dd4bf; box-shadow: 0 0 14px rgba(45, 212, 191, .35); }
+  .slot-valor { display: flex; align-items: center; gap: 8px; max-width: 100%; } .slot-valor b { font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .slot-valor .ico { width: 22px; height: 22px; flex: none; color: #2dd4bf; }
+  .slot-chev { position: absolute; right: 10px; bottom: 14px; width: 20px; height: 20px; }
+  .pers-sub { margin: 14px 0 8px; font-size: 16px; color: #fff; }
+  .pers-rejilla .menu-tile { flex-direction: row; justify-content: flex-start; gap: 8px; padding: 6px 8px; text-align: left; min-height: 56px; font-size: 13.5px; }
+  .pers-rejilla .menu-tile.asignada { border-color: #2dd4bf; background: rgba(45, 212, 191, .14); }
+  .marca-ok { position: absolute; top: -7px; right: -5px; display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; background: #2dd4bf; color: #04201e; } .marca-ok .ico { width: 14px; height: 14px; stroke-width: 3; }
+  .pers-actual { display: flex; align-items: flex-start; gap: 10px; margin: 14px 0 0; padding: 10px 12px; border: 1px solid rgba(159, 179, 200, .3); border-radius: 14px; font-size: 13.5px; line-height: 1.35; color: var(--marino-texto-2); } .pers-actual .ico { width: 22px; height: 22px; flex: none; }
+}
+@media (min-width: 821px) { .isla, .menu-hoja, #menu-fondo { display: none !important; } }
+
+@media (max-width: 820px) { body.con-isla .barra-sel { bottom: calc(100px + env(safe-area-inset-bottom, 0px)); } }
+@media (max-width: 820px) {
+  /* Personalizar: las palabras no se parten a la mitad y los nombres de los botones se leen completos */
+  .menu-cab-txt h2 { font-size: 19px; }
+  .pers-rejilla .menu-tile { gap: 6px; padding: 6px 6px 6px 8px; font-size: 13px; line-height: 1.15; min-height: 52px; } .pers-rejilla .menu-tile .ico { width: 20px; height: 20px; }
+  .pers-rejilla .menu-tile span, .menu-tile span { overflow-wrap: normal; word-break: normal; hyphens: none; }
+  .slot-isla { padding: 10px 26px 10px 12px; } .slot-valor { gap: 6px; } .slot-valor b { font-size: 15px; } .slot-valor .ico { width: 20px; height: 20px; }
+  .slot-chev { right: 8px; width: 18px; height: 18px; }
+}
+@media (max-width: 429px) {
+  .pers-rejilla .menu-tile { flex-direction: column; justify-content: center; text-align: center; gap: 3px; padding: 6px 2px; }
+}
+@media (max-width: 399px) { .slot-valor .ico { display: none; } .slot-valor b { font-size: 14px; } }
+@media (max-width: 359px) {
+  .slot-valor .ico, .slot-chev { display: none; } .slot-isla { padding-right: 10px; } .slot-valor b { font-size: 14px; }
+}

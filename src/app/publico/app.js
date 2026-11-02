@@ -73,6 +73,9 @@ const I = {
   chevron: '<path d="m9 6 6 6-6 6"/>',
   file: '<path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/>',
   check: '<path d="m5 12.5 4.5 4.5L19 7.5"/>',
+  menu: '<path d="M4 6h16M4 12h16M4 18h16"/>',
+  rejilla: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/>',
+  chevabajo: '<path d="m6 9 6 6 6-6"/>',
   more: '<circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/>',
   info: '<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>',
   sliders: '<line x1="21" x2="14" y1="4" y2="4"/><line x1="10" x2="3" y1="4" y2="4"/><line x1="21" x2="12" y1="12" y2="12"/><line x1="8" x2="3" y1="12" y2="12"/><line x1="21" x2="16" y1="20" y2="20"/><line x1="12" x2="3" y1="20" y2="20"/><line x1="14" x2="14" y1="2" y2="6"/><line x1="8" x2="8" y1="10" y2="14"/><line x1="16" x2="16" y1="18" y2="22"/>',
@@ -292,6 +295,98 @@ function pintarNav() {
       return ir(b.dataset.vista);
     });
   }
+  if (window.__POS_ISLA__) pintarIsla(items.filter((v) => v !== 'administracion' && v !== 'volver_caja'));
+}
+
+// ── Navegación móvil tipo «isla» (solo Administración en el teléfono): tres botones fijos —acceso rápido, Menú, acceso rápido— y un panel con todas las secciones.
+//    Los accesos rápidos se personalizan desde el lápiz del panel de Menú (no desde Configuración). El menú lateral de escritorio no cambia. ──
+const ISLA_CLAVE = 'londuo.isla.v1';
+const ISLA_OMISION = { izq: 'reportes', der: 'configuracion' };
+const isla = { abierta: false, modo: 'menu', lado: 'izq', items: [] };
+const secActiva = () => ({ descuentos: 'promociones', dolares: 'cortes', entregas: 'almacen', conteo_limbo: 'inventario' }[S.vista] ?? S.vista);
+/** Accesos rápidos guardados en este teléfono; si ya no existen para este usuario se cambian por otros disponibles (nunca repetidos). */
+function accesosIsla(disp) {
+  let g = {};
+  try { g = JSON.parse(localStorage.getItem(ISLA_CLAVE) ?? '{}') ?? {}; } catch { /* sin almacenamiento: valores de fábrica */ }
+  const ok = (v) => typeof v === 'string' && disp.includes(v);
+  let izq = ok(g.izq) ? g.izq : ok(ISLA_OMISION.izq) ? ISLA_OMISION.izq : disp[0];
+  let der = ok(g.der) && g.der !== izq ? g.der : ok(ISLA_OMISION.der) && ISLA_OMISION.der !== izq ? ISLA_OMISION.der : disp.find((v) => v !== izq);
+  if (!izq || izq === der) izq = disp.find((v) => v !== der) ?? disp[0];
+  return { izq, der: der ?? disp[0] };
+}
+function guardarAccesosIsla(c) { try { localStorage.setItem(ISLA_CLAVE, JSON.stringify(c)); } catch { /* sin almacenamiento: dura mientras la página esté abierta */ } }
+function quitarIsla() { $('#isla')?.remove(); $('#menu-hoja')?.remove(); $('#menu-fondo')?.remove(); document.body.classList.remove('con-isla'); isla.abierta = false; isla.modo = 'menu'; }
+function irDesdeIsla(v) { cerrarMenuIsla(); return ir(v); }
+function cerrarMenuIsla(devolverFoco = false) {
+  isla.abierta = false; isla.modo = 'menu';
+  const h = $('#menu-hoja'); if (h) h.hidden = true;
+  const f = $('#menu-fondo'); if (f) f.hidden = true;
+  const m = $('#isla-menu'); if (m) { m.setAttribute('aria-expanded', 'false'); if (devolverFoco) m.focus(); }
+  $('#isla')?.removeAttribute('data-menu-abierto');
+}
+function pintarIsla(items) {
+  isla.items = items;
+  if (!items.length) { quitarIsla(); return; }
+  document.body.classList.add('con-isla');
+  const { izq, der } = accesosIsla(items);
+  const act = secActiva();
+  const rapido = (v, lado) => `<button type="button" class="isla-btn" data-lado="${lado}" data-vista="${v}" ${act === v ? 'aria-current="page"' : ''}>${ico(NAV[v][1])}<span>${NAV[v][0]}</span></button>`;
+  let barra = $('#isla');
+  if (!barra) {
+    barra = document.createElement('nav'); barra.id = 'isla'; barra.className = 'isla'; barra.setAttribute('aria-label', 'Navegación principal');
+    document.body.appendChild(barra);
+    const fondo = document.createElement('div'); fondo.id = 'menu-fondo'; fondo.hidden = true; fondo.addEventListener('click', () => cerrarMenuIsla());
+    const hoja = document.createElement('div'); hoja.id = 'menu-hoja'; hoja.className = 'menu-hoja'; hoja.hidden = true; hoja.setAttribute('role', 'dialog'); hoja.setAttribute('aria-labelledby', 'menu-titulo');
+    document.body.append(fondo, hoja);
+    if (!isla.teclas) document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape' && isla.abierta) { ev.preventDefault(); if (isla.modo === 'personalizar') { isla.modo = 'menu'; pintarHojaIsla(); $('#menu-lapiz')?.focus(); } else cerrarMenuIsla(true); } });
+    isla.teclas = true;
+  }
+  barra.innerHTML = `${rapido(izq, 'izq')}<button type="button" class="isla-btn isla-menu" id="isla-menu" aria-haspopup="dialog" aria-expanded="${isla.abierta}" aria-controls="menu-hoja">${ico('menu')}<span>Menú</span></button>${rapido(der, 'der')}`;
+  barra.toggleAttribute('data-menu-abierto', isla.abierta);
+  for (const b of barra.querySelectorAll('button[data-vista]')) b.addEventListener('click', () => irDesdeIsla(b.dataset.vista));
+  $('#isla-menu').addEventListener('click', () => {
+    if (isla.abierta) return cerrarMenuIsla();
+    isla.abierta = true; isla.modo = 'menu'; pintarIsla(isla.items);
+    $('#menu-fondo').hidden = false; $('#menu-hoja').hidden = false; pintarHojaIsla();
+    $('#menu-hoja').querySelector('[data-vista][aria-current="page"], [data-vista]')?.focus({ preventScroll: true });
+  });
+  if (isla.abierta) { $('#menu-fondo').hidden = false; $('#menu-hoja').hidden = false; pintarHojaIsla(); }
+}
+/** Contenido del panel: la lista de secciones (con el lápiz arriba a la derecha) o la pantalla de personalizar accesos rápidos. */
+function pintarHojaIsla() {
+  const hoja = $('#menu-hoja'); if (!hoja) return;
+  const items = isla.items, acc = accesosIsla(items), act = secActiva();
+  hoja.dataset.modo = isla.modo;
+  if (isla.modo === 'menu') {
+    hoja.innerHTML = `<div class="hoja-asa" aria-hidden="true"></div>
+      <div class="menu-cab">${ico('rejilla', 'menu-cab-ico')}<div class="menu-cab-txt"><h2 id="menu-titulo">Menú de navegación</h2><p>Accede a todas las secciones de LonDuo POS</p></div>
+        <button type="button" class="menu-lapiz" id="menu-lapiz" aria-label="Personalizar accesos rápidos" title="Personalizar accesos rápidos">${ico('pencil')}</button></div>
+      <div class="menu-rejilla" role="list">${items.map((v) => `<button type="button" class="menu-tile" role="listitem" data-vista="${v}" ${act === v ? 'aria-current="page"' : ''}>${ico(NAV[v][1])}<span>${NAV[v][0]}</span></button>`).join('')}</div>`;
+    for (const b of hoja.querySelectorAll('button[data-vista]')) b.addEventListener('click', () => irDesdeIsla(b.dataset.vista));
+    $('#menu-lapiz').addEventListener('click', () => { isla.modo = 'personalizar'; isla.lado = 'izq'; pintarHojaIsla(); $('#menu-hoja .slot-isla')?.focus(); });
+    return;
+  }
+  const nom = (v) => NAV[v][0];
+  const slot = (lado, rotulo) => `<button type="button" class="slot-isla" data-lado="${lado}" aria-pressed="${isla.lado === lado}"><small>${rotulo}</small><span class="slot-valor">${ico(NAV[acc[lado]][1])}<b>${nom(acc[lado])}</b></span>${ico('chevabajo', 'slot-chev')}</button>`;
+  hoja.innerHTML = `<div class="hoja-asa" aria-hidden="true"></div>
+    <div class="menu-cab">${ico('rejilla', 'menu-cab-ico')}<div class="menu-cab-txt"><h2 id="menu-titulo">Personalizar accesos rápidos</h2></div>
+      <button type="button" class="menu-lapiz" id="menu-volver" aria-label="Cerrar la personalización y volver al menú" title="Cerrar">${ico('x')}</button></div>
+    <p class="pers-guia">Elige qué secciones quieres en los botones izquierdo y derecho de la navegación inferior. El botón central “Menú” es fijo.</p>
+    <div class="slots-isla">${slot('izq', 'Botón izquierdo')}${slot('der', 'Botón derecho')}</div>
+    <h3 class="pers-sub">Secciones disponibles</h3>
+    <div class="menu-rejilla pers-rejilla" role="list">${items.map((v) => `<button type="button" class="menu-tile ${acc.izq === v || acc.der === v ? 'asignada' : ''}" role="listitem" data-sec="${v}" aria-pressed="${acc.izq === v || acc.der === v}" aria-label="${esc(nom(v))}${acc.izq === v ? ', botón izquierdo' : acc.der === v ? ', botón derecho' : ''}">${ico(NAV[v][1])}<span>${nom(v)}</span>${acc.izq === v || acc.der === v ? `<i class="marca-ok" aria-hidden="true">${ico('check')}</i>` : ''}</button>`).join('')}</div>
+    <p class="pers-actual" role="status" aria-live="polite">${ico('info')}<span>Actualmente: “${esc(nom(acc.izq))}” en el botón izquierdo y “${esc(nom(acc.der))}” en el derecho. Puedes cambiarlos en cualquier momento.</span></p>`;
+  $('#menu-volver').addEventListener('click', () => { isla.modo = 'menu'; pintarHojaIsla(); $('#menu-lapiz')?.focus(); });
+  for (const b of hoja.querySelectorAll('.slot-isla')) b.addEventListener('click', () => { isla.lado = b.dataset.lado; pintarHojaIsla(); hoja.querySelector(`.slot-isla[data-lado="${isla.lado}"]`).focus(); });
+  for (const b of hoja.querySelectorAll('[data-sec]')) b.addEventListener('click', () => {
+    const v = b.dataset.sec, otro = isla.lado === 'izq' ? 'der' : 'izq';
+    const nuevo = { ...acc };
+    if (v === acc[otro]) nuevo[otro] = acc[isla.lado]; // elegir la que ya tiene el otro botón las intercambia: nunca quedan repetidas
+    nuevo[isla.lado] = v;
+    guardarAccesosIsla(nuevo);
+    pintarIsla(isla.items); pintarHojaIsla();
+    hoja.querySelector(`[data-sec="${v}"]`)?.focus({ preventScroll: true });
+  });
 }
 async function ir(v) {
   S.vista = v;
@@ -5210,6 +5305,7 @@ function pintarLogin() {
   document.querySelectorAll('dialog[open]').forEach((d) => d.close()); // ningún cuadro queda abierto sobre la pantalla de inicio
   S.finInactividad = null; avisoInactividad().hidden = true;
   $('#nav').innerHTML = '';
+  quitarIsla();
   $('#tc-barra').innerHTML = '';
   $('#encabezado').innerHTML = admin
     ? `<div class="logos"><img class="logo" src="${logoDe('DUO')}" alt="DÚO New York"><img class="logo" src="${logoDe('LON')}" alt="London Love"></div><div class="titulo">Administración</div><div class="datos"></div>`
