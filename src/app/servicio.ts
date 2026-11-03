@@ -938,6 +938,11 @@ export class ServicioCaja {
     if (yaCerrado) return { corte, ticket_texto: null as string | null, impresion: null as { ok: boolean; error?: string } | null };
     return { corte, ...(await this.imprimirCierre(corte, 0)) };
   }
+  /** ¿La totalización de la terminal coincide con la tarjeta del sistema? Contesta con la cifra del sistema (después de capturar la de la terminal) y cuenta los intentos. */
+  verificarTotalizacion(fecha: string, valor: number) {
+    this.exigirFechaReciente(fecha);
+    return this.caja.verificarTotalizacion(fecha, valor);
+  }
   /** Reimprime el ticket del cierre YA guardado (no recalcula nada) con la leyenda de reimpresión. */
   async reimprimirCierre(fecha: string) {
     this.exigirFechaReciente(fecha);

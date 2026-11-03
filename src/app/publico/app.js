@@ -1476,7 +1476,7 @@ async function vistaCorte() {
         <div class="kpi" id="kpi-efectivo"><span class="kpi-rotulo">TOTAL EN EFECTIVO</span><b id="rc-total-efectivo">${mxn(v.cobros_efectivo + v.cobros_efectivo_usd)}</b></div>
         <div class="kpi" id="kpi-pesos"><span class="kpi-rotulo">Total en pesos</span><b id="rc-total-pesos">${mxn(v.cobros_efectivo)}</b></div>
         <div class="kpi" id="kpi-dolares"><span class="kpi-rotulo">Total en dólares</span><b id="rc-total-dolares">${usd(v.usd_recibidos)}</b>${v.cobros_efectivo_usd ? `<small>${mxn(v.cobros_efectivo_usd)}</small>` : ''}</div>
-        <div class="kpi" id="kpi-tarjeta"><span class="kpi-rotulo">TOTAL EN TARJETA</span><b id="rc-total-tarjeta">${mxn(v.cobros_tarjeta)}</b></div>
+        ${cerrado ? `<div class="kpi" id="kpi-tarjeta"><span class="kpi-rotulo">TOTAL EN TARJETA</span><b id="rc-total-tarjeta">${mxn(v.cobros_tarjeta)}</b></div>` : ''}
         ${v.ventas_a_credito_empleadas ? `<div class="kpi" id="kpi-credito-empleadas"><span class="kpi-rotulo">Crédito de empleadas</span><b id="rc-credito-empleadas">${mxn(v.ventas_a_credito_empleadas)}</b><small>no es cobro</small></div>` : ''}
       </div>
       <div class="panel" id="kpi-fondo" style="margin:10px 0"><h3 style="margin:0 0 6px">Fondo</h3>
@@ -1493,8 +1493,7 @@ async function vistaCorte() {
         ${fila('rc-contado-usd', 'Efectivo USD contado', v.conteo_usd ? usd(v.conteo_usd.contado) : (est.usd_requerido ? '—' : usd(0)))}
         ${fila('rc-esperado', 'Efectivo MXN esperado (movimientos reales de caja)', mxn(v.efectivo_ventas_esperado))}
         ${fila('rc-esperado-usd', 'Efectivo USD esperado', usd(v.efectivo_usd_esperado))}
-        ${fila('rc-tarjeta', 'Cobros con tarjeta / banco (no es efectivo)', mxn(v.cobros_tarjeta))}
-        ${fila('rc-reembolsos-banco', 'Reembolsos a tarjeta / banco (no es efectivo)', mxn(v.devoluciones_a_tarjeta))}
+        ${cerrado ? `${fila('rc-tarjeta', 'Cobros con tarjeta / banco (no es efectivo)', mxn(v.cobros_tarjeta))}${fila('rc-reembolsos-banco', 'Reembolsos a tarjeta / banco (no es efectivo)', mxn(v.devoluciones_a_tarjeta))}` : ''}
         ${fila('rc-retiros', 'Retiros registrados', mxn(v.retiros))}
         ${v.depositos && (v.depositos.recibidos || v.depositos.devueltos || v.depositos.aplicados || v.depositos.fees || v.depositos.pendiente) ? `${fila('rc-dep-recibidos', 'Depósitos recibidos (no son venta; ya están en el efectivo esperado)', mxn(v.depositos.recibidos))}${fila('rc-dep-devueltos', 'Depósitos devueltos', mxn(v.depositos.devueltos))}${fila('rc-dep-aplicados', 'Depósitos aplicados a compras', mxn(v.depositos.aplicados))}${fila('rc-dep-fees', 'Fees retenidos por daños', mxn(v.depositos.fees))}${fila('rc-dep-pendiente', `Saldo pendiente de depósitos (${v.depositos.pendiente_n})`, mxn(v.depositos.pendiente))}` : ''}
         ${fila('rc-entradas', 'Entradas y ajustes extraordinarios', mxn(v.entradas + (v.ajustes_admin ?? 0)))}
@@ -1503,8 +1502,8 @@ async function vistaCorte() {
       </tbody></table></div>
       <p class="nota">Los faltantes y sobrantes se registran tal cual en el corte; el sistema no los corrige para cuadrar la caja.</p>
       ${!cerrado && est.puede_cerrar ? `<div class="panel-totalizacion" id="bloque-totalizacion"><h3 style="margin:0 0 4px">Totalización bancaria</h3>
-        <p class="nota" style="margin:0 0 8px">Último paso: ingrese la cantidad de la <b>totalización bancaria</b> (el total que da la terminal al cerrar el lote). Debe coincidir con lo cobrado con tarjeta menos los reembolsos a tarjeta.</p>
-        <div class="campo"><label for="tot-banco">Totalización de la terminal (MXN)</label><input id="tot-banco" inputmode="decimal" autocomplete="off" placeholder="0.00" style="width:180px;font-size:20px"></div>
+        <p class="nota" style="margin:0 0 8px">Último paso: ingrese la cantidad de la <b>totalización bancaria</b> (el total que da la terminal al cerrar el lote) y toque <b>Verificar</b>. Al verificar, el sistema le muestra su cifra y le confirma si todo está bien. Queda registrada su primera captura.</p>
+        <div class="campo"><label for="tot-banco">Totalización de la terminal (MXN)</label><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><input id="tot-banco" inputmode="decimal" autocomplete="off" placeholder="0.00" style="width:180px;font-size:20px"><button class="btn" type="button" id="btn-verificar-tot">${ico('check')}<span>Verificar</span></button></div></div>
         <div id="tot-resultado" class="mensaje" role="status" aria-live="polite" hidden></div></div>` : ''}
       ${cerrado && j.cerrado.totalizacion_bancaria ? `<div id="totalizacion-cerrada" class="mensaje ${j.cerrado.totalizacion_bancaria.coincide ? 'ok' : 'aviso'}" role="status">Totalización bancaria: <b>${mxn(j.cerrado.totalizacion_bancaria.capturado)}</b> · tarjeta en el sistema <b>${mxn(j.cerrado.totalizacion_bancaria.sistema)}</b> · ${j.cerrado.totalizacion_bancaria.coincide ? '✅ coincide' : `⚠️ diferencia ${dif$(j.cerrado.totalizacion_bancaria.diferencia)}`}</div>` : ''}
       <div class="campo"><label for="cierre-obs">Observaciones del cierre</label><textarea id="cierre-obs" rows="2" maxlength="500" ${cerrado ? 'disabled' : ''} style="width:100%;box-sizing:border-box;padding:8px;border:2px solid var(--borde);border-radius:10px;background:var(--superficie);font:inherit">${esc(cerrado ? (j.cerrado.observaciones ?? '') : '')}</textarea></div>
@@ -1512,7 +1511,7 @@ async function vistaCorte() {
       <div id="msg-cierre" class="mensaje" role="status" aria-live="polite"></div>
       <div class="filas"><button class="btn" type="button" id="btn-volver-conteo" ${cerrado ? 'hidden' : ''}>Volver al conteo</button>${!cerrado && est.puede_cerrar ? `<button class="btn btn-primario" id="btn-cerrar-corte" type="button" disabled>${ico('check')}<span>CERRAR CORTE</span></button>` : ''}</div>
       <details id="detalle-corte" style="margin-top:12px"><summary>Ver el detalle completo del corte</summary>
-        <table id="tabla-corte"><tbody>${FILAS_CORTE.map(([k, t, f]) => `<tr data-campo="${k}"><th scope="row">${t}</th><td class="num">${f(v[k])}</td></tr>`).join('')}</tbody></table>
+        <table id="tabla-corte"><tbody>${FILAS_CORTE.filter(([k]) => cerrado || !['cobros_tarjeta', 'devoluciones_a_tarjeta'].includes(k)).map(([k, t, f]) => `<tr data-campo="${k}"><th scope="row">${t}</th><td class="num">${f(v[k])}</td></tr>`).join('')}</tbody></table>
         <p class="nota">Corte en vivo: se calcula con las ventas de ESTA caja. Pesos y dólares se concilian por separado.</p></details></section>`;
   }
   // Para contar el fondo y el efectivo hay que abrir el cajón: «Empezar corte» lo abre (con la clave de quien cierra) y deja registrado el motivo. Cada cierre del día empieza así.
@@ -1605,20 +1604,26 @@ async function vistaCorte() {
     // Totalización bancaria: sin capturarla no se enciende CERRAR CORTE; si coincide con la tarjeta del sistema se confirma con ✅, y si no, se puede cerrar pero la diferencia queda marcada.
     const tot = $('#tot-banco');
     const leerTot = () => { const t = (tot?.value ?? '').trim(); if (!t) return null; const v = parseMXN(t); return v === null || v < 0 ? null : v; };
-    tot?.addEventListener('input', () => {
+    let verificado = null; // el valor ya verificado: si cambia lo escrito hay que verificar otra vez
+    tot?.addEventListener('input', () => { verificado = null; $('#btn-cerrar-corte').disabled = true; $('#tot-resultado').hidden = true; });
+    tot?.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); $('#btn-verificar-tot').click(); } });
+    $('#btn-verificar-tot')?.addEventListener('click', async () => {
       const v = leerTot();
       const r = $('#tot-resultado');
-      const sistema = j.vivo.cobros_tarjeta - j.vivo.devoluciones_a_tarjeta;
-      $('#btn-cerrar-corte').disabled = v === null;
-      r.hidden = v === null;
-      if (v === null) return;
-      r.className = `mensaje ${v === sistema ? 'ok' : 'aviso'}`;
-      r.textContent = v === sistema ? `✅ Coincide con la tarjeta del sistema (${mxn(sistema)}). Todo está bien.` : `⚠️ No coincide: la terminal dice ${mxn(v)} y el sistema ${mxn(sistema)} (diferencia ${dif$(v - sistema)}). Puede cerrar, pero la diferencia quedará marcada en el corte.`;
+      if (v === null) { r.hidden = false; r.className = 'mensaje error'; r.textContent = 'Escriba el total que dio la terminal.'; return; }
+      try {
+        const x = await api('/api/corte/verificar-totalizacion', { valor: v });
+        verificado = v;
+        $('#btn-cerrar-corte').disabled = false;
+        r.hidden = false;
+        r.className = `mensaje ${x.coincide ? 'ok' : 'aviso'}`;
+        r.innerHTML = x.coincide ? `✅ Coincide: terminal <b>${mxn(v)}</b> = tarjeta del sistema <b>${mxn(x.sistema)}</b>. Todo está bien.` : `⚠️ No coincide: terminal <b>${mxn(v)}</b>, tarjeta del sistema <b>${mxn(x.sistema)}</b> (diferencia ${dif$(x.diferencia)}). Revise el total de la terminal; si es correcto, puede cerrar y la diferencia quedará marcada en el corte. Intento ${x.intentos}: la primera captura queda registrada.`;
+      } catch (e) { r.hidden = false; r.className = 'mensaje error'; r.textContent = e.message; }
     });
     $('#btn-cerrar-corte')?.addEventListener('click', async () => {
       const m = $('#msg-cierre');
       try {
-        const r = await api('/api/corte/cerrar', { clave: $('#cierre-clave')?.value ?? '', observaciones: $('#cierre-obs').value, totalizacion: leerTot() });
+        const r = await api('/api/corte/cerrar', { clave: $('#cierre-clave')?.value ?? '', observaciones: $('#cierre-obs').value, totalizacion: verificado ?? leerTot() });
         if (r.ticket_texto) void imprimirNavegador(r.ticket_texto, { logo: false });
         S.cierreImpresion = r.impresion ?? null;
         await vistaCorte();

@@ -99,13 +99,23 @@ describe('[navegador real] Cierre de caja guiado por pasos', { timeout: 240_000,
     assert.match((await page.textContent('#rc-dif-mxn'))!, /-\$40\.00[\s\S]*Faltante/);
     assert.match((await page.textContent('#rc-fondo-confirmado'))!, /\$5,000\.00 \(completo\)/);
     assert.equal(await page.textContent('#rc-esperado'), '$899.00');
-    assert.equal(await page.textContent('#rc-tarjeta'), '$0.00');
     await page.fill('#cierre-obs', 'Faltante de $40 por pago de barrendero.');
     assert.equal(await page.isDisabled('#btn-cerrar-corte'), true, 'CERRAR CORTE sigue apagado hasta capturar la totalización bancaria');
-    await page.fill('#tot-banco', '150'); // no coincide con la tarjeta del sistema ($0): se puede cerrar pero queda marcado
-    assert.match((await page.textContent('#tot-resultado'))!, /No coincide[\s\S]*diferencia \+\$150\.00/);
-    await page.fill('#tot-banco', '0');
-    assert.match((await page.textContent('#tot-resultado'))!, /✅ Coincide/);
+    // antes de capturar NO se ve ninguna cifra de tarjeta del sistema (ni resumen, ni conciliación, ni detalle)
+    assert.equal(await page.locator('#kpi-tarjeta, #rc-tarjeta, #rc-reembolsos-banco').count(), 0, 'sin cifras de tarjeta antes de capturar');
+    await page.click('#detalle-corte summary');
+    assert.equal(await page.locator('#tabla-corte tr[data-campo="cobros_tarjeta"], #tabla-corte tr[data-campo="devoluciones_a_tarjeta"]').count(), 0);
+    await page.fill('#tot-banco', '150'); // no coincide con la tarjeta del sistema ($0)
+    assert.equal(await page.isDisabled('#btn-cerrar-corte'), true, 'sin verificar tampoco cierra');
+    await page.click('#btn-verificar-tot');
+    await page.waitForFunction(() => /No coincide/.test(document.querySelector('#tot-resultado')?.textContent ?? ''));
+    assert.match((await page.textContent('#tot-resultado'))!, /terminal \$150\.00, tarjeta del sistema \$0\.00 \(diferencia \+\$150\.00\)[\s\S]*Intento 1/);
+    assert.equal(await page.isDisabled('#btn-cerrar-corte'), false, 'con diferencia se puede cerrar: queda marcada');
+    await page.fill('#tot-banco', '0'); // al cambiar la cifra hay que verificar de nuevo
+    assert.equal(await page.isDisabled('#btn-cerrar-corte'), true);
+    await page.press('#tot-banco', 'Enter');
+    await page.waitForFunction(() => /✅ Coincide/.test(document.querySelector('#tot-resultado')?.textContent ?? ''));
+    assert.match((await page.textContent('#tot-resultado'))!, /terminal \$0\.00 = tarjeta del sistema \$0\.00\. Todo está bien/);
     assert.equal(await page.isDisabled('#btn-cerrar-corte'), false);
     await page.click('#btn-cerrar-corte');
     await page.waitForFunction(() => /clave/i.test(document.querySelector('#msg-cierre')!.textContent!) || document.querySelector('#corte-cerrado'));

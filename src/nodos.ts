@@ -3447,6 +3447,20 @@ export class Caja {
    * Cierra el corte del día con el flujo guiado: exige los conteos al día y la clave de quien cierra; guarda observaciones y quién cerró.
    * Se puede cerrar más de una vez al día: el nuevo cierre cubre TODO el día y lleva una nota por cada cierre anterior (hora, venta de ese momento y que se confirmó el fondo).
    */
+  /**
+   * Verifica la totalización bancaria. La cifra del sistema solo se muestra DESPUÉS de capturar la de la terminal (no antes), y la primera captura y el número de
+   * intentos quedan en el corte, así que cambiar la cifra después de verla se nota. Se compara contra lo cobrado con tarjeta menos lo reembolsado a tarjeta.
+   */
+  verificarTotalizacion(fecha: string, valor: number): { coincide: boolean; intentos: number; sistema: number; diferencia: number } {
+    if (!Number.isInteger(valor) || valor < 0) throw new ErrorDominio('DATOS_REQUERIDOS', 'escriba la totalización de la terminal');
+    const v = this.corteEnVivo(fecha);
+    const clave = `totbanco:${this.id}:${fecha}`;
+    const intentos = (this.repo.kvGet<number>(clave) ?? 0) + 1;
+    this.repo.kvSet(clave, intentos);
+    if (intentos === 1) this.repo.kvSet(`totbanco1:${this.id}:${fecha}`, valor); // la PRIMERA captura (antes de ver la cifra del sistema) queda en el corte
+    const sistema = (v.cobros_tarjeta as number) - (v.devoluciones_a_tarjeta as number);
+    return { coincide: valor === sistema, intentos, sistema, diferencia: valor - sistema };
+  }
   cerrarCorteGuiado(fecha: string, d: { usuario: string; clave?: string; observaciones?: string; totalizacion?: number }) {
     const previos = this.cortesDelDia(fecha);
     if (previos.length && this.corteAlDia(fecha)) return previos.at(-1)!.payload as ReturnType<Caja['corteEnVivo']>;
@@ -3462,7 +3476,7 @@ export class Caja {
     const cierres_previos = previos.map((o) => ({ cerrado_en: o.ocurrio_en, cerrado_por: (o.payload.cerrado_por as string | undefined) ?? '', ventas: o.payload.ventas_mercancia as number, fondo_confirmado: o.payload.fondo_confirmado !== null && o.payload.fondo_confirmado !== undefined, fondo_estado: (o.payload.fondo_estado as string | null) ?? null, fondo_diferencia: (o.payload.fondo_diferencia as number | null) ?? 0 }));
     const vivo = this.corteEnVivo(fecha);
     const sistemaTarjeta = (vivo.cobros_tarjeta as number) - (vivo.devoluciones_a_tarjeta as number);
-    const totalizacion_bancaria = { capturado: d.totalizacion as number, sistema: sistemaTarjeta, diferencia: (d.totalizacion as number) - sistemaTarjeta, coincide: d.totalizacion === sistemaTarjeta, capturo: d.usuario };
+    const totalizacion_bancaria = { capturado: d.totalizacion as number, sistema: sistemaTarjeta, diferencia: (d.totalizacion as number) - sistemaTarjeta, coincide: d.totalizacion === sistemaTarjeta, capturo: d.usuario, intentos: this.repo.kvGet<number>(`totbanco:${this.id}:${fecha}`) ?? 0, primera_captura: this.repo.kvGet<number>(`totbanco1:${this.id}:${fecha}`) ?? (d.totalizacion as number) };
     const corte = { ...vivo, totalizacion_bancaria, cerrado_por: d.usuario, observaciones: String(d.observaciones ?? '').trim().slice(0, 500), ...(cierres_previos.length ? { cierres_previos } : {}) };
     this.emitir('corte.generado', corte, previos.length ? `corte:${this.id}:${fecha}:${previos.length + 1}` : `corte:${this.id}:${fecha}`);
     return corte;

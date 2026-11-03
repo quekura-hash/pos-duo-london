@@ -21,8 +21,15 @@ porAlmacen('Corte: totalización bancaria contra la tarjeta neta del sistema', (
     s.svc.registrarConteo('MXN', {}, 'ventas');
     await assert.rejects(() => s.svc.cerrarCorte(HOY(ctx)), { codigo: 'CIERRE_INCOMPLETO' }); // sin totalización no cierra
     await assert.rejects(() => s.svc.cerrarCorte(HOY(ctx), { totalizacion: -5 }), { codigo: 'CIERRE_INCOMPLETO' });
+    // verificar: primero se captura la cifra de la terminal; solo entonces se conoce la del sistema; la primera captura y los intentos quedan registrados
+    const v1 = s.svc.verificarTotalizacion(HOY(ctx), 80000);
+    assert.deepEqual(v1, { coincide: false, intentos: 1, sistema: 89900, diferencia: -9900 });
+    const v2 = s.svc.verificarTotalizacion(HOY(ctx), 89900);
+    assert.deepEqual([v2.coincide, v2.intentos], [true, 2]);
+    assert.throws(() => s.svc.verificarTotalizacion(HOY(ctx), -1), { codigo: 'DATOS_REQUERIDOS' });
     const r = await s.svc.cerrarCorte(HOY(ctx), { totalizacion: 89900 });
-    assert.deepEqual((r.corte as any).totalizacion_bancaria, { capturado: 89900, sistema: 89900, diferencia: 0, coincide: true, capturo: 'Ana' });
+    assert.deepEqual((r.corte as any).totalizacion_bancaria, { capturado: 89900, sistema: 89900, diferencia: 0, coincide: true, capturo: 'Ana', intentos: 2, primera_captura: 80000 });
+    assert.match(r.ticket_texto!, /Intentos de captura\s+2[\s\S]*Primera captura\s+\$800\.00/);
     assert.match(r.ticket_texto!, /TOTALIZACIÓN BANCARIA[\s\S]*Coincide\s+OK/);
     assert.equal(s.svc.corte(HOY(ctx)).estado.cerrado, true, 'el dato nuevo no hace que el corte parezca desactualizado');
   });

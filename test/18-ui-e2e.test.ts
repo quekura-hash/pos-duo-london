@@ -123,6 +123,8 @@ describe('[navegador real — Chromium con Playwright, UI sobre SQLite]', { time
       ['1', '$2,038.00', '$2,038.00', '$2,038.00', '1', '1']);
     await page.screenshot({ path: join(CAPTURAS, '03-corte.png') });
     await page.fill('#tot-banco', '0');
+    await page.click('#btn-verificar-tot');
+    await page.waitForFunction(() => /Coincide/.test(document.querySelector('#tot-resultado')?.textContent ?? ''));
     await page.click('#btn-cerrar-corte');
     await page.waitForSelector('#corte-cerrado');
     assert.match((await page.textContent('#corte-cerrado'))!, /Corte cerrado/);
@@ -814,6 +816,8 @@ describe('[navegador real — Chromium con Playwright, UI sobre SQLite]', { time
     assert.equal(await corte('conteo_mxn'), '$100.00');
     assert.equal(await corte('diferencia_mxn'), '$1,780.00');
     await page.fill('#tot-banco', '25'); // la terminal dice $25 y el sistema $0: cierra, pero la diferencia queda marcada
+    await page.click('#btn-verificar-tot');
+    await page.waitForFunction(() => /No coincide/.test(document.querySelector('#tot-resultado')?.textContent ?? ''));
     await page.click('#btn-cerrar-corte');
     await page.waitForSelector('#corte-cerrado');
     ctx.m.pump(); ctx.m.pump();
