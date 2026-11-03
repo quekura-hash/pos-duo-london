@@ -1580,7 +1580,7 @@ export class ServicioAdmin {
   rol(): RolAdmin { return this.rolUsuario ?? 'supervisor'; }
   /** Pantallas de Administración que ve cada rol (el almacenista solo trabaja Inventario y Almacén). */
   nav(): string[] {
-    return this.rol() === 'almacenista' ? ['inventario', 'almacen'] : ['inventario', 'almacen', 'promociones', 'tarjetas', 'reportes', 'historial', 'analisis', 'cortes', 'empleadas', 'configuracion'];
+    return this.rol() === 'almacenista' ? ['inventario', 'almacen'] : ['inventario', 'almacen', 'promociones', 'tarjetas', 'reportes', 'historial', 'analisis', 'cortes', 'empleadas', 'configuracion', 'ayuda'];
   }
   /** ¿El rol de la sesión puede llamar a esta ruta de Administración? El supervisor, todo; el almacenista, solo lo de Inventario y Almacén. */
   puede(metodo: string, ruta: string): boolean {

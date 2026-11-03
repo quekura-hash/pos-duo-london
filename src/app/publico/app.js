@@ -201,6 +201,7 @@ const folioTexto = () => (S.ultimoFolio ? `Folio ${String(S.ultimoFolio).padStar
 
 // ── navegación ──
 const NAV = {
+  ayuda: ['Ayuda', 'info'],
   venta: ['Venta', 'cart'], retiro: ['Retiro', 'cash'], ventas: ['Historial', 'clock'], corte: ['Cierre de caja', 'register'], extraordinarias: ['Operaciones extraordinarias', 'cash'],
   tarjetas: ['Tarjetas de regalo', 'gift'], reportes: ['Reportes', 'chart'], cortes: ['Cortes', 'register'], empleadas: ['Personal', 'user'], dolares: ['Dólares recibidos', 'dollar'], descuentos: ['Descuentos', 'tag'], entregas: ['Entregas de almacén', 'warehouse'], inventario: ['Inventario', 'box'], departamentos: ['Departamentos', 'box'], almacen: ['Almacén', 'warehouse'], promociones: ['Promociones', 'tag'], tiendas: ['Tiendas', 'store'], configuracion: ['Configuración', 'settings'], administracion: ['Administración', 'settings'], volver_caja: ['Caja', 'caja'], tipo_cambio: ['Tipo de cambio', 'banknote'], avisos: ['Avisos', 'bell'], analisis: ['Análisis', 'trend'], historial: ['Historial de ventas', 'clock'],
 };
@@ -410,7 +411,7 @@ async function ir(v) {
   if (v === 'corte') S.cierrePaso = undefined; // el cierre guiado arranca en el primer paso pendiente
   pintarNav();
   await pintarEncabezado();
-  await ({ folios: vistaFolios, venta: vistaVenta, retiro: vistaRetiro, corte: vistaCorte, extraordinarias: vistaExtraordinarias, ventas: vistaVentas, reportes: vistaReportes, inventario: vistaInventario, almacen: vistaAlmacen, promociones: vistaPromociones, configuracion: vistaConfiguracion, tiendas: vistaTiendas, departamentos: vistaDepartamentos, tarjetas: vistaTarjetas, devolucion: vistaDevolucion, dolares: vistaDolares, descuentos: vistaDescuentos, entregas: vistaEntregas, conteo_limbo: vistaConteoLimbo, tipo_cambio: vistaTipoCambio, cortes: vistaCortes, empleadas: vistaPersonal, avisos: vistaAvisos, analisis: vistaAnalisis, historial: vistaHistorialAdmin })[v]();
+  await ({ ayuda: vistaAyuda, folios: vistaFolios, venta: vistaVenta, retiro: vistaRetiro, corte: vistaCorte, extraordinarias: vistaExtraordinarias, ventas: vistaVentas, reportes: vistaReportes, inventario: vistaInventario, almacen: vistaAlmacen, promociones: vistaPromociones, configuracion: vistaConfiguracion, tiendas: vistaTiendas, departamentos: vistaDepartamentos, tarjetas: vistaTarjetas, devolucion: vistaDevolucion, dolares: vistaDolares, descuentos: vistaDescuentos, entregas: vistaEntregas, conteo_limbo: vistaConteoLimbo, tipo_cambio: vistaTipoCambio, cortes: vistaCortes, empleadas: vistaPersonal, avisos: vistaAvisos, analisis: vistaAnalisis, historial: vistaHistorialAdmin })[v]();
   if (v !== 'almacen') await avisosPisoInicial();
 }
 
@@ -6028,3 +6029,156 @@ document.addEventListener('keydown', (ev) => {
   b.click();
 });
 if (!window.__POS_MANUAL__) iniciar();
+
+// ── Ayuda integrada: manual con buscador de palabras clave (sin acentos, con sinónimos) y pasos sencillos ──
+// Cada artículo: id, para ('caja' | 'admin' | 'todos'), cat (categoría), titulo, claves (palabras que la gente usaría), pasos (lista) y, opcional, nota e `ir` (pantalla a la que lleva el botón).
+const AYUDA_CATEGORIAS = ['Ventas', 'Cobro', 'Descuentos', 'Cambios y devoluciones', 'Tarjetas de regalo', 'Depósitos', 'Corte y efectivo', 'Otros'];
+const AYUDA_ARTICULOS = [
+  { id: 'venta', para: 'caja', cat: 'Ventas', titulo: 'Hacer una venta', claves: 'vender venta nueva escanear articulo prenda mercancia ropa falda vestido blusa pantalon codigo de barras cantidad quitar',
+    pasos: ['En la pantalla Venta, escanee la etiqueta del artículo con el lector (o escriba el código en «Escanear código o buscar artículo» y pulse Enter).', 'Repita con cada artículo. Para cambiar la cantidad use los botones − y + de su renglón; para quitarlo, toque la X.', 'Si la venta fue atendida por una vendedora, elíjala en «Venta por». Si nadie ayudó a la clienta, déjelo en «Autocompra».', 'Cuando todo esté capturado, elija la forma de pago y toque el botón verde de cobrar.', 'Se imprime el ticket y se abre el cajón. Toque «Nueva venta» para atender a la siguiente clienta.'],
+    nota: 'Si el artículo no existe en el sistema, use el botón «Nuevo artículo» (pide su clave).', ir: 'venta' },
+  { id: 'espera', para: 'caja', cat: 'Ventas', titulo: 'Poner una venta en espera y retomarla', claves: 'espera esperar guardar venta pausa pausar retomar recuperar cliente se fue otra clienta',
+    pasos: ['Con la venta en pantalla, toque el botón «Venta en espera».', 'Escriba una nota (nombre de la clienta o referencia; es opcional) y toque «Poner esta venta en espera».', 'Atienda a la otra clienta con una venta nueva.', 'Para volver a la primera, toque otra vez «Venta en espera» y, en «Ventas guardadas», toque «Retomar».'],
+    nota: 'Al retomar, los precios y promociones se calculan de nuevo; las existencias no se reservan mientras la venta espera.' },
+  { id: 'cancelar-en-curso', para: 'caja', cat: 'Ventas', titulo: 'Cancelar una venta que todavía no se cobra', claves: 'cancelar anular venta en curso borrar vaciar empezar de nuevo no cobrada',
+    pasos: ['Con la venta en pantalla, toque «Cancelar venta».', 'Confirme. No pide clave: queda registrado lo que tenía la venta.', 'Se abre una venta nueva en blanco.'], nota: 'Si la venta YA se cobró no se cancela aquí: vea «Revertir (cancelar) una venta ya cobrada».' },
+  { id: 'nuevo-articulo', para: 'caja', cat: 'Ventas', titulo: 'Vender un artículo que no está en el sistema', claves: 'nuevo articulo no existe no lee codigo sin etiqueta alta precio manual accesorio',
+    pasos: ['En la pantalla Venta, toque «Nuevo artículo».', 'Escriba o escanee el código de la etiqueta, la descripción y el precio de venta.', 'Teclee su clave y confirme.', 'El artículo se agrega a la venta y queda dado de alta para después.'] },
+  { id: 'efectivo', para: 'caja', cat: 'Cobro', titulo: 'Cobrar en efectivo (con cambio)', claves: 'efectivo cobrar cambio feria billete pesos recibido exacto cliente paga',
+    pasos: ['Con la venta lista, deje seleccionado «Efectivo».', 'Escriba en «Pesos recibidos» lo que le dio la clienta (o toque «Cliente paga exacto»).', 'El sistema muestra el «Cambio» (y «DAR DE FERIA» al cobrar). Entregue ese cambio.', 'Toque «Cobrar». Se imprime el ticket y se abre el cajón.'] },
+  { id: 'dolares', para: 'caja', cat: 'Cobro', titulo: 'Cobrar con dólares', claves: 'dolares usd dolar billetes extranjero tipo de cambio',
+    pasos: ['Con la venta lista, en «Efectivo» escriba los dólares en «Dólares recibidos (USD)». Solo se aceptan billetes completos.', 'Si la clienta también da pesos, escríbalos en «Pesos recibidos».', 'El sistema calcula el equivalente al tipo de cambio vigente, lo que falta y el cambio (el cambio se entrega en pesos).', 'Toque «Cobrar».'], nota: 'Si el dólar dice «sin definir», no se pueden recibir dólares hasta que Administración fije el tipo de cambio.' },
+  { id: 'tarjeta', para: 'caja', cat: 'Cobro', titulo: 'Cobrar con tarjeta de crédito o débito', claves: 'tarjeta credito debito tc tdc terminal banco voucher autorizacion transaccion confirmada pagar con tarjeta visa mastercard',
+    pasos: ['Con la venta lista, toque el botón «Tarjeta».', 'Cobre el importe en la terminal bancaria.', 'Cuando la terminal imprima el comprobante, mire la autorización y escriba sus últimos 4 números en «Últimos 4 de la autorización».', 'Toque «TRANSACCIÓN CONFIRMADA». Sin esos 4 caracteres el botón no se enciende.', 'Se imprime el ticket. Entregue a la clienta su voucher y su ticket.'], nota: 'Nunca toque «Transacción confirmada» antes de ver aprobada la operación en la terminal: al cerrar el corte se compara contra el total del banco.' },
+  { id: 'mixto', para: 'caja', cat: 'Cobro', titulo: 'Pago mixto: efectivo + tarjeta (y tarjeta de regalo)', claves: 'mixto mixta combinar dos formas de pago parte efectivo parte tarjeta tarjeta de regalo tres formas',
+    pasos: ['Con la venta lista, toque «Mixto».', 'Si la clienta paga con tarjeta de regalo: escanee o escriba el código en «Tarjeta de regalo (opcional)» y pulse Enter. El saldo se aplica primero.', 'En «Monto cobrado con tarjeta bancaria» escriba lo que se pasará por la terminal (déjelo vacío si no habrá tarjeta bancaria).', 'Lo que falte se cobra en efectivo: escriba «Efectivo recibido» para ver el cambio, o déjelo vacío si paga exacto.', 'Si usó la terminal, cóbrela y escriba los últimos 4 de la autorización. Toque el botón de cobrar.'], nota: 'Combinaciones posibles: tarjeta de regalo + efectivo, tarjeta de regalo + tarjeta, los tres, o efectivo + tarjeta.' },
+  { id: 'cobrar-regalo', para: 'caja', cat: 'Tarjetas de regalo', titulo: 'Cobrar con una tarjeta de regalo', claves: 'tarjeta de regalo gift card regalo saldo cobrar con tarjeta de regalo codigo',
+    pasos: ['Con la venta lista, toque «Tarjeta de regalo» (si solo es parte del pago, use «Mixto»).', 'Escanee o escriba el código de la tarjeta y pulse Enter: se muestra su saldo y vigencia.', 'Se aplica todo el saldo que alcance. Si falta dinero, el resto se cobra en efectivo.', 'Toque «Cobrar». El ticket muestra cuánto quedó de saldo.'], nota: 'Si el saldo no alcanza y el resto va con tarjeta bancaria, use «Mixto».' },
+  { id: 'vender-regalo', para: 'caja', cat: 'Tarjetas de regalo', titulo: 'Vender o recargar una tarjeta de regalo', claves: 'vender tarjeta de regalo recargar alta nueva saldo regalo gift card cobrar tarjeta regalo',
+    pasos: ['En el menú lateral, entre a «Tarjetas de regalo».', 'Para una tarjeta nueva, use «Vender una tarjeta nueva»: escriba el código, el monto y, si quiere, el efectivo recibido; toque «Cobrar y dar de alta».', 'Para sumar saldo, use «Recargar una tarjeta»: escriba el código y el monto; toque «Cobrar y recargar».', 'Se imprime el ticket (lleva folio). El dinero se cobra en efectivo.'], ir: 'tarjetas' },
+  { id: 'descuento', para: 'caja', cat: 'Descuentos', titulo: 'Aplicar un descuento (con clave)', claves: 'descuento rebaja porcentaje monto precio final promocion manual supervisor clave',
+    pasos: ['Con los artículos ya en la venta, toque «Aplicar descuento». Si es solo para un artículo, selecciónelo antes en la lista.', 'Elija a qué se aplica: «Solo el artículo seleccionado» o «Toda la venta».', 'Elija el tipo: «Porcentaje (%)», «Monto ($)» o «Precio final ($)» (este último solo para un artículo).', 'Escriba el valor y su clave (o la de un supervisor).', 'Toque «Autorizar y aplicar». Queda anotado quién lo autorizó, en la venta y en el ticket.'], nota: 'Para quitarlo, vuelva a abrir «Aplicar descuento» y toque «Quitar descuento».' },
+  { id: 'cupon', para: 'caja', cat: 'Descuentos', titulo: 'Usar un cupón de descuento', claves: 'cupon codigo qr descuento regalo promocion',
+    pasos: ['Con los artículos en la venta, toque «Cupón».', 'Escanee el QR del cupón o escriba su código.', 'Toque «Aplicar cupón». El descuento aparece en el resumen.'], nota: 'También puede escanear el QR con el campo de búsqueda de la venta.' },
+  { id: 'empleada', para: 'caja', cat: 'Descuentos', titulo: 'Venta con descuento de empleada', claves: 'empleada descuento empleada trabajadora uniforme credito nomina compra personal 15 30',
+    pasos: ['Escanee los artículos de la venta.', 'Toque «Venta a empleada».', 'Elija a la empleada en «Empleada» y pídale que teclee SU PROPIA clave en «Clave de la empleada».', 'Si quien cobra es la misma empleada, pide además la clave de un supervisor (o marcar «No hay supervisor: lo autorizo yo», que queda anotado).', 'Toque «Aplicar descuento de empleada». El descuento se aplica solo a toda la mercancía.', 'Para un uniforme de la tienda: seleccione el artículo en la lista y toque «Marcar como uniforme» (lleva el descuento mayor).', 'Cobre normal, o a crédito de la empleada si quiere que se descuente de su cuenta.'], nota: 'No se combina con promociones. La compra a crédito lleva folio propio (serie CR).' },
+  { id: 'vip', para: 'caja', cat: 'Descuentos', titulo: 'Venta a una clienta VIP', claves: 'vip cliente vip clienta especial descuento vip preferente',
+    pasos: ['Con los artículos en la venta, toque «Aplicar descuento».', 'Toque «Cliente VIP».', 'Busque a la clienta por nombre y selecciónela.', 'Teclee su clave y confirme. El porcentaje de la clienta se aplica a la venta.'], nota: 'Para quitarlo use el botón de quitar VIP que aparece en la venta.' },
+  { id: 'cambio', para: 'caja', cat: 'Cambios y devoluciones', titulo: 'Hacer un cambio de mercancía (artículo, prenda, falda…)', claves: 'cambio cambiar mercancia articulo prenda falda vestido blusa pantalon regresar devolver devolucion no le quedo talla otra pieza hacer cambio',
+    pasos: ['En la pantalla Venta toque «Hacer cambio». Solo se hace en la caja donde se vendió.', 'Busque la venta original: por fecha y hora, escaneando el artículo, o escribiendo el folio (por ejemplo D2-000003). Toque «Buscar venta».', 'En la venta encontrada, escriba cuántas piezas regresa la clienta en la columna «Cambiar» y toque «Aceptar cambio».', 'Escriba los datos del cambio (nombre de la clienta, teléfono y motivo) y toque «Aceptar cambio».', 'Regresa a la Venta con las piezas en negativo (en rojo). Escanee los artículos nuevos que se lleva.', 'El sistema descuenta lo regresado de lo nuevo. Cobre la diferencia (si hay) como cualquier venta.'], nota: 'Si lo nuevo vale menos que lo regresado, queda saldo a favor: vea «Saldo a favor: devolver dinero a la clienta».', ir: 'devolucion' },
+  { id: 'saldo-favor', para: 'caja', cat: 'Cambios y devoluciones', titulo: 'Saldo a favor: devolver dinero a la clienta', claves: 'saldo a favor devolver dinero reembolso regresar dinero cambio mas barato no hay cambio posible',
+    pasos: ['Cuando una clienta regresa mercancía y se lleva algo que vale menos, el cobro se bloquea y aparece «Saldo a favor de la clienta».', 'Puede agregar más artículos hasta cubrirlo, o devolverle el dinero.', 'Para devolverlo, toque «No hay cambio posible, devolver dinero».', 'Elija quién autoriza y que teclee su clave (otra persona o un supervisor; si no hay nadie más, marque la opción de que no hay segunda persona y use su propia clave).', 'Se entrega el efectivo, se imprime el comprobante y se abre el cajón.'] },
+  { id: 'revertir', para: 'caja', cat: 'Cambios y devoluciones', titulo: 'Revertir (cancelar) una venta ya cobrada', claves: 'revertir cancelar venta cobrada anular error devolver todo reembolso ticket equivocado',
+    pasos: ['En el menú lateral entre a «Historial» y busque la venta (por folio o fecha).', 'Toque la venta para ver su detalle y después «Revertir venta».', 'Escriba el nombre y teléfono de la clienta, el motivo y elija quién autoriza con su clave (otra persona, nunca quien hizo la venta).', 'Confirme. Se imprimen el ticket de cancelación y el comprobante que firma la clienta.'], nota: 'Una venta con devoluciones o una tarjeta de regalo vendida no se revierte completa.', ir: 'ventas' },
+  { id: 'buscar-ticket', para: 'caja', cat: 'Otros', titulo: 'Buscar un ticket y reimprimirlo', claves: 'buscar ticket folio reimprimir copia ticket perdio historial duplicado imprimir de nuevo',
+    pasos: ['En la pantalla Venta toque «Buscar ticket» (o entre a «Historial» en el menú).', 'Busque por folio, fecha o código del ticket y toque «Buscar».', 'Toque la venta y luego «Ver ticket».', 'Para sacar otra copia use «Reimprimir». La copia dice «REIMPRESIÓN».'], ir: 'ventas' },
+  { id: 'corte', para: 'caja', cat: 'Corte y efectivo', titulo: 'Hacer el corte de caja (cierre del día)', claves: 'corte cierre cerrar caja cierre del dia fondo conteo efectivo totalizacion cerrar corte cuadrar',
+    pasos: ['En el menú lateral entre a «Cierre de caja».', 'Paso 1, «Contar y completar fondo»: cuente los billetes y monedas del fondo, anótelos y toque «Confirmar fondo y continuar». Si falta dinero, escriba la nota.', 'Paso 2, «Contar efectivo de las ventas»: cuente SOLO el efectivo de las ventas (sin el fondo) por denominación y toque «Continuar a revisión y cierre».', 'Paso 3, «Revisar y cerrar»: revise el resumen y las diferencias.', 'Escriba la totalización bancaria de la terminal y toque «Verificar» (vea «Totalización bancaria»).', 'Escriba las observaciones del cierre (si hay algo que aclarar) y su clave.', 'Toque «CERRAR CORTE». Se imprime el ticket del cierre.'], nota: 'Los faltantes y sobrantes se registran tal cual; el sistema no los corrige. Si vuelve a vender después de cerrar, se puede cerrar otra vez el mismo día.', ir: 'corte' },
+  { id: 'totalizacion', para: 'caja', cat: 'Corte y efectivo', titulo: 'Totalización bancaria al cerrar el corte', claves: 'totalizacion bancaria terminal lote cierre de lote banco total tarjeta verificar coincide no coincide intentos diferencia',
+    pasos: ['Imprima en la terminal bancaria el cierre del lote (la totalización).', 'En el Paso 3 del corte, escriba ese total en «Totalización de la terminal (MXN)» y toque «Verificar» (o Enter).', 'Si coincide con la tarjeta del sistema aparece el mensaje con la palomita ✅ («Todo está bien») y se enciende CERRAR CORTE.', 'Si no coincide, revise el voucher y vuelva a capturarlo. Tiene 3 intentos; durante los intentos el sistema no muestra su cifra.', 'Al tercer intento fallido se muestra la cifra del sistema y la diferencia; puede cerrar y el corte queda marcado como «no coincidió».'], nota: 'La cifra del sistema es lo cobrado con tarjeta menos los reembolsos a tarjeta. Si hay diferencia, revise si alguna venta con tarjeta de regalo o efectivo se cobró en el botón equivocado.', ir: 'corte' },
+  { id: 'retiro', para: 'caja', cat: 'Corte y efectivo', titulo: 'Hacer un retiro de efectivo', claves: 'retiro retirar efectivo billetes grandes sacar dinero caja seguridad limite de efectivo',
+    pasos: ['En el menú lateral entre a «Retiro».', 'Indique los billetes grandes (pesos y/o dólares) que va a retirar.', 'Escriba su clave para confirmar y toque «Registrar retiro e imprimir».', 'Se imprime el comprobante con el desglose. Entregue el dinero a quien lo recibe, con su firma.'], nota: 'El aviso de retiro nunca bloquea una venta.', ir: 'retiro' },
+  { id: 'limite-efectivo', para: 'caja', cat: 'Corte y efectivo', titulo: 'Aviso «Esta caja ya llegó al límite de efectivo»', claves: 'limite efectivo aviso morado cobrar en caja 2 caja llena demasiado efectivo',
+    pasos: ['Cuando aparece el aviso morado en el menú lateral, esta caja ya vendió en efectivo lo máximo permitido del día.', 'Cobre las ventas siguientes en la otra caja de la tienda (la que indica el aviso).', 'Puede seguir usando esta caja para tarjeta y para otras operaciones.'], nota: 'Administración fija el límite de cada caja.' },
+  { id: 'gasto', para: 'caja', cat: 'Corte y efectivo', titulo: 'Registrar un gasto de caja', claves: 'gasto de caja pagar limpieza proveedor barrendero recibo pago con efectivo del cajon salida',
+    pasos: ['En el menú lateral entre a «Operaciones extraordinarias».', 'En «Gasto de caja» escriba el importe, el concepto y el nombre de quien recibe el dinero.', 'Elija quién autoriza y teclee su clave (otra persona o supervisor).', 'Toque «Registrar gasto e imprimir recibo» y pida la firma de quien recibe.'], ir: 'extraordinarias' },
+  { id: 'entrada', para: 'caja', cat: 'Corte y efectivo', titulo: 'Registrar una entrada de efectivo', claves: 'entrada de efectivo meter dinero extra feria prestamo ingreso fuera de venta',
+    pasos: ['Entre a «Operaciones extraordinarias».', 'En «Entrada de efectivo» elija la moneda, escriba el monto y el motivo.', 'Un supervisor teclea su clave en «Clave del supervisor».', 'Toque «Registrar entrada».'], ir: 'extraordinarias' },
+  { id: 'abrir-caja', para: 'caja', cat: 'Otros', titulo: 'Abrir el cajón sin hacer una venta', claves: 'abrir caja cajon sin venta feria rectificar efectivo abrir cajon',
+    pasos: ['En la pantalla Venta toque «Abrir caja» (o Ctrl + F8).', 'Lea el aviso y toque «Entendido».', 'Elija el motivo (Feria, Rectificar efectivo u Otro) y escriba su clave si la pide.', 'El cajón se abre y la apertura queda registrada con quién y por qué.'] },
+  { id: 'deposito-recibir', para: 'caja', cat: 'Depósitos', titulo: 'Recibir un depósito (prueba de vestido)', claves: 'deposito depositar garantia prueba de vestido vestido de noche recibir dinero dano mancha cierre roto comprobante nuevo deposito',
+    pasos: ['En la pantalla Venta toque «Depósitos» y luego «Nuevo depósito».', 'Escriba el nombre de la clienta y el monto (puede tocar $100, $200, $300 o $500). El concepto ya dice «Prueba de vestido de noche».', 'Toque «Recibir depósito e imprimir ticket». Reciba el dinero; se abre el cajón.', 'Entregue a la clienta el comprobante: lleva el folio y el código de barras. Dígale que lo conserve.'], nota: 'Un depósito NO es una venta: no suma a las ventas del día.' },
+  { id: 'deposito-devolver', para: 'caja', cat: 'Depósitos', titulo: 'Devolver un depósito', claves: 'devolver deposito regresar dinero garantia vestido sin danos entregar deposito',
+    pasos: ['Toque «Depósitos» y luego «Buscar depósito».', 'Escanee el código de barras del comprobante de la clienta (o escriba el folio o el nombre) y toque «Buscar»; abra el depósito.', 'Revise el vestido. Si está bien, toque «Devolver depósito».', 'Marque la casilla «Confirmo que el vestido se devolvió» y toque «Entregar el dinero y devolver depósito».', 'Entregue el efectivo y la clienta firma el comprobante de devolución.'], nota: 'Si no escanea el código del comprobante se pide el procedimiento de comprobante extraviado.' },
+  { id: 'deposito-aplicar', para: 'caja', cat: 'Depósitos', titulo: 'Aplicar un depósito a una compra', claves: 'aplicar deposito comprar vestido usar deposito como pago descontar deposito de la compra',
+    pasos: ['Agregue el vestido a la venta en pantalla.', 'Toque «Depósitos», busque el depósito (escaneando su comprobante) y ábralo.', 'Toque «Aplicar a una compra». Verá el precio, el depósito disponible y lo que falta por pagar.', 'Escanee el código del comprobante y toque el botón verde de aplicar a esta venta. En el resumen aparece «Depósito aplicado».', 'Cobre solo la diferencia con efectivo, tarjeta o mixto.'], nota: 'Hasta que se confirma el cobro el depósito solo está reservado; si cancela la venta, queda libre.' },
+  { id: 'deposito-fee', para: 'caja', cat: 'Depósitos', titulo: 'Cobrar un fee por daño con el depósito', claves: 'fee dano daño mancha cierre roto retener deposito descontar dano cobro por dano',
+    pasos: ['Toque «Depósitos», busque el depósito y ábralo.', 'Toque «Cobrar fee por daño».', 'Escriba el importe del daño (nunca mayor al saldo) y el motivo.', 'Otra persona o un supervisor teclea su clave para autorizar.', 'Toque «Cobrar fee y continuar». Se imprime el comprobante; el resto del depósito se puede devolver o aplicar.'], nota: 'El fee no mueve efectivo: se descuenta del depósito que ya estaba en la caja.' },
+  { id: 'deposito-perdido', para: 'caja', cat: 'Depósitos', titulo: 'La clienta perdió su comprobante de depósito', claves: 'perdio comprobante extravio ticket de deposito sin comprobante doble clave deposito perdido',
+    pasos: ['Busque el depósito por nombre o folio y ábralo.', 'En «Devolver depósito» o «Aplicar a una compra», marque la casilla de que la clienta «perdió el comprobante».', 'Otra persona (o un supervisor) elige su nombre y teclea su clave. Si no hay nadie más, marque «No hay nadie más para autorizar: autorizo yo con mi clave» (queda anotado).', 'Continúe con la devolución o la aplicación. El comprobante de resolución dice «Comprobante extraviado» (queda anotado).'] },
+  { id: 'calculadora', para: 'caja', cat: 'Otros', titulo: 'Usar la calculadora', claves: 'calculadora calcular sumar operaciones',
+    pasos: ['En el menú lateral toque «Calculadora»: se abre una ventana que puede mover.', 'Siga trabajando en la venta: la calculadora no la bloquea.', 'Ciérrela con su X.'] },
+  // ── Administración ──
+  { id: 'a-historial', para: 'admin', cat: 'Otros', titulo: 'Consultar el Historial de ventas con su resumen', claves: 'historial ventas consultar total tickets ticket promedio fechas caja detalle',
+    pasos: ['Entre a «Historial» (en el teléfono, desde el Menú).', 'Elija «Desde», «Hasta» y la «Caja» (o todas) y toque «Consultar».', 'Arriba verá el total de ventas, los tickets y el ticket promedio del periodo.', 'Toque una venta para ver su detalle y su ticket.', 'Más abajo están los retiros de efectivo y los gastos de caja del periodo.'], nota: 'El total ya resta devoluciones y no cuenta ventas canceladas; los depósitos y los retiros no son ventas.', ir: 'historial' },
+  { id: 'a-cortes', para: 'admin', cat: 'Corte y efectivo', titulo: 'Revisar los cortes y las diferencias de totalización', claves: 'cortes revisar diferencias totalizacion bancaria no coincidio faltante sobrante cierres cajas',
+    pasos: ['Entre a «Cortes» y elija las fechas y las cajas.', 'Arriba aparece un aviso con los cortes que cerraron con diferencia en la totalización bancaria (terminal contra sistema).', 'Revise la tabla: pesos y dólares van separados y nunca se suman.', 'Para una diferencia, pregunte a quien cerró y revise las ventas con tarjeta de ese día en el Historial.'], ir: 'cortes' },
+  { id: 'a-reportes', para: 'admin', cat: 'Otros', titulo: 'Ver los reportes y el resumen del día', claves: 'reportes resumen del dia ventas netas retiros gastos depositos fees tiendas excel contadora analisis',
+    pasos: ['Entre a «Reportes» para el resumen del día por tienda y por caja: ventas netas, forma de pago, retiros, gastos y depósitos.', 'Para comparar periodos, entre a «Análisis» y elija cómo agrupar (mes, semana, día, hora…).', 'Los fees por daño de depósitos suman como ingreso por daño, pero no cuentan como tickets.', 'El Excel de la contadora se genera desde Reportes («Detalle de ventas»).'], ir: 'reportes' },
+];
+// Palabras que significan lo mismo (con la raíz sin acentos): buscar una encuentra las demás.
+const AYUDA_SINONIMOS = [
+  ['articulo', 'mercancia', 'prenda', 'ropa', 'falda', 'vestido', 'blusa', 'pantalon', 'pieza', 'producto', 'accesorio'],
+  ['cambio', 'cambiar', 'devolucion', 'devolver', 'regresar', 'reembolso'],
+  ['tarjeta', 'credito', 'debito', 'tc', 'tdc', 'terminal', 'banco', 'bancaria', 'visa', 'mastercard'],
+  ['corte', 'cierre', 'cerrar', 'cuadrar'],
+  ['efectivo', 'billete', 'billetes', 'pesos', 'cash'],
+  ['empleada', 'trabajadora', 'personal', 'uniforme'],
+  ['descuento', 'rebaja', 'promocion', 'cupon'],
+  ['ticket', 'comprobante', 'recibo', 'voucher'],
+  ['cancelar', 'anular', 'revertir'],
+  ['deposito', 'garantia'],
+  ['regalo', 'gift'],
+];
+const ayudaNorm = (t) => String(t).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9ñ$ ]+/g, ' ').replace(/\s+/g, ' ').trim();
+/** Palabras que cuentan como «la misma» que `p`: ella y sus sinónimos (y, si es plural/femenino simple, su raíz). */
+function ayudaVariantes(p) {
+  const raiz = p.length > 4 ? p.replace(/(es|s|a|o)$/, '') : p;
+  const g = AYUDA_SINONIMOS.find((grupo) => grupo.some((x) => x === p || x === raiz || (raiz.length > 3 && x.startsWith(raiz))));
+  const propias = [p, raiz].filter((x) => x.length > 1);
+  return { propias, parecidas: (g ?? []).filter((x) => !propias.includes(x) && x.length > 1) };
+}
+/** Busca artículos: cada palabra escrita debe aparecer (ella o un sinónimo) en el título, las palabras clave o los pasos. Más puntos si está en el título. */
+function ayudaBuscar(texto, lista) {
+  const palabras = ayudaNorm(texto).split(' ').filter((p) => p.length > 1 && !['como', 'se', 'de', 'la', 'el', 'los', 'las', 'un', 'una', 'en', 'con', 'para', 'por', 'que', 'hago', 'hacer', 'puedo', 'del', 'al', 'y', 'o'].includes(p));
+  if (!palabras.length) return lista;
+  const res = [];
+  for (const a of lista) {
+    const titulo = ayudaNorm(a.titulo), claves = ayudaNorm(a.claves), cuerpo = ayudaNorm(`${a.pasos.join(' ')} ${a.nota ?? ''}`);
+    let puntos = 0, todas = true;
+    for (const p of palabras) {
+      const { propias, parecidas } = ayudaVariantes(p);
+      // La palabra tal cual la escribió pesa más que un sinónimo (así «tarjeta de crédito» no pone primero la de regalo).
+      const peso = (txt, pt) => (propias.some((v) => txt.includes(v)) ? pt : parecidas.some((v) => txt.includes(v)) ? Math.max(1, Math.round(pt * 0.3)) : 0);
+      const s = peso(titulo, 5) + peso(claves, 3) + peso(cuerpo, 1);
+      if (!s) { todas = false; break; }
+      puntos += s;
+    }
+    if (todas) res.push({ a, puntos });
+  }
+  return res.sort((x, y) => y.puntos - x.puntos).map((r) => r.a);
+}
+const ayudaDeEstaSesion = () => AYUDA_ARTICULOS.filter((a) => a.para === 'todos' || a.para === (S.sesion?.rol === 'cajero' ? 'caja' : 'admin'));
+const ayudaTarjeta = (a, abierto) => `<article class="ay-art ${abierto ? 'abierto' : ''}" data-ay="${esc(a.id)}">
+    <button type="button" class="ay-cab" aria-expanded="${abierto ? 'true' : 'false'}" data-ay-abrir="${esc(a.id)}"><span class="ay-cat">${esc(a.cat)}</span><b>${esc(a.titulo)}</b>${ico('chevron')}</button>
+    <div class="ay-cuerpo" ${abierto ? '' : 'hidden'}><ol class="ay-pasos">${a.pasos.map((p) => `<li>${esc(p)}</li>`).join('')}</ol>
+      ${a.nota ? `<p class="ay-nota">${ico('info')}<span>${esc(a.nota)}</span></p>` : ''}
+      ${a.ir && NAV[a.ir] ? `<button type="button" class="btn" data-ay-ir="${esc(a.ir)}">${ico(NAV[a.ir][1])}<span>Ir a ${esc(NAV[a.ir][0])}</span></button>` : ''}</div></article>`;
+async function vistaAyuda() {
+  const lista = ayudaDeEstaSesion();
+  const H = (S.ayuda ??= { q: '', cat: '' });
+  cuerpoVista().innerHTML = `<div class="titulo-vista">${ico('info')}<h1>Ayuda</h1></div>
+    <section class="panel ay-panel"><form id="ay-form" autocomplete="off" role="search"><div class="ay-buscar">${ico('search')}<input id="ay-q" type="search" class="texto" placeholder="¿Qué necesita hacer? Ej.: cambio de prenda, corte, tarjeta, descuento de empleada" value="${esc(H.q)}" aria-label="Buscar en la ayuda"></div></form>
+      <div class="ay-cats" id="ay-cats" role="group" aria-label="Temas"><button type="button" class="chip ${H.cat ? '' : 'activo'}" data-ay-cat="">Todos</button>${AYUDA_CATEGORIAS.filter((c) => lista.some((a) => a.cat === c)).map((c) => `<button type="button" class="chip ${H.cat === c ? 'activo' : ''}" data-ay-cat="${esc(c)}">${esc(c)}</button>`).join('')}</div>
+      <p class="nota" id="ay-cuenta" role="status" aria-live="polite"></p><div id="ay-lista" class="ay-lista"></div></section>`;
+  const pintar = () => {
+    const base = H.cat ? lista.filter((a) => a.cat === H.cat) : lista;
+    const r = ayudaBuscar(H.q, base);
+    $('#ay-cuenta').textContent = H.q.trim() ? `${r.length} ${r.length === 1 ? 'resultado' : 'resultados'} para «${H.q.trim()}»` : `${r.length} temas`;
+    $('#ay-lista').innerHTML = r.length ? r.map((a) => ayudaTarjeta(a, r.length === 1 || S.ayudaAbierto === a.id)).join('') : `<p class="ps-vacio">No encontré nada con esas palabras. Pruebe con una sola palabra (por ejemplo «tarjeta», «corte» o «cambio») o elija un tema.</p>`;
+    for (const c of $('#ay-cats').querySelectorAll('[data-ay-cat]')) c.classList.toggle('activo', c.dataset.ayCat === H.cat);
+  };
+  $('#ay-q').addEventListener('input', (ev) => { H.q = ev.target.value; S.ayudaAbierto = null; pintar(); });
+  $('#ay-form').addEventListener('submit', (ev) => { ev.preventDefault(); });
+  $('#ay-cats').addEventListener('click', (ev) => { const b = ev.target.closest('[data-ay-cat]'); if (!b) return; H.cat = b.dataset.ayCat; S.ayudaAbierto = null; pintar(); });
+  $('#ay-lista').addEventListener('click', (ev) => {
+    const ir_ = ev.target.closest('[data-ay-ir]');
+    if (ir_) return void ir(ir_.dataset.ayIr);
+    const b = ev.target.closest('[data-ay-abrir]');
+    if (!b) return;
+    S.ayudaAbierto = S.ayudaAbierto === b.dataset.ayAbrir ? null : b.dataset.ayAbrir;
+    pintar();
+  });
+  pintar();
+  $('#ay-q').focus();
+}

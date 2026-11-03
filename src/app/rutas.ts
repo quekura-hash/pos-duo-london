@@ -49,7 +49,7 @@ export async function atender(o: { cajero?: ServicioCaja; admin?: ServicioAdmin 
       case 'POST /api/admin/administradores': return ok(exigirAdmin().guardarAdmin({ id: b.id, nombre: b.nombre, clave: b.clave === undefined ? undefined : String(b.clave), activo: b.activo === undefined ? undefined : !!b.activo, rol: b.rol, clave_caja: b.clave_caja === undefined ? undefined : String(b.clave_caja), perfil: b.perfil }));
       case 'GET /api/sesion':
         return ok(C
-          ? { rol: 'cajero', ...C.sesionInfo(), usuario: C.autenticada() ? C.actor.usuario : null, tienda: C.caja.tienda, caja: C.caja.caja, nav: ['venta', 'retiro', 'ventas', 'corte', 'extraordinarias', ...(C.caja.cfg.metodos.includes('tarjeta_regalo') ? ['tarjetas'] : [])] }
+          ? { rol: 'cajero', ...C.sesionInfo(), usuario: C.autenticada() ? C.actor.usuario : null, tienda: C.caja.tienda, caja: C.caja.caja, nav: ['venta', 'retiro', 'ventas', 'corte', 'extraordinarias', ...(C.caja.cfg.metodos.includes('tarjeta_regalo') ? ['tarjetas'] : []), 'ayuda'] }
           : { rol: 'admin', ...A!.sesionInfo(), usuario: A!.autenticada() ? A!.actor.usuario : null, cajas: A!.cajas, nav: A!.nav() });
       // ── cajero ──
       case 'GET /api/estado': return ok({ estado: exigirCajero().estado() });

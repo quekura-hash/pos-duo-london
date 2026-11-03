@@ -646,3 +646,18 @@ dialog.dlg-dep { width: min(560px, 96vw); max-height: 94vh; overflow-y: auto; pa
 .dep-barras svg { max-width: 100%; height: auto; } .dep-barras small { text-align: center; color: #555; }
 .dep-verif-ok { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-radius: 12px; background: var(--ok-fondo); color: var(--texto); } .dep-verif-ok .ico { color: var(--ok); }
 .dep-verif { margin-top: 8px; }
+
+/* ── Ayuda integrada: buscador y artículos con pasos ── */
+.ay-buscar { display: flex; align-items: center; gap: 10px; padding: 0 12px; border: 2px solid var(--borde); border-radius: 12px; background: var(--superficie); } .ay-buscar:focus-within { border-color: var(--acento); }
+.ay-buscar .ico { color: var(--texto-2); flex: none; } .ay-buscar input { flex: 1; border: 0; outline: 0; background: transparent; color: var(--texto); font: inherit; font-size: 18px; padding: 12px 0; min-width: 0; }
+.ay-cats { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 4px; }
+.ay-cats .chip { min-height: 40px; padding: 6px 14px; border: 1px solid var(--borde); border-radius: 999px; background: var(--superficie); color: var(--texto); font: inherit; cursor: pointer; }
+.ay-cats .chip.activo { background: var(--acento); border-color: var(--acento); color: var(--acento-texto); font-weight: 700; }
+.ay-lista { display: flex; flex-direction: column; gap: 8px; }
+.ay-art { border: 1px solid var(--borde); border-radius: 14px; background: var(--superficie); overflow: hidden; } .ay-art.abierto { border-color: var(--acento); }
+.ay-cab { display: grid; grid-template-columns: 1fr auto; grid-template-areas: "cat chev" "tit chev"; gap: 2px 10px; width: 100%; text-align: left; padding: 12px 14px; border: 0; background: transparent; color: var(--texto); font: inherit; cursor: pointer; align-items: center; }
+.ay-cat { grid-area: cat; font-size: 12px; color: var(--acento); font-weight: 700; text-transform: uppercase; letter-spacing: .4px; } .ay-cab b { grid-area: tit; font-size: 18px; } .ay-cab .ico { grid-area: chev; color: var(--texto-2); transition: transform .15s; }
+.ay-art.abierto .ay-cab .ico { transform: rotate(90deg); }
+.ay-cuerpo { padding: 2px 14px 14px; } .ay-cuerpo[hidden] { display: none; }
+.ay-pasos { margin: 6px 0 10px; padding-left: 24px; display: flex; flex-direction: column; gap: 8px; font-size: 17px; line-height: 1.4; } .ay-pasos li::marker { color: var(--acento); font-weight: 800; }
+.ay-nota { display: flex; gap: 8px; align-items: flex-start; margin: 8px 0 10px; padding: 10px 12px; border-radius: 10px; background: var(--acento-suave); color: var(--texto); font-size: 15px; } .ay-nota .ico { flex: none; color: var(--acento); }
