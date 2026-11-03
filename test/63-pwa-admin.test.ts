@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { createServer } from 'node:http';
 import { extname, join } from 'node:path';
@@ -65,5 +65,30 @@ describe('[navegador real] Administración instalable (PWA)', { timeout: 120_000
       if (!n) await page.waitForTimeout(250);
     }
     assert.deepEqual(n, { titulo: 'Venta DÚO · $1,019.00', cuerpo: 'Caja 1 · Folio 000123 · Ana', tag: 'venta', url: './#ventas' });
+  });
+  it('P2 ningún archivo de la página pasa de 2 MB (la página de subida de Cloudflare se atora con archivos grandes) y las librerías van como archivos aparte, funcionando', async (t) => {
+    const dist = mkdtempSync(join(tmpdir(), 'londuo-pwa-tam-'));
+    execFileSync(process.execPath, [join(RAIZ, 'scripts', 'construir-admin.mjs'), '--pwa'], { stdio: 'pipe', env: { ...process.env, LONDUO_DIST: dist, LONDUO_SUPABASE_URL: 'https://prueba.supabase.co', LONDUO_SUPABASE_KEY: 'sb_publishable_prueba' } });
+    const web = join(dist, 'admin-web');
+    const grandes = readdirSync(web).map((f) => [f, statSync(join(web, f)).size] as const).filter(([, n]) => n > 2_000_000);
+    assert.deepEqual(grandes, [], 'el límite práctico del subidor de Cloudflare está alrededor de 2.5 MB por archivo (0.2.60 con 2.46 MB subió; 0.2.61 con 2.62 MB se atoró)');
+    assert.ok(existsSync(join(web, 'zxing.min.js')) && existsSync(join(web, 'exceljs.min.js')));
+    assert.match(readFileSync(join(web, 'sw.js'), 'utf8'), /'zxing\.min\.js', 'exceljs\.min\.js'/, 'se guardan para el modo sin conexión');
+    const servidor = createServer((req, res) => {
+      const ruta = !req.url || req.url === '/' ? 'index.html' : req.url.slice(1).split('?')[0]!;
+      try { res.writeHead(200, { 'content-type': TIPOS[extname(ruta)] ?? 'application/octet-stream' }); res.end(readFileSync(join(web, ruta))); } catch { res.writeHead(404); res.end(); }
+    });
+    await new Promise<void>((r) => servidor.listen(0, '127.0.0.1', r));
+    const browser = await chromium.launch({ executablePath: chromiumPath, args: ['--no-sandbox'] });
+    t.after(async () => { await browser.close(); servidor.close(); });
+    const page = await (await browser.newContext({ viewport: { width: 390, height: 844 } })).newPage();
+    const errores: string[] = [];
+    page.on('pageerror', (e) => errores.push(String(e)));
+    await page.goto(`http://localhost:${(servidor.address() as { port: number }).port}/`);
+    await page.waitForSelector('#puerta:not([hidden])');
+    // las dos librerías cargaron antes que la app (mismo orden de siempre) y la exportación a Excel puede crear un libro
+    const r = await page.evaluate(async () => ({ zxing: typeof (window as any).ZXing?.BrowserMultiFormatReader, excel: typeof (window as any).ExcelJS?.Workbook, libro: !!new (window as any).ExcelJS.Workbook().addWorksheet('x') }));
+    assert.deepEqual(r, { zxing: 'function', excel: 'function', libro: true });
+    assert.deepEqual(errores, []);
   });
 });

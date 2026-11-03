@@ -95,18 +95,18 @@ ${marcado}
 <script>
 ${qr}
 </script>
-<script>
+${PWA ? '<script src="zxing.min.js"></script>' : `<script>
 ${zxing}
-</script>
+</script>`}
 <script>
 ${movilJs}
 </script>
 <script>
 ${app}
 </script>
-<script>
+${PWA ? '<script src="exceljs.min.js"></script>' : `<script>
 ${exceljs}
-</script>
+</script>`}
 <script>
 ${bundle}
 ${importador}
@@ -142,6 +142,10 @@ if (!PWA) {
   mkdirSync(web, { recursive: true });
   const registro = `<script>if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) { navigator.serviceWorker.register('sw.js').catch(function () {}); }</script>`;
   writeFileSync(join(web, 'index.html'), html.replace('</body>', `${registro}\n</body>`));
+  // Las dos librerías de terceros (Excel ~950 KB y lector de códigos ~590 KB) van como archivos aparte: así index.html pesa ~1.2 MB y la página de subida de Cloudflare
+  // (que se atora con archivos grandes) acepta cada archivo sin problema. Se guardan para el modo sin conexión en el service worker.
+  writeFileSync(join(web, 'zxing.min.js'), readFileSync(join(raiz, 'node_modules/@zxing/library/umd/index.min.js'), 'utf8'));
+  writeFileSync(join(web, 'exceljs.min.js'), readFileSync(join(raiz, 'node_modules/exceljs/dist/exceljs.min.js'), 'utf8'));
   writeFileSync(join(web, 'sw.js'), readFileSync(join(pwa, 'sw.js'), 'utf8').replace('__VERSION__', `${VERSION.numero}-${VERSION.commit}`));
   for (const f of ['manifest.webmanifest', 'icon-180.png', 'icon-192.png', 'icon-512.png', 'icon-maskable-512.png']) copyFileSync(join(pwa, f), join(web, f));
   writeFileSync(join(web, '_headers'), ['/sw.js', '  Cache-Control: no-cache', '/index.html', '  Cache-Control: no-cache', '/', '  Cache-Control: no-cache', '/*', '  X-Content-Type-Options: nosniff', '  Referrer-Policy: no-referrer', ''].join('\n'));

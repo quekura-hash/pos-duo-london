@@ -1,7 +1,7 @@
 // Service worker de la Administración de LonDuo POS: abre sin conexión con la última versión y recibe las notificaciones push.
 var VERSION = '__VERSION__';
 var CACHE = 'londuo-admin-' + VERSION;
-var BASICOS = ['./', 'index.html', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png'];
+var BASICOS = ['./', 'index.html', 'zxing.min.js', 'exceljs.min.js', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', function (e) {
   e.waitUntil(caches.open(CACHE).then(function (c) { return c.addAll(BASICOS); }).then(function () { return self.skipWaiting(); }));
