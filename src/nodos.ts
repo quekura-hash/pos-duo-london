@@ -2550,7 +2550,7 @@ export class Caja {
    * comprobante. Crea el intento y lo resuelve como aprobado en un solo paso, así nunca queda un cobro pendiente por una captura a medias.
    * El resto (si el importe de tarjeta es menor al total) se cobra en efectivo exacto.
    */
-  cobrarConTarjetaManual(cartId: string, d: { importe?: number; autorizacion?: string; marca?: string; ultimos4?: string; regalo?: string }, cajero = 'cajero'): Venta {
+  cobrarConTarjetaManual(cartId: string, d: { importe?: number; autorizacion?: string; marca?: string; ultimos4?: string; regalo?: string; recibido?: number }, cajero = 'cajero'): Venta {
     const previa = this.repo.getOp(`sale:${cartId}`);
     if (previa) return ventas([previa]).get(cartId)!;
     // El número de autorización ya no se captura: quien cobra confirma que la terminal aprobó. Si viene, se valida y se guarda (ventas con número, de antes).
@@ -2580,10 +2580,12 @@ export class Caja {
     }
     const importe = d.importe ?? total;
     if (!Number.isInteger(importe) || importe <= 0 || importe > total) throw new ErrorDominio('PAGO_INVALIDO', 'el importe de la tarjeta debe ser mayor que 0 y no exceder lo que falta por cobrar');
+    // Efectivo del resto: si se captura lo recibido, el cambio se entrega en pesos (como en cualquier cobro en efectivo).
+    if (d.recibido !== undefined && (!Number.isInteger(d.recibido) || d.recibido < total - importe)) throw new ErrorDominio('EFECTIVO_INSUFICIENTE', 'el efectivo recibido no cubre lo que falta por cobrar', { recibido: d.recibido, resto: total - importe });
     if (regalo) this.exigirSaldoLocal([{ codigo: regalo.tarjeta!, monto: regalo.monto }]);
     const { intento } = this.iniciarCobroTarjeta(cartId, importe);
     try {
-      const v = this.resolverIntento(intento.intent_id, { resultado: 'aprobado', autorizacion: autorizacion || undefined, confirmada: !autorizacion, marca, ultimos4: ultimos4 || undefined, ...(regalo ? { regalo } : {}), efectivo_adicional: total - importe }, cajero);
+      const v = this.resolverIntento(intento.intent_id, { resultado: 'aprobado', autorizacion: autorizacion || undefined, confirmada: !autorizacion, marca, ultimos4: ultimos4 || undefined, ...(regalo ? { regalo } : {}), ...(d.recibido !== undefined && total - importe > 0 ? { recibido: d.recibido } : {}), efectivo_adicional: total - importe }, cajero);
       return v!;
     } catch (e) {
       this.resolverIntento(intento.intent_id, { resultado: 'no_cobrado' }, cajero);
@@ -2595,7 +2597,7 @@ export class Caja {
     return [...intentos(this.opsDe('card.intent', 'card.intent_resuelto')).values()].filter((i) => i.tienda === this.tienda && i.caja === this.caja && (i.estado === 'iniciado' || i.estado === 'desconocido'));
   }
 
-  resolverIntento(intentId: string, r: { resultado: 'aprobado' | 'no_cobrado' | 'desconocido'; autorizacion?: string; confirmada?: boolean; marca?: string; ultimos4?: string; efectivo_adicional?: number; regalo?: Pago }, cajero = 'cajero'): Venta | null {
+  resolverIntento(intentId: string, r: { resultado: 'aprobado' | 'no_cobrado' | 'desconocido'; autorizacion?: string; confirmada?: boolean; marca?: string; ultimos4?: string; efectivo_adicional?: number; regalo?: Pago; recibido?: number }, cajero = 'cajero'): Venta | null {
     const i = intentos(this.opsDe('card.intent', 'card.intent_resuelto')).get(intentId);
     if (!i || i.tienda !== this.tienda || i.caja !== this.caja) throw new ErrorDominio('INTENTO_INEXISTENTE', intentId);
     if (i.estado === 'aprobado') {
@@ -2614,7 +2616,7 @@ export class Caja {
       const regalo = r.regalo?.monto ?? 0;
       if (i.importe + extra + regalo !== total) throw new ErrorDominio('PAGO_INVALIDO', 'tarjeta de regalo + tarjeta + efectivo no suman el total');
       const pagos: Pago[] = [{ metodo: 'tarjeta', monto: i.importe, ...(r.autorizacion ? { autorizacion: r.autorizacion } : { confirmada: true }), marca: r.marca, ultimos4: r.ultimos4 }];
-      if (extra > 0) pagos.push({ metodo: 'efectivo', monto: extra });
+      if (extra > 0) pagos.push({ metodo: 'efectivo', monto: extra, ...(r.recibido !== undefined && r.recibido >= extra ? { recibido: r.recibido, cambio: r.recibido - extra } : {}) });
       if (r.regalo) pagos.unshift(r.regalo);
       // El saldo de la tarjeta de regalo lo concede el hub (como en cualquier cobro con tarjeta de regalo); sin hub se valida contra lo que esta caja conoce.
       let reservado = false;

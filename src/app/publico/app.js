@@ -727,7 +727,9 @@ function htmlTarjeta(mixto) {
     ${mixto ? `<div class="campo"><label for="codigo-regalo-mx">Tarjeta de regalo (opcional)</label><input id="codigo-regalo-mx" class="texto" autocomplete="off" spellcheck="false" placeholder="Escanee o escriba el código si paga con tarjeta de regalo"></div>
     <div id="info-regalo-mx" class="saldo-tarjeta" role="status" aria-live="polite" hidden></div>
     <div class="campo"><label for="tj-monto">Monto cobrado con tarjeta bancaria (MXN)</label><input id="tj-monto" inputmode="decimal" autocomplete="off" placeholder="0.00"></div>
-    <div class="saldo-tarjeta" id="tj-resto" role="status" aria-live="polite">El resto se cobra en efectivo: <b id="tj-resto-monto">$0.00</b></div>` : ''}`;
+    <div class="saldo-tarjeta" id="tj-resto" role="status" aria-live="polite">El resto se cobra en efectivo: <b id="tj-resto-monto">$0.00</b></div>
+    <div class="campo" id="tj-recibido-campo" hidden><label for="tj-recibido">Efectivo recibido (MXN)</label><input id="tj-recibido" inputmode="decimal" autocomplete="off" placeholder="Déjelo vacío si paga exacto"></div>
+    <div class="cambio" id="tj-cambio-linea" hidden><span>Cambio</span><b id="tj-cambio">$0.00</b></div>` : ''}`;
 }
 /** Importe de tarjeta y resto en efectivo de la venta en pantalla (null si el monto del mixto no es válido). */
 function repartoTarjeta() {
@@ -743,11 +745,17 @@ function repartoTarjeta() {
     const falta = total - regalo;
     const monto = m ?? 0;
     const montoOk = monto >= 0 && monto <= falta;
-    return { importe: tarjetaOk && montoOk ? monto : 0, resto: tarjetaOk && montoOk ? falta - monto : falta, valido: tarjetaOk && montoOk && total > 0, regalo };
+    const resto = tarjetaOk && montoOk ? falta - monto : falta;
+    return { importe: tarjetaOk && montoOk ? monto : 0, resto, valido: tarjetaOk && montoOk && total > 0 && efectivoOk(resto), regalo, ...recibidoDe(resto) };
   }
   const valido = m !== null && m > 0 && m < total;
-  return { importe: valido ? m : 0, resto: valido ? total - m : total, valido, regalo: 0 };
+  const resto = valido ? total - m : total;
+  return { importe: valido ? m : 0, resto, valido: valido && efectivoOk(resto), regalo: 0, ...recibidoDe(resto) };
 }
+/** Efectivo recibido del Mixto (vacío = paga exacto): null si lo escrito no es un importe. */
+const leerRecibidoMx = () => { const t = ($('#tj-recibido')?.value ?? '').trim(); if (!t) return undefined; const v = parseMXN(t); return v === null ? null : v; };
+const efectivoOk = (resto) => { const r = leerRecibidoMx(); return r === undefined || (r !== null && r >= resto); };
+const recibidoDe = (resto) => { const r = leerRecibidoMx(); return { recibido: r === undefined || r === null || resto <= 0 ? undefined : r, cambio: r && resto > 0 && r >= resto ? r - resto : 0 }; };
 async function consultarRegaloMixto() {
   const codigo = $('#codigo-regalo-mx')?.value.trim();
   const info = $('#info-regalo-mx');
@@ -823,6 +831,7 @@ function pintarPago() {
   if (S.forma === 'tarjeta' || S.forma === 'mixto') {
     p.innerHTML = htmlTarjeta(S.forma === 'mixto');
     $('#tj-monto')?.addEventListener('input', recalcular);
+    $('#tj-recibido')?.addEventListener('input', recalcular);
     const cx = $('#codigo-regalo-mx');
     if (cx) {
       cx.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); consultarRegaloMixto(); } });
@@ -1020,6 +1029,7 @@ function recalcular() {
     if ($('#tj-resto-monto')) $('#tj-resto-monto').textContent = mxn(r.resto);
     if ($('#tj-resto')) $('#tj-resto').innerHTML = `${r.regalo > 0 ? `Tarjeta de regalo aplica: <b id="mx-regalo">${mxn(r.regalo)}</b> · ` : ''}El resto se cobra en efectivo: <b id="tj-resto-monto">${mxn(r.resto)}</b>`;
     ok = hay && r.valido;
+    if ($('#tj-recibido-campo')) { $('#tj-recibido-campo').hidden = !(r.resto > 0); $('#tj-cambio-linea').hidden = !(r.resto > 0 && r.cambio > 0); $('#tj-cambio').textContent = mxn(r.cambio ?? 0); }
     if ($('#linea-cambio')) $('#linea-cambio').classList.remove('falta');
     if ($('#lbl-cambio')) { $('#lbl-cambio').textContent = 'Cambio'; $('#cambio').textContent = mxn(0); }
   } else if (S.forma === 'credito') {
@@ -1172,9 +1182,9 @@ async function cobrar() {
       const t = repartoTarjeta();
       if (S.forma === 'mixto' && t.regalo > 0 && t.importe === 0) {
         // Tarjeta de regalo + efectivo (sin terminal bancaria): el efectivo del resto se cobra exacto.
-        r = await api('/api/venta/cobrar-regalo', { cart: S.cart, codigo: S.tarjeta.codigo, ...(t.resto > 0 ? { recibido: t.resto } : {}) });
+        r = await api('/api/venta/cobrar-regalo', { cart: S.cart, codigo: S.tarjeta.codigo, ...(t.resto > 0 ? { recibido: t.recibido ?? t.resto } : {}) });
       } else {
-        r = await api('/api/venta/cobrar-tarjeta', { cart: S.cart, ...(S.forma === 'mixto' ? { importe: t.importe } : {}), ...(S.forma === 'mixto' && t.regalo > 0 ? { regalo: S.tarjeta.codigo } : {}) });
+        r = await api('/api/venta/cobrar-tarjeta', { cart: S.cart, ...(S.forma === 'mixto' ? { importe: t.importe } : {}), ...(S.forma === 'mixto' && t.regalo > 0 ? { regalo: S.tarjeta.codigo } : {}), ...(S.forma === 'mixto' && t.recibido !== undefined && t.resto > 0 ? { recibido: t.recibido } : {}) });
       }
     } else if (S.forma === 'credito') {
       r = await api('/api/venta/cobrar-credito-empleada', { cart: S.cart });

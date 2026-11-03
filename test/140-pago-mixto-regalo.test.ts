@@ -63,4 +63,15 @@ porAlmacen('Pago mixto: tarjeta de regalo + tarjeta bancaria + efectivo', (alm) 
     assert.deepEqual(dev.reembolsos.map((r) => [r.metodo, r.monto]).sort(), [['efectivo', 9900], ['tarjeta', 30000], ['tarjeta_regalo', 50000]].sort());
     assert.equal(s.svc.caja.saldoTarjeta('GC-1'), 50000, 'el saldo vuelve a la tarjeta');
   });
+  it('MX7 efectivo recibido y cambio en el mixto: $99 con un billete de $100 deja $1 de cambio y el corte lo descuenta', async (t) => {
+    const { ctx, s, venta } = prep(t);
+    const c = venta();
+    const v = (await s.svc.cobrarTarjetaManual(c, { importe: 30000, regalo: 'GC-1', recibido: 10000 })).venta;
+    const ef = v.pagos.find((p) => p.metodo === 'efectivo')!;
+    assert.deepEqual([ef.monto, ef.recibido, ef.cambio], [9900, 10000, 100]);
+    const corte = s.svc.corte(ctx.m.reloj.now().slice(0, 10)).vivo;
+    assert.equal(corte.mxn.cambio, 100);
+    const c2 = venta();
+    await assert.rejects(s.svc.cobrarTarjetaManual(c2, { importe: 30000, recibido: 5000 }), { codigo: 'EFECTIVO_INSUFICIENTE' }); // faltan $599, recibió $50
+  });
 });

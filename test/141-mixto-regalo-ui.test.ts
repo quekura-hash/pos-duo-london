@@ -35,8 +35,11 @@ describe('[navegador real] Botón Mixto con tarjeta de regalo', { timeout: 240_0
     assert.equal((await page.textContent('#mx-regalo'))!.trim(), '$500.00');
     assert.equal((await page.textContent('#tj-resto-monto'))!.trim(), '$399.00');
     assert.equal(await page.isDisabled('#btn-cobrar'), false);
+    await page.fill('#tj-recibido', '400'); // paga con $400 el resto de $399
+    assert.equal((await page.textContent('#tj-cambio'))!.trim(), '$1.00');
     await page.click('#btn-cobrar'); await page.waitForSelector('#dlg-ticket[open]');
     assert.deepEqual(ventaDe(1).pagos.map((p: any) => [p.metodo, p.monto]), [['tarjeta_regalo', 50000], ['efectivo', 39900]]);
+    assert.deepEqual([ventaDe(1).pagos[1].recibido, ventaDe(1).pagos[1].cambio], [40000, 100]);
     await nueva();
 
     // 2) regalo + tarjeta bancaria: sin efectivo
@@ -59,8 +62,14 @@ describe('[navegador real] Botón Mixto con tarjeta de regalo', { timeout: 240_0
     await page.fill('#codigo-regalo-mx', 'GC-C'); await page.press('#codigo-regalo-mx', 'Enter'); await page.waitForSelector('#saldo-regalo-mx');
     await page.fill('#tj-monto', '300');
     assert.equal((await page.textContent('#tj-resto-monto'))!.trim(), '$99.00');
+    await page.fill('#tj-recibido', '50'); // no alcanza
+    assert.equal(await page.isDisabled('#btn-cobrar'), true);
+    await page.fill('#tj-recibido', '100');
+    assert.equal((await page.textContent('#tj-cambio'))!.trim(), '$1.00');
+    assert.equal(await page.isDisabled('#btn-cobrar'), false);
     await page.click('#btn-cobrar'); await page.waitForSelector('#dlg-ticket[open]');
     assert.deepEqual(ventaDe(3).pagos.map((p: any) => [p.metodo, p.monto]), [['tarjeta_regalo', 50000], ['tarjeta', 30000], ['efectivo', 9900]]);
+    assert.deepEqual([ventaDe(3).pagos[2].recibido, ventaDe(3).pagos[2].cambio], [10000, 100]);
     assert.match((await page.textContent('#ticket-texto'))!, /Tarjeta de regalo[\s\S]*Tarjeta[\s\S]*Efectivo/);
     await nueva();
 
