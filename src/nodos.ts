@@ -2550,7 +2550,7 @@ export class Caja {
    * comprobante. Crea el intento y lo resuelve como aprobado en un solo paso, así nunca queda un cobro pendiente por una captura a medias.
    * El resto (si el importe de tarjeta es menor al total) se cobra en efectivo exacto.
    */
-  cobrarConTarjetaManual(cartId: string, d: { importe?: number; autorizacion?: string; marca?: string; ultimos4?: string }, cajero = 'cajero'): Venta {
+  cobrarConTarjetaManual(cartId: string, d: { importe?: number; autorizacion?: string; marca?: string; ultimos4?: string; regalo?: string }, cajero = 'cajero'): Venta {
     const previa = this.repo.getOp(`sale:${cartId}`);
     if (previa) return ventas([previa]).get(cartId)!;
     // El número de autorización ya no se captura: quien cobra confirma que la terminal aprobó. Si viene, se valida y se guarda (ventas con número, de antes).
@@ -2562,13 +2562,28 @@ export class Caja {
     const c = this.cartGet(cartId);
     this.exigirAbierto(c);
     if (c.lineas.length === 0) throw new ErrorDominio('CARRITO_VACIO', cartId);
-    const total = this.totalNeto(c);
+    let total = this.totalNeto(c);
     if (total <= 0) throw new ErrorDominio('PAGO_INVALIDO', 'la venta no tiene importe que cobrar con tarjeta');
+    // Pago mixto con tarjeta de regalo: el saldo se aplica primero (todo lo que alcance); la tarjeta bancaria y el efectivo cubren lo que falte.
+    let regalo: Pago | undefined;
+    if (d.regalo?.trim()) {
+      if (!this.cfg.metodos.includes('tarjeta_regalo')) throw new ErrorDominio('PAGO_NO_PERMITIDO', `la caja ${this.id} no maneja tarjetas de regalo`);
+      const cod = d.regalo.trim();
+      const t = this.idx.tarjeta(cod);
+      if (!t) throw new ErrorDominio('TARJETA_INEXISTENTE', `la tarjeta ${cod} no está dada de alta`);
+      if (Date.parse(t.vigente_hasta) <= Date.parse(this.ctx.reloj.now())) throw new ErrorDominio('TARJETA_VENCIDA', `la tarjeta ${cod} venció el ${t.vigente_hasta.slice(0, 10)}`);
+      if (t.saldo <= 0) throw new ErrorDominio('SALDO_INSUFICIENTE', `la tarjeta ${cod} no tiene saldo`, { saldo: 0 });
+      const aplicado = Math.min(t.saldo, total);
+      regalo = { metodo: 'tarjeta_regalo', monto: aplicado, tarjeta: cod, saldo_despues: t.saldo - aplicado };
+      total -= aplicado;
+      if (total === 0) return this.cobrarConTarjetaRegalo(cartId, cod, undefined, cajero); // el saldo cubre todo: no hay nada que cobrar con la terminal
+    }
     const importe = d.importe ?? total;
-    if (!Number.isInteger(importe) || importe <= 0 || importe > total) throw new ErrorDominio('PAGO_INVALIDO', 'el importe de la tarjeta debe ser mayor que 0 y no exceder el total');
+    if (!Number.isInteger(importe) || importe <= 0 || importe > total) throw new ErrorDominio('PAGO_INVALIDO', 'el importe de la tarjeta debe ser mayor que 0 y no exceder lo que falta por cobrar');
+    if (regalo) this.exigirSaldoLocal([{ codigo: regalo.tarjeta!, monto: regalo.monto }]);
     const { intento } = this.iniciarCobroTarjeta(cartId, importe);
     try {
-      const v = this.resolverIntento(intento.intent_id, { resultado: 'aprobado', autorizacion: autorizacion || undefined, confirmada: !autorizacion, marca, ultimos4: ultimos4 || undefined, efectivo_adicional: total - importe }, cajero);
+      const v = this.resolverIntento(intento.intent_id, { resultado: 'aprobado', autorizacion: autorizacion || undefined, confirmada: !autorizacion, marca, ultimos4: ultimos4 || undefined, ...(regalo ? { regalo } : {}), efectivo_adicional: total - importe }, cajero);
       return v!;
     } catch (e) {
       this.resolverIntento(intento.intent_id, { resultado: 'no_cobrado' }, cajero);
@@ -2580,7 +2595,7 @@ export class Caja {
     return [...intentos(this.opsDe('card.intent', 'card.intent_resuelto')).values()].filter((i) => i.tienda === this.tienda && i.caja === this.caja && (i.estado === 'iniciado' || i.estado === 'desconocido'));
   }
 
-  resolverIntento(intentId: string, r: { resultado: 'aprobado' | 'no_cobrado' | 'desconocido'; autorizacion?: string; confirmada?: boolean; marca?: string; ultimos4?: string; efectivo_adicional?: number }, cajero = 'cajero'): Venta | null {
+  resolverIntento(intentId: string, r: { resultado: 'aprobado' | 'no_cobrado' | 'desconocido'; autorizacion?: string; confirmada?: boolean; marca?: string; ultimos4?: string; efectivo_adicional?: number; regalo?: Pago }, cajero = 'cajero'): Venta | null {
     const i = intentos(this.opsDe('card.intent', 'card.intent_resuelto')).get(intentId);
     if (!i || i.tienda !== this.tienda || i.caja !== this.caja) throw new ErrorDominio('INTENTO_INEXISTENTE', intentId);
     if (i.estado === 'aprobado') {
@@ -2596,14 +2611,33 @@ export class Caja {
       if (!r.autorizacion && !r.confirmada) throw new ErrorDominio('DATOS_REQUERIDOS', 'falta autorización del comprobante');
       const total = this.totalNeto(c);
       const extra = r.efectivo_adicional ?? 0;
-      if (i.importe + extra !== total) throw new ErrorDominio('PAGO_INVALIDO', 'tarjeta + efectivo no suman el total');
+      const regalo = r.regalo?.monto ?? 0;
+      if (i.importe + extra + regalo !== total) throw new ErrorDominio('PAGO_INVALIDO', 'tarjeta de regalo + tarjeta + efectivo no suman el total');
       const pagos: Pago[] = [{ metodo: 'tarjeta', monto: i.importe, ...(r.autorizacion ? { autorizacion: r.autorizacion } : { confirmada: true }), marca: r.marca, ultimos4: r.ultimos4 }];
       if (extra > 0) pagos.push({ metodo: 'efectivo', monto: extra });
+      if (r.regalo) pagos.unshift(r.regalo);
+      // El saldo de la tarjeta de regalo lo concede el hub (como en cualquier cobro con tarjeta de regalo); sin hub se valida contra lo que esta caja conoce.
+      let reservado = false;
+      if (r.regalo) {
+        const tarjetas = this.tarjetasDe(pagos);
+        if (this.enlace.hubAlcanzable()) {
+          const res = this.enlace.reservar(c.id, this.caja, [], tarjetas);
+          if (res === null) this.exigirSaldoLocal(tarjetas);
+          else if (!res.ok && res.motivo === 'tarjeta_vencida') throw new ErrorDominio('TARJETA_VENCIDA', `la tarjeta de regalo ${res.tarjetas_vencidas!.join(', ')} está vencida`, res);
+          else if (!res.ok) throw new ErrorDominio('SALDO_INSUFICIENTE', `la tarjeta de regalo ${(res.tarjetas_sin_saldo ?? []).join(', ')} no existe o no tiene saldo suficiente`, res);
+          else reservado = true;
+        } else this.exigirSaldoLocal(tarjetas);
+      }
       // El dinero ya se cobró: completar la venta no se frena por P-01 ni por existencia (P-02).
-      return this.repo.tx(() => {
-        this.emitir('card.intent_resuelto', { intent_id: intentId, resultado: 'aprobado', autorizacion: r.autorizacion }, `cardres:${intentId}:aprobado`);
-        return this.confirmar(c, pagos, cajero);
-      });
+      try {
+        return this.repo.tx(() => {
+          this.emitir('card.intent_resuelto', { intent_id: intentId, resultado: 'aprobado', autorizacion: r.autorizacion }, `cardres:${intentId}:aprobado`);
+          return this.confirmar(c, pagos, cajero);
+        });
+      } catch (e) {
+        if (reservado) this.enlace.liberar(c.id);
+        throw e;
+      }
     }
     this.emitir('card.intent_resuelto', { intent_id: intentId, resultado: r.resultado }, `cardres:${intentId}:${r.resultado}`);
     return null;
