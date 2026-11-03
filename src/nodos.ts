@@ -108,6 +108,8 @@ interface Reserva {
 const esMovimientoLimbo = (op: Op) => op.tipo === 'inv.movement' && op.payload.tienda === LIMBO;
 /** Corrección de existencias hecha por el propietario en Administración: la tienda y sus cajas deben enterarse (no pasa por la confirmación de recepción). */
 const esAjusteAdmin = (op: Op) => (op.tipo === 'inv.movement' && op.payload.tipo === 'ajuste_admin') || (op.tipo === 'inv.conteo' && op.payload.admin === true);
+/** Veces que la cajera puede capturar la totalización bancaria antes de que el sistema muestre su cifra (y deje cerrar con la diferencia marcada). */
+export const MAX_INTENTOS_TOTALIZACION = 3;
 const BROADCAST_TIENDA = new Set(['cajero.ubicacion', 'alm.recibida', 'inv.movement', 'inv.conteo', 'inv.verificacion_pendiente', 'doc.perdida_posible', 'item.created', 'item.item_no_assigned', 'giftcard.emitida', 'giftcard.recarga', 'giftcard.uso', 'giftcard.reintegro', 'deposito.recibido', 'deposito.devuelto', 'deposito.fee', 'deposito.aplicado', 'deposito.reintegrado']);
 // Lo que el central baja a hubs y cajas (catálogo y resoluciones administrativas).
 const CATALOGO = new Set(['cajero.ubicacion', 'item.created', 'item.item_no_assigned', 'item.codigo_corregido', 'doc.perdida_resuelta', 'giftcard.emitida', 'giftcard.recarga', 'giftcard.uso', 'giftcard.reintegro', 'config.tipo_cambio', 'permiso.asignado', 'depto.alta', 'depto.editado', 'alm.entrega', 'alm.faltante', 'promo.guardada', 'recompensa.guardada', 'supervisor.guardado', 'cajero.guardado', 'config.sesion', 'config.negocio', 'item.editado', 'caja.fondo_autorizado', 'cash.ajuste_admin', 'empleadas.config', 'empleada.credito', 'empleada.movimiento', 'venta.consulta', 'folio.continuacion', 'vip.guardado', 'vip.excepciones', 'metas.config', 'giftcard.config', 'caja.limite_efectivo']);
@@ -3451,7 +3453,7 @@ export class Caja {
    * Verifica la totalización bancaria. La cifra del sistema solo se muestra DESPUÉS de capturar la de la terminal (no antes), y la primera captura y el número de
    * intentos quedan en el corte, así que cambiar la cifra después de verla se nota. Se compara contra lo cobrado con tarjeta menos lo reembolsado a tarjeta.
    */
-  verificarTotalizacion(fecha: string, valor: number): { coincide: boolean; intentos: number; sistema: number; diferencia: number } {
+  verificarTotalizacion(fecha: string, valor: number): { coincide: boolean; intentos: number; final: boolean; restantes: number; sistema?: number; diferencia?: number } {
     if (!Number.isInteger(valor) || valor < 0) throw new ErrorDominio('DATOS_REQUERIDOS', 'escriba la totalización de la terminal');
     const v = this.corteEnVivo(fecha);
     const clave = `totbanco:${this.id}:${fecha}`;
@@ -3459,7 +3461,10 @@ export class Caja {
     this.repo.kvSet(clave, intentos);
     if (intentos === 1) this.repo.kvSet(`totbanco1:${this.id}:${fecha}`, valor); // la PRIMERA captura (antes de ver la cifra del sistema) queda en el corte
     const sistema = (v.cobros_tarjeta as number) - (v.devoluciones_a_tarjeta as number);
-    return { coincide: valor === sistema, intentos, sistema, diferencia: valor - sistema };
+    const coincide = valor === sistema;
+    // Si no coincide, se pide capturar de nuevo hasta MAX_INTENTOS_TOTALIZACION veces SIN mostrar la cifra del sistema; al agotarlos se muestra y se deja cerrar con la diferencia marcada.
+    const final = coincide || intentos >= MAX_INTENTOS_TOTALIZACION;
+    return { coincide, intentos, final, restantes: Math.max(0, MAX_INTENTOS_TOTALIZACION - intentos), ...(final ? { sistema, diferencia: valor - sistema } : {}) };
   }
   cerrarCorteGuiado(fecha: string, d: { usuario: string; clave?: string; observaciones?: string; totalizacion?: number }) {
     const previos = this.cortesDelDia(fecha);
@@ -3472,13 +3477,19 @@ export class Caja {
     // Último paso antes de cerrar: la totalización bancaria (el total que da la terminal al cerrar el lote) se captura SIEMPRE y se compara con lo cobrado con tarjeta menos
     // lo reembolsado a tarjeta. Si no coincide, el corte se cierra igual pero la diferencia queda marcada en el corte y en su ticket.
     if (!Number.isInteger(d.totalizacion) || (d.totalizacion as number) < 0) throw new ErrorDominio('CIERRE_INCOMPLETO', 'no se puede cerrar el corte: capture la totalización bancaria (el total de la terminal; escriba 0 si no hubo cobros con tarjeta)', { faltan: ['totalizacion'] });
+    // Se cierra solo con la totalización verificada: coincide con el sistema, o ya se agotaron los intentos (entonces cierra con la diferencia marcada).
+    const intentosTot = this.repo.kvGet<number>(`totbanco:${this.id}:${fecha}`) ?? 0;
+    const sistemaTot = (this.corteEnVivo(fecha).cobros_tarjeta as number) - (this.corteEnVivo(fecha).devoluciones_a_tarjeta as number);
+    if (d.totalizacion !== sistemaTot && intentosTot < MAX_INTENTOS_TOTALIZACION) throw new ErrorDominio('TOTALIZACION_NO_VERIFICADA', `la totalización bancaria no coincide: verifíquela (lleva ${intentosTot} de ${MAX_INTENTOS_TOTALIZACION} intentos)`, { intentos: intentosTot });
     if (this.controlesConClave()) this.verificarClaveCajero(d.usuario, String(d.clave ?? ''));
     const cierres_previos = previos.map((o) => ({ cerrado_en: o.ocurrio_en, cerrado_por: (o.payload.cerrado_por as string | undefined) ?? '', ventas: o.payload.ventas_mercancia as number, fondo_confirmado: o.payload.fondo_confirmado !== null && o.payload.fondo_confirmado !== undefined, fondo_estado: (o.payload.fondo_estado as string | null) ?? null, fondo_diferencia: (o.payload.fondo_diferencia as number | null) ?? 0 }));
     const vivo = this.corteEnVivo(fecha);
     const sistemaTarjeta = (vivo.cobros_tarjeta as number) - (vivo.devoluciones_a_tarjeta as number);
-    const totalizacion_bancaria = { capturado: d.totalizacion as number, sistema: sistemaTarjeta, diferencia: (d.totalizacion as number) - sistemaTarjeta, coincide: d.totalizacion === sistemaTarjeta, capturo: d.usuario, intentos: this.repo.kvGet<number>(`totbanco:${this.id}:${fecha}`) ?? 0, primera_captura: this.repo.kvGet<number>(`totbanco1:${this.id}:${fecha}`) ?? (d.totalizacion as number) };
+    const totalizacion_bancaria = { capturado: d.totalizacion as number, sistema: sistemaTarjeta, diferencia: (d.totalizacion as number) - sistemaTarjeta, coincide: d.totalizacion === sistemaTarjeta, capturo: d.usuario, intentos: this.repo.kvGet<number>(`totbanco:${this.id}:${fecha}`) ?? 0, primera_captura: (this.repo.kvGet<number>(`totbanco:${this.id}:${fecha}`) ?? 0) > 0 ? this.repo.kvGet<number>(`totbanco1:${this.id}:${fecha}`) ?? (d.totalizacion as number) : (d.totalizacion as number) };
     const corte = { ...vivo, totalizacion_bancaria, cerrado_por: d.usuario, observaciones: String(d.observaciones ?? '').trim().slice(0, 500), ...(cierres_previos.length ? { cierres_previos } : {}) };
     this.emitir('corte.generado', corte, previos.length ? `corte:${this.id}:${fecha}:${previos.length + 1}` : `corte:${this.id}:${fecha}`);
+    this.repo.kvSet(`totbanco:${this.id}:${fecha}`, 0); // un cierre nuevo del mismo día empieza sus intentos de cero
+    this.repo.kvSet(`totbanco1:${this.id}:${fecha}`, 0);
     return corte;
   }
   /** Cierre del corte del día: se guarda UNA vez por caja y fecha; llamarlo otra vez devuelve el ya guardado. */

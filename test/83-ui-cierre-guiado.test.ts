@@ -107,10 +107,16 @@ describe('[navegador real] Cierre de caja guiado por pasos', { timeout: 240_000,
     assert.equal(await page.locator('#tabla-corte tr[data-campo="cobros_tarjeta"], #tabla-corte tr[data-campo="devoluciones_a_tarjeta"]').count(), 0);
     await page.fill('#tot-banco', '150'); // no coincide con la tarjeta del sistema ($0)
     assert.equal(await page.isDisabled('#btn-cerrar-corte'), true, 'sin verificar tampoco cierra');
-    await page.click('#btn-verificar-tot');
-    await page.waitForFunction(() => /No coincide/.test(document.querySelector('#tot-resultado')?.textContent ?? ''));
-    assert.match((await page.textContent('#tot-resultado'))!, /terminal \$150\.00, tarjeta del sistema \$0\.00 \(diferencia \+\$150\.00\)[\s\S]*Intento 1/);
-    assert.equal(await page.isDisabled('#btn-cerrar-corte'), false, 'con diferencia se puede cerrar: queda marcada');
+    for (const n of [1, 2]) { // intentos 1 y 2: no coincide y NO se muestra la cifra del sistema; no se puede cerrar
+      await page.click('#btn-verificar-tot');
+      await page.waitForFunction((k) => new RegExp(`intento ${k} de 3`).test(document.querySelector('#tot-resultado')?.textContent ?? ''), n);
+      assert.doesNotMatch((await page.textContent('#tot-resultado'))!, /tarjeta del sistema \$/);
+      assert.equal(await page.isDisabled('#btn-cerrar-corte'), true);
+    }
+    await page.click('#btn-verificar-tot'); // 3.º intento: ya se muestra la cifra y se deja cerrar con la nota «no coincidió»
+    await page.waitForFunction(() => /no coincidió/.test(document.querySelector('#tot-resultado')?.textContent ?? ''));
+    assert.match((await page.textContent('#tot-resultado'))!, /terminal \$150\.00, tarjeta del sistema \$0\.00 \(diferencia \+\$150\.00\)/);
+    assert.equal(await page.isDisabled('#btn-cerrar-corte'), false, 'agotados los intentos se puede cerrar: queda marcado');
     await page.fill('#tot-banco', '0'); // al cambiar la cifra hay que verificar de nuevo
     assert.equal(await page.isDisabled('#btn-cerrar-corte'), true);
     await page.press('#tot-banco', 'Enter');

@@ -21,16 +21,38 @@ porAlmacen('Corte: totalización bancaria contra la tarjeta neta del sistema', (
     s.svc.registrarConteo('MXN', {}, 'ventas');
     await assert.rejects(() => s.svc.cerrarCorte(HOY(ctx)), { codigo: 'CIERRE_INCOMPLETO' }); // sin totalización no cierra
     await assert.rejects(() => s.svc.cerrarCorte(HOY(ctx), { totalizacion: -5 }), { codigo: 'CIERRE_INCOMPLETO' });
-    // verificar: primero se captura la cifra de la terminal; solo entonces se conoce la del sistema; la primera captura y los intentos quedan registrados
+    // verificar: si no coincide NO se muestra la cifra del sistema; se piden hasta 3 intentos; la primera captura y los intentos quedan registrados
     const v1 = s.svc.verificarTotalizacion(HOY(ctx), 80000);
-    assert.deepEqual(v1, { coincide: false, intentos: 1, sistema: 89900, diferencia: -9900 });
-    const v2 = s.svc.verificarTotalizacion(HOY(ctx), 89900);
-    assert.deepEqual([v2.coincide, v2.intentos], [true, 2]);
+    assert.deepEqual(v1, { coincide: false, intentos: 1, final: false, restantes: 2 });
+    assert.equal('sistema' in v1, false, 'sin cifra del sistema en los primeros intentos');
+    await assert.rejects(() => s.svc.cerrarCorte(HOY(ctx), { totalizacion: 80000 }), { codigo: 'TOTALIZACION_NO_VERIFICADA' });
+    const v2 = s.svc.verificarTotalizacion(HOY(ctx), 89900); // coincide en el 2.º intento: se confirma y se muestra
+    assert.deepEqual(v2, { coincide: true, intentos: 2, final: true, restantes: 1, sistema: 89900, diferencia: 0 });
     assert.throws(() => s.svc.verificarTotalizacion(HOY(ctx), -1), { codigo: 'DATOS_REQUERIDOS' });
     const r = await s.svc.cerrarCorte(HOY(ctx), { totalizacion: 89900 });
     assert.deepEqual((r.corte as any).totalizacion_bancaria, { capturado: 89900, sistema: 89900, diferencia: 0, coincide: true, capturo: 'Ana', intentos: 2, primera_captura: 80000 });
     assert.match(r.ticket_texto!, /Intentos de captura\s+2[\s\S]*Primera captura\s+\$800\.00/);
-    assert.match(r.ticket_texto!, /TOTALIZACIÓN BANCARIA[\s\S]*Coincide\s+OK/);
     assert.equal(s.svc.corte(HOY(ctx)).estado.cerrado, true, 'el dato nuevo no hace que el corte parezca desactualizado');
+  });
+  it('TB3 tres intentos fallidos: recién ahí se muestra la cifra del sistema y se cierra con la nota «no coincidió»', async (t) => {
+    const ctx = nuevoMundo(alm, politica());
+    t.after(ctx.limpiar);
+    const s = servicioDe(ctx, 'DUO', 1, 'Ana');
+    const c1 = s.svc.nuevaVenta(); s.svc.escanear(c1, VESTIDO);
+    await s.svc.cobrarTarjetaManual(c1, { autorizacion: 'A111' });
+    s.svc.confirmarFondo({ '100000': 5 });
+    s.svc.registrarConteo('MXN', {}, 'ventas');
+    const dia = HOY(ctx);
+    assert.deepEqual(s.svc.verificarTotalizacion(dia, 70000), { coincide: false, intentos: 1, final: false, restantes: 2 });
+    assert.deepEqual(s.svc.verificarTotalizacion(dia, 71000), { coincide: false, intentos: 2, final: false, restantes: 1 });
+    await assert.rejects(() => s.svc.cerrarCorte(dia, { totalizacion: 71000 }), { codigo: 'TOTALIZACION_NO_VERIFICADA' });
+    const v3 = s.svc.verificarTotalizacion(dia, 72000);
+    assert.deepEqual(v3, { coincide: false, intentos: 3, final: true, restantes: 0, sistema: 89900, diferencia: -17900 });
+    const r = await s.svc.cerrarCorte(dia, { totalizacion: 72000 });
+    const tb = (r.corte as any).totalizacion_bancaria;
+    assert.deepEqual([tb.coincide, tb.diferencia, tb.intentos, tb.primera_captura], [false, -17900, 3, 70000]);
+    assert.match(r.ticket_texto!, /NO COINCIDIÓ\s+-\$179\.00/);
+    // un cierre nuevo el mismo día empieza sus intentos de cero
+    assert.equal(s.svc.verificarTotalizacion(dia, 1).intentos, 1);
   });
 });

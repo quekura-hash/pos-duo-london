@@ -1502,10 +1502,10 @@ async function vistaCorte() {
       </tbody></table></div>
       <p class="nota">Los faltantes y sobrantes se registran tal cual en el corte; el sistema no los corrige para cuadrar la caja.</p>
       ${!cerrado && est.puede_cerrar ? `<div class="panel-totalizacion" id="bloque-totalizacion"><h3 style="margin:0 0 4px">Totalización bancaria</h3>
-        <p class="nota" style="margin:0 0 8px">Último paso: ingrese la cantidad de la <b>totalización bancaria</b> (el total que da la terminal al cerrar el lote) y toque <b>Verificar</b>. Al verificar, el sistema le muestra su cifra y le confirma si todo está bien. Queda registrada su primera captura.</p>
+        <p class="nota" style="margin:0 0 8px">Último paso: ingrese la cantidad de la <b>totalización bancaria</b> (el total que da la terminal al cerrar el lote) y toque <b>Verificar</b>. Si coincide, se confirma ✅. Si no coincide, revise el voucher y vuelva a capturarla: hasta <b>3 intentos</b> antes de que el sistema muestre su cifra.</p>
         <div class="campo"><label for="tot-banco">Totalización de la terminal (MXN)</label><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><input id="tot-banco" inputmode="decimal" autocomplete="off" placeholder="0.00" style="width:180px;font-size:20px"><button class="btn" type="button" id="btn-verificar-tot">${ico('check')}<span>Verificar</span></button></div></div>
         <div id="tot-resultado" class="mensaje" role="status" aria-live="polite" hidden></div></div>` : ''}
-      ${cerrado && j.cerrado.totalizacion_bancaria ? `<div id="totalizacion-cerrada" class="mensaje ${j.cerrado.totalizacion_bancaria.coincide ? 'ok' : 'aviso'}" role="status">Totalización bancaria: <b>${mxn(j.cerrado.totalizacion_bancaria.capturado)}</b> · tarjeta en el sistema <b>${mxn(j.cerrado.totalizacion_bancaria.sistema)}</b> · ${j.cerrado.totalizacion_bancaria.coincide ? '✅ coincide' : `⚠️ diferencia ${dif$(j.cerrado.totalizacion_bancaria.diferencia)}`}</div>` : ''}
+      ${cerrado && j.cerrado.totalizacion_bancaria ? `<div id="totalizacion-cerrada" class="mensaje ${j.cerrado.totalizacion_bancaria.coincide ? 'ok' : 'aviso'}" role="status">Totalización bancaria: <b>${mxn(j.cerrado.totalizacion_bancaria.capturado)}</b> · tarjeta en el sistema <b>${mxn(j.cerrado.totalizacion_bancaria.sistema)}</b> · ${j.cerrado.totalizacion_bancaria.coincide ? '✅ coincide' : `⚠️ no coincidió (diferencia ${dif$(j.cerrado.totalizacion_bancaria.diferencia)})`}</div>` : ''}
       <div class="campo"><label for="cierre-obs">Observaciones del cierre</label><textarea id="cierre-obs" rows="2" maxlength="500" ${cerrado ? 'disabled' : ''} style="width:100%;box-sizing:border-box;padding:8px;border:2px solid var(--borde);border-radius:10px;background:var(--superficie);font:inherit">${esc(cerrado ? (j.cerrado.observaciones ?? '') : '')}</textarea></div>
       ${!cerrado && est.puede_cerrar && j.pide_clave ? rotuloSesion() + '<div class="campo"><label for="cierre-clave">Su clave para cerrar el corte</label><input id="cierre-clave" type="text" data-pin inputmode="numeric" autocomplete="off" style="width:140px;padding:8px;border:2px solid var(--borde);border-radius:10px"></div>' : ''}
       <div id="msg-cierre" class="mensaje" role="status" aria-live="polite"></div>
@@ -1613,11 +1613,18 @@ async function vistaCorte() {
       if (v === null) { r.hidden = false; r.className = 'mensaje error'; r.textContent = 'Escriba el total que dio la terminal.'; return; }
       try {
         const x = await api('/api/corte/verificar-totalizacion', { valor: v });
+        r.hidden = false;
+        if (!x.final) { // no coincide y quedan intentos: NO se muestra la cifra del sistema
+          verificado = null; $('#btn-cerrar-corte').disabled = true;
+          r.className = 'mensaje aviso';
+          r.textContent = `⚠️ No coincide con el sistema. Revise el total del voucher de la terminal y vuelva a capturarlo (intento ${x.intentos} de 3).`;
+          tot.focus(); tot.select();
+          return;
+        }
         verificado = v;
         $('#btn-cerrar-corte').disabled = false;
-        r.hidden = false;
         r.className = `mensaje ${x.coincide ? 'ok' : 'aviso'}`;
-        r.innerHTML = x.coincide ? `✅ Coincide: terminal <b>${mxn(v)}</b> = tarjeta del sistema <b>${mxn(x.sistema)}</b>. Todo está bien.` : `⚠️ No coincide: terminal <b>${mxn(v)}</b>, tarjeta del sistema <b>${mxn(x.sistema)}</b> (diferencia ${dif$(x.diferencia)}). Revise el total de la terminal; si es correcto, puede cerrar y la diferencia quedará marcada en el corte. Intento ${x.intentos}: la primera captura queda registrada.`;
+        r.innerHTML = x.coincide ? `✅ Coincide: terminal <b>${mxn(v)}</b> = tarjeta del sistema <b>${mxn(x.sistema)}</b>. Todo está bien.` : `⚠️ No coincide: terminal <b>${mxn(v)}</b>, tarjeta del sistema <b>${mxn(x.sistema)}</b> (diferencia ${dif$(x.diferencia)}). Ya no quedan intentos: puede cerrar y el corte quedará marcado como <b>«no coincidió»</b> con esta diferencia.`;
       } catch (e) { r.hidden = false; r.className = 'mensaje error'; r.textContent = e.message; }
     });
     $('#btn-cerrar-corte')?.addEventListener('click', async () => {

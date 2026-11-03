@@ -816,8 +816,8 @@ describe('[navegador real — Chromium con Playwright, UI sobre SQLite]', { time
     assert.equal(await corte('conteo_mxn'), '$100.00');
     assert.equal(await corte('diferencia_mxn'), '$1,780.00');
     await page.fill('#tot-banco', '25'); // la terminal dice $25 y el sistema $0: cierra, pero la diferencia queda marcada
-    await page.click('#btn-verificar-tot');
-    await page.waitForFunction(() => /No coincide/.test(document.querySelector('#tot-resultado')?.textContent ?? ''));
+    for (let i = 0; i < 3; i++) await page.click('#btn-verificar-tot'); // 3 intentos: recién entonces se muestra la cifra y deja cerrar con la nota
+    await page.waitForFunction(() => /no coincidió/.test(document.querySelector('#tot-resultado')?.textContent ?? ''));
     await page.click('#btn-cerrar-corte');
     await page.waitForSelector('#corte-cerrado');
     ctx.m.pump(); ctx.m.pump();

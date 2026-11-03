@@ -56,9 +56,12 @@ porAlmacen('Ticket de cierre de corte: 5 ventas (una con tarjeta), una devoluci�
     assert.equal(sinTot.json.error?.codigo, 'CIERRE_INCOMPLETO', 'sin la totalización bancaria no se cierra');
     // la terminal dice $10 más que el sistema: el corte cierra pero queda marcada la diferencia, también en el ticket
     const tarjetaNeta = vivo.cobros_tarjeta - vivo.devoluciones_a_tarjeta;
+    const noVerificada = await api(caja.url, '/api/corte/cerrar', { clave: '4321', totalizacion: tarjetaNeta + 1000 });
+    assert.equal(noVerificada.json.error?.codigo, 'TOTALIZACION_NO_VERIFICADA', 'si no coincide, primero hay que agotar los 3 intentos');
+    for (let i = 1; i <= 3; i++) await api(caja.url, '/api/corte/verificar-totalizacion', { valor: tarjetaNeta + 1000 });
     const c = await api(caja.url, '/api/corte/cerrar', { clave: '4321', totalizacion: tarjetaNeta + 1000, observaciones: 'Sobrante de $1, probable propina.' });
     assert.deepEqual([c.json.corte.totalizacion_bancaria.coincide, c.json.corte.totalizacion_bancaria.diferencia, c.json.corte.totalizacion_bancaria.sistema], [false, 1000, tarjetaNeta]);
-    assert.match(c.json.ticket_texto, /TOTALIZACIÓN BANCARIA[\s\S]*Total de la terminal[\s\S]*Tarjeta en el sistema[\s\S]*DIFERENCIA\s+\+\$10\.00/);
+    assert.match(c.json.ticket_texto, /TOTALIZACIÓN BANCARIA[\s\S]*Total de la terminal[\s\S]*Tarjeta en el sistema[\s\S]*NO COINCIDIÓ\s+\+\$10\.00[\s\S]*Intentos de captura\s+3/);
     assert.equal(c.status, 200, JSON.stringify(c.json));
     const k = c.json.corte;
     const ticket = renderTicketCorteTexto(k, NEGOCIOS.DUO);
