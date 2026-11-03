@@ -62,7 +62,7 @@ describe('[navegador real] Navegación inferior tipo isla (teléfono)', { timeou
     assert.equal(await page.textContent('#menu-titulo'), 'Menú de navegación');
     assert.match((await page.textContent('#menu-hoja .menu-cab-txt p'))!, /Accede a todas las secciones de LonDuo POS/);
     const secciones = await etiquetas(page, '#menu-hoja .menu-tile span');
-    assert.deepEqual(secciones, ['Inventario', 'Almacén', 'Promociones', 'Tarjetas de regalo', 'Reportes', 'Historial de ventas', 'Análisis', 'Cortes', 'Personal', 'Configuración', 'Avisos']);
+    assert.deepEqual(secciones, ['Inventario', 'Almacén', 'Promociones', 'Tarjetas de regalo', 'Reportes', 'Historial de ventas', 'Análisis', 'Cortes', 'Personal', 'Configuración', 'Ayuda', 'Avisos']);
     assert.equal(await page.getAttribute('#menu-hoja .menu-tile[data-vista="reportes"]', 'aria-current'), 'page');
     const [lapiz, hoja] = (await page.evaluate(() => ['#menu-lapiz', '#menu-hoja'].map((s) => { const r = document.querySelector(s)!.getBoundingClientRect(); return { izq: r.left, der: r.right, arriba: r.top }; }))) as unknown as [Record<string, number>, Record<string, number>];
     assert.ok(lapiz!.der > hoja!.der - 40 && lapiz!.arriba < hoja!.arriba + 90, `el lápiz va arriba a la derecha: ${JSON.stringify({ lapiz, hoja })}`);

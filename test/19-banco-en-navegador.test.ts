@@ -101,7 +101,7 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     await page.uncheck('#falla-hub');
     await page.selectOption('#sesion-prueba', 'admin');
     await page.waitForSelector('#inv-q'); // Administración abre en Inventario
-    assert.deepEqual(await page.$$eval('#nav button', (b) => b.map((x) => x.textContent)), ['Inventario', 'Almacén', 'Promociones', 'Tarjetas de regalo', 'Reportes', 'Historial de ventas', 'Análisis', 'Cortes', 'Personal', 'Configuración', 'Caja']);
+    assert.deepEqual(await page.$$eval('#nav button', (b) => b.map((x) => x.textContent)), ['Inventario', 'Almacén', 'Promociones', 'Tarjetas de regalo', 'Reportes', 'Historial de ventas', 'Análisis', 'Cortes', 'Personal', 'Configuración', 'Ayuda', 'Caja']);
     await page.click('#nav button[data-vista="reportes"]');
     await page.waitForSelector('#filtros');
     await page.click('#filtros button[type="submit"]');
@@ -1270,7 +1270,7 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     // el supervisor ve todo
     await page.fill('#lg-usuario', 'Edgardo'); await page.fill('#lg-clave', 'clave-segura'); await page.click('#lg-entrar');
     await page.waitForSelector('#nav button[data-vista="reportes"]');
-    assert.equal(await page.locator('#nav button[data-vista]').count(), 11, '10 pantallas más Caja');
+    assert.equal(await page.locator('#nav button[data-vista]').count(), 12, '11 pantallas (con Ayuda) más Caja');
     assert.match((await page.textContent('[data-chip="rol"]'))!, /Supervisor/);
     assert.deepEqual(errores.filter((e) => !/401|403|Failed to load resource/.test(e)), []);
   });

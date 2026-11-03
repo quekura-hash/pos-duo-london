@@ -54,7 +54,7 @@ describe('[navegador real — Chromium con Playwright, UI sobre SQLite]', { time
     assert.equal(await chip('hub'), 'Conectado');
     assert.equal(await chip('pendientes'), '0');
     // navegación según permisos: un cajero NO ve Administración ni Reportes
-    assert.deepEqual(await page.$$eval('#nav button', (b) => b.map((x) => x.textContent)), ['Venta', 'Retiro', 'Historial', 'Cierre de caja', 'Operaciones extraordinarias', 'Tarjetas de regalo', 'Calculadora']);
+    assert.deepEqual(await page.$$eval('#nav button', (b) => b.map((x) => x.textContent)), ['Venta', 'Retiro', 'Historial', 'Cierre de caja', 'Operaciones extraordinarias', 'Tarjetas de regalo', 'Ayuda', 'Calculadora']);
     // tabla: columnas separadas y en el orden pedido
     assert.deepEqual(await page.$$eval('#tabla-venta thead th:not(:last-child)', (h) => h.map((x) => x.textContent)),
       ['Item #', 'Código', 'Descripción', 'Marca', 'Estilo', 'Lote', 'Cant.', 'Precio', 'Desc.', 'Importe']);
@@ -214,7 +214,7 @@ describe('[navegador real — Chromium con Playwright, UI sobre SQLite]', { time
     const { page, errores } = await pagina(browser, adm.url);
     await page.waitForSelector('#inv-q'); // Administración abre en Inventario
     assert.equal(await page.getAttribute('#nav button[aria-current="page"]', 'data-vista'), 'inventario');
-    assert.deepEqual(await page.$$eval('#nav button', (b) => b.map((x) => x.textContent)), ['Inventario', 'Almacén', 'Promociones', 'Tarjetas de regalo', 'Reportes', 'Historial de ventas', 'Análisis', 'Cortes', 'Personal', 'Configuración']);
+    assert.deepEqual(await page.$$eval('#nav button', (b) => b.map((x) => x.textContent)), ['Inventario', 'Almacén', 'Promociones', 'Tarjetas de regalo', 'Reportes', 'Historial de ventas', 'Análisis', 'Cortes', 'Personal', 'Configuración', 'Ayuda']);
     await page.click('#nav button[data-vista="reportes"]');
     await page.waitForSelector('#filtros');
     await page.fill('#desde', '2026-10-01');
@@ -331,7 +331,7 @@ describe('[navegador real — Chromium con Playwright, UI sobre SQLite]', { time
       assert.equal(await page.evaluate(() => (document.querySelector('.encabezado .logo') as HTMLImageElement).naturalWidth > 50), true, 'el logo cargó');
       const texto = (await page.textContent('body'))!;
       assert.doesNotMatch(texto, /apartado/i, 'no hay botones ni referencias a apartados');
-      assert.equal(await page.locator('#nav button svg').count(), tienda === 'DUO' ? 7 : 6, 'cada opción de navegación (y la calculadora) tiene su icono (la Caja 2 no tiene Tarjetas de regalo)');
+      assert.equal(await page.locator('#nav button svg').count(), tienda === 'DUO' ? 8 : 7, 'cada opción de navegación (y la calculadora) tiene su icono (la Caja 2 no tiene Tarjetas de regalo)');
       const sinIcono = await page.$$eval('button:not(.btn-icono):not([type=submit])', (bs) => bs.filter((b) => !b.querySelector('svg') && !/^[−+]$/.test(b.textContent!.trim())).map((b) => b.textContent!.trim()));
       assert.deepEqual(sinIcono, [], 'todo botón visible lleva icono');
       assert.equal(await page.locator('#btn-editar-catalogo').count(), 0, 'Editar catálogo ya no existe en la venta');
