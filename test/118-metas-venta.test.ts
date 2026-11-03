@@ -8,6 +8,7 @@ import { avanceMetas, colorDeRitmo, diaEquivalente, diasDelPeriodo, fraccionDelD
 import type { VentaHistorica } from '../src/ventas-historicas.ts';
 import { centralLocal } from './ayudas/central-pglite.ts';
 import { ALMACENES } from './ayudas/comun.ts';
+import { fechaLocal } from '../src/util.ts';
 const ALMACENES_SQLITE = () => ALMACENES.find((a) => a.nombre === 'sqlite')!;
 import { nuevoMundo, politica, porAlmacen, vender } from './ayudas/comun.ts';
 
@@ -128,7 +129,11 @@ it('MV7 [navegador] Administración configura la meta (incremento) y ve el repor
   const caja = await appCajero(ctx, 'DUO', 1, 'Lupe');
   t.after(async () => { await browser.close(); await adm.cerrar(); await caja.cerrar(); ctx.limpiar(); });
   const fila = (fecha: string, total: number, folio: number): VentaHistorica => ({ folio, fecha, tipo: 'venta', piezas: 1, total, pago: 'efectivo', pago_original: 'Cash' });
-  ctx.m.central.importarVentasHistoricas({ tienda: 'DUO', caja: 1, lote: 'p', por: 'Edgardo', filas: [fila('2025-10-02', 100000, 1), fila('2025-10-03', 50000, 2)] });
+  // La caja usa el reloj simulado (octubre de 2026) y la pantalla de Administración el reloj REAL: el historial del «año pasado» se carga para los dos meses.
+  const [yReal, mReal] = fechaLocal(new Date().toISOString()).split('-').map(Number) as [number, number];
+  const delAnioPasado = `${yReal - 1}-${String(mReal).padStart(2, '0')}`;
+  const filas = [fila('2025-10-02', 100000, 1), fila('2025-10-03', 50000, 2), ...(delAnioPasado === '2025-10' ? [] : [fila(`${delAnioPasado}-02`, 100000, 3), fila(`${delAnioPasado}-03`, 50000, 4)])];
+  ctx.m.central.importarVentasHistoricas({ tienda: 'DUO', caja: 1, lote: 'p', por: 'Edgardo', filas });
   await api(adm.url, '/api/admin/cajeros', { nombre: 'Lupe', clave: '4321' });
   ctx.m.pump(); ctx.m.pump(); ctx.m.pump();
   const errores: string[] = [];

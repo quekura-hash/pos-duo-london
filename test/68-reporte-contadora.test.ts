@@ -4,7 +4,7 @@ import { MAX_INTENTOS, correoDelReporte, diasDelMes, esUltimoDiaDelMes, limpiarC
 import { avisoDeFallos, ejecutarMensual, ejecutarPrueba, type Dependencias, type Fallo } from '../src/reporte-contadora-envio.ts';
 import { ServicioAdmin } from '../src/app/servicio.ts';
 import { escribirXlsxNode, leerXlsxNode } from '../src/xlsx-node.ts';
-import { fechaLocal } from '../src/util.ts';
+import { fechaLocal, Reloj } from '../src/util.ts';
 import type { Op } from '../src/tipos.ts';
 import { nuevoMundo, politica, porAlmacen, vender } from './ayudas/comun.ts';
 
@@ -73,7 +73,7 @@ porAlmacen('Reporte mensual a la contadora: un correo por caja a sus propios des
   }
 
   const mes = () => {
-    const periodo = fechaLocal(new Date().toISOString()).slice(0, 7);
+    const periodo = fechaLocal(new Reloj().now()).slice(0, 7) // el mes del mundo simulado (no el del reloj real);
     const [y, m] = periodo.split('-').map(Number) as [number, number];
     const hora = (dia: number, h: number) => new Date(Date.UTC(y, m, dia, h)).toISOString();
     // 21, 22 y 23 h locales del último día = 04, 05 y 06 UTC del día 1 siguiente; 9 a. m. del día 1 = 16 UTC.
@@ -155,7 +155,7 @@ porAlmacen('Reporte mensual a la contadora: un correo por caja a sus propios des
     t.after(ctx.limpiar);
     vender(ctx.m, 'DUO', 1, ctx.items[2]!.item_id);
     ctx.m.pump();
-    const periodo = fechaLocal(new Date().toISOString()).slice(0, 7);
+    const periodo = fechaLocal(new Reloj().now()).slice(0, 7) // el mes del mundo simulado (no el del reloj real);
     const [y, m] = periodo.split('-').map(Number) as [number, number];
     const x = dependencias(() => ctx.m.central.repo.ops(), { ahora: new Date(Date.UTC(y, m, 1, 4)).toISOString(), config: [{ tienda: 'DUO', caja: 1, activo: true, correos: [] }, { tienda: 'LON', caja: 1, activo: true, correos: ['lon@x.mx'] }, { tienda: 'LON', caja: 2, activo: false, correos: ['no@x.mx'] }] });
     const r = await ejecutarMensual(x.d);

@@ -93,7 +93,7 @@ porAlmacen('Análisis en el servicio: usa el mismo reporte (con históricas, caj
     a.importarVentasHistoricas({ filas: HOJA, tienda: 'DUO', caja: 1, nombre: 'p.xlsx' });
     const v = vender(ctx.m, 'DUO', 1, ctx.items[2]!.item_id).venta;
     ctx.m.pump();
-    const hoy = fechaLocal(new Date().toISOString());
+    const hoy = fechaLocal(ctx.m.reloj.now()); // el día del mundo simulado, no el del reloj real
     const anio = hoy.slice(0, 4);
     const mes = a.analisisVentas({ agrupar: 'mes', desde: `${anio}-01-01`, hasta: `${anio}-12-31` });
     assert.equal(mes.filas.length, 12, 'los doce meses del año');
