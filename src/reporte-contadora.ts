@@ -82,7 +82,7 @@ export function reporteDeCaja(ops: Op[], tienda: string, cajaGuardada: number, p
   const caja = especial ? cajaGuardada - BASE_ESPECIAL : cajaGuardada;
   const { desde, hasta: finMes } = rangoDelPeriodo(periodo);
   const hasta = hastaFecha && hastaFecha < finMes ? hastaFecha : finMes;
-  const r = reporteConsolidado({ rol: 'admin', usuario: 'reporte-mensual' } as never, ops, { desde, hasta, cajas: [{ tienda, caja }], historicas: true });
+  const r = reporteConsolidado({ rol: 'admin', usuario: 'reporte-mensual' } as never, ops, { desde, hasta, cajas: [{ tienda, caja }], historicas: true, fees: true });
   const vivas = r.filas.filter((f) => f.estado !== 'cancelada');
   const suma = (k: 'efectivo' | 'tarjeta' | 'dolares' | 'tarjeta_regalo' | 'otro' | 'mixto' | 'credito') => vivas.reduce((a, f) => a + f.montos[k], 0);
   return {

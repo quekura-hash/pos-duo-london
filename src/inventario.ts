@@ -318,7 +318,7 @@ const serialExcel = (fecha: string) => Date.UTC(Number(fecha.slice(0, 4)), Numbe
 const pesos = (c: number) => c / 100;
 const TIPO_TICKET = { venta: 'Venta', cambio: 'Cambio', fee: 'Fee por daño' } as const;
 /** Folio como lo ve la contadora: ventas, el número; compras a crédito de empleada, «CR-000012» (serie aparte, no se confunde con una venta). */
-const folioHoja = (f: { folio: number; serie?: 'CR' }) => (f.serie ? `CR-${String(f.folio).padStart(6, '0')}` : f.folio);
+const folioHoja = (f: { folio: number; serie?: 'CR'; fee_deposito?: string }) => (f.fee_deposito ? f.fee_deposito : f.serie ? `CR-${String(f.folio).padStart(6, '0')}` : f.folio);
 
 /** Detalle de ventas para la contadora: una fila por ticket (folio, fecha, piezas, total y forma de pago), importes como NÚMEROS para poder sumar. */
 export function hojaDetalleVentas(r: import('./consultas.ts').Consolidado): Hoja {
@@ -364,7 +364,8 @@ export function hojaResumenVentas(r: import('./consultas.ts').Consolidado): Hoja
     if (f.estado === 'cancelada') continue;
     const k = `${f.fecha_local}|${f.tienda}`;
     const d = dias.get(k) ?? { fecha: f.fecha_local, tienda: f.tienda, tickets: 0, piezas: 0, efectivo: 0, tarjeta: 0, dolares: 0, regalo: 0, otro: 0, mixto: 0, credito: 0, fees: 0, total: 0 };
-    d.tickets++; d.piezas += f.piezas; d.efectivo += f.montos.efectivo; d.tarjeta += f.montos.tarjeta; d.dolares += f.montos.dolares; d.regalo += f.montos.tarjeta_regalo; d.otro += f.montos.otro; d.mixto += f.montos.mixto; d.credito += f.montos.credito;
+    if (f.fee_deposito === undefined) d.tickets++;
+    d.piezas += f.piezas; d.efectivo += f.montos.efectivo; d.tarjeta += f.montos.tarjeta; d.dolares += f.montos.dolares; d.regalo += f.montos.tarjeta_regalo; d.otro += f.montos.otro; d.mixto += f.montos.mixto; d.credito += f.montos.credito;
     if (f.tipo_ticket === 'fee') d.fees += f.total;
     d.total += f.total;
     dias.set(k, d);
