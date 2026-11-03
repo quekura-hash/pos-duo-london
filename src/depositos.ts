@@ -142,3 +142,21 @@ export function resumenDepositosCaja(ops: Op[], tienda: string, caja: number, fe
   }
   return r;
 }
+
+/** Movimientos de depósitos de un día para el resumen de Administración, de una tienda y caja o de todas (`null`). */
+export function resumenDepositosDia(ops: Op[], fecha: string, tienda: string | null, caja: number | null = null): Omit<ResumenDepositosCaja, 'pendiente' | 'pendiente_n'> & { pendiente: number; pendiente_n: number } {
+  const r = { recibidos: 0, recibidos_n: 0, devueltos: 0, devueltos_n: 0, aplicados: 0, aplicados_n: 0, fees: 0, fees_n: 0, reintegrados: 0, pendiente: 0, pendiente_n: 0 };
+  const aqui = (t: string, c: number) => (tienda === null || t === tienda) && (caja === null || c === caja);
+  for (const d of depositos(ops).values()) {
+    for (const x of d.movimientos) {
+      if (!aqui(x.tienda, x.caja) || fechaLocal(x.ocurrio_en) !== fecha) continue;
+      if (x.tipo === 'recibido') { r.recibidos += x.monto; r.recibidos_n++; }
+      else if (x.tipo === 'devuelto') { r.devueltos += x.monto; r.devueltos_n++; }
+      else if (x.tipo === 'aplicado') { r.aplicados += x.monto; r.aplicados_n++; }
+      else if (x.tipo === 'fee') { r.fees += x.monto; r.fees_n++; }
+      else if (x.tipo === 'reintegrado') r.reintegrados += x.monto;
+    }
+    if (aqui(d.tienda, d.caja) && d.saldo > 0 && d.fecha <= fecha) { r.pendiente += d.saldo; r.pendiente_n++; }
+  }
+  return r;
+}

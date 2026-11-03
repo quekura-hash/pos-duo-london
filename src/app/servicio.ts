@@ -13,7 +13,7 @@ import { estadoPromo, type Promocion } from '../promociones.ts';
 import { personalConCuenta, mesesVigenciaTarjetas, clientesVip, excepcionesVip, cuentasEmpleadas, configEmpleadas, CRITERIOS_EXPEDIENTE, expedientesDe, expedienteVacio, registradaEn, CAMPOS_EDITABLES, catalogo, historialArticulo, nombresTienda, datosTiendas, departamentos as proyDepartamentos, devoluciones, type Devolucion, promocionesDe, recompensasDe, supervisoresDe, cajerosDe, administradoresDe, configSesionDe, permisos as proyPermisos, tarjetasRegalo, tiposDeCambio, tipoCambioVigente, ventas, type TipoCambio } from '../proyecciones.ts';
 import { hojaAnalisis, hojaAnalisisEmpleadas, hojaDetalleVentas, hojaResumenVentas, hojaDescuentos, hojaEntregas, hojaDolares, hojaInventario, leerInventario, PERFIL_CONFIRMADO, type Hoja } from '../inventario.ts';
 import { LOGOS_TICKET } from '../logos-ticket.ts';
-import { codigoTicketDeposito, type Deposito, type MovDeposito } from '../depositos.ts';
+import { codigoTicketDeposito, resumenDepositosDia, TIPOS_DEPOSITO, type Deposito, type MovDeposito } from '../depositos.ts';
 import { svgCode128 } from '../codigo128.ts';
 import { detalleHistorica, detalleDeVenta, validarDatosClienta, type DatosClienta } from '../detalle-venta.ts';
 import { aplicarDatosTienda, codigoTicket, interpretarFolio, construirTicket, construirTicketRegalo, formatoMXN, NEGOCIOS, renderTextoEscPos, renderTicketCancelacionTexto, renderTicketGastoTexto, renderTicketDepositoTexto, renderTicketResolucionDepositoTexto, renderDepositoEscPos, type DatosTicketResolucion, renderTicketFirmaTexto, renderTicketDevolucionTexto, type ComprobanteClienta, renderTicketRetiroTexto, renderTicketEscPos, renderTicketCorteEscPos, renderTicketCorteTexto, renderTicketTexto, type NegocioCfg } from '../ticket.ts';
@@ -1984,6 +1984,7 @@ export class ServicioAdmin {
     const suma = (xs: number[]) => xs.reduce((a, b) => a + b, 0);
     const retirosDia = retirosPorCaja(this.actor, ops, { desde: dia, hasta: dia });
     const gastosDia = gastosPorCaja(this.actor, ops, { desde: dia, hasta: dia });
+    const depositosOps = ops.filter((o) => (TIPOS_DEPOSITO as readonly string[]).includes(o.tipo));
     const filaDe = (tienda: string | null, caja: number | null = null) => {
       const aqui = (x: { tienda: string; caja: number }) => (tienda === null || x.tienda === tienda) && (caja === null || x.caja === caja);
       const rt = retirosDia.filter(aqui);
@@ -2002,6 +2003,8 @@ export class ServicioAdmin {
         mercancia_recibida_por_cambio: recibida, devoluciones_con_reembolso: suma(d.map((x) => x.importe)) - recibida, devuelto_a_tarjeta: suma(d.flatMap((x) => x.reembolsos.filter((r) => r.metodo === 'tarjeta').map((r) => r.monto))),
         ventas_netas: ventaTotal - suma(d.map((x) => x.importe)), reembolsado,
         retiros: suma(rt.map((x) => x.equivalente_mxn)), retiros_n: rt.length, gastos: suma(gt.map((x) => x.monto)), gastos_n: gt.length,
+        // Depósitos en garantía del día (no son ventas): recibidos, devueltos, aplicados a compras, fees retenidos y lo que sigue pendiente de las clientas.
+        depositos: resumenDepositosDia(depositosOps, dia, tienda, caja),
       };
     };
     const info = this.tiendasInfo();

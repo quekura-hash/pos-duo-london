@@ -36,13 +36,18 @@ porAlmacen('Fees por daño de depósitos en Análisis y Reportes', (alm) => {
     // Excel de la contadora
     const det = hojaDetalleVentas(r).filas.find((f) => f[2] === 'Fee por daño')!;
     assert.deepEqual([det[1], det[4]], ['DEP-D1-0001', 150]);
-    const dia = hojaResumenVentas(r).filas[0]!;
-    assert.deepEqual([dia[2], dia[11], dia[12]], [1, 150, (venta.total + 15000) / 100], 'tickets 1; fees 150; total con el fee');
+    const diaXls = hojaResumenVentas(r).filas[0]!;
+    assert.deepEqual([diaXls[2], diaXls[11], diaXls[12]], [1, 150, (venta.total + 15000) / 100], 'tickets 1; fees 150; total con el fee');
 
     // El Historial de ventas no lista fees (no son tickets que se puedan abrir) y su resumen no los cuenta
     const h = a.historialVentas({});
     assert.equal(h.ventas.filter((x) => x.tipo_ticket === 'fee').length, 0);
     assert.equal(h.resumen.tickets, 1);
+    // Resumen del día de Administración: los depósitos aparecen aparte de las ventas (que no se mueven)
+    const dia = a.resumenDia();
+    assert.deepEqual([dia.total.depositos.recibidos, dia.total.depositos.devueltos, dia.total.depositos.fees, dia.total.depositos.aplicados, dia.total.depositos.pendiente], [30000, 15000, 15000, 0, 0]);
+    assert.equal(dia.total.ventas_netas, venta.total, 'los depósitos no cambian las ventas netas');
+    assert.equal(dia.tiendas.find((x: any) => x.tienda === 'DUO')!.depositos.recibidos_n, 1);
     // devolver el resto del depósito no genera ingreso: solo hay UNA fila de fee
     assert.equal(r.filas.filter((x) => x.tipo_ticket === 'fee').length, 1);
   });
