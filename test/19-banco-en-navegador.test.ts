@@ -839,16 +839,21 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     // tarjeta por el total
     assert.equal(await page.isDisabled('[data-forma="tarjeta"]'), false);
     await page.click('[data-forma="tarjeta"]');
-    // ya no se captura el número de autorización: el botón confirma que la terminal aprobó
-    assert.equal(await page.locator('#tj-aut').count(), 0, 'no hay campo de autorización');
+    // la autorización es obligatoria: se teclean los últimos 4 números del voucher de la terminal y luego se confirma
+    assert.equal(await page.locator('#tj-auth').count(), 1, 'hay campo de autorización');
     assert.equal((await page.textContent('#txt-cobrar'))!.trim(), 'TRANSACCIÓN CONFIRMADA');
+    assert.equal(await page.isDisabled('#btn-cobrar'), true, 'sin la autorización no se puede confirmar');
+    await page.fill('#tj-auth', '12');
+    assert.equal(await page.isDisabled('#btn-cobrar'), true, 'con menos de 4 tampoco');
+    await page.fill('#tj-auth', 'a1b2');
+    assert.equal(await page.inputValue('#tj-auth'), 'A1B2');
     assert.equal(await page.isDisabled('#btn-cobrar'), false);
     await page.screenshot({ path: join(RAIZ, 'docs', 'capturas', '38-tarjeta-manual.png') });
     await page.keyboard.press('Enter'); // Enter no confirma una tarjeta: hay que tocar el botón a propósito
     assert.equal(await page.locator('#dlg-ticket[open]').count(), 0);
     await page.click('#btn-cobrar');
     await page.waitForSelector('#dlg-ticket[open]');
-    assert.doesNotMatch((await page.textContent('#ticket-texto'))!, /Aut\./);
+    assert.match((await page.textContent('#ticket-texto'))!, /Aut\.?\s*A1B2/);
     assert.match((await page.textContent('#ticket-texto'))!, /Tarjeta\s+\$899\.00/);
     await page.click('#btn-nueva');
     // mixto: tarjeta parcial + resto en efectivo
@@ -860,6 +865,8 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     assert.equal(await page.isDisabled('#btn-cobrar'), true, 'el monto no puede exceder el total');
     await page.fill('#tj-monto', '100');
     await page.waitForFunction(() => document.querySelector('#tj-resto-monto')!.textContent !== '$0.00');
+    assert.equal(await page.isDisabled('#btn-cobrar'), true, 'el mixto también exige la autorización');
+    await page.fill('#tj-auth', '4321');
     assert.equal(await page.isDisabled('#btn-cobrar'), false);
     await page.click('#btn-cobrar');
     await page.waitForSelector('#dlg-ticket[open]');

@@ -721,9 +721,10 @@ function elegirForma(f) {
   $(f === 'regalo' ? '#codigo-regalo' : f === 'tarjeta' ? '#scan' : f === 'mixto' ? '#tj-monto' : f === 'credito' ? '#btn-cobrar' : '#recibido')?.focus();
 }
 
-/** Tarjeta: se cobra en la terminal bancaria y, cuando esta imprime la autorización, quien cobra toca «Transacción confirmada» (no se captura ningún número). */
+/** Tarjeta: se cobra en la terminal bancaria y, cuando esta imprime la autorización, quien cobra teclea sus últimos 4 números y toca «Transacción confirmada». */
 function htmlTarjeta(mixto) {
-  return `<p class="nota" style="margin:0 0 8px">Cobre en la terminal bancaria. Cuando la terminal <b>imprima la autorización</b>, toque <b>«Transacción confirmada»</b>.</p>
+  return `<p class="nota" style="margin:0 0 8px">Cobre en la terminal bancaria. Cuando la terminal <b>imprima la autorización</b>, escriba sus <b>últimos 4 números</b> y toque <b>«Transacción confirmada»</b>.</p>
+    <div class="campo" id="tj-auth-campo"><label for="tj-auth">Últimos 4 de la autorización</label><input id="tj-auth" inputmode="text" autocapitalize="characters" autocomplete="off" spellcheck="false" maxlength="4" placeholder="0000" style="width:120px;font-size:22px;letter-spacing:4px;text-align:center"></div>
     ${mixto ? `<div class="campo"><label for="codigo-regalo-mx">Tarjeta de regalo (opcional)</label><input id="codigo-regalo-mx" class="texto" autocomplete="off" spellcheck="false" placeholder="Escanee o escriba el código si paga con tarjeta de regalo"></div>
     <div id="info-regalo-mx" class="saldo-tarjeta" role="status" aria-live="polite" hidden></div>
     <div class="campo"><label for="tj-monto">Monto cobrado con tarjeta bancaria (MXN)</label><input id="tj-monto" inputmode="decimal" autocomplete="off" placeholder="0.00"></div>
@@ -752,6 +753,11 @@ function repartoTarjeta() {
   const resto = valido ? total - m : total;
   return { importe: valido ? m : 0, resto, valido: valido && efectivoOk(resto), regalo: 0, ...recibidoDe(resto) };
 }
+/** Autorización de la terminal tecleada (últimos 4): vacía si no hace falta (el saldo de la tarjeta de regalo cubre todo, sin terminal). */
+const leerAuth = () => ($('#tj-auth')?.value ?? '').trim().toUpperCase();
+const authOk = () => /^[A-Z0-9]{4}$/.test(leerAuth());
+/** ¿Este cobro pasa por la terminal bancaria? (en el Mixto con tarjeta de regalo sin monto de terminal, no). */
+const usaTerminal = (r) => !(S.forma === 'mixto' && r.regalo > 0 && r.importe === 0);
 /** Efectivo recibido del Mixto (vacío = paga exacto): null si lo escrito no es un importe. */
 const leerRecibidoMx = () => { const t = ($('#tj-recibido')?.value ?? '').trim(); if (!t) return undefined; const v = parseMXN(t); return v === null ? null : v; };
 const efectivoOk = (resto) => { const r = leerRecibidoMx(); return r === undefined || (r !== null && r >= resto); };
@@ -831,6 +837,7 @@ function pintarPago() {
   if (S.forma === 'tarjeta' || S.forma === 'mixto') {
     p.innerHTML = htmlTarjeta(S.forma === 'mixto');
     $('#tj-monto')?.addEventListener('input', recalcular);
+    $('#tj-auth')?.addEventListener('input', (e) => { e.target.value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''); recalcular(); });
     $('#tj-recibido')?.addEventListener('input', recalcular);
     const cx = $('#codigo-regalo-mx');
     if (cx) {
@@ -1028,7 +1035,8 @@ function recalcular() {
     const r = repartoTarjeta();
     if ($('#tj-resto-monto')) $('#tj-resto-monto').textContent = mxn(r.resto);
     if ($('#tj-resto')) $('#tj-resto').innerHTML = `${r.regalo > 0 ? `Tarjeta de regalo aplica: <b id="mx-regalo">${mxn(r.regalo)}</b> · ` : ''}El resto se cobra en efectivo: <b id="tj-resto-monto">${mxn(r.resto)}</b>`;
-    ok = hay && r.valido;
+    if ($('#tj-auth-campo')) $('#tj-auth-campo').hidden = !usaTerminal(r);
+    ok = hay && r.valido && (!usaTerminal(r) || authOk());
     if ($('#tj-recibido-campo')) { $('#tj-recibido-campo').hidden = !(r.resto > 0); $('#tj-cambio-linea').hidden = !(r.resto > 0 && r.cambio > 0); $('#tj-cambio').textContent = mxn(r.cambio ?? 0); }
     if ($('#linea-cambio')) $('#linea-cambio').classList.remove('falta');
     if ($('#lbl-cambio')) { $('#lbl-cambio').textContent = 'Cambio'; $('#cambio').textContent = mxn(0); }
@@ -1184,7 +1192,7 @@ async function cobrar() {
         // Tarjeta de regalo + efectivo (sin terminal bancaria): el efectivo del resto se cobra exacto.
         r = await api('/api/venta/cobrar-regalo', { cart: S.cart, codigo: S.tarjeta.codigo, ...(t.resto > 0 ? { recibido: t.recibido ?? t.resto } : {}) });
       } else {
-        r = await api('/api/venta/cobrar-tarjeta', { cart: S.cart, ...(S.forma === 'mixto' ? { importe: t.importe } : {}), ...(S.forma === 'mixto' && t.regalo > 0 ? { regalo: S.tarjeta.codigo } : {}), ...(S.forma === 'mixto' && t.recibido !== undefined && t.resto > 0 ? { recibido: t.recibido } : {}) });
+        r = await api('/api/venta/cobrar-tarjeta', { cart: S.cart, autorizacion: leerAuth(), ...(S.forma === 'mixto' ? { importe: t.importe } : {}), ...(S.forma === 'mixto' && t.regalo > 0 ? { regalo: S.tarjeta.codigo } : {}), ...(S.forma === 'mixto' && t.recibido !== undefined && t.resto > 0 ? { recibido: t.recibido } : {}) });
       }
     } else if (S.forma === 'credito') {
       r = await api('/api/venta/cobrar-credito-empleada', { cart: S.cart });

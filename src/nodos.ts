@@ -2553,7 +2553,7 @@ export class Caja {
   cobrarConTarjetaManual(cartId: string, d: { importe?: number; autorizacion?: string; marca?: string; ultimos4?: string; regalo?: string; recibido?: number }, cajero = 'cajero'): Venta {
     const previa = this.repo.getOp(`sale:${cartId}`);
     if (previa) return ventas([previa]).get(cartId)!;
-    // El número de autorización ya no se captura: quien cobra confirma que la terminal aprobó. Si viene, se valida y se guarda (ventas con número, de antes).
+    // La autorización de la terminal es OBLIGATORIA (la cajera teclea los últimos 4 del voucher): así nadie confirma el cobro sin haberlo visto aprobado. Se valida y se guarda.
     const autorizacion = (d.autorizacion ?? '').trim().toUpperCase();
     if (autorizacion && !/^[A-Z0-9]{4,12}$/.test(autorizacion)) throw new ErrorDominio('DATOS_REQUERIDOS', 'la autorización del comprobante debe tener de 4 a 12 letras o números');
     const ultimos4 = (d.ultimos4 ?? '').trim();
@@ -2578,6 +2578,7 @@ export class Caja {
       total -= aplicado;
       if (total === 0) return this.cobrarConTarjetaRegalo(cartId, cod, undefined, cajero); // el saldo cubre todo: no hay nada que cobrar con la terminal
     }
+    if (!autorizacion) throw new ErrorDominio('AUTORIZACION_REQUERIDA_TARJETA', 'escriba los últimos 4 números de la autorización que imprimió la terminal');
     const importe = d.importe ?? total;
     if (!Number.isInteger(importe) || importe <= 0 || importe > total) throw new ErrorDominio('PAGO_INVALIDO', 'el importe de la tarjeta debe ser mayor que 0 y no exceder lo que falta por cobrar');
     // Efectivo del resto: si se captura lo recibido, el cambio se entrega en pesos (como en cualquier cobro en efectivo).

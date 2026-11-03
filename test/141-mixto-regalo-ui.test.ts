@@ -48,6 +48,9 @@ describe('[navegador real] Botón Mixto con tarjeta de regalo', { timeout: 240_0
     await page.fill('#codigo-regalo-mx', 'GC-B'); await page.press('#codigo-regalo-mx', 'Enter'); await page.waitForSelector('#saldo-regalo-mx');
     await page.fill('#tj-monto', '399');
     assert.equal((await page.textContent('#tj-resto-monto'))!.trim(), '$0.00');
+    assert.equal(await page.isDisabled('#btn-cobrar'), true, 'sin la autorización de la terminal no se cobra');
+    await page.fill('#tj-auth', '7c2a');
+    assert.equal(await page.inputValue('#tj-auth'), '7C2A');
     assert.equal(await page.isDisabled('#btn-cobrar'), false);
     await page.fill('#tj-monto', '400'); // más de lo que falta: no se puede cobrar
     assert.equal(await page.isDisabled('#btn-cobrar'), true);
@@ -61,6 +64,7 @@ describe('[navegador real] Botón Mixto con tarjeta de regalo', { timeout: 240_0
     await page.click('button[data-forma="mixto"]');
     await page.fill('#codigo-regalo-mx', 'GC-C'); await page.press('#codigo-regalo-mx', 'Enter'); await page.waitForSelector('#saldo-regalo-mx');
     await page.fill('#tj-monto', '300');
+    await page.fill('#tj-auth', '1234');
     assert.equal((await page.textContent('#tj-resto-monto'))!.trim(), '$99.00');
     await page.fill('#tj-recibido', '50'); // no alcanza
     assert.equal(await page.isDisabled('#btn-cobrar'), true);
@@ -77,6 +81,7 @@ describe('[navegador real] Botón Mixto con tarjeta de regalo', { timeout: 240_0
     await page.fill('#scan', VESTIDO); await page.press('#scan', 'Enter'); await page.waitForSelector('#cuerpo tr[data-linea]');
     await page.click('button[data-forma="mixto"]');
     await page.fill('#tj-monto', '500');
+    await page.fill('#tj-auth', '5678');
     assert.equal((await page.textContent('#tj-resto-monto'))!.trim(), '$399.00');
     assert.equal(await page.isDisabled('#btn-cobrar'), false);
     await page.fill('#codigo-regalo-mx', 'NO-EXISTE'); await page.press('#codigo-regalo-mx', 'Enter');

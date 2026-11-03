@@ -18,7 +18,7 @@ porAlmacen('Pago mixto: tarjeta de regalo + tarjeta bancaria + efectivo', (alm) 
   it('MX1 tarjeta de regalo + tarjeta bancaria (sin efectivo): $500 + $399', async (t) => {
     const { s, venta, metodos } = prep(t);
     const c = venta();
-    const v = (await s.svc.cobrarTarjetaManual(c, { importe: 39900, regalo: 'GC-1' })).venta;
+    const v = (await s.svc.cobrarTarjetaManual(c, { autorizacion: 'A123', importe: 39900, regalo: 'GC-1' })).venta;
     assert.deepEqual(metodos(v), [['tarjeta_regalo', 50000], ['tarjeta', 39900]]);
     assert.equal(v.total, 89900);
     assert.equal(s.svc.caja.saldoTarjeta('GC-1'), 0);
@@ -26,7 +26,7 @@ porAlmacen('Pago mixto: tarjeta de regalo + tarjeta bancaria + efectivo', (alm) 
   it('MX2 los tres: regalo $500 + tarjeta $300 + efectivo $99', async (t) => {
     const { s, venta, metodos } = prep(t);
     const c = venta();
-    const v = (await s.svc.cobrarTarjetaManual(c, { importe: 30000, regalo: 'GC-1' })).venta;
+    const v = (await s.svc.cobrarTarjetaManual(c, { autorizacion: 'A123', importe: 30000, regalo: 'GC-1' })).venta;
     assert.deepEqual(metodos(v), [['tarjeta_regalo', 50000], ['tarjeta', 30000], ['efectivo', 9900]]);
     assert.equal(v.pagos.reduce((a, p) => a + p.monto, 0), v.total);
   });
@@ -46,15 +46,15 @@ porAlmacen('Pago mixto: tarjeta de regalo + tarjeta bancaria + efectivo', (alm) 
   it('MX5 validaciones: tarjeta inexistente, importe de tarjeta que excede lo que falta, y la venta no se confirma', async (t) => {
     const { s, venta } = prep(t);
     const c = venta();
-    await assert.rejects(s.svc.cobrarTarjetaManual(c, { importe: 30000, regalo: 'NOEXISTE' }), { codigo: 'TARJETA_INEXISTENTE' });
-    await assert.rejects(s.svc.cobrarTarjetaManual(c, { importe: 40000, regalo: 'GC-1' }), { codigo: 'PAGO_INVALIDO' }); // faltan $399, no $400
+    await assert.rejects(s.svc.cobrarTarjetaManual(c, { autorizacion: 'A123', importe: 30000, regalo: 'NOEXISTE' }), { codigo: 'TARJETA_INEXISTENTE' });
+    await assert.rejects(s.svc.cobrarTarjetaManual(c, { autorizacion: 'A123', importe: 40000, regalo: 'GC-1' }), { codigo: 'PAGO_INVALIDO' }); // faltan $399, no $400
     assert.equal(s.svc.caja.saldoTarjeta('GC-1'), 50000, 'el saldo no se tocó');
     assert.equal(s.svc.caja.opsVentas().filter((o) => o.tipo === 'sale.confirmed' && o.payload.sale_id === c).length, 0);
   });
   it('MX6 el corte separa cada medio y la devolución regresa cada parte a donde salió', async (t) => {
     const { ctx, s, venta } = prep(t);
     const c = venta();
-    const v = (await s.svc.cobrarTarjetaManual(c, { importe: 30000, regalo: 'GC-1' })).venta;
+    const v = (await s.svc.cobrarTarjetaManual(c, { autorizacion: 'A123', importe: 30000, regalo: 'GC-1' })).venta;
     const corte = s.svc.corte(ctx.m.reloj.now().slice(0, 10)).vivo;
     assert.equal(corte.cobros_tarjeta_regalo, 50000);
     assert.equal(corte.cobros_tarjeta, 30000);
@@ -66,12 +66,12 @@ porAlmacen('Pago mixto: tarjeta de regalo + tarjeta bancaria + efectivo', (alm) 
   it('MX7 efectivo recibido y cambio en el mixto: $99 con un billete de $100 deja $1 de cambio y el corte lo descuenta', async (t) => {
     const { ctx, s, venta } = prep(t);
     const c = venta();
-    const v = (await s.svc.cobrarTarjetaManual(c, { importe: 30000, regalo: 'GC-1', recibido: 10000 })).venta;
+    const v = (await s.svc.cobrarTarjetaManual(c, { autorizacion: 'A123', importe: 30000, regalo: 'GC-1', recibido: 10000 })).venta;
     const ef = v.pagos.find((p) => p.metodo === 'efectivo')!;
     assert.deepEqual([ef.monto, ef.recibido, ef.cambio], [9900, 10000, 100]);
     const corte = s.svc.corte(ctx.m.reloj.now().slice(0, 10)).vivo;
     assert.equal(corte.mxn.cambio, 100);
     const c2 = venta();
-    await assert.rejects(s.svc.cobrarTarjetaManual(c2, { importe: 30000, recibido: 5000 }), { codigo: 'EFECTIVO_INSUFICIENTE' }); // faltan $599, recibió $50
+    await assert.rejects(s.svc.cobrarTarjetaManual(c2, { autorizacion: 'A123', importe: 30000, recibido: 5000 }), { codigo: 'EFECTIVO_INSUFICIENTE' }); // faltan $599, recibió $50
   });
 });
