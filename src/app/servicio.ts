@@ -931,10 +931,10 @@ export class ServicioCaja {
    * Cierra el corte del día (flujo guiado): exige fondo confirmado y conteos al día, y la clave de la propia cajera. Al cerrar por primera vez
    * imprime el ticket de cierre; una falla de impresión no deshace el cierre (se reimprime con «Reimprimir cierre»). Cerrar otra vez no reimprime.
    */
-  async cerrarCorte(fecha: string, d: { clave?: string; observaciones?: string } = {}) {
+  async cerrarCorte(fecha: string, d: { clave?: string; observaciones?: string; totalizacion?: number } = {}) {
     const antes = this.caja.cortesDelDia(fecha).length;
     const yaCerrado = antes > 0 && this.caja.corteAlDia(fecha);
-    const corte = this.caja.cerrarCorteGuiado(fecha, { usuario: this.actor.usuario, clave: d.clave, observaciones: d.observaciones });
+    const corte = this.caja.cerrarCorteGuiado(fecha, { usuario: this.actor.usuario, clave: d.clave, observaciones: d.observaciones, totalizacion: d.totalizacion });
     if (yaCerrado) return { corte, ticket_texto: null as string | null, impresion: null as { ok: boolean; error?: string } | null };
     return { corte, ...(await this.imprimirCierre(corte, 0)) };
   }

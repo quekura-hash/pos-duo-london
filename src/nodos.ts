@@ -3440,14 +3440,14 @@ export class Caja {
   corteAlDia(fecha: string, vivo: ReturnType<Caja['corteEnVivo']> = this.corteEnVivo(fecha)): boolean {
     const o = this.corteVigente(fecha);
     if (!o) return false;
-    const sinDatosDelCierre = (c: any) => { const { cerrado_por: _a, observaciones: _b, cierres_previos: _c, ...resto } = c ?? {}; return resto; };
+    const sinDatosDelCierre = (c: any) => { const { cerrado_por: _a, observaciones: _b, cierres_previos: _c, totalizacion_bancaria: _d, ...resto } = c ?? {}; return resto; };
     return JSON.stringify(sinDatosDelCierre(o.payload)) === JSON.stringify(sinDatosDelCierre(vivo));
   }
   /**
    * Cierra el corte del día con el flujo guiado: exige los conteos al día y la clave de quien cierra; guarda observaciones y quién cerró.
    * Se puede cerrar más de una vez al día: el nuevo cierre cubre TODO el día y lleva una nota por cada cierre anterior (hora, venta de ese momento y que se confirmó el fondo).
    */
-  cerrarCorteGuiado(fecha: string, d: { usuario: string; clave?: string; observaciones?: string }) {
+  cerrarCorteGuiado(fecha: string, d: { usuario: string; clave?: string; observaciones?: string; totalizacion?: number }) {
     const previos = this.cortesDelDia(fecha);
     if (previos.length && this.corteAlDia(fecha)) return previos.at(-1)!.payload as ReturnType<Caja['corteEnVivo']>;
     const est = this.estadoCierre(fecha);
@@ -3455,9 +3455,15 @@ export class Caja {
       const texto: Record<string, string> = { fondo: 'confirme el fondo', conteo_ventas: 'cuente el efectivo de ventas', recontar_ventas: 'hubo movimientos después del conteo de pesos: vuelva a contar', conteo_usd: 'cuente los dólares', recontar_usd: 'hubo movimientos después del conteo de dólares: vuelva a contar' };
       throw new ErrorDominio('CIERRE_INCOMPLETO', `no se puede cerrar el corte: ${est.faltan.map((f) => texto[f]).join('; ')}`, { faltan: est.faltan });
     }
+    // Último paso antes de cerrar: la totalización bancaria (el total que da la terminal al cerrar el lote) se captura SIEMPRE y se compara con lo cobrado con tarjeta menos
+    // lo reembolsado a tarjeta. Si no coincide, el corte se cierra igual pero la diferencia queda marcada en el corte y en su ticket.
+    if (!Number.isInteger(d.totalizacion) || (d.totalizacion as number) < 0) throw new ErrorDominio('CIERRE_INCOMPLETO', 'no se puede cerrar el corte: capture la totalización bancaria (el total de la terminal; escriba 0 si no hubo cobros con tarjeta)', { faltan: ['totalizacion'] });
     if (this.controlesConClave()) this.verificarClaveCajero(d.usuario, String(d.clave ?? ''));
     const cierres_previos = previos.map((o) => ({ cerrado_en: o.ocurrio_en, cerrado_por: (o.payload.cerrado_por as string | undefined) ?? '', ventas: o.payload.ventas_mercancia as number, fondo_confirmado: o.payload.fondo_confirmado !== null && o.payload.fondo_confirmado !== undefined, fondo_estado: (o.payload.fondo_estado as string | null) ?? null, fondo_diferencia: (o.payload.fondo_diferencia as number | null) ?? 0 }));
-    const corte = { ...this.corteEnVivo(fecha), cerrado_por: d.usuario, observaciones: String(d.observaciones ?? '').trim().slice(0, 500), ...(cierres_previos.length ? { cierres_previos } : {}) };
+    const vivo = this.corteEnVivo(fecha);
+    const sistemaTarjeta = (vivo.cobros_tarjeta as number) - (vivo.devoluciones_a_tarjeta as number);
+    const totalizacion_bancaria = { capturado: d.totalizacion as number, sistema: sistemaTarjeta, diferencia: (d.totalizacion as number) - sistemaTarjeta, coincide: d.totalizacion === sistemaTarjeta, capturo: d.usuario };
+    const corte = { ...vivo, totalizacion_bancaria, cerrado_por: d.usuario, observaciones: String(d.observaciones ?? '').trim().slice(0, 500), ...(cierres_previos.length ? { cierres_previos } : {}) };
     this.emitir('corte.generado', corte, previos.length ? `corte:${this.id}:${fecha}:${previos.length + 1}` : `corte:${this.id}:${fecha}`);
     return corte;
   }

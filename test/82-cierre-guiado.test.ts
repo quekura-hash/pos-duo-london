@@ -87,7 +87,7 @@ porAlmacen('Cierre de caja guiado: fondo fijo, conteo de ventas, diferencias reg
     assert.equal((await api(caja.url, '/api/venta/devolver', { sale_id: v1000.sale_id, renglones: [{ linea_id: v1000.lineas[0].linea_id, qty: 1 }], motivo: 'defecto', autoriza: { nombre: 'Edgardo', clave: '2468' } })).status, 200);
     void v6500;
     // sin fondo ni conteo no se puede cerrar
-    const temprano = await api(caja.url, '/api/corte/cerrar', { clave: '4321' });
+    const temprano = await api(caja.url, '/api/corte/cerrar', { clave: '4321', totalizacion: 0 });
     assert.equal(temprano.json.error.codigo, 'CIERRE_INCOMPLETO');
     assert.deepEqual((await cierre(caja)).estado.faltan, ['fondo', 'conteo_ventas']);
     // paso 1 y paso 2
@@ -97,16 +97,16 @@ porAlmacen('Cierre de caja guiado: fondo fijo, conteo de ventas, diferencias reg
     assert.equal(j.estado.puede_cerrar, true);
     assert.deepEqual([j.vivo.efectivo_esperado, j.vivo.efectivo_ventas_esperado, j.vivo.diferencia_mxn, j.vivo.conteo_alcance], [pesos(7399), pesos(7399), 0, 'ventas']);
     // cierre: pide la clave de la propia cajera
-    assert.equal((await api(caja.url, '/api/corte/cerrar', { clave: '0000' })).json.error.codigo, 'CLAVE_INVALIDA');
+    assert.equal((await api(caja.url, '/api/corte/cerrar', { clave: '0000', totalizacion: 0 })).json.error.codigo, 'CLAVE_INVALIDA');
     const antesCierre = readdirSync(caja.s.impresora.dir).filter((f) => f.endsWith('.txt')).length;
-    const c = await api(caja.url, '/api/corte/cerrar', { clave: '4321', observaciones: 'Corte sin incidencias.' });
+    const c = await api(caja.url, '/api/corte/cerrar', { clave: '4321', totalizacion: 0, observaciones: 'Corte sin incidencias.' });
     assert.equal(c.status, 200, JSON.stringify(c.json));
     assert.equal(readdirSync(caja.s.impresora.dir).filter((f) => f.endsWith('.txt')).length, antesCierre + 1, 'al cerrar sale el ticket de cierre');
     assert.match(c.json.ticket_texto, /CIERRE DE CAJA[\s\S]*VENTA TOTAL DEL DÍA/);
     assert.deepEqual([c.json.corte.cerrado_por, c.json.corte.observaciones, c.json.corte.fondo_confirmado, c.json.corte.fondo_autorizado, c.json.corte.diferencia_mxn], ['Lupe', 'Corte sin incidencias.', pesos(5000), pesos(5000), 0]);
     // cerrado: no se modifica el fondo ni se cierra dos veces; el cierre guardado no cambia
     assert.equal((await fondo(caja, den(5000))).json.error.codigo, 'CORTE_CERRADO');
-    const otra = await api(caja.url, '/api/corte/cerrar', { clave: '4321', observaciones: 'otra' });
+    const otra = await api(caja.url, '/api/corte/cerrar', { clave: '4321', totalizacion: 0, observaciones: 'otra' });
     assert.equal(otra.json.corte.observaciones, 'Corte sin incidencias.');
     const j2 = await cierre(caja);
     assert.equal(j2.desactualizado, false);
@@ -124,12 +124,12 @@ porAlmacen('Cierre de caja guiado: fondo fijo, conteo de ventas, diferencias reg
     await vender(caja, MASCADA, 120);
     const est = (await cierre(caja)).estado;
     assert.deepEqual(est.faltan, ['recontar_ventas']);
-    assert.equal((await api(caja.url, '/api/corte/cerrar', { clave: '4321' })).json.error.codigo, 'CIERRE_INCOMPLETO');
+    assert.equal((await api(caja.url, '/api/corte/cerrar', { clave: '4321', totalizacion: 0 })).json.error.codigo, 'CIERRE_INCOMPLETO');
     ctx.m.reloj.avanzar(60_000);
     await conteo(caja, 650); // sobran $30
     v = (await cierre(caja)).vivo;
     assert.equal(v.diferencia_mxn, pesos(30));
-    const c = await api(caja.url, '/api/corte/cerrar', { clave: '4321', observaciones: 'sobrante por propina' });
+    const c = await api(caja.url, '/api/corte/cerrar', { clave: '4321', totalizacion: 0, observaciones: 'sobrante por propina' });
     assert.equal(c.status, 200, JSON.stringify(c.json));
     assert.equal(c.json.corte.diferencia_mxn, pesos(30), 'el sobrante queda registrado tal cual');
     assert.equal(c.json.corte.conteo_mxn.contado, pesos(650));
@@ -172,7 +172,7 @@ porAlmacen('Cierre de caja guiado: fondo fijo, conteo de ventas, diferencias reg
     await fondo(caja, den(5000));
     await conteo(caja, 0);
     assert.deepEqual((await cierre(caja)).estado.faltan, ['conteo_usd'], 'con dólares en el cajón hay que contarlos');
-    assert.equal((await api(caja.url, '/api/corte/cerrar', { clave: '4321' })).json.error.codigo, 'CIERRE_INCOMPLETO');
+    assert.equal((await api(caja.url, '/api/corte/cerrar', { clave: '4321', totalizacion: 0 })).json.error.codigo, 'CIERRE_INCOMPLETO');
     ctx.m.reloj.avanzar(1000);
     await api(caja.url, '/api/efectivo/conteo', { moneda: 'USD', denominaciones: { '100': 1 } });
     const v = (await cierre(caja)).vivo;
@@ -192,7 +192,7 @@ porAlmacen('Cierre de caja guiado: fondo fijo, conteo de ventas, diferencias reg
     assert.equal((await api(caja.url, '/api/corte/reimprimir', {})).json.error.codigo, 'CORTE_ABIERTO', 'sin cierre no hay nada que reimprimir');
     const antes = impresos().length;
     caja.s.impresora.falla = 'sin papel';
-    const c = await api(caja.url, '/api/corte/cerrar', { clave: '4321', observaciones: 'prueba' });
+    const c = await api(caja.url, '/api/corte/cerrar', { clave: '4321', totalizacion: 0, observaciones: 'prueba' });
     assert.equal(c.status, 200, JSON.stringify(c.json));
     assert.deepEqual([c.json.impresion.ok, /sin papel/.test(c.json.impresion.error)], [false, true]);
     assert.equal((await cierre(caja)).cerrado !== null, true, 'el corte quedó cerrado aunque la impresora falló');
@@ -205,7 +205,7 @@ porAlmacen('Cierre de caja guiado: fondo fijo, conteo de ventas, diferencias reg
     assert.equal((await api(caja.url, '/api/corte/reimprimir', {})).json.reimpresion, 2);
     assert.equal(impresos().length, antes + 2);
     // cerrar otra vez no vuelve a imprimir
-    const otra = await api(caja.url, '/api/corte/cerrar', { clave: '4321' });
+    const otra = await api(caja.url, '/api/corte/cerrar', { clave: '4321', totalizacion: 0 });
     assert.deepEqual([otra.json.impresion, otra.json.ticket_texto], [null, null]);
     assert.equal(impresos().length, antes + 2);
   });

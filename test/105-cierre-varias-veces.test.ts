@@ -15,7 +15,7 @@ porAlmacen('Cierre de caja más de una vez al día: el último cubre todo el dí
     await vender();
     svc.confirmarFondo({ '100000': 5 });
     svc.registrarConteo('MXN', { '10000': 1, '2000': 1 }, 'ventas'); // 120
-    const primero: any = await svc.cerrarCorte(HOY);
+    const primero: any = await svc.cerrarCorte(HOY, { totalizacion: 0 });
     assert.equal(primero.corte.tickets, 1);
     assert.equal(primero.corte.cierres_previos, undefined);
     assert.equal(svc.corte(HOY).estado.cerrado, true);
@@ -35,7 +35,7 @@ porAlmacen('Cierre de caja más de una vez al día: el último cubre todo el dí
     svc.registrarConteo('MXN', { '10000': 2, '2000': 2 }, 'ventas'); // 240: todo el día
     c = svc.corte(HOY);
     assert.equal(c.estado.puede_cerrar, true);
-    const segundo: any = await svc.cerrarCorte(HOY);
+    const segundo: any = await svc.cerrarCorte(HOY, { totalizacion: 0 });
     assert.equal(segundo.corte.tickets, 2, 'el segundo cierre cubre todo el día');
     assert.equal(segundo.corte.cierres_previos!.length, 1);
     assert.equal(segundo.corte.cierres_previos![0].ventas, 12000);
@@ -44,7 +44,7 @@ porAlmacen('Cierre de caja más de una vez al día: el último cubre todo el dí
     assert.equal(segundo.corte.fondo_estado, 'faltante');
     assert.equal(segundo.corte.fondo_confirmado, 330000);
     // cerrado y sin operaciones nuevas: otro intento devuelve el mismo y no imprime
-    const otra: any = await svc.cerrarCorte(HOY);
+    const otra: any = await svc.cerrarCorte(HOY, { totalizacion: 0 });
     assert.equal(otra.ticket_texto, null);
     assert.equal(otra.corte.cierres_previos!.length, 1);
     assert.equal(svc.corte(HOY).estado.cerrado, true);

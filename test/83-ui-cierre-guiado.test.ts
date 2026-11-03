@@ -101,6 +101,12 @@ describe('[navegador real] Cierre de caja guiado por pasos', { timeout: 240_000,
     assert.equal(await page.textContent('#rc-esperado'), '$899.00');
     assert.equal(await page.textContent('#rc-tarjeta'), '$0.00');
     await page.fill('#cierre-obs', 'Faltante de $40 por pago de barrendero.');
+    assert.equal(await page.isDisabled('#btn-cerrar-corte'), true, 'CERRAR CORTE sigue apagado hasta capturar la totalización bancaria');
+    await page.fill('#tot-banco', '150'); // no coincide con la tarjeta del sistema ($0): se puede cerrar pero queda marcado
+    assert.match((await page.textContent('#tot-resultado'))!, /No coincide[\s\S]*diferencia \+\$150\.00/);
+    await page.fill('#tot-banco', '0');
+    assert.match((await page.textContent('#tot-resultado'))!, /✅ Coincide/);
+    assert.equal(await page.isDisabled('#btn-cerrar-corte'), false);
     await page.click('#btn-cerrar-corte');
     await page.waitForFunction(() => /clave/i.test(document.querySelector('#msg-cierre')!.textContent!) || document.querySelector('#corte-cerrado'));
     await page.fill('#cierre-clave', '0000');

@@ -122,6 +122,7 @@ describe('[navegador real — Chromium con Playwright, UI sobre SQLite]', { time
     assert.deepEqual([await corte('tickets'), await corte('ventas'), await corte('cobros_efectivo'), await corte('efectivo_esperado'), await corte('folio_inicial'), await corte('folio_final')],
       ['1', '$2,038.00', '$2,038.00', '$2,038.00', '1', '1']);
     await page.screenshot({ path: join(CAPTURAS, '03-corte.png') });
+    await page.fill('#tot-banco', '0');
     await page.click('#btn-cerrar-corte');
     await page.waitForSelector('#corte-cerrado');
     assert.match((await page.textContent('#corte-cerrado'))!, /Corte cerrado/);
@@ -812,6 +813,7 @@ describe('[navegador real — Chromium con Playwright, UI sobre SQLite]', { time
     assert.equal(await corte('efectivo_esperado'), '-$1,580.00');
     assert.equal(await corte('conteo_mxn'), '$100.00');
     assert.equal(await corte('diferencia_mxn'), '$1,780.00');
+    await page.fill('#tot-banco', '0');
     await page.click('#btn-cerrar-corte');
     await page.waitForSelector('#corte-cerrado');
     ctx.m.pump(); ctx.m.pump();

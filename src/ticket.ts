@@ -717,6 +717,8 @@ export function lineasTicketCorte(k: DatosCorte, cfg: NegocioCfg = NEGOCIOS[k.ti
   if (k.cobros_tarjeta_regalo) L.push(t(dos('Total con tarjeta de regalo', formatoMXN(k.cobros_tarjeta_regalo), c)));
   if (k.devoluciones_a_tarjeta) L.push(t(dos('Reembolsos a tarjeta / banco', `-${formatoMXN(k.devoluciones_a_tarjeta)}`, c)));
   if (k.ventas_a_credito_empleadas) L.push(t(dos('Ventas a crédito de empleadas (no es cobro)', formatoMXN(k.ventas_a_credito_empleadas), c)));
+  const tb = k.totalizacion_bancaria as { capturado: number; sistema: number; diferencia: number; coincide: boolean } | undefined;
+  if (tb) L.push(b('TOTALIZACIÓN BANCARIA'), t(dos('Total de la terminal', formatoMXN(tb.capturado), c)), t(dos('Tarjeta en el sistema', formatoMXN(tb.sistema), c)), tb.coincide ? b(dos('Coincide', 'OK', c)) : b(dos('DIFERENCIA', `${tb.diferencia > 0 ? '+' : '-'}${formatoMXN(Math.abs(tb.diferencia))}`, c)));
   L.push(t(regla));
   // 3) fondo
   L.push(b('FONDO'), t(dos('Fondo autorizado', dato(k.fondo_autorizado), c)), b(dos('Fondo confirmado', dato(k.fondo_confirmado), c)));
