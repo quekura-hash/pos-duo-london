@@ -187,6 +187,7 @@
   body.con-isla { padding-bottom: calc(82px + env(safe-area-inset-bottom, 0px)); }
   body:has(dialog[open]) .isla, body:has(dialog[open]) .menu-hoja, body:has(dialog[open]) #menu-fondo { display: none !important; }
   .isla { position: fixed; z-index: 40; left: 10px; right: 10px; bottom: calc(4px + env(safe-area-inset-bottom, 0px)); display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 2px; padding: 4px; border: 1px solid rgba(159, 179, 200, .18); border-radius: 28px; background: color-mix(in srgb, var(--marino) 96%, transparent); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); box-shadow: 0 6px 22px rgba(0, 0, 0, .38); }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .isla { background: #1d3550; border-color: rgba(45, 212, 191, .4); box-shadow: 0 -2px 0 rgba(0, 0, 0, .25), 0 8px 24px rgba(0, 0, 0, .6); } :root:not([data-theme="light"]) .isla-btn { color: #c3d2e2; } }
   .isla-btn { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; min-width: 0; height: 48px; padding: 0 2px; border: 0; border-radius: 24px; background: transparent; color: var(--marino-texto-2); font: inherit; font-size: clamp(10.5px, 3vw, 12px); font-weight: 600; line-height: 1.1; cursor: pointer; -webkit-tap-highlight-color: transparent; }
   .isla-btn .ico { width: 22px; height: 22px; flex: none; } .isla-btn span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .isla-btn:active { transform: scale(.97); }
