@@ -34,6 +34,19 @@ porAlmacen('Corte: totalización bancaria contra la tarjeta neta del sistema', (
     assert.match(r.ticket_texto!, /Intentos de captura\s+2[\s\S]*Primera captura\s+\$800\.00/);
     assert.equal(s.svc.corte(HOY(ctx)).estado.cerrado, true, 'el dato nuevo no hace que el corte parezca desactualizado');
   });
+  it('TB8 caja sin cobros ni reembolsos con tarjeta: el corte NO pide la totalización y cierra sin ese paso', async (t) => {
+    const ctx = nuevoMundo(alm, politica());
+    t.after(ctx.limpiar);
+    const s = servicioDe(ctx, 'DUO', 2, 'Ana');
+    const c1 = s.svc.nuevaVenta(); s.svc.escanear(c1, VESTIDO);
+    await s.svc.cobrarEfectivo(c1, 89900);
+    s.svc.confirmarFondo({ '100000': 5 });
+    s.svc.registrarConteo('MXN', {}, 'ventas');
+    assert.equal(s.svc.corte(HOY(ctx)).estado.requiere_totalizacion, false);
+    const r = await s.svc.cerrarCorte(HOY(ctx));
+    assert.equal('totalizacion_bancaria' in (r.corte as any), false);
+    assert.equal(s.svc.corte(HOY(ctx)).estado.cerrado, true);
+  });
   it('TB3 tres intentos fallidos: recién ahí se muestra la cifra del sistema y se cierra con la nota «no coincidió»', async (t) => {
     const ctx = nuevoMundo(alm, politica());
     t.after(ctx.limpiar);

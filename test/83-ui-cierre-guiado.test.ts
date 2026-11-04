@@ -40,6 +40,9 @@ describe('[navegador real] Cierre de caja guiado por pasos', { timeout: 240_000,
     const cart = (await api(caja.url, '/api/venta/nueva', {})).json.cart;
     await api(caja.url, '/api/venta/escanear', { cart, codigo: '0002026090782' });
     await api(caja.url, '/api/venta/cobrar-efectivo', { cart, recibido: 89900 });
+    const cart2 = (await api(caja.url, '/api/venta/nueva', {})).json.cart; // una venta con tarjeta: así el corte sí pide la totalización de la terminal
+    await api(caja.url, '/api/venta/escanear', { cart: cart2, codigo: '0002026090782' });
+    await api(caja.url, '/api/venta/cobrar-tarjeta', { cart: cart2, autorizacion: '1234' });
 
     const { page, errores } = await pagina(browser, caja.url);
     await page.click('#nav button[data-vista="corte"]');
@@ -105,7 +108,7 @@ describe('[navegador real] Cierre de caja guiado por pasos', { timeout: 240_000,
     assert.equal(await page.locator('#kpi-tarjeta, #rc-tarjeta, #rc-reembolsos-banco').count(), 0, 'sin cifras de tarjeta antes de capturar');
     await page.click('#detalle-corte summary');
     assert.equal(await page.locator('#tabla-corte tr[data-campo="cobros_tarjeta"], #tabla-corte tr[data-campo="devoluciones_a_tarjeta"]').count(), 0);
-    await page.fill('#tot-banco', '150'); // no coincide con la tarjeta del sistema ($0)
+    await page.fill('#tot-banco', '150'); // no coincide con la tarjeta del sistema ($899)
     assert.equal(await page.isDisabled('#btn-cerrar-corte'), true, 'sin verificar tampoco cierra');
     for (const n of [1, 2]) { // intentos 1 y 2: no coincide y NO se muestra la cifra del sistema; no se puede cerrar
       await page.click('#btn-verificar-tot');
@@ -115,13 +118,13 @@ describe('[navegador real] Cierre de caja guiado por pasos', { timeout: 240_000,
     }
     await page.click('#btn-verificar-tot'); // 3.º intento: ya se muestra la cifra y se deja cerrar con la nota «no coincidió»
     await page.waitForFunction(() => /no coincidió/.test(document.querySelector('#tot-resultado')?.textContent ?? ''));
-    assert.match((await page.textContent('#tot-resultado'))!, /terminal \$150\.00, tarjeta del sistema \$0\.00 \(diferencia \+\$150\.00\)/);
+    assert.match((await page.textContent('#tot-resultado'))!, /terminal \$150\.00, tarjeta del sistema \$899\.00 \(diferencia -\$749\.00\)/);
     assert.equal(await page.isDisabled('#btn-cerrar-corte'), false, 'agotados los intentos se puede cerrar: queda marcado');
-    await page.fill('#tot-banco', '0'); // al cambiar la cifra hay que verificar de nuevo
+    await page.fill('#tot-banco', '899'); // al cambiar la cifra hay que verificar de nuevo
     assert.equal(await page.isDisabled('#btn-cerrar-corte'), true);
     await page.press('#tot-banco', 'Enter');
     await page.waitForFunction(() => /✅ Coincide/.test(document.querySelector('#tot-resultado')?.textContent ?? ''));
-    assert.match((await page.textContent('#tot-resultado'))!, /terminal \$0\.00 = tarjeta del sistema \$0\.00\. Todo está bien/);
+    assert.match((await page.textContent('#tot-resultado'))!, /terminal \$899\.00 = tarjeta del sistema \$899\.00\. Todo está bien/);
     assert.equal(await page.isDisabled('#btn-cerrar-corte'), false);
     await page.click('#btn-cerrar-corte');
     await page.waitForFunction(() => /clave/i.test(document.querySelector('#msg-cierre')!.textContent!) || document.querySelector('#corte-cerrado'));
