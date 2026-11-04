@@ -14,7 +14,7 @@ describe('[navegador real] Ventas a empleadas: caja y Administración', { timeou
     const browser = await chromium.launch({ executablePath: chromiumPath, args: ['--no-sandbox'] });
     const ctx = nuevoMundo(sqlite, politica());
     const adm = await appAdmin(ctx);
-    const caja = await appCajero(ctx, 'DUO', 1, 'Ana');
+    const caja = await appCajero(ctx, 'DUO', 2, 'Ana');
     t.after(async () => { await browser.close(); await adm.cerrar(); await caja.cerrar(); ctx.limpiar(); });
     await api(adm.url, '/api/admin/administradores', { nombre: 'Edgardo', clave: 'clave-segura', clave_caja: '2468' });
     await api(adm.url, '/api/admin/cajeros', { nombre: 'Lupe', clave: '4321' });
@@ -35,7 +35,12 @@ describe('[navegador real] Ventas a empleadas: caja y Administración', { timeou
     await page.waitForSelector('#cuerpo tr[data-linea]');
     await page.fill('#scan', '7501234567890'); await page.press('#scan', 'Enter');
     await page.waitForFunction(() => document.querySelectorAll('#cuerpo tr[data-linea]').length === 2);
-    assert.equal(await page.isDisabled('[data-forma="credito"]'), true, 'sin empleada no hay crédito');
+    // En la caja 2 el botón de crédito está activo: sin empleada elegida no cobra a crédito, abre «Venta a empleada».
+    assert.equal(await page.isDisabled('[data-forma="credito"]'), false);
+    await page.click('[data-forma="credito"]');
+    await page.waitForSelector('#dlg-empleada[open]');
+    assert.equal(await page.getAttribute('[data-forma="credito"]', 'aria-pressed'), 'false', 'sin empleada no queda elegido el crédito');
+    await page.click('#emp-cerrar');
     assert.equal(await page.isVisible('#btn-uniforme'), false, 'sin empleada elegida no se ofrece «Marcar como uniforme»');
     // elegir a la empleada: clave equivocada y luego la buena
     await page.click('#btn-empleada');

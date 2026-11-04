@@ -15,7 +15,7 @@ describe('[sqlite] Una supervisora también es empleada con crédito', () => {
   it('SC1 Administración la lista en Empleadas, le fija el límite y registra su abono; la caja le vende a crédito con su clave', async (t) => {
     const ctx = nuevoMundo(sqlite, politica());
     const adm = await appAdmin(ctx);
-    const caja = await appCajero(ctx, 'DUO', 1, 'Lupe');
+    const caja = await appCajero(ctx, 'DUO', 2, 'Lupe');
     t.after(async () => { await adm.cerrar(); await caja.cerrar(); ctx.limpiar(); });
     assert.equal((await api(adm.url, '/api/admin/cajeros', { nombre: 'Lupe', clave: '4321' })).status, 200);
     assert.equal((await api(adm.url, '/api/admin/supervisores', { nombre: 'Evelyn', clave: '1357' })).status, 200);
@@ -42,7 +42,7 @@ describe('[sqlite] Una supervisora también es empleada con crédito', () => {
   it('SC2 las marcas y departamentos excluidos no llevan descuento de empleada; los demás sí, y los porcentajes se conservan', async (t) => {
     const ctx = nuevoMundo(sqlite, politica());
     const adm = await appAdmin(ctx);
-    const caja = await appCajero(ctx, 'DUO', 1, 'Lupe');
+    const caja = await appCajero(ctx, 'DUO', 2, 'Lupe');
     t.after(async () => { await adm.cerrar(); await caja.cerrar(); ctx.limpiar(); });
     await api(adm.url, '/api/admin/cajeros', { nombre: 'Lupe', clave: '4321' });
     await api(adm.url, '/api/admin/cajeros', { nombre: 'Rosa', clave: '8765' });
@@ -89,7 +89,7 @@ describe('[sqlite] Una supervisora también es empleada con crédito', () => {
   it('SC4 la compra a crédito lleva folio CR propio (sin gastar folio de venta), el ticket muestra disponible y abonos, y se encuentra por su código', async (t) => {
     const ctx = nuevoMundo(sqlite, politica());
     const adm = await appAdmin(ctx);
-    const caja = await appCajero(ctx, 'DUO', 1, 'Lupe');
+    const caja = await appCajero(ctx, 'DUO', 2, 'Lupe');
     t.after(async () => { await adm.cerrar(); await caja.cerrar(); ctx.limpiar(); });
     await api(adm.url, '/api/admin/cajeros', { nombre: 'Lupe', clave: '4321' });
     await api(adm.url, '/api/admin/cajeros', { nombre: 'Rosa', clave: '8765' });
@@ -142,7 +142,7 @@ describe('[sqlite] Una supervisora también es empleada con crédito', () => {
     for (let i = 0; i < 4; i++) ctx.m.pump();
     const porCodigo = (await api(caja.url, '/api/ventas/buscar?folio=CR-000002')).json;
     assert.deepEqual(porCodigo.resultados.map((r: { folio: number; serie?: string }) => [r.folio, r.serie]), [[2, 'CR']]);
-    assert.equal(porCodigo.resultados[0].codigo_ticket, 'CR-D1-000002');
+    assert.equal(porCodigo.resultados[0].codigo_ticket, 'CR-D2-000002');
     const suelto = (await api(caja.url, '/api/ventas/buscar?folio=2')).json;
     assert.deepEqual(suelto.resultados.map((r: { serie?: string }) => r.serie ?? 'venta'), ['venta']);
     // Administración: historial con saldo y disponible; el reporte no marca huecos de folio por la serie CR
@@ -156,7 +156,7 @@ describe('[sqlite] Una supervisora también es empleada con crédito', () => {
   it('SC5 el reporte mensual a la contadora trae la compra a crédito con folio CR, aparte de lo cobrado', async (t) => {
     const ctx = nuevoMundo(sqlite, politica());
     const adm = await appAdmin(ctx);
-    const caja = await appCajero(ctx, 'DUO', 1, 'Lupe');
+    const caja = await appCajero(ctx, 'DUO', 2, 'Lupe');
     t.after(async () => { await adm.cerrar(); await caja.cerrar(); ctx.limpiar(); });
     await api(adm.url, '/api/admin/cajeros', { nombre: 'Lupe', clave: '4321' });
     await api(adm.url, '/api/admin/cajeros', { nombre: 'Rosa', clave: '8765' });
@@ -174,7 +174,7 @@ describe('[sqlite] Una supervisora también es empleada con crédito', () => {
     const cr = (await api(caja.url, '/api/venta/cobrar-credito-empleada', { cart: c2 })).json.venta;
     for (let i = 0; i < 4; i++) ctx.m.pump();
     const periodo = fechaLocal(v.ocurrio_en).slice(0, 7);
-    const rep = reporteDeCaja(ctx.m.central.repo.ops(), 'DUO', 1, periodo);
+    const rep = reporteDeCaja(ctx.m.central.repo.ops(), 'DUO', 2, periodo);
     const detalle = rep.hojas[0]!;
     const folios = detalle.filas.map((f) => f[1]);
     assert.deepEqual(folios, [1, 'CR-000001'], 'la venta con su número y la compra a crédito con folio CR (no se confunden)');
@@ -194,7 +194,7 @@ describe('[sqlite] Una supervisora también es empleada con crédito', () => {
   it('SC6 el historial de Administración trae el primer artículo, cuántos más lleva y quién vendió', async (t) => {
     const ctx = nuevoMundo(sqlite, politica());
     const adm = await appAdmin(ctx);
-    const caja = await appCajero(ctx, 'DUO', 1, 'Lupe');
+    const caja = await appCajero(ctx, 'DUO', 2, 'Lupe');
     t.after(async () => { await adm.cerrar(); await caja.cerrar(); ctx.limpiar(); });
     await api(adm.url, '/api/admin/cajeros', { nombre: 'Lupe', clave: '4321' });
     await api(adm.url, '/api/admin/supervisores', { nombre: 'Evelyn', clave: '1357' });

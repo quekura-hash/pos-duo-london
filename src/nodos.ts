@@ -110,6 +110,8 @@ const esMovimientoLimbo = (op: Op) => op.tipo === 'inv.movement' && op.payload.t
 const esAjusteAdmin = (op: Op) => (op.tipo === 'inv.movement' && op.payload.tipo === 'ajuste_admin') || (op.tipo === 'inv.conteo' && op.payload.admin === true);
 /** Veces que la cajera puede capturar la totalización bancaria antes de que el sistema muestre su cifra (y deje cerrar con la diferencia marcada). */
 export const MAX_INTENTOS_TOTALIZACION = 3;
+/** Los créditos de empleadas solo se registran en la caja 2 de cada tienda (en las demás cajas se avisa y no se cobra). */
+export const CAJA_DE_CREDITOS = 2;
 const BROADCAST_TIENDA = new Set(['cajero.ubicacion', 'alm.recibida', 'inv.movement', 'inv.conteo', 'inv.verificacion_pendiente', 'doc.perdida_posible', 'item.created', 'item.item_no_assigned', 'giftcard.emitida', 'giftcard.recarga', 'giftcard.uso', 'giftcard.reintegro', 'deposito.recibido', 'deposito.devuelto', 'deposito.fee', 'deposito.aplicado', 'deposito.reintegrado']);
 // Lo que el central baja a hubs y cajas (catálogo y resoluciones administrativas).
 const CATALOGO = new Set(['cajero.ubicacion', 'item.created', 'item.item_no_assigned', 'item.codigo_corregido', 'doc.perdida_resuelta', 'giftcard.emitida', 'giftcard.recarga', 'giftcard.uso', 'giftcard.reintegro', 'config.tipo_cambio', 'permiso.asignado', 'depto.alta', 'depto.editado', 'alm.entrega', 'alm.faltante', 'promo.guardada', 'recompensa.guardada', 'supervisor.guardado', 'cajero.guardado', 'config.sesion', 'config.negocio', 'item.editado', 'caja.fondo_autorizado', 'cash.ajuste_admin', 'empleadas.config', 'empleada.credito', 'empleada.movimiento', 'venta.consulta', 'folio.continuacion', 'vip.guardado', 'vip.excepciones', 'metas.config', 'giftcard.config', 'caja.limite_efectivo']);
@@ -2043,6 +2045,7 @@ export class Caja {
     const previa = this.repo.getOp(`sale:${cartId}`);
     if (previa) return ventas([previa]).get(cartId)!;
     const c = this.cartGet(cartId);
+    if (this.caja !== CAJA_DE_CREDITOS) throw new ErrorDominio('CREDITO_SOLO_CAJA_2', `Los créditos solo se registran en la caja ${CAJA_DE_CREDITOS}`);
     if (!c.empleada) throw new ErrorDominio('SIN_EMPLEADA', 'primero elija a la empleada');
     this.exigirAbierto(c);
     if (c.cambio) throw new ErrorDominio('PAGO_INVALIDO', 'una venta con cambio de mercancía no se carga a crédito de empleada');

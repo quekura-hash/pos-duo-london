@@ -665,7 +665,7 @@ async function vistaVenta() {
           <button class="btn forma" type="button" data-forma="tarjeta" aria-pressed="false" ${metodos.includes('tarjeta') ? '' : 'disabled title="Esta caja no tiene terminal bancaria"'}>${ico('card', 'ico-lg')}<span>Tarjeta</span></button>
           <button class="btn forma" type="button" data-forma="mixto" aria-pressed="false" ${metodos.includes('tarjeta') ? '' : 'disabled title="Esta caja no tiene terminal bancaria"'}>${ico('mixto', 'ico-lg')}<span>Mixto</span></button>
           <button class="btn forma" type="button" data-forma="regalo" aria-pressed="false" ${metodos.includes('tarjeta_regalo') ? '' : `disabled title="Esta caja no maneja tarjetas de regalo"`}>${ico('gift', 'ico-lg')}<span>Tarjeta de regalo</span></button>
-          <button class="btn forma" type="button" data-forma="credito" aria-pressed="false" disabled title="Primero elija «Venta a empleada»">${ico('user', 'ico-lg')}<span>Crédito de empleada</span></button>
+          <button class="btn forma" type="button" data-forma="credito" aria-pressed="false" title="Crédito a la cuenta de la empleada (solo en la caja 2)">${ico('user', 'ico-lg')}<span>Crédito de empleada</span></button>
         </div>
         <div id="pago"></div>
         <button class="btn btn-primario" id="btn-cobrar" type="button" disabled><span id="txt-cobrar">COBRAR $0.00</span>${ico('chevron')}</button>
@@ -712,6 +712,11 @@ async function vistaVenta() {
 }
 
 function elegirForma(f) {
+  if (f === 'credito') {
+    // Los créditos de empleadas solo se registran en la caja 2 (en las demás se avisa); en la caja 2 se necesita la empleada.
+    if (S.sesion?.caja !== 2) return msg('Los créditos solo se registran en la caja 2.', 'aviso');
+    if (!S.carrito?.empleada) { msg('Elija primero a la empleada con «Venta a empleada».', 'aviso'); return void abrirEmpleada(); }
+  }
   S.forma = f;
   S.tarjeta = null;
   S.usdAbierto = false;
@@ -1674,7 +1679,7 @@ async function vistaExtraordinarias() {
         <div class="campo"><label for="gs-monto">Importe</label><input id="gs-monto" inputmode="decimal" placeholder="0.00" style="width:140px"></div>
         <div class="campo"><label for="gs-concepto">Concepto</label><input id="gs-concepto" maxlength="80" placeholder="Ej. Pago de limpieza"></div>
         <div class="campo"><label for="gs-recibio">Nombre de quien recibe</label><input id="gs-recibio" maxlength="60" placeholder="Nombre y apellido"></div>
-        ${au.pide_clave ? `<div class="campo" id="gs-quien-campo"><label for="gs-quien">Autoriza</label><select id="gs-quien" style="width:100%;padding:8px;border:1px solid var(--borde);border-radius:8px;background:var(--superficie)">${au.autorizadores.map((x) => `<option value="${esc(x.nombre)}">${esc(x.nombre)}${x.tipo === 'supervisor' ? ' (supervisor)' : ''}</option>`).join('')}</select></div>
+        ${au.pide_clave ? `<div class="campo" id="gs-quien-campo"><label for="gs-quien">Autoriza</label><select id="gs-quien" style="width:100%;padding:8px;border:1px solid var(--borde);border-radius:8px;background:var(--superficie)">${au.autorizadores.map((x) => `<option value="${esc(x.nombre)}">${esc(x.nombre)}${x.tipo === 'supervisor' ? ' (supervisor)' : ''}</option>`).join('')}${S.sesion?.supervisor ? '' : '<option value="__solo__">No hay nadie más: autorizo yo con mi clave</option>'}</select></div>
         <div class="campo"><label for="gs-clave">Clave de quien autoriza</label><input id="gs-clave" type="text" data-pin inputmode="numeric" autocomplete="off" style="width:140px"></div>
         ${casillaSola('gs-solo', 'No hay nadie más para autorizar: autorizo yo con mi clave (queda anotado)')}` : ''}
         <button class="btn btn-primario" id="btn-gasto" type="submit">${ico('receipt')}<span>Registrar gasto e imprimir recibo</span></button>
@@ -1682,7 +1687,11 @@ async function vistaExtraordinarias() {
     <section class="panel"><h2 style="margin-top:0">Operaciones de hoy</h2><div class="tabla-cont"><table id="tabla-extraordinarias"><thead><tr><th>Hora</th><th>Operación</th><th class="num">Monto</th><th>Motivo</th><th>Autorizó</th></tr></thead><tbody>
       ${j.operaciones.map((o) => `<tr><td>${esc(fechaHora(o.ocurrio_en))}</td><td>${esc(NOM_EXTRA[o.tipo] ?? o.tipo)}${o.folio ? ` ${esc(o.folio)}` : ''}</td><td class="num">${o.moneda === 'USD' ? usd(o.monto) : mxn(o.monto)}</td><td>${esc(o.motivo || '—')}</td><td>${esc(o.autorizado_por || '—')}</td></tr>`).join('') || '<tr><td colspan="5" class="vacio">Sin operaciones extraordinarias hoy.</td></tr>'}</tbody></table></div></section>`;
   $('#ir-retiro').addEventListener('click', () => ir('retiro'));
-  $('#gs-solo')?.addEventListener('change', (e) => { $('#gs-quien-campo').hidden = e.target.checked; });
+  // «Nadie más»: se puede marcar la casilla o elegir esa opción en la lista «Autoriza» (van sincronizadas); sin otra persona disponible queda elegida de entrada.
+  const gsSolo = () => !!$('#gs-solo')?.checked || $('#gs-quien')?.value === '__solo__';
+  $('#gs-solo')?.addEventListener('change', (e) => { const q = $('#gs-quien'); if (q) q.value = e.target.checked ? '__solo__' : (q.options[0]?.value === '__solo__' ? '__solo__' : q.options[0]?.value ?? ''); });
+  $('#gs-quien')?.addEventListener('change', (e) => { const c = $('#gs-solo'); if (c) c.checked = e.target.value === '__solo__'; });
+  if ($('#gs-quien') && $('#gs-quien').value === '__solo__' && $('#gs-solo')) $('#gs-solo').checked = true;
   $('#form-gasto').addEventListener('submit', async (ev) => {
     ev.preventDefault();
     const m = $('#msg-gasto');
@@ -1694,7 +1703,7 @@ async function vistaExtraordinarias() {
     let autoriza;
     if (au.pide_clave) {
       if (!$('#gs-clave').value) return falla('Teclee la clave de quien autoriza.', 'gs-clave');
-      autoriza = $('#gs-solo')?.checked ? { nombre: S.sesion.usuario, clave: $('#gs-clave').value, sin_segundo: true } : { nombre: $('#gs-quien').value, clave: $('#gs-clave').value };
+      autoriza = gsSolo() ? { nombre: S.sesion.usuario, clave: $('#gs-clave').value, sin_segundo: true } : { nombre: $('#gs-quien').value, clave: $('#gs-clave').value };
     }
     try {
       const r = await api('/api/gasto', { ref: S.refGasto, monto, concepto: $('#gs-concepto').value, recibio: $('#gs-recibio').value, ...(autoriza ? { autoriza } : {}) });
@@ -3557,8 +3566,8 @@ function pintarEmpleada() {
   }
   const f = $('#formas')?.querySelector('button[data-forma="credito"]');
   if (f) {
-    f.disabled = !e;
-    f.title = e ? 'Se carga a la cuenta de la empleada y se le descuenta de la nómina' : 'Primero elija «Venta a empleada»';
+    f.disabled = false; // siempre activo: en la caja 2 sin empleada abre «Venta a empleada»; en las demás cajas avisa que los créditos son de la caja 2
+    f.title = S.sesion?.caja !== 2 ? 'Los créditos solo se registran en la caja 2' : e ? 'Se carga a la cuenta de la empleada y se le descuenta de la nómina' : 'Elija primero a la empleada con «Venta a empleada»';
   }
   if (!e && S.forma === 'credito') elegirForma('efectivo');
 }
@@ -6061,7 +6070,7 @@ const AYUDA_ARTICULOS = [
   { id: 'cupon', para: 'caja', cat: 'Descuentos', titulo: 'Usar un cupón de descuento', claves: 'cupon codigo qr descuento regalo promocion',
     pasos: ['Con los artículos en la venta, toque «Cupón».', 'Escanee el QR del cupón o escriba su código.', 'Toque «Aplicar cupón». El descuento aparece en el resumen.'], nota: 'También puede escanear el QR con el campo de búsqueda de la venta.' },
   { id: 'empleada', para: 'caja', cat: 'Descuentos', titulo: 'Venta con descuento de empleada', claves: 'empleada descuento empleada trabajadora uniforme credito nomina compra personal 15 30',
-    pasos: ['Escanee los artículos de la venta.', 'Toque «Venta a empleada».', 'Elija a la empleada en «Empleada» y pídale que teclee SU PROPIA clave en «Clave de la empleada».', 'Si quien cobra es la misma empleada, pide además la clave de un supervisor (o marcar «No hay supervisor: lo autorizo yo», que queda anotado).', 'Toque «Aplicar descuento de empleada». El descuento se aplica solo a toda la mercancía.', 'Para un uniforme de la tienda: seleccione el artículo en la lista y toque «Marcar como uniforme» (lleva el descuento mayor).', 'Cobre normal, o a crédito de la empleada si quiere que se descuente de su cuenta.'], nota: 'No se combina con promociones. La compra a crédito lleva folio propio (serie CR).' },
+    pasos: ['Escanee los artículos de la venta.', 'Toque «Venta a empleada».', 'Elija a la empleada en «Empleada» y pídale que teclee SU PROPIA clave en «Clave de la empleada».', 'Si quien cobra es la misma empleada, pide además la clave de un supervisor (o marcar «No hay supervisor: lo autorizo yo», que queda anotado).', 'Toque «Aplicar descuento de empleada». El descuento se aplica solo a toda la mercancía.', 'Para un uniforme de la tienda: seleccione el artículo en la lista y toque «Marcar como uniforme» (lleva el descuento mayor).', 'Cobre normal, o a crédito de la empleada si quiere que se descuente de su cuenta (solo en la caja 2).'], nota: 'No se combina con promociones. Los créditos de empleadas solo se registran en la caja 2: en otra caja el botón avisa y no cobra. La compra a crédito lleva folio propio (serie CR).' },
   { id: 'vip', para: 'caja', cat: 'Descuentos', titulo: 'Venta a una clienta VIP', claves: 'vip cliente vip clienta especial descuento vip preferente',
     pasos: ['Con los artículos en la venta, toque «Aplicar descuento».', 'Toque «Cliente VIP».', 'Busque a la clienta por nombre y selecciónela.', 'Teclee su clave y confirme. El porcentaje de la clienta se aplica a la venta.'], nota: 'Para quitarlo use el botón de quitar VIP que aparece en la venta.' },
   { id: 'cambio', para: 'caja', cat: 'Cambios y devoluciones', titulo: 'Hacer un cambio de mercancía (artículo, prenda, falda…)', claves: 'cambio cambiar mercancia articulo prenda falda vestido blusa pantalon regresar devolver devolucion no le quedo talla otra pieza hacer cambio',

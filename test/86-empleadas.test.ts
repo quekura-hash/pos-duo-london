@@ -15,7 +15,7 @@ porAlmacen('Empleadas: descuento de empleada (15 % / 30 % uniforme), crédito co
     const ctx = nuevoMundo(alm, politica());
     t.after(ctx.limpiar);
     const adm = await appAdmin(ctx); t.after(() => adm.cerrar());
-    const caja = await appCajero(ctx, 'DUO', 1, 'Ana'); t.after(() => caja.cerrar());
+    const caja = await appCajero(ctx, 'DUO', 2, 'Ana'); t.after(() => caja.cerrar());
     await api(adm.url, '/api/admin/administradores', { nombre: 'Edgardo', clave: 'clave-segura', clave_caja: '2468' });
     await api(adm.url, '/api/admin/cajeros', { nombre: 'Lupe', clave: '4321' });
     await api(adm.url, '/api/admin/cajeros', { nombre: 'Rosa', clave: '8765' });
