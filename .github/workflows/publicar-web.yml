@@ -40,7 +40,7 @@ jobs:
           # Ningún archivo debe acercarse a los límites de Cloudflare (la página de subida manual se atora con archivos grandes).
           if find dist/admin-web -type f -size +2000k | grep -q .; then echo "::error::hay un archivo de más de 2 MB en la web"; exit 1; fi
           # Nunca va una llave secreta en la página.
-          if grep -rIl "service_role\\":\\|eyJhbGciOi" dist/admin-web | grep -q .; then echo "::error::la página trae una llave JWT"; exit 1; fi
+          if grep -rIlE 'service_role"|eyJhbGciOi' dist/admin-web | grep -q .; then echo "::error::la página trae una llave JWT"; exit 1; fi
       - name: Subir a Cloudflare
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
