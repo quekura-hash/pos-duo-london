@@ -1,5 +1,5 @@
 -- 0019: ventas por día NETAS: además de lo de 0017, restan las devoluciones y cambios (return.registered) el día en que ocurren. El vestido devuelto ya se contó como venta el día que
--- se vendió; sin esta resta, un cambio contaba dos veces. Debe coincidir con totalesPorDia (src/metas.ts). NO se ha aplicado a producción: la corre Edgardo en Supabase Studio.
+-- se vendió; sin esta resta, un cambio contaba dos veces. Debe coincidir con totalesPorDia (src/metas.ts). Aplicada a producción el 2026-11-04.
 -- (0017) ventas por día de la tienda, calculadas en el central con las MISMAS reglas que Administración (ventas confirmadas no canceladas + ventas importadas del
 -- POS anterior sin las copias duplicadas descartadas). La barra de metas de la caja la consulta, así marca lo mismo que Administración.
 -- Administración ve todas las tiendas; una caja, solo la suya. Solo lectura.
