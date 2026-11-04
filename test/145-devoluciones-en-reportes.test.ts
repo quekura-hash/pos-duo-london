@@ -80,4 +80,28 @@ porAlmacen('Devoluciones y cambios: restan el día en que ocurren, así el mes n
     assert.equal(rep.tickets, 1);
     assert.equal(totalesPorDia(ops, 'DUO').get('2026-11-03'), -89900);
   });
+  it('DV3 cambio del mismo precio (talla M por L): no entra dinero y la operación queda en $0; el mes cuenta una sola venta', async (t) => {
+    const ctx = nuevoMundo(alm, politica());
+    t.after(ctx.limpiar);
+    const s = servicioDe(ctx, 'DUO', 1, 'Ana');
+    ctx.m.reloj.fijar('2026-11-02T20:00:00Z');
+    const c1 = s.svc.nuevaVenta(); s.svc.escanear(c1, MASCADA);
+    const v1 = (await s.svc.cobrarEfectivo(c1, 12000)).venta;
+    ctx.m.reloj.fijar('2026-11-03T20:00:00Z');
+    const c2 = s.svc.nuevaVenta();
+    s.svc.iniciarCambio(c2, v1.sale_id, [{ linea_id: v1.lineas[0]!.linea_id, qty: 1 }], { clienta: { nombre: 'Ana López', telefono: '6531234567' }, motivo: 'talla' });
+    s.svc.escanear(c2, MASCADA); // la misma prenda en otra talla: mismo precio
+    const v2 = (await s.svc.cobrarEfectivo(c2, 0)).venta;
+    assert.deepEqual(v2.pagos.map((p: any) => [p.metodo, p.monto]), [['credito_cambio', 12000]], 'no se cobra nada');
+    ctx.m.pump(); ctx.m.pump();
+    const ops = ctx.m.central.repo.ops();
+    const dias = totalesPorDia(ops, 'DUO');
+    assert.equal(dias.get('2026-11-02'), 12000);
+    assert.equal(dias.get('2026-11-03'), 0, 'el día del cambio queda en $0');
+    const rep = reporteDeCaja(ops, 'DUO', 1, '2026-11');
+    assert.equal(rep.total, 12000, 'el mes cuenta una sola venta de $120');
+    assert.equal(rep.efectivo, 12000, 'solo entró el dinero de la venta original');
+    assert.equal(rep.piezas, 1, 'una pieza vendida');
+    assert.equal(s.svc.corte('2026-11-03').vivo.ventas_netas, 0);
+  });
 });
