@@ -2582,7 +2582,7 @@ async function abrirExistencias(a) {
     <p class="nota" style="margin-top:0">Escriba cuántas piezas hay <b>realmente</b> en cada lugar. Se guarda tal cual, sin escáner ni confirmación de la tienda.</p>
     <form id="form-existencias" autocomplete="off">
       <table id="ex-tabla" style="width:100%"><thead><tr><th style="text-align:left">Lugar</th><th class="num">Ahora</th><th class="num">Hay realmente</th></tr></thead><tbody>
-      ${ub.map((u) => `<tr data-lugar="${esc(u.clave)}"><td>${esc(NOM[u.clave] ?? u.clave)}</td><td class="num" data-label="Ahora">${u.cantidad}</td><td class="num" data-label="Hay realmente"><input type="number" min="0" step="1" inputmode="numeric" value="${u.cantidad}" data-ex="${esc(u.clave)}" style="${campo}" aria-label="Piezas reales: ${esc(NOM[u.clave] ?? u.clave)}"></td></tr>`).join('')}
+      ${ub.map((u) => `<tr data-lugar="${esc(u.clave)}"><td>${u.clave === 'DUO' || u.clave === 'LON' ? `<span class="ex-tienda ex-${u.clave}">${esc(NOM[u.clave])}</span>` : esc(NOM[u.clave] ?? u.clave)}</td><td class="num" data-label="Ahora">${u.cantidad}</td><td class="num" data-label="Hay realmente"><input type="number" min="0" step="1" inputmode="numeric" value="${u.cantidad}" data-ex="${esc(u.clave)}" style="${campo}" aria-label="Piezas reales: ${esc(NOM[u.clave] ?? u.clave)}"></td></tr>`).join('')}
       </tbody></table>
       <label class="ex-desc" style="display:flex;gap:8px;align-items:center;padding:8px 0"><input type="checkbox" id="ex-limbo-auto" ${antes.limbo > 0 ? 'checked' : ''}> Lo que agregue al almacén o a una tienda se descuenta de El Limbo</label>
       <p class="nota" id="ex-total" style="margin:0 0 6px"></p>
@@ -2624,7 +2624,7 @@ async function abrirExistencias(a) {
       mm.textContent = `Existencias de «${a.descripcion}» guardadas: ${r.cambios.filter((c) => c.antes !== c.despues).map((c) => `${NOM[c.lugar] ?? c.lugar} ${c.antes} → ${c.despues}`).join(' · ') || 'sin cambios'}.`;
     } catch (e) { m.className = 'mensaje error'; m.textContent = e.message; ok.disabled = false; }
   });
-  d.showModal();
+  d.setAttribute('tabindex', '-1'); d.showModal(); d.focus(); // nada seleccionado al abrir: no salta el teclado
   refrescar();
 }
 /** Edición de un artículo: se abre editable, con Historial y Crear promoción. */
@@ -2674,7 +2674,7 @@ async function abrirArticulo(a) {
       const mm = $('#inv-msg'); mm.className = 'mensaje ok'; mm.textContent = `Artículo ${r.articulo.item_no ?? ''} guardado.`;
     } catch (e) { m.className = 'mensaje error'; m.textContent = e.message; }
   });
-  d.showModal();
+  d.setAttribute('tabindex', '-1'); d.showModal(); d.focus(); // nada seleccionado al abrir: no salta el teclado
 }
 
 // ── Tarjetas de regalo ──

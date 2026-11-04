@@ -155,8 +155,14 @@ describe('[iPhone] Inventario: seleccionar y ubicar piezas de El Limbo', { timeo
     await page.waitForSelector('#lista-inv .fila-inv[data-item="p1"]');
     await page.tap('#lista-inv .fila-inv[data-item="p1"]');
     await page.waitForSelector('#dlg-articulo[open]');
+    const enfocado = () => page.evaluate(() => document.activeElement?.tagName ?? '');
+    assert.ok(!['INPUT', 'SELECT', 'TEXTAREA'].includes(await enfocado()), 'al editar un artículo no queda ningún campo seleccionado (no sale el teclado)');
     await page.tap('#art-existencias');
     await page.waitForSelector('#dlg-existencias[open]');
+    assert.ok(!['INPUT', 'SELECT', 'TEXTAREA'].includes(await enfocado()), 'en Existencias reales tampoco');
+    const marcas = await page.$$eval('#ex-tabla .ex-tienda', (e) => e.map((x) => [x.textContent, getComputedStyle(x).backgroundColor, getComputedStyle(x).color]));
+    assert.deepEqual(marcas, [['Tienda DÚO', 'rgb(0, 0, 0)', 'rgb(255, 255, 255)'], ['Tienda London', 'rgb(27, 63, 168)', 'rgb(255, 255, 255)']], 'DÚO en negro y London en azul rey, letra blanca');
+    await page.screenshot({ path: join(RAIZ, 'docs', 'capturas', 'existencias-reales-movil.png') });
     const dlg = await page.evaluate(() => { const r = document.querySelector('#dlg-existencias')!.getBoundingClientRect(); const ok = document.querySelector('#ex-ok')!.getBoundingClientRect(); return { izq: r.left, der: r.right, ancho: window.innerWidth, okAbajo: ok.bottom, alto: window.innerHeight, desborda: document.documentElement.scrollWidth > window.innerWidth + 1 }; });
     assert.ok(dlg.izq >= -1 && dlg.der <= dlg.ancho + 1 && !dlg.desborda, `el diálogo cabe de ancho: ${JSON.stringify(dlg)}`);
     await page.fill('input[data-ex="DUO"]', '41');
