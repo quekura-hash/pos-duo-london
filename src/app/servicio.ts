@@ -999,6 +999,16 @@ export function analizarBusqueda(texto: string): { palabras: string[]; filtros: 
   return { palabras, filtros };
 }
 
+/** Nombre sin adornos (emojis, símbolos): «Edgardo 😎» → «edgardo». */
+const nombreBase = (n: string) => nombreClave(n).replace(/[^\p{L}\p{N} ]/gu, '').replace(/\s+/g, ' ').trim();
+/** El único de la lista cuyo nombre sin adornos coincide con el de la sesión (si hay dos o ninguno, null: nunca se adivina entre dos personas). */
+function unicoPorNombreBase<T extends { nombre: string }>(lista: T[], usuario: string): T | null {
+  const base = nombreBase(usuario);
+  if (!base) return null;
+  const hallados = lista.filter((x) => nombreBase(x.nombre) === base);
+  return hallados.length === 1 ? hallados[0]! : null;
+}
+
 export class ServicioAdmin {
   readonly actor: Extract<Actor, { rol: 'admin' }>;
   private usuarioInicial: string;
@@ -1618,13 +1628,17 @@ export class ServicioAdmin {
   /** El administrador de la sesión: por su identificador (aguanta que le cambien el nombre con la sesión abierta) y, si no, por su nombre. */
   private adminActual() {
     const lista = administradoresDe(this.fuente());
-    return (this.adminId ? lista.find((a) => a.id === this.adminId) : undefined) ?? lista.find((a) => nombreClave(a.nombre) === nombreClave(this.actor.usuario)) ?? null;
+    return (this.adminId ? lista.find((a) => a.id === this.adminId) : undefined) ?? lista.find((a) => nombreClave(a.nombre) === nombreClave(this.actor.usuario))
+      // La sesión web trae el alias («Edgardo») y la ficha puede llevar adornos («Edgardo 😎»): se reconoce igual si solo hay una activa con ese nombre sin adornos.
+      ?? unicoPorNombreBase(lista.filter((a) => a.activo !== false), this.actor.usuario) ?? null;
   }
   /** Su registro de supervisor de caja es el enlazado a su identificador (`sup-` + el de su cuenta), nunca uno nuevo por nombre: así no se duplica. */
   private claveCortaPropia() {
     const a = this.adminActual();
     const lista = supervisoresDe(this.fuente());
-    return (a ? lista.find((x) => x.id === `sup-${a.id.slice(4)}`) : undefined) ?? lista.find((x) => nombreClave(x.nombre) === nombreClave(this.actor.usuario)) ?? null;
+    const mismoNombre = (x: { nombre: string }) => nombreClave(x.nombre) === nombreClave(this.actor.usuario);
+    // Si hay un registro viejo desactivado con el mismo nombre, no se escoge a ese: primero el enlazado a la cuenta, luego los activos y solo al final cualquiera.
+    return (a ? lista.find((x) => x.id === `sup-${a.id.slice(4)}`) : undefined) ?? lista.find((x) => x.activo && mismoNombre(x)) ?? unicoPorNombreBase(lista.filter((x) => x.activo), this.actor.usuario) ?? lista.find(mismoNombre) ?? null;
   }
   /** ¿Quien tiene la sesión ya tiene su clave corta? */
   estadoClaveFicha() {
