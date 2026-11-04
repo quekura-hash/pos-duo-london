@@ -107,6 +107,7 @@ export function analizarVentas(filas: FilaVenta[], o: { agrupar: Agrupar; desde?
       default: a = get(f.tienda, f.tienda === 'DUO' ? 'DÚO New York' : f.tienda === 'LON' ? 'London Love' : f.tienda);
     }
     if (f.tipo_ticket === 'fee') a.fees += f.total;
+    else if (f.tipo_ticket === 'devolucion') { a.piezas += f.piezas; a.total_ventas += f.total; } // resta lo devuelto o cambiado; no es un ticket de venta
     else { a.tickets++; a.piezas += f.piezas; a.total_ventas += f.total; }
     a.dias.add(f.fecha_local);
   }

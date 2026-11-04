@@ -316,15 +316,15 @@ export function hojaDolares(r: import('./consultas.ts').ReporteDolares): Hoja {
 /** Días desde el 30/12/1899: así Excel guarda una fecha de verdad (se filtra y se ordena como fecha). */
 const serialExcel = (fecha: string) => Date.UTC(Number(fecha.slice(0, 4)), Number(fecha.slice(5, 7)) - 1, Number(fecha.slice(8, 10))) / 86400000 + 25569;
 const pesos = (c: number) => c / 100;
-const TIPO_TICKET = { venta: 'Venta', cambio: 'Cambio', fee: 'Fee por daño' } as const;
+const TIPO_TICKET = { venta: 'Venta', cambio: 'Cambio', fee: 'Fee por daño', devolucion: 'Devolución (resta)' } as const;
 /** Folio como lo ve la contadora: ventas, el número; compras a crédito de empleada, «CR-000012» (serie aparte, no se confunde con una venta). */
-const folioHoja = (f: { folio: number; serie?: 'CR'; fee_deposito?: string }) => (f.fee_deposito ? f.fee_deposito : f.serie ? `CR-${String(f.folio).padStart(6, '0')}` : f.folio);
+const folioHoja = (f: { folio: number; serie?: 'CR'; fee_deposito?: string; tipo_ticket?: string }) => (f.fee_deposito ? f.fee_deposito : f.serie ? `CR-${String(f.folio).padStart(6, '0')}` : f.tipo_ticket === 'devolucion' && !f.folio ? 'sin folio' : f.folio);
 
 /** Detalle de ventas para la contadora: una fila por ticket (folio, fecha, piezas, total y forma de pago), importes como NÚMEROS para poder sumar. */
 export function hojaDetalleVentas(r: import('./consultas.ts').Consolidado): Hoja {
   const encabezados = ['Fecha', 'Folio', 'Tipo', 'Piezas', 'Total', 'Forma de pago', 'Tienda', 'Caja', 'Hora', 'Vendedora-Cajera', 'Vendió', 'Estado', 'Origen'];
   const filas: Hoja['filas'] = [...r.filas].sort((a, b) => a.fecha_local.localeCompare(b.fecha_local) || a.tienda.localeCompare(b.tienda) || a.caja - b.caja || Number(!!a.serie) - Number(!!b.serie) || a.folio - b.folio).map((f) => [
-    serialExcel(f.fecha_local), folioHoja(f), f.serie ? 'Compra a crédito (empleada)' : TIPO_TICKET[f.tipo_ticket], f.piezas, pesos(f.total), f.pago, NOMBRE_TIENDA[f.tienda] ?? f.tienda, f.caja, f.hora, f.cajero, f.vendedora, f.estado === 'cancelada' ? 'Cancelada' : 'Confirmada', f.historico ? 'POS anterior' : 'POS nuevo',
+    serialExcel(f.fecha_local), folioHoja(f), f.serie ? 'Compra a crédito (empleada)' : f.tipo_ticket === 'devolucion' && f.cambio_de_mercancia ? 'Devolución por cambio de mercancía (resta)' : f.tipo_ticket === 'venta' && f.cambio_de_mercancia ? 'Venta · cambio de mercancía' : TIPO_TICKET[f.tipo_ticket], f.piezas, pesos(f.total), f.pago, NOMBRE_TIENDA[f.tienda] ?? f.tienda, f.caja, f.hora, f.cajero, f.vendedora, f.estado === 'cancelada' ? 'Cancelada' : 'Confirmada', f.historico ? 'POS anterior' : 'POS nuevo',
   ]);
   return { nombre: 'Detalle de ventas', encabezados, filas, textoCols: [8, 9, 10], formatoCols: { 0: 'dd/mm/yyyy', 4: '#,##0.00' } };
 }
@@ -364,7 +364,7 @@ export function hojaResumenVentas(r: import('./consultas.ts').Consolidado): Hoja
     if (f.estado === 'cancelada') continue;
     const k = `${f.fecha_local}|${f.tienda}`;
     const d = dias.get(k) ?? { fecha: f.fecha_local, tienda: f.tienda, tickets: 0, piezas: 0, efectivo: 0, tarjeta: 0, dolares: 0, regalo: 0, otro: 0, mixto: 0, credito: 0, fees: 0, total: 0 };
-    if (f.fee_deposito === undefined) d.tickets++;
+    if (f.fee_deposito === undefined && f.tipo_ticket !== 'devolucion') d.tickets++;
     d.piezas += f.piezas; d.efectivo += f.montos.efectivo; d.tarjeta += f.montos.tarjeta; d.dolares += f.montos.dolares; d.regalo += f.montos.tarjeta_regalo; d.otro += f.montos.otro; d.mixto += f.montos.mixto; d.credito += f.montos.credito;
     if (f.tipo_ticket === 'fee') d.fees += f.total;
     d.total += f.total;

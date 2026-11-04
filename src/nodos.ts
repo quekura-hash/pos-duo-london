@@ -1945,7 +1945,7 @@ export class Caja {
     const hora = new Date(Date.parse(ahora) - 7 * 3600_000).toISOString().slice(11, 16);
     const desde = [lunesDe(fecha), `${fecha.slice(0, 7)}-01`].sort()[0]!;
     // Las dos cajas de la tienda suman juntas: se toma lo que sabe el hub y, por si aún no llegó una venta de esta caja, lo de esta caja (lo mayor de cada día).
-    const propios = totalesPorDia(this.opsDe('sale.confirmed', 'sale.cancelled'), this.tienda);
+    const propios = totalesPorDia(this.opsDe('sale.confirmed', 'sale.cancelled', 'return.registered'), this.tienda);
     const remotos = this.enlace.totalesVentas?.(desde, fecha) ?? {};
     const central = this.totalesCentral && Date.parse(ahora) - this.totalesCentral.ms < 30 * 60_000 ? this.totalesCentral.dias : null;
     const historico = pub.historico?.[this.tienda] ?? {};

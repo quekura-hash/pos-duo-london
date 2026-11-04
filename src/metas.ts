@@ -4,7 +4,7 @@
 // Código PURO: lo usan Administración, la caja y las pruebas. Importes en centavos; fechas «AAAA-MM-DD» en hora de Hermosillo.
 import type { Op } from './tipos.ts';
 import { addDias, fechaLocal } from './util.ts';
-import { historicasDuplicadas, ventas } from './proyecciones.ts';
+import { devoluciones, historicasDuplicadas, ventas } from './proyecciones.ts';
 
 export interface MetaTienda { activa: boolean; incremento_pct: number; apertura: string; cierre: string }
 export interface ConfigMetas { tiendas: Record<string, MetaTienda>; verde_pct: number; amarillo_pct: number }
@@ -70,13 +70,19 @@ export function historicoPorDia(ops: Op[], tienda: string): Map<string, number> 
   return m;
 }
 
-/** Total vendido por día de UNA tienda (centavos): todos los tickets confirmados (no cancelados) de las dos cajas y las ventas importadas del POS anterior. */
+/** Total vendido por día de UNA tienda (centavos): todos los tickets confirmados (no cancelados) de las dos cajas, menos lo devuelto o cambiado ese día, y las ventas importadas del POS anterior. */
 export function totalesPorDia(ops: Op[], tienda: string): Map<string, number> {
   const m = new Map<string, number>();
   for (const v of ventas(ops).values()) {
     if (v.tienda !== tienda || v.estado !== 'confirmada') continue;
     const f = fechaLocal(v.ocurrio_en);
     m.set(f, (m.get(f) ?? 0) + v.total);
+  }
+  // Devoluciones y cambios restan el día en que ocurren: el vestido devuelto ya se contó como venta el día que se vendió, y el cambio cuenta completo el ticket nuevo.
+  for (const d of devoluciones(ops)) {
+    if (d.tienda !== tienda) continue;
+    const f = fechaLocal(d.ocurrio_en);
+    m.set(f, (m.get(f) ?? 0) - d.importe);
   }
   for (const [f, v] of historicoPorDia(ops, tienda)) m.set(f, (m.get(f) ?? 0) + v);
   return m;

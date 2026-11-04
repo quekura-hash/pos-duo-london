@@ -71,6 +71,9 @@ export interface ReporteCaja {
   creditos: number;
   fees: number;
   cambios: number;
+  /** Devoluciones y cambios del periodo (cada uno es una fila en negativo, con su folio, ya incluida en el total). */
+  devoluciones: number;
+  devoluciones_total: number;
   historicos: number;
   hojas: Hoja[];
   archivo: string;
@@ -82,13 +85,14 @@ export function reporteDeCaja(ops: Op[], tienda: string, cajaGuardada: number, p
   const caja = especial ? cajaGuardada - BASE_ESPECIAL : cajaGuardada;
   const { desde, hasta: finMes } = rangoDelPeriodo(periodo);
   const hasta = hastaFecha && hastaFecha < finMes ? hastaFecha : finMes;
-  const r = reporteConsolidado({ rol: 'admin', usuario: 'reporte-mensual' } as never, ops, { desde, hasta, cajas: [{ tienda, caja }], historicas: true, fees: true });
+  const r = reporteConsolidado({ rol: 'admin', usuario: 'reporte-mensual' } as never, ops, { desde, hasta, cajas: [{ tienda, caja }], historicas: true, fees: true, devoluciones: true });
   const vivas = r.filas.filter((f) => f.estado !== 'cancelada');
   const suma = (k: 'efectivo' | 'tarjeta' | 'dolares' | 'tarjeta_regalo' | 'otro' | 'mixto' | 'credito') => vivas.reduce((a, f) => a + f.montos[k], 0);
   return {
-    tienda, caja, especial, periodo, desde, hasta, tickets: vivas.length, piezas: vivas.reduce((a, f) => a + f.piezas, 0), total: vivas.reduce((a, f) => a + f.total, 0),
+    tienda, caja, especial, periodo, desde, hasta, tickets: vivas.filter((f) => f.tipo_ticket !== 'devolucion').length, piezas: vivas.reduce((a, f) => a + f.piezas, 0), total: vivas.reduce((a, f) => a + f.total, 0),
     efectivo: suma('efectivo'), tarjeta: suma('tarjeta'), dolares: suma('dolares'), tarjeta_regalo: suma('tarjeta_regalo'), otros: suma('otro'), mixto: suma('mixto'), credito_empleadas: suma('credito'), creditos: vivas.filter((f) => f.serie === 'CR').length,
     fees: vivas.filter((f) => f.tipo_ticket === 'fee').reduce((a, f) => a + f.total, 0), cambios: vivas.filter((f) => f.tipo_ticket === 'cambio').length,
+    devoluciones: vivas.filter((f) => f.tipo_ticket === 'devolucion').length, devoluciones_total: vivas.filter((f) => f.tipo_ticket === 'devolucion').reduce((a, f) => a + f.total, 0),
     historicos: vivas.filter((f) => f.historico).length,
     hojas: especial ? [hojaDetalleVentasContadora(r)] : [hojaDetalleVentas(r), hojaResumenVentas(r)],
     archivo: `reporte-de-ventas-${tienda === 'DUO' ? 'duo' : tienda === 'LON' ? 'london' : tienda.toLowerCase()}${especial ? '' : `-caja-${caja}`}-${periodo}.xlsx`,
@@ -111,6 +115,7 @@ export function correoDelReporte(r: ReporteCaja, o: { prueba?: boolean; corteA?:
     ...(r.mixto ? [['Pagos mixtos sin desglose', mxn(r.mixto)] as [string, string]] : []),
     ...(r.creditos ? [[`Compras a crédito de empleadas (${r.creditos}, folios CR; no es dinero cobrado, se descuenta de nómina)`, mxn(r.credito_empleadas)] as [string, string]] : []), ...(r.fees ? [['Fees por daño (incluidos en el total)', mxn(r.fees)] as [string, string]] : []),
     ...(r.cambios ? [['Cambios sin diferencia', String(r.cambios)] as [string, string]] : []),
+    ...(r.devoluciones ? [[`Devoluciones y cambios (${r.devoluciones}; ya restados del total)`, mxn(r.devoluciones_total)] as [string, string]] : []),
   ];
   const intro = r.especial ? `Adjunto el reporte de ventas de ${negocio} · del ${fechaCorta(r.desde)} al ${fechaCorta(r.hasta)}.` : `Adjunto el reporte de ventas de ${negocio} del ${fechaCorta(r.desde)} al ${fechaCorta(r.hasta)}.`;
   const corte = o.corteA ? `Corte: ${o.corteA}. Lo que se venda después no está en este archivo.` : '';
