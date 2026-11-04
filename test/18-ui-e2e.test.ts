@@ -122,9 +122,7 @@ describe('[navegador real — Chromium con Playwright, UI sobre SQLite]', { time
     assert.deepEqual([await corte('tickets'), await corte('ventas'), await corte('cobros_efectivo'), await corte('efectivo_esperado'), await corte('folio_inicial'), await corte('folio_final')],
       ['1', '$2,038.00', '$2,038.00', '$2,038.00', '1', '1']);
     await page.screenshot({ path: join(CAPTURAS, '03-corte.png') });
-    await page.fill('#tot-banco', '0');
-    await page.click('#btn-verificar-tot');
-    await page.waitForFunction(() => /Coincide/.test(document.querySelector('#tot-resultado')?.textContent ?? ''));
+    assert.equal(await page.locator('#bloque-totalizacion').count(), 0, 'sin cobros con tarjeta no se pide la totalización de la terminal');
     await page.click('#btn-cerrar-corte');
     await page.waitForSelector('#corte-cerrado');
     assert.match((await page.textContent('#corte-cerrado'))!, /Corte cerrado/);
@@ -815,9 +813,7 @@ describe('[navegador real — Chromium con Playwright, UI sobre SQLite]', { time
     assert.equal(await corte('efectivo_esperado'), '-$1,580.00');
     assert.equal(await corte('conteo_mxn'), '$100.00');
     assert.equal(await corte('diferencia_mxn'), '$1,780.00');
-    await page.fill('#tot-banco', '25'); // la terminal dice $25 y el sistema $0: cierra, pero la diferencia queda marcada
-    for (let i = 0; i < 3; i++) await page.click('#btn-verificar-tot'); // 3 intentos: recién entonces se muestra la cifra y deja cerrar con la nota
-    await page.waitForFunction(() => /no coincidió/.test(document.querySelector('#tot-resultado')?.textContent ?? ''));
+    assert.equal(await page.locator('#bloque-totalizacion').count(), 0, 'día sin tarjeta: no hay totalización que capturar (el caso con tarjeta lo cubren los tests 83 y 142)');
     await page.click('#btn-cerrar-corte');
     await page.waitForSelector('#corte-cerrado');
     ctx.m.pump(); ctx.m.pump();
@@ -829,7 +825,7 @@ describe('[navegador real — Chromium con Playwright, UI sobre SQLite]', { time
     await a.fill('#cor-desde', '2026-10-01'); await a.fill('#cor-hasta', '2026-10-01');
     await a.click('#filtros-cortes button[type="submit"]');
     await a.waitForSelector('#tabla-cortes tr[data-corte="DUO-1-2026-10-01"]');
-    assert.match((await a.textContent('#cortes-totalizacion-dif'))!, /Totalización bancaria con diferencia \(1\)[\s\S]*DUO · Caja 1 · 2026-10-01: terminal \$25\.00 contra \$0\.00 del sistema \(\$25\.00\)/);
+    assert.equal(await a.locator('#cortes-totalizacion-dif').count(), 0, 'sin tarjeta no hay totalización y por tanto no hay aviso de diferencia');
     const c = async (col: string) => (await a.textContent(`#tabla-cortes tr[data-corte="DUO-1-2026-10-01"] [data-col="${col}"]`))!.trim();
     assert.deepEqual([await c('mxn-fondo'), await c('mxn-cobros'), await c('mxn-cambio'), await c('mxn-esperado'), await c('mxn-contado'), await c('mxn-diferencia')], ['$100.00', '$0.00', '$1,680.00', '-$1,580.00', '$100.00', '$1,780.00']);
     assert.deepEqual([await c('usd-cobros'), await c('usd-esperado'), await c('usd-contado'), await c('usd-diferencia'), await c('equivalente')], ['US$100.00', 'US$100.00', 'US$100.00', 'US$0.00', '$1,800.00']);
