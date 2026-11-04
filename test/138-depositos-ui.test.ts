@@ -30,18 +30,17 @@ describe('[navegador real] Depósitos en la caja', { timeout: 300_000, skip: chr
       t.after(async () => { await browser.close(); await caja.cerrar(); ctx.limpiar(); });
       const { page, errores } = await abrir(browser, caja.url, esquema);
 
-      // — Barra de herramientas: botones cuadrados, icono arriba, texto en hasta 2 renglones, todos en una fila.
-      const botones = await page.$$eval('.acciones-inf .btn', (b) => b.filter((x) => (x as HTMLElement).offsetParent !== null).map((x) => { const r = x.getBoundingClientRect(); return { id: x.id, y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height), iconoArriba: (x.querySelector('svg')!.getBoundingClientRect().bottom <= x.querySelector('span')!.getBoundingClientRect().top + 2) }; }));
+      // — Barra de herramientas: una sola fila, bajitos (icono arriba y texto en hasta 2 renglones, sin espacio desperdiciado).
+      const botones = await page.$$eval('.acciones-inf .btn', (b) => b.filter((x) => (x as HTMLElement).offsetParent !== null).map((x) => { const r = x.getBoundingClientRect(); const ic = x.querySelector('svg')!.getBoundingClientRect(); const tx = x.querySelector('span')!.getBoundingClientRect(); return { id: x.id, y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height), iconoArriba: ic.bottom <= tx.top + 2, vacio: Math.round(r.bottom - tx.bottom) }; }));
       const dep = botones.find((b) => b.id === 'btn-depositos');
       assert.ok(dep, 'existe el botón Depósitos');
       assert.equal(await page.locator('#btn-depositos svg').count(), 1);
       assert.equal((await page.textContent('#btn-depositos'))!.trim(), 'Depósitos');
-      const idsEnLaFila = botones.filter((b) => b.y === dep!.y).map((b) => b.id);
       assert.ok(botones.length >= 7, `${botones.length} botones`);
       assert.deepEqual([...new Set(botones.map((b) => b.y))].length, 1, `todos los botones en una sola fila: ${JSON.stringify(botones)}`);
-      assert.ok(botones.every((b) => Math.abs(b.w - b.h) <= Math.max(12, b.w * 0.15)), `cuadrados: ${JSON.stringify(botones)}`);
+      assert.ok(botones.every((b) => b.h <= 76 && b.h >= 56), `altura compacta (la mitad de antes): ${JSON.stringify(botones.map((b) => b.h))}`);
       assert.ok(botones.every((b) => b.iconoArriba), 'el icono va arriba del texto');
-      void idsEnLaFila;
+      assert.ok(botones.every((b) => b.vacio <= 22), `sin espacio vacío debajo del texto: ${JSON.stringify(botones.map((b) => b.vacio))}`);
       // — El Resumen de venta no recibió botones nuevos.
       const enResumen = await page.$$eval('aside.resumen button', (b) => b.map((x) => (x.textContent ?? '').trim()));
       assert.ok(!enResumen.some((x) => /dep[oó]sito/i.test(x)), `Resumen: ${enResumen.join(' | ')}`);
