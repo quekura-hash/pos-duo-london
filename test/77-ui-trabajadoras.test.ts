@@ -110,6 +110,7 @@ describe('[navegador real] Usuarios: tienda de cada trabajadora y expediente pri
     await page.waitForSelector('#dlg-expediente', { state: 'hidden' });
     const ana = (await api(adm.url, '/api/admin/cajeros')).json.cajeros.find((c: any) => c.nombre === 'Ana');
     assert.equal((await api(adm.url, `/api/admin/expediente?cajero_id=${ana.id}`)).json.error.codigo, 'EXPEDIENTE_BLOQUEADO');
+    await page.waitForFunction(() => !document.querySelector('#dlg-expediente')?.innerHTML, null, { timeout: 5000 }); // al cerrarse el diálogo se vacía (evento «close»)
     assert.doesNotMatch(await page.content(), /Faltaba mucho|Recontratable|Calificaciones/, 'nada del expediente queda en la pantalla');
     // volver a abrirla pide la clave corta (ya no la de crear)
     await page.click('#tabla-personal tr[data-cajero] .c-editar >> nth=0');
