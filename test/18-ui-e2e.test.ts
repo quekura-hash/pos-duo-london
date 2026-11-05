@@ -334,7 +334,7 @@ describe('[navegador real — Chromium con Playwright, UI sobre SQLite]', { time
       assert.deepEqual(sinIcono, [], 'todo botón visible lleva icono');
       assert.equal(await page.locator('#btn-editar-catalogo').count(), 0, 'Editar catálogo ya no existe en la venta');
         const formas = await page.$$eval('#formas button', (b) => b.map((x) => [x.textContent!.trim(), (x as HTMLButtonElement).disabled]));
-      assert.deepEqual(formas, [['Efectivo', false], ['Tarjeta', tienda !== 'DUO'], ['Mixto', tienda !== 'DUO'], ['Tarjeta de regalo', tienda !== 'DUO'], ['Crédito de empleada', true]]);
+      assert.deepEqual(formas, [['Efectivo', false], ['Tarjeta', tienda !== 'DUO'], ['Mixto', tienda !== 'DUO'], ['Tarjeta de regalo', tienda !== 'DUO'], ['Crédito de empleada', false]]); // activo: en la caja 2 pide la empleada y en las demás avisa que los créditos son de la caja 2
       assert.deepEqual(errores, []);
     }
     const { page } = await pagina(browser, duo.url);
