@@ -1979,7 +1979,7 @@ export class ServicioAdmin {
     }
     // Resumen del periodo con la MISMA fórmula de las ventas netas del resumen del día: mercancía de los tickets confirmados (sin tarjetas de regalo)
     // menos las devoluciones registradas en el periodo y cajas elegidos. Los tickets son las ventas confirmadas (no cuentan canceladas ni devoluciones).
-    const confirmadasVenta = ordenadas.filter((r) => r.estado !== 'cancelada' && r.tipo_ticket === 'venta');
+    const confirmadasVenta = ordenadas.filter((r) => r.estado !== 'cancelada' && (r.tipo_ticket === 'venta' || r.tipo_ticket === 'abono'));
     const devsPeriodo = buscado || origen === 'anterior' ? [] : devoluciones(this.fuente()).filter((d) => {
       const dia = fechaLocal(d.ocurrio_en);
       return (!filtro.desde || dia >= filtro.desde) && (!filtro.hasta || dia <= filtro.hasta) && (!filtro.cajas || filtro.cajas.some((c) => c.tienda === d.tienda && c.caja === d.caja));

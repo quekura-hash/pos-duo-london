@@ -1,7 +1,8 @@
 // Ventas históricas: lector del reporte «Sales Detail» del POS anterior (una fila por ticket) y su conversión a operaciones `venta.historica`.
 // Son registros para reportes y contabilidad: NO tocan existencias, caja, cortes ni la serie de folios de la caja nueva.
 
-export type TipoHistorica = 'venta' | 'cambio' | 'fee';
+/** `abono` = abono a un apartado del POS anterior («Deposit»): cada abono fue una venta (al liquidar solo se cobraba el saldo), así que suma como venta. */
+export type TipoHistorica = 'venta' | 'cambio' | 'fee' | 'abono';
 export type PagoHistorico = 'efectivo' | 'tarjeta' | 'mixto' | 'sin_pago';
 
 export interface VentaHistorica {
@@ -63,7 +64,7 @@ export function revisarReporteAnterior(filasHoja: unknown[][]): RevisionHistoric
   const avisos: string[] = [];
   const vacio = (): RevisionHistorica['resumen'] => ({
     tickets: 0, piezas: 0, total: 0,
-    por_tipo: { venta: { tickets: 0, total: 0 }, cambio: { tickets: 0, total: 0 }, fee: { tickets: 0, total: 0 } },
+    por_tipo: { venta: { tickets: 0, total: 0 }, cambio: { tickets: 0, total: 0 }, fee: { tickets: 0, total: 0 }, abono: { tickets: 0, total: 0 } },
     por_pago: { efectivo: { tickets: 0, total: 0 }, tarjeta: { tickets: 0, total: 0 }, mixto: { tickets: 0, total: 0 }, sin_pago: { tickets: 0, total: 0 } },
     desde: null, hasta: null, folio_inicial: null, folio_final: null, dias_con_ventas: 0, fechas_corregidas: 0,
   });
@@ -127,16 +128,19 @@ export function revisarReporteAnterior(filasHoja: unknown[][]): RevisionHistoric
     if (m < 1 || m > 12 || d < 1 || d > diasDelMes(y, m)) { errores.push(`Fila ${c.fila} (folio ${c.folio}): fecha inválida.`); continue; }
     if (vistos.has(c.folio)) { errores.push(`El folio ${c.folio} aparece más de una vez.`); continue; }
     vistos.add(c.folio);
-    if (sinAcentos(c.tipoTxt) !== 'sales' && sinAcentos(c.tipoTxt) !== 'venta' && sinAcentos(c.tipoTxt) !== '') { errores.push(`Folio ${c.folio}: tipo de recibo desconocido «${c.tipoTxt}»; avíseme cómo tratarlo.`); continue; }
+    const tipoTxt = sinAcentos(c.tipoTxt);
+    const esAbono = tipoTxt === 'deposit' || tipoTxt === 'deposito' || tipoTxt === 'abono';
+    if (!esAbono && tipoTxt !== 'sales' && tipoTxt !== 'venta' && tipoTxt !== '') { errores.push(`Folio ${c.folio}: tipo de recibo desconocido «${c.tipoTxt}»; avíseme cómo tratarlo.`); continue; }
     const centavos = Math.round(c.total * 100);
     const p = sinAcentos(c.pagoTxt);
     const pago: PagoHistorico = p === 'cash' || p === 'efectivo' ? 'efectivo' : p === 'credit card' || p === 'debit card' || p === 'tarjeta' || p.includes('card') || p.includes('tarjeta') ? 'tarjeta' : p === 'split' || p === 'mixto' ? 'mixto' : 'sin_pago';
     // Regla del negocio: un ticket de $0 es un cambio (sin diferencia de precio); uno sin piezas es un fee (cobro por daño a una prenda).
-    const tipo: TipoHistorica = c.piezas === 0 && centavos !== 0 ? 'fee' : centavos === 0 ? 'cambio' : 'venta';
+    // Un «Deposit» (abono de apartado) no tiene piezas pero NO es un fee: es una venta parcial.
+    const tipo: TipoHistorica = esAbono ? 'abono' : c.piezas === 0 && centavos !== 0 ? 'fee' : centavos === 0 ? 'cambio' : 'venta';
     const fecha = iso({ y, m, d });
     const v: VentaHistorica = { folio: c.folio, fecha, tipo, piezas: c.piezas, total: centavos, pago, pago_original: c.pagoTxt };
     filas.push(v);
-    const nota = tipo === 'cambio' ? 'cambio sin diferencia' : tipo === 'fee' ? (centavos < 0 ? 'fee NEGATIVO (devolución o ajuste de un fee)' : 'fee por daño a la prenda') : pago === 'mixto' ? 'pago mixto sin desglose' : centavos < 0 ? 'total negativo' : '';
+    const nota = tipo === 'cambio' ? 'cambio sin diferencia' : tipo === 'fee' ? (centavos < 0 ? 'fee NEGATIVO (devolución o ajuste de un fee)' : 'fee por daño a la prenda') : tipo === 'abono' ? (centavos < 0 ? 'abono NEGATIVO' : pago === 'mixto' ? 'abono con pago mixto sin desglose' : '') : pago === 'mixto' ? 'pago mixto sin desglose' : centavos < 0 ? 'total negativo' : '';
     if (nota) revisar.push({ folio: v.folio, fecha, tipo, pago, piezas: v.piezas, total: v.total, nota });
   }
   filas.sort((a, b) => a.folio - b.folio);

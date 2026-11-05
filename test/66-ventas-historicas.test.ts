@@ -150,3 +150,21 @@ it('HV3 un reporte de varios años: las fechas intercambiadas se corrigen con lo
   assert.ok(r.resumen.fechas_corregidas > 600, 'se corrigieron muchas fechas dudosas');
   assert.ok(!r.avisos.some((a) => /no van en orden/.test(a)), 'con las fechas bien, van en orden respecto a los folios');
 });
+
+it('HV5 los «Deposit» del POS anterior son abonos de apartado: cada abono es una venta (no un fee), aunque no traiga piezas', () => {
+  const hoja: unknown[][] = [
+    [null, '2026-09-30T00:00:00.000Z', ...Array(9).fill(null), 'TIENDA DE PRUEBA'], [], [], [], [], ENCABEZADO,
+    fila('13/09/2026', 2001, 'Deposit', 0, 600, 'Debit Card'), // abono: sin piezas, pero NO es un fee
+    fila('20/09/2026', 2002, 'Deposit', 0, 1397, 'Cash'),
+    fila('25/09/2026', 2003, 'Sales', 1, 800, 'Cash'), // al liquidar solo se cobró el saldo
+    fila('26/09/2026', 2004, 'Sales', 0, 30, 'Cash'), // esto sí es un fee (ticket de venta sin piezas)
+  ];
+  const r = revisarReporteAnterior(hoja);
+  assert.deepEqual(r.errores, []);
+  assert.deepEqual(r.filas.map((f) => f.tipo), ['abono', 'abono', 'venta', 'fee']);
+  assert.deepEqual(r.filas.map((f) => f.total), [60000, 139700, 80000, 3000]);
+  assert.deepEqual(r.resumen.por_tipo.abono, { tickets: 2, total: 199700 });
+  assert.equal(r.resumen.por_tipo.fee.tickets, 1, 'el abono no se confunde con un fee');
+  assert.equal(r.resumen.total, 60000 + 139700 + 80000 + 3000, 'los abonos suman al total del archivo');
+  assert.deepEqual(r.filas.filter((f) => f.tipo === 'abono').map((f) => f.pago), ['tarjeta', 'efectivo']);
+});

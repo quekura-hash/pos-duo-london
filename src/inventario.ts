@@ -316,7 +316,7 @@ export function hojaDolares(r: import('./consultas.ts').ReporteDolares): Hoja {
 /** Días desde el 30/12/1899: así Excel guarda una fecha de verdad (se filtra y se ordena como fecha). */
 const serialExcel = (fecha: string) => Date.UTC(Number(fecha.slice(0, 4)), Number(fecha.slice(5, 7)) - 1, Number(fecha.slice(8, 10))) / 86400000 + 25569;
 const pesos = (c: number) => c / 100;
-const TIPO_TICKET = { venta: 'Venta', cambio: 'Cambio', fee: 'Fee por daño', devolucion: 'Devolución (resta)' } as const;
+const TIPO_TICKET = { venta: 'Venta', cambio: 'Cambio', fee: 'Fee por daño', devolucion: 'Devolución (resta)', abono: 'Abono de apartado' } as const;
 /** Folio como lo ve la contadora: ventas, el número; compras a crédito de empleada, «CR-000012» (serie aparte, no se confunde con una venta). */
 const folioHoja = (f: { folio: number; serie?: 'CR'; fee_deposito?: string; tipo_ticket?: string }) => (f.fee_deposito ? f.fee_deposito : f.serie ? `CR-${String(f.folio).padStart(6, '0')}` : f.tipo_ticket === 'devolucion' && !f.folio ? 'sin folio' : f.folio);
 

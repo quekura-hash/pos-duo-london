@@ -44,7 +44,7 @@ export interface FilaVenta {
   /** Forma de pago en español: Efectivo, Tarjeta, Dólares, Tarjeta de regalo… o Mixto. */
   pago: string;
   /** Venta normal, cambio sin diferencia o fee por daño (estos dos últimos solo vienen de las históricas). */
-  tipo_ticket: 'venta' | 'cambio' | 'fee' | 'devolucion';
+  tipo_ticket: 'venta' | 'cambio' | 'fee' | 'devolucion' | 'abono';
   /** true = viene del POS anterior (importada), no de esta caja. */
   historico: boolean;
   /** Hora local HH:MM (las históricas no la traen). */
@@ -184,7 +184,7 @@ export function ventasPorCaja(actor: Actor, ops: Op[], f: Filtro = {}): FilaVent
       if (f.tiendas && !f.tiendas.includes(h.tienda_hist)) continue;
       if ((f.desde && h.fecha < f.desde) || (f.hasta && h.fecha > f.hasta)) continue;
       filas.push({
-        tienda: h.tienda_hist, caja: h.caja_hist, folio: h.folio, sale_id: h.hist_id, fecha_local: h.fecha, cajero: '', vendedora: '', total: h.total, total_mercancia: h.tipo_hist === 'venta' ? h.total : 0,
+        tienda: h.tienda_hist, caja: h.caja_hist, folio: h.folio, sale_id: h.hist_id, fecha_local: h.fecha, cajero: '', vendedora: '', total: h.total, total_mercancia: h.tipo_hist === 'venta' || h.tipo_hist === 'abono' ? h.total : 0,
         estado: 'confirmada', piezas: h.piezas, pago: ETIQUETA_PAGO[h.pago] ?? h.pago, tipo_ticket: h.tipo_hist, historico: true, hora: '',
         montos: { ...sinMontos(), [h.pago === 'efectivo' ? 'efectivo' : h.pago === 'tarjeta' ? 'tarjeta' : h.pago === 'mixto' ? 'mixto' : 'otro']: h.total },
       });
