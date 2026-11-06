@@ -1,6 +1,6 @@
 -- 0020: ventas por día con la regla de las tarjetas de regalo. La tarjeta vendida es venta el día que se vende; cuando después se paga con ella, ese dinero NO se cuenta otra vez
 -- (del ticket solo cuenta lo que no se pagó con la tarjeta); y una devolución solo resta lo que no se reembolsó a una tarjeta de regalo. Debe coincidir con totalesPorDia
--- (src/metas.ts). Misma firma que 0017/0019. PENDIENTE de aplicar a producción (requiere autorización explícita).
+-- (src/metas.ts). Misma firma que 0017/0019. Aplicada a producción el 2026-11-06.
 -- (0017) ventas por día de la tienda, calculadas en el central con las MISMAS reglas que Administración (ventas confirmadas no canceladas + ventas importadas del
 -- POS anterior sin las copias duplicadas descartadas). La barra de metas de la caja la consulta, así marca lo mismo que Administración.
 -- Administración ve todas las tiendas; una caja, solo la suya. Solo lectura.
