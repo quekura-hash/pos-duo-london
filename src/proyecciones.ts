@@ -117,6 +117,25 @@ export interface Devolucion {
   motivo_cambio?: string;
 }
 
+/**
+ * Correcciones de la forma de pago de una venta ya registrada (op `venta.pago_corregido`: el ticket no se toca ni se borra; la corrección se aplica al leerlo).
+ * Devuelve las operaciones con los pagos corregidos (la venta conserva los originales en `pagos_originales`); sin correcciones devuelve la misma lista.
+ * También corrige el «medio» de la emisión o recarga de una tarjeta de regalo hecha en esa venta.
+ */
+export function conPagosCorregidos(ops: Op[]): Op[] {
+  let corr: Map<string, Op> | null = null;
+  for (const o of ops) if (o.tipo === 'venta.pago_corregido') (corr ??= new Map()).set(o.payload.sale_id, o);
+  if (!corr) return ops;
+  const c = corr;
+  return ops.filter((o) => o.tipo !== 'venta.pago_corregido').map((o) => {
+    const k = c.get(o.payload?.sale_id);
+    if (!k) return o;
+    if (o.tipo === 'sale.confirmed') return { ...o, payload: { ...o.payload, pagos: k.payload.pagos, pagos_originales: o.payload.pagos, pago_corregido: { motivo: k.payload.motivo ?? '', por: k.payload.por ?? '', en: k.ocurrio_en } } };
+    if ((o.tipo === 'giftcard.emitida' || o.tipo === 'giftcard.recarga') && k.payload.medio) return { ...o, payload: { ...o.payload, medio: k.payload.medio } };
+    return o;
+  });
+}
+
 export function devoluciones(ops: Op[]): Devolucion[] {
   return ops
     .filter((o) => o.tipo === 'return.registered')

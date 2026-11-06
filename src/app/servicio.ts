@@ -10,7 +10,7 @@ import { ErrorDominio } from '../errores.ts';
 import type { Impresora } from '../impresion.ts';
 import { DIAS_CONSULTA_HISTORICA, FONDO_AUTORIZADO_DEFECTO, type Autoriza, type Caja } from '../nodos.ts';
 import { estadoPromo, type Promocion } from '../promociones.ts';
-import { personalConCuenta, mesesVigenciaTarjetas, clientesVip, excepcionesVip, cuentasEmpleadas, configEmpleadas, CRITERIOS_EXPEDIENTE, expedientesDe, expedienteVacio, registradaEn, CAMPOS_EDITABLES, catalogo, historialArticulo, nombresTienda, datosTiendas, departamentos as proyDepartamentos, devoluciones, type Devolucion, promocionesDe, recompensasDe, supervisoresDe, cajerosDe, administradoresDe, configSesionDe, permisos as proyPermisos, tarjetasRegalo, tiposDeCambio, tipoCambioVigente, ventas, type TipoCambio } from '../proyecciones.ts';
+import { conPagosCorregidos, personalConCuenta, mesesVigenciaTarjetas, clientesVip, excepcionesVip, cuentasEmpleadas, configEmpleadas, CRITERIOS_EXPEDIENTE, expedientesDe, expedienteVacio, registradaEn, CAMPOS_EDITABLES, catalogo, historialArticulo, nombresTienda, datosTiendas, departamentos as proyDepartamentos, devoluciones, type Devolucion, promocionesDe, recompensasDe, supervisoresDe, cajerosDe, administradoresDe, configSesionDe, permisos as proyPermisos, tarjetasRegalo, tiposDeCambio, tipoCambioVigente, ventas, type TipoCambio } from '../proyecciones.ts';
 import { hojaAnalisis, hojaAnalisisEmpleadas, hojaDetalleVentas, hojaResumenVentas, hojaDescuentos, hojaEntregas, hojaDolares, hojaInventario, leerInventario, PERFIL_CONFIRMADO, type Hoja } from '../inventario.ts';
 import { LOGOS_TICKET } from '../logos-ticket.ts';
 import { codigoTicketDeposito, resumenDepositosDia, TIPOS_DEPOSITO, type Deposito, type MovDeposito } from '../depositos.ts';
@@ -704,15 +704,15 @@ export class ServicioCaja {
     };
   }
   /** Alta de una tarjeta: es una venta con folio normal, pagada en efectivo (P-24). */
-  async altaTarjetaRegalo(codigo: string, monto: number, recibido?: number, ref?: string) {
-    return this.ventaTarjeta('alta', codigo, monto, recibido, ref);
+  async altaTarjetaRegalo(codigo: string, monto: number, recibido?: number, ref?: string, medio?: { pago?: 'efectivo' | 'tarjeta'; autorizacion?: string; marca?: string; ultimos4?: string }) {
+    return this.ventaTarjeta('alta', codigo, monto, recibido, ref, medio);
   }
   /** Recarga en efectivo: también con folio, y reinicia los 12 meses de vigencia. */
-  async recargarTarjetaRegalo(codigo: string, monto: number, recibido?: number, ref?: string) {
-    return this.ventaTarjeta('recarga', codigo, monto, recibido, ref);
+  async recargarTarjetaRegalo(codigo: string, monto: number, recibido?: number, ref?: string, medio?: { pago?: 'efectivo' | 'tarjeta'; autorizacion?: string; marca?: string; ultimos4?: string }) {
+    return this.ventaTarjeta('recarga', codigo, monto, recibido, ref, medio);
   }
-  private async ventaTarjeta(tipo: 'alta' | 'recarga', codigo: string, monto: number, recibido?: number, ref?: string) {
-    const base = { codigo, monto, recibido, cajero: this.actor.usuario, ref };
+  private async ventaTarjeta(tipo: 'alta' | 'recarga', codigo: string, monto: number, recibido?: number, ref?: string, medio?: { pago?: 'efectivo' | 'tarjeta'; autorizacion?: string; marca?: string; ultimos4?: string }) {
+    const base = { codigo, monto, recibido, cajero: this.actor.usuario, ref, ...(medio ?? {}) };
     const { venta, tarjeta } = tipo === 'alta' ? this.caja.altaTarjetaRegalo(base) : this.caja.recargarTarjetaRegalo(base);
     // El hub concede el saldo: se intenta que conozca la tarjeta de inmediato (si no hay hub, queda en cola y se usa tras sincronizar).
     try { await this.conexion.sincronizar?.(); } catch { /* sin red: queda guardada localmente */ }
@@ -1033,7 +1033,7 @@ export class ServicioAdmin {
     this.actor = o.actor;
     this.usuarioInicial = o.actor.usuario;
     this.reloj = o.reloj ?? { now: () => new Date().toISOString() };
-    this.fuente = o.fuente;
+    this.fuente = () => conPagosCorregidos(o.fuente()); // las ventas con la forma de pago corregida se leen ya corregidas
     this.cajas = o.cajas;
     this.inv = o.inventario;
   }

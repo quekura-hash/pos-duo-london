@@ -124,7 +124,7 @@ export async function atender(o: { cajero?: ServicioCaja; admin?: ServicioAdmin 
       case 'POST /api/venta/cobrar-tarjeta': return ok(await exigirCajero().cobrarTarjetaManual(b.cart, { importe: b.importe === undefined || b.importe === null ? undefined : Number(b.importe), autorizacion: String(b.autorizacion ?? ''), marca: b.marca, ultimos4: b.ultimos4, regalo: b.regalo === undefined || b.regalo === null || b.regalo === '' ? undefined : String(b.regalo), recibido: b.recibido === undefined || b.recibido === null || b.recibido === '' ? undefined : Number(b.recibido) }));
       case 'POST /api/venta/cobrar-regalo': return ok(await exigirCajero().cobrarTarjetaRegalo(b.cart, String(b.codigo ?? ''), b.recibido === undefined || b.recibido === null ? undefined : Number(b.recibido), Number(b.usd ?? 0)));
       case 'GET /api/tarjeta': return ok({ tarjeta: exigirCajero().consultarTarjeta(q.get('codigo') ?? '') });
-      case 'POST /api/tarjeta/alta': return ok(await exigirCajero().altaTarjetaRegalo(String(b.codigo ?? ''), Number(b.monto), b.recibido === undefined ? undefined : Number(b.recibido), b.ref));
+      case 'POST /api/tarjeta/alta': return ok(await exigirCajero().altaTarjetaRegalo(String(b.codigo ?? ''), Number(b.monto), b.recibido === undefined ? undefined : Number(b.recibido), b.ref, { pago: b.pago, autorizacion: b.autorizacion, marca: b.marca, ultimos4: b.ultimos4 }));
       case 'GET /api/tarjetas': return ok({ tarjetas: exigirCajero().tarjetasPropias() });
       case 'GET /api/ventas/buscar': {
         const c = exigirCajero();
@@ -132,7 +132,7 @@ export async function atender(o: { cajero?: ServicioCaja; admin?: ServicioAdmin 
       }
       case 'GET /api/ventas/anteriores': return ok(exigirCajero().ventasAnteriores(q.get('folio') ?? ''));
       case 'POST /api/venta/devolver': return ok(await exigirCajero().devolver(b.sale_id, b.renglones ?? [], String(b.motivo ?? 'devolución'), b.autoriza));
-      case 'POST /api/tarjeta/recargar': return ok(await exigirCajero().recargarTarjetaRegalo(String(b.codigo ?? ''), Number(b.monto), b.recibido === undefined ? undefined : Number(b.recibido), b.ref));
+      case 'POST /api/tarjeta/recargar': return ok(await exigirCajero().recargarTarjetaRegalo(String(b.codigo ?? ''), Number(b.monto), b.recibido === undefined ? undefined : Number(b.recibido), b.ref, { pago: b.pago, autorizacion: b.autorizacion, marca: b.marca, ultimos4: b.ultimos4 }));
       case 'POST /api/venta/ticket-regalo': return ok(await exigirCajero().ticketRegalo(b.sale_id));
       case 'POST /api/venta/reimprimir': return ok(await exigirCajero().reimprimir(b.sale_id));
       case 'GET /api/buscar': return ok({ ...exigirCajero().buscarConTotal(q.get('q') ?? '', Math.min(200, Math.max(1, Number(q.get('limite')) || 20))) });

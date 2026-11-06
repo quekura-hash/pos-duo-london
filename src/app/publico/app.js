@@ -2732,18 +2732,22 @@ async function vistaTarjetas() {
         <form id="form-alta" autocomplete="off">
           <div class="campo"><label for="alta-codigo">Código de la tarjeta</label><input id="alta-codigo" class="texto" spellcheck="false" placeholder="Escanee o escriba el código"></div>
           <div class="campo"><label for="alta-monto">Monto de la tarjeta (MXN)</label><input id="alta-monto" inputmode="decimal" placeholder="0.00"></div>
-          <div class="campo"><label for="alta-recibido">Efectivo recibido (MXN, opcional)</label><input id="alta-recibido" inputmode="decimal" placeholder="Si lo deja vacío, paga exacto"></div>
+          <div class="campo"><label for="alta-pago">Forma de pago</label><select id="alta-pago" style="width:100%;padding:8px;border:1px solid var(--borde);border-radius:8px;background:var(--superficie)"><option value="efectivo">Efectivo</option><option value="tarjeta">Tarjeta de crédito o débito</option></select></div>
+          <div class="campo" id="alta-auth-campo" hidden><label for="alta-auth">Últimos 4 números de la autorización de la terminal</label><input id="alta-auth" class="texto" autocomplete="off" maxlength="12" placeholder="Los que imprimió el voucher" style="width:220px"></div>
+          <div class="campo" id="alta-recibido-campo"><label for="alta-recibido">Efectivo recibido (MXN, opcional)</label><input id="alta-recibido" inputmode="decimal" placeholder="Si lo deja vacío, paga exacto"></div>
           <button class="btn btn-primario" id="btn-alta" type="submit">${ico('gift')}<span>Cobrar y dar de alta</span></button>
         </form>
         <div id="msg-alta" class="mensaje" role="status" aria-live="polite"></div>
-        <p class="nota">Es una venta en efectivo con folio normal, pero el corte la separa de las ventas de mercancía. Vence según la vigencia que fije Administración (12 meses de inicio).</p>
+        <p class="nota">Es una venta con folio normal (en efectivo o con tarjeta), pero el corte la separa de las ventas de mercancía. Vence según la vigencia que fije Administración (12 meses de inicio).</p>
       </section>
       <section class="panel" aria-label="Recargar una tarjeta">
         <h2 style="margin-top:0">${ico('refresh')} Recargar una tarjeta</h2>
         <form id="form-recarga" autocomplete="off">
           <div class="campo"><label for="rec-codigo">Código de la tarjeta</label><input id="rec-codigo" class="texto" spellcheck="false" placeholder="Escanee o escriba el código"></div>
           <div class="campo"><label for="rec-monto">Monto a recargar (MXN)</label><input id="rec-monto" inputmode="decimal" placeholder="0.00"></div>
-          <div class="campo"><label for="rec-recibido">Efectivo recibido (MXN, opcional)</label><input id="rec-recibido" inputmode="decimal" placeholder="Si lo deja vacío, paga exacto"></div>
+          <div class="campo"><label for="rec-pago">Forma de pago</label><select id="rec-pago" style="width:100%;padding:8px;border:1px solid var(--borde);border-radius:8px;background:var(--superficie)"><option value="efectivo">Efectivo</option><option value="tarjeta">Tarjeta de crédito o débito</option></select></div>
+          <div class="campo" id="rec-auth-campo" hidden><label for="rec-auth">Últimos 4 números de la autorización de la terminal</label><input id="rec-auth" class="texto" autocomplete="off" maxlength="12" placeholder="Los que imprimió el voucher" style="width:220px"></div>
+          <div class="campo" id="rec-recibido-campo"><label for="rec-recibido">Efectivo recibido (MXN, opcional)</label><input id="rec-recibido" inputmode="decimal" placeholder="Si lo deja vacío, paga exacto"></div>
           <button class="btn btn-primario" id="btn-recarga" type="submit">${ico('refresh')}<span>Cobrar y recargar</span></button>
         </form>
         <div id="msg-recarga" class="mensaje" role="status" aria-live="polite"></div>
@@ -2765,17 +2769,22 @@ async function vistaTarjetas() {
     ev.preventDefault();
     const m = $(msgId);
     const monto = parseMXN($(campos.monto).value);
-    const recTxt = $(campos.recibido).value.trim();
+    const conTarjeta = $(campos.pago).value === 'tarjeta';
+    const autorizacion = conTarjeta ? $(campos.auth).value.trim() : '';
+    const recTxt = conTarjeta ? '' : $(campos.recibido).value.trim();
     const recibido = recTxt ? parseMXN(recTxt) : undefined;
     if (monto === null || monto <= 0) { m.className = 'mensaje error'; m.textContent = 'Escriba un monto válido en pesos (por ejemplo 500 o 500.00).'; return; }
     if (recTxt && recibido === null) { m.className = 'mensaje error'; m.textContent = 'El efectivo recibido no es un importe válido.'; return; }
+    if (conTarjeta && !autorizacion) { m.className = 'mensaje error'; m.textContent = 'Escriba los últimos 4 números de la autorización que imprimió la terminal.'; marcarCampoFalta($(campos.auth)); $(campos.auth).focus(); return; }
     try {
-      const r = await api(ruta, { codigo: $(campos.codigo).value, monto, ...(recibido !== undefined ? { recibido } : {}), ref: crypto.randomUUID() });
+      const r = await api(ruta, { codigo: $(campos.codigo).value, monto, ...(recibido !== undefined ? { recibido } : {}), ...(conTarjeta ? { pago: 'tarjeta', autorizacion } : {}), ref: crypto.randomUUID() });
       dialogoTicketTarjeta(titulo, r);
     } catch (e) { m.className = 'mensaje error'; m.textContent = e.message; }
   });
-  enviar('#form-alta', '/api/tarjeta/alta', { codigo: '#alta-codigo', monto: '#alta-monto', recibido: '#alta-recibido' }, '#msg-alta', 'Tarjeta de regalo vendida');
-  enviar('#form-recarga', '/api/tarjeta/recargar', { codigo: '#rec-codigo', monto: '#rec-monto', recibido: '#rec-recibido' }, '#msg-recarga', 'Tarjeta de regalo recargada');
+  enviar('#form-alta', '/api/tarjeta/alta', { codigo: '#alta-codigo', monto: '#alta-monto', recibido: '#alta-recibido', pago: '#alta-pago', auth: '#alta-auth' }, '#msg-alta', 'Tarjeta de regalo vendida');
+  enviar('#form-recarga', '/api/tarjeta/recargar', { codigo: '#rec-codigo', monto: '#rec-monto', recibido: '#rec-recibido', pago: '#rec-pago', auth: '#rec-auth' }, '#msg-recarga', 'Tarjeta de regalo recargada');
+  // Con tarjeta se pide la autorización de la terminal y no el efectivo recibido; en efectivo, al revés.
+  for (const p of ['alta', 'rec']) $(`#${p}-pago`).addEventListener('change', (e) => { const t = e.target.value === 'tarjeta'; $(`#${p}-auth-campo`).hidden = !t; $(`#${p}-recibido-campo`).hidden = t; if (t) $(`#${p}-auth`).focus(); });
   $('#form-saldo').addEventListener('submit', async (ev) => {
     ev.preventDefault();
     const m = $('#resultado-saldo');

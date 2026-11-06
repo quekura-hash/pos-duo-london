@@ -16,7 +16,7 @@ import { TASA_SIN_VERIFICAR_OMISION, type Politicas } from './politicas.ts';
 import { Indice } from './indice.ts';
 import { localizarVentas } from './consultas.ts';
 import { addDias } from './util.ts';
-import { mesesVigenciaTarjetas, sumarMeses, historicasDuplicadas, reglasDuplicadosHistoricos, type ReglaDuplicadosHistoricos } from './proyecciones.ts';
+import { conPagosCorregidos, mesesVigenciaTarjetas, sumarMeses, historicasDuplicadas, reglasDuplicadosHistoricos, type ReglaDuplicadosHistoricos } from './proyecciones.ts';
 import { avanceMetas, CONFIG_METAS_INICIAL, historicoPorDia, horaValida, lunesDe, metasDias, metasPublicadas, totalesPorDia, type AvancePeriodo, type ConfigMetas, type MetaTienda, type MetasPublicadas, type PeriodoMeta } from './metas.ts';
 import { CRITERIOS_EXPEDIENTE, expedientesDe, expedienteVacio, clientesVip, excepcionesVip, type ClienteVip, type ExcepcionesVip, type Expediente } from './proyecciones.ts';
 import { type ConfigEmpleadas, type CuentaEmpleada, configEmpleadas, cuentasEmpleadas, CAMPOS_EDITABLES, CAMPOS_TIENDA, type CampoEditable, departamentos, promocionesDe, recompensasDe, supervisoresDe, cajerosDe, personalConCuenta, administradoresDe, efectivoDeVenta, movimientosCaja, tipoCambioVigente, catalogo, devoluciones, devueltoPorLinea, existenciaVerificada, intentos, perdidasDocumentales, stock, ventas, type Devolucion, type ExistenciaVerificada, type Intento, type PerdidaDocumental, type TarjetaRegalo, type TipoCambio } from './proyecciones.ts';
@@ -112,9 +112,11 @@ const esAjusteAdmin = (op: Op) => (op.tipo === 'inv.movement' && op.payload.tipo
 export const MAX_INTENTOS_TOTALIZACION = 3;
 /** Los créditos de empleadas solo se registran en la caja 2 de cada tienda (en las demás cajas se avisa y no se cobra). */
 export const CAJA_DE_CREDITOS = 2;
+/** Datos para vender o recargar una tarjeta de regalo: en efectivo (por omisión) o con tarjeta bancaria (con la autorización de la terminal). */
+export interface DatosVentaTarjeta { codigo: string; monto: number; recibido?: number; cajero?: string; ref?: string; pago?: 'efectivo' | 'tarjeta'; autorizacion?: string; marca?: string; ultimos4?: string }
 const BROADCAST_TIENDA = new Set(['cajero.ubicacion', 'alm.recibida', 'inv.movement', 'inv.conteo', 'inv.verificacion_pendiente', 'doc.perdida_posible', 'item.created', 'item.item_no_assigned', 'giftcard.emitida', 'giftcard.recarga', 'giftcard.uso', 'giftcard.reintegro', 'deposito.recibido', 'deposito.devuelto', 'deposito.fee', 'deposito.aplicado', 'deposito.reintegrado']);
 // Lo que el central baja a hubs y cajas (catálogo y resoluciones administrativas).
-const CATALOGO = new Set(['cajero.ubicacion', 'item.created', 'item.item_no_assigned', 'item.codigo_corregido', 'doc.perdida_resuelta', 'giftcard.emitida', 'giftcard.recarga', 'giftcard.uso', 'giftcard.reintegro', 'config.tipo_cambio', 'permiso.asignado', 'depto.alta', 'depto.editado', 'alm.entrega', 'alm.faltante', 'promo.guardada', 'recompensa.guardada', 'supervisor.guardado', 'cajero.guardado', 'config.sesion', 'config.negocio', 'item.editado', 'caja.fondo_autorizado', 'cash.ajuste_admin', 'empleadas.config', 'empleada.credito', 'empleada.movimiento', 'venta.consulta', 'folio.continuacion', 'vip.guardado', 'vip.excepciones', 'metas.config', 'giftcard.config', 'caja.limite_efectivo']);
+const CATALOGO = new Set(['venta.pago_corregido', 'cajero.ubicacion', 'item.created', 'item.item_no_assigned', 'item.codigo_corregido', 'doc.perdida_resuelta', 'giftcard.emitida', 'giftcard.recarga', 'giftcard.uso', 'giftcard.reintegro', 'config.tipo_cambio', 'permiso.asignado', 'depto.alta', 'depto.editado', 'alm.entrega', 'alm.faltante', 'promo.guardada', 'recompensa.guardada', 'supervisor.guardado', 'cajero.guardado', 'config.sesion', 'config.negocio', 'item.editado', 'caja.fondo_autorizado', 'cash.ajuste_admin', 'empleadas.config', 'empleada.credito', 'empleada.movimiento', 'venta.consulta', 'folio.continuacion', 'vip.guardado', 'vip.excepciones', 'metas.config', 'giftcard.config', 'caja.limite_efectivo']);
 /** Días de ventas del POS anterior que las cajas conservan para consulta. */
 export const DIAS_CONSULTA_HISTORICA = 60;
 /** Fondo fijo de cada caja mientras Administración no asigne otro (centavos). */
@@ -1420,6 +1422,8 @@ export class Caja {
   }
   /** Solo operaciones de estos tipos (rutas calientes: no recorre toda la bitácora). */
   opsDe(...tipos: string[]): Op[] {
+    // Quien pide ventas recibe sus pagos ya corregidos (si Administración corrigió la forma de pago de alguna).
+    if (tipos.includes('sale.confirmed') && !tipos.includes('venta.pago_corregido')) return conPagosCorregidos(this.repo.opsDeTipos([...tipos, 'venta.pago_corregido']));
     return this.repo.opsDeTipos(tipos);
   }
   opsVentas(): Op[] {
@@ -2156,14 +2160,14 @@ export class Caja {
    * Alta (venta) de una tarjeta de regalo: P-24 decidido, lleva FOLIO NORMAL de la serie de la caja y se paga en efectivo.
    * El renglón no es mercancía (sin inventario). El corte la separa de las ventas de mercancía.
    */
-  altaTarjetaRegalo(d: { codigo: string; monto: number; recibido?: number; cajero?: string; ref?: string }): { tarjeta: TarjetaRegalo; venta: Venta } {
+  altaTarjetaRegalo(d: DatosVentaTarjeta): { tarjeta: TarjetaRegalo; venta: Venta } {
     return this.ventaDeTarjeta('alta', d);
   }
   /** Recarga en efectivo de una tarjeta existente: también lleva folio y reinicia los 12 meses de vigencia. */
-  recargarTarjetaRegalo(d: { codigo: string; monto: number; recibido?: number; cajero?: string; ref?: string }): { tarjeta: TarjetaRegalo; venta: Venta } {
+  recargarTarjetaRegalo(d: DatosVentaTarjeta): { tarjeta: TarjetaRegalo; venta: Venta } {
     return this.ventaDeTarjeta('recarga', d);
   }
-  private ventaDeTarjeta(tipo: 'alta' | 'recarga', d: { codigo: string; monto: number; recibido?: number; cajero?: string; ref?: string }): { tarjeta: TarjetaRegalo; venta: Venta } {
+  private ventaDeTarjeta(tipo: 'alta' | 'recarga', d: DatosVentaTarjeta): { tarjeta: TarjetaRegalo; venta: Venta } {
     if (!this.cfg.metodos.includes('tarjeta_regalo')) throw new ErrorDominio('PAGO_NO_PERMITIDO', `la caja ${this.id} no maneja tarjetas de regalo`);
     const codigo = String(d.codigo ?? '').trim();
     const id = d.ref ?? uuid();
@@ -2174,8 +2178,14 @@ export class Caja {
     const existente = this.idx.tarjeta(codigo);
     if (tipo === 'alta' && existente) throw new ErrorDominio('TARJETA_EXISTE', `la tarjeta ${codigo} ya está dada de alta`);
     if (tipo === 'recarga' && !existente) throw new ErrorDominio('TARJETA_INEXISTENTE', `la tarjeta ${codigo} no está dada de alta (o aún no llega a esta caja)`);
+    const conTarjeta = d.pago === 'tarjeta';
+    if (d.pago !== undefined && d.pago !== 'efectivo' && d.pago !== 'tarjeta') throw new ErrorDominio('PAGO_INVALIDO', 'la tarjeta de regalo se paga en efectivo o con tarjeta bancaria');
+    if (conTarjeta && !this.cfg.metodos.includes('tarjeta')) throw new ErrorDominio('PAGO_NO_PERMITIDO', `la caja ${this.id} no cobra con tarjeta bancaria`);
+    // Con tarjeta bancaria la autorización de la terminal es obligatoria, igual que en cualquier venta con tarjeta.
+    const autorizacion = (d.autorizacion ?? '').trim().toUpperCase();
+    if (conTarjeta && !autorizacion) throw new ErrorDominio('AUTORIZACION_REQUERIDA_TARJETA', 'escriba los últimos 4 números de la autorización que imprimió la terminal');
     const recibido = d.recibido ?? d.monto;
-    if (!Number.isInteger(recibido) || recibido < d.monto) throw new ErrorDominio('EFECTIVO_INSUFICIENTE', 'el efectivo recibido no cubre el monto', { recibido, monto: d.monto });
+    if (!conTarjeta && (!Number.isInteger(recibido) || recibido < d.monto)) throw new ErrorDominio('EFECTIVO_INSUFICIENTE', 'el efectivo recibido no cubre el monto', { recibido, monto: d.monto });
     const linea: Linea = {
       linea_id: uuid(), item_id: `tarjeta_regalo:${codigo}`, item_no: null, codigo,
       descripcion: `${tipo === 'alta' ? 'Tarjeta de regalo' : 'Recarga de tarjeta de regalo'} ${codigo}`, marca: '', estilo: '', lote: '', departamento: 'TARJETAS DE REGALO',
@@ -2183,7 +2193,9 @@ export class Caja {
     };
     this.repo.kvSet(`cart:${id}`, { id, lineas: [linea], estado: 'abierto' } satisfies Carrito);
     try {
-      const venta = this.cobrar(id, [{ metodo: 'efectivo', monto: d.monto, recibido, cambio: recibido - d.monto }], d.cajero ?? 'cajero');
+      const venta = conTarjeta
+        ? this.cobrarConTarjetaManual(id, { autorizacion, ...(d.marca ? { marca: d.marca } : {}), ...(d.ultimos4 ? { ultimos4: d.ultimos4 } : {}) }, d.cajero ?? 'cajero')
+        : this.cobrar(id, [{ metodo: 'efectivo', monto: d.monto, recibido, cambio: recibido - d.monto }], d.cajero ?? 'cajero');
       return { venta, tarjeta: this.idx.tarjeta(codigo)! };
     } catch (e) {
       this.repo.kvSet(`cart:${id}`, { id, lineas: [linea], estado: 'descartado' } satisfies Carrito); // no queda como "venta en curso"
@@ -2468,7 +2480,7 @@ export class Caja {
         if (l.tarjeta_regalo) {
           // La venta o recarga de una tarjeta no mueve inventario: crea o aumenta el saldo (y reinicia los 12 meses en efectivo).
           this.emitir(l.tarjeta_regalo.tipo === 'alta' ? 'giftcard.emitida' : 'giftcard.recarga',
-            { codigo: l.tarjeta_regalo.codigo, monto: l.importe, tienda: this.tienda, caja: this.caja, cajero, sale_id: c.id, folio, medio: 'efectivo', vigente_hasta: sumarMeses(this.ctx.reloj.now(), l.tarjeta_regalo.meses ?? 12) }, `gc:${c.id}:${l.linea_id}`);
+            { codigo: l.tarjeta_regalo.codigo, monto: l.importe, tienda: this.tienda, caja: this.caja, cajero, sale_id: c.id, folio, medio: pagos.some((p) => p.metodo === 'tarjeta') ? 'tarjeta' : 'efectivo', vigente_hasta: sumarMeses(this.ctx.reloj.now(), l.tarjeta_regalo.meses ?? 12) }, `gc:${c.id}:${l.linea_id}`);
           continue;
         }
         const deLimbo = limbo.get(l.linea_id) ?? 0;
