@@ -1,5 +1,5 @@
 import { ErrorDominio } from './errores.ts';
-import { devoluciones, historicasDuplicadas, ventas } from './proyecciones.ts';
+import { devoluciones, historicasDuplicadas, restaDeDevolucion, ventaDeTicket, ventas } from './proyecciones.ts';
 import type { Actor, Op } from './tipos.ts';
 import { aMXN, fechaLocal } from './util.ts';
 
@@ -35,8 +35,14 @@ export interface FilaVenta {
   cajero: string;
   /** Quién atendió la venta («Autocompra» si nadie ayudó; vacío en ventas anteriores a este registro). */
   vendedora: string;
+  /** Total del ticket tal como se imprimió (con todo lo pagado, incluida una tarjeta de regalo). */
   total: number;
-  /** Total sin las tarjetas de regalo vendidas o recargadas (que no son ventas de mercancía). */
+  /**
+   * Lo que cuenta como VENTA: el total menos lo pagado con tarjeta de regalo (ese dinero ya fue venta el día que se vendió la tarjeta). En una devolución es lo que resta
+   * (negativo); un fee o una venta histórica, su monto. Los reportes suman ESTE campo, no `total`.
+   */
+  venta_neta: number;
+  /** Total sin las tarjetas de regalo vendidas o recargadas (solo mercancía; informativo). */
   total_mercancia: number;
   estado: 'confirmada' | 'cancelada';
   /** Piezas de mercancía del ticket (sin tarjetas de regalo). */
@@ -49,6 +55,8 @@ export interface FilaVenta {
   historico: boolean;
   /** Hora local HH:MM (las históricas no la traen). */
   hora: string;
+  /** El ticket vendió una tarjeta de regalo (alta o recarga): esa venta cuenta el día que se vende. */
+  vende_tarjeta_regalo?: boolean;
   /** Ticket de venta que es el cambio de mercancía de una devolución anterior (su crédito se pagó con la mercancía devuelta). */
   cambio_de_mercancia?: boolean;
   /** Solo fees retenidos de un depósito en garantía: su folio (DEP-D1-0001). No es un ticket: no cuenta como venta ni como ticket. */
@@ -128,8 +136,8 @@ export function ventasPorCaja(actor: Actor, ops: Op[], f: Filtro = {}): FilaVent
     if (!enPeriodo(v.ocurrio_en, f)) continue;
     filas.push({
       tienda: v.tienda, caja: v.caja, folio: v.folio, ...(v.serie ? { serie: v.serie } : {}), sale_id: v.sale_id,
-      fecha_local: fechaLocal(v.ocurrio_en), cajero: v.cajero, vendedora: v.vendedora === undefined ? '' : v.vendedora_id ? v.vendedora : 'Autocompra', total: v.total, total_mercancia: v.lineas.filter((l) => !l.tarjeta_regalo).reduce((a, l) => a + l.importe, 0), estado: v.estado,
-      piezas: v.lineas.filter((l) => !l.tarjeta_regalo).reduce((a, l) => a + l.qty, 0), pago: etiquetaPago((v.pagos ?? []).map((x: { metodo: string }) => x.metodo)), tipo_ticket: 'venta', historico: false, ...(ventasDeCambio.has(v.sale_id) ? { cambio_de_mercancia: true } : {}),
+      fecha_local: fechaLocal(v.ocurrio_en), cajero: v.cajero, vendedora: v.vendedora === undefined ? '' : v.vendedora_id ? v.vendedora : 'Autocompra', total: v.total, venta_neta: ventaDeTicket(v), total_mercancia: v.lineas.filter((l) => !l.tarjeta_regalo).reduce((a, l) => a + l.importe, 0), estado: v.estado,
+      piezas: v.lineas.filter((l) => !l.tarjeta_regalo).reduce((a, l) => a + l.qty, 0), pago: etiquetaPago((v.pagos ?? []).map((x: { metodo: string }) => x.metodo)), tipo_ticket: 'venta', historico: false, ...(ventasDeCambio.has(v.sale_id) ? { cambio_de_mercancia: true } : {}), ...(v.lineas.some((l) => l.tarjeta_regalo) ? { vende_tarjeta_regalo: true } : {}),
       hora: new Date(Date.parse(v.ocurrio_en) - 7 * 3600_000).toISOString().slice(11, 16),
       montos: (v.pagos ?? []).reduce((m: MontosPago, x: { metodo: string; monto: number }) => { const k = x.metodo === 'efectivo' ? 'efectivo' : x.metodo === 'tarjeta' ? 'tarjeta' : x.metodo === 'efectivo_usd' ? 'dolares' : x.metodo === 'tarjeta_regalo' ? 'tarjeta_regalo' : x.metodo === 'credito_empleada' ? 'credito' : 'otro'; m[k] += x.monto; return m; }, sinMontos()),
     });
@@ -151,7 +159,7 @@ export function ventasPorCaja(actor: Actor, ops: Op[], f: Filtro = {}): FilaVent
       montos.otro -= Math.max(0, d.importe - reembolsado); // lo recibido a cambio que se aplicó dentro de la venta nueva (no salió dinero)
       filas.push({
         tienda: d.tienda, caja: d.caja, folio: d.folio ?? 0, sale_id: `devolucion:${d.devolucion_id}`, fecha_local: fechaLocal(d.ocurrio_en), cajero: d.cajero ?? '', vendedora: '',
-        total: -d.importe, total_mercancia: -d.importe, estado: 'confirmada', piezas: -d.lineas.reduce((a, l) => a + l.qty, 0),
+        total: -d.importe, venta_neta: -restaDeDevolucion(d), total_mercancia: -d.importe, estado: 'confirmada', piezas: -d.lineas.reduce((a, l) => a + l.qty, 0),
         pago: d.por_cambio ? 'Mercancía recibida a cambio' : 'Devolución', ...(d.por_cambio ? { cambio_de_mercancia: true } : {}), tipo_ticket: 'devolucion', historico: false,
         hora: new Date(Date.parse(d.ocurrio_en) - 7 * 3600_000).toISOString().slice(11, 16), montos,
       });
@@ -168,7 +176,7 @@ export function ventasPorCaja(actor: Actor, ops: Op[], f: Filtro = {}): FilaVent
       if (f.tiendas && !f.tiendas.includes(p.tienda)) continue;
       if (!enPeriodo(o.ocurrio_en, f)) continue;
       filas.push({
-        tienda: p.tienda, caja: p.caja, folio: 0, sale_id: `fee-deposito:${o.op_id}`, fecha_local: fechaLocal(o.ocurrio_en), cajero: p.usuario ?? '', vendedora: '', total: p.monto, total_mercancia: 0,
+        tienda: p.tienda, caja: p.caja, folio: 0, sale_id: `fee-deposito:${o.op_id}`, fecha_local: fechaLocal(o.ocurrio_en), cajero: p.usuario ?? '', vendedora: '', total: p.monto, venta_neta: p.monto, total_mercancia: 0,
         estado: 'confirmada', piezas: 0, pago: 'Depósito retenido', tipo_ticket: 'fee', historico: false, fee_deposito: p.folio ?? folios.get(p.deposito_id) ?? '',
         hora: new Date(Date.parse(o.ocurrio_en) - 7 * 3600_000).toISOString().slice(11, 16), montos: sinMontos(),
       });
@@ -184,7 +192,7 @@ export function ventasPorCaja(actor: Actor, ops: Op[], f: Filtro = {}): FilaVent
       if (f.tiendas && !f.tiendas.includes(h.tienda_hist)) continue;
       if ((f.desde && h.fecha < f.desde) || (f.hasta && h.fecha > f.hasta)) continue;
       filas.push({
-        tienda: h.tienda_hist, caja: h.caja_hist, folio: h.folio, sale_id: h.hist_id, fecha_local: h.fecha, cajero: '', vendedora: '', total: h.total, total_mercancia: h.tipo_hist === 'venta' || h.tipo_hist === 'abono' ? h.total : 0,
+        tienda: h.tienda_hist, caja: h.caja_hist, folio: h.folio, sale_id: h.hist_id, fecha_local: h.fecha, cajero: '', vendedora: '', total: h.total, venta_neta: h.total, total_mercancia: h.tipo_hist === 'venta' || h.tipo_hist === 'abono' ? h.total : 0,
         estado: 'confirmada', piezas: h.piezas, pago: ETIQUETA_PAGO[h.pago] ?? h.pago, tipo_ticket: h.tipo_hist, historico: true, hora: '',
         montos: { ...sinMontos(), [h.pago === 'efectivo' ? 'efectivo' : h.pago === 'tarjeta' ? 'tarjeta' : h.pago === 'mixto' ? 'mixto' : 'otro']: h.total },
       });
@@ -198,7 +206,7 @@ export interface Consolidado {
   filas: FilaVenta[];
   porCaja: { tienda: string; caja: number; tickets: number; total: number; total_mercancia: number; historico?: boolean }[];
   total: number;
-  /** Consolidado SIN tarjetas de regalo: así lo cobrado con una tarjeta no se cuenta dos veces. */
+  /** Solo mercancía (sin tarjetas de regalo vendidas); informativo. `total` es la venta: incluye las tarjetas vendidas y no cuenta lo pagado con una tarjeta. */
   total_mercancia: number;
 }
 
@@ -211,10 +219,10 @@ export function reporteConsolidado(actor: Actor, ops: Op[], f: Filtro = {}): Con
     if (r.estado === 'cancelada') continue;
     const k = `${r.tienda}/${r.caja}${r.historico ? '/hist' : ''}`;
     const a = porCaja.get(k) ?? { tienda: r.tienda, caja: r.caja, tickets: 0, total: 0, total_mercancia: 0, ...(r.historico ? { historico: true } : {}) };
-    if (r.fee_deposito !== undefined) { a.total += r.total; porCaja.set(k, a); continue; } // fee de un depósito: ingreso por daño, no es ticket
-    if (r.tipo_ticket === 'devolucion') { a.total += r.total; a.total_mercancia += r.total_mercancia; porCaja.set(k, a); continue; } // devolución o cambio: resta, no es ticket
+    if (r.fee_deposito !== undefined) { a.total += r.venta_neta; porCaja.set(k, a); continue; } // fee de un depósito: ingreso por daño, no es ticket
+    if (r.tipo_ticket === 'devolucion') { a.total += r.venta_neta; a.total_mercancia += r.total_mercancia; porCaja.set(k, a); continue; } // devolución o cambio: resta, no es ticket
     a.tickets++;
-    a.total += r.total;
+    a.total += r.venta_neta;
     a.total_mercancia += r.total_mercancia;
     porCaja.set(k, a);
   }

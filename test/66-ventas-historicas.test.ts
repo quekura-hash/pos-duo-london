@@ -100,7 +100,7 @@ porAlmacen('Reporte para la contadora: Excel con detalle y resumen por día, his
     const { escribirXlsxNode, leerXlsxNode } = await import('../src/xlsx-node.ts');
     const leidas = await leerXlsxNode(await escribirXlsxNode(hojas));
     const det = leidas[0]!.filas;
-    assert.deepEqual(det[0], ['Fecha', 'Folio', 'Tipo', 'Piezas', 'Total', 'Forma de pago', 'Tienda', 'Caja', 'Hora', 'Vendedora-Cajera', 'Vendió', 'Estado', 'Origen']);
+    assert.deepEqual(det[0], ['Fecha', 'Folio', 'Tipo', 'Piezas', 'Total', 'Forma de pago', 'Tienda', 'Caja', 'Hora', 'Vendedora-Cajera', 'Vendió', 'Estado', 'Origen', 'Total del ticket']);
     assert.equal(det.length, 9, 'encabezado y 8 tickets');
     assert.match(String(det[1]![0]), /^2026-09-01T/, 'la fecha es una fecha real de Excel');
     assert.deepEqual([det[1]![1], det[1]![2], det[1]![3], det[1]![4], det[1]![5], det[1]![6], det[1]![7], det[1]![12]], [1001, 'Venta', 1, 549, 'Tarjeta', 'DÚO', 1, 'POS anterior']);
@@ -108,7 +108,7 @@ porAlmacen('Reporte para la contadora: Excel con detalle y resumen por día, his
     assert.deepEqual([det[6]![2], det[6]![4]], ['Cambio', 0]);
     assert.equal(det[7]![4], -150, 'el fee negativo conserva su signo');
     const res = leidas[1]!.filas;
-    assert.deepEqual(res[0], ['Fecha', 'Tienda', 'Tickets', 'Piezas', 'Efectivo', 'Tarjeta', 'Dólares (equivalente MXN)', 'Tarjeta de regalo', 'Otros', 'Mixto (sin desglose)', 'Crédito de empleadas (no es cobro)', 'Fees por daño', 'Total']);
+    assert.deepEqual(res[0], ['Fecha', 'Tienda', 'Tickets', 'Piezas', 'Efectivo', 'Tarjeta', 'Dólares (equivalente MXN)', 'Pagado con tarjeta de regalo (ya se contó al venderla)', 'Otros', 'Mixto (sin desglose)', 'Crédito de empleadas (no es cobro)', 'Fees por daño', 'Total']);
     const dia14 = res.find((f) => String(f[0]).startsWith('2026-09-14'))!;
     assert.deepEqual([dia14[2], dia14[3], dia14[4], dia14[11], dia14[12]], [2, 0, -150, -150, -150], '14/09: un cambio de $0 y un fee de −$150');
     const total = res.find((f) => f[0] === 'TOTAL')!;

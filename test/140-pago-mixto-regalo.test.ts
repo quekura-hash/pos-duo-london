@@ -51,7 +51,7 @@ porAlmacen('Pago mixto: tarjeta de regalo + tarjeta bancaria + efectivo', (alm) 
     assert.equal(s.svc.caja.saldoTarjeta('GC-1'), 50000, 'el saldo no se tocó');
     assert.equal(s.svc.caja.opsVentas().filter((o) => o.tipo === 'sale.confirmed' && o.payload.sale_id === c).length, 0);
   });
-  it('MX6 el corte separa cada medio y la devolución regresa cada parte a donde salió', async (t) => {
+  it('MX6 el corte separa cada medio y lo pagado con tarjeta de regalo no se devuelve en dinero (solo en mercancía)', async (t) => {
     const { ctx, s, venta } = prep(t);
     const c = venta();
     const v = (await s.svc.cobrarTarjetaManual(c, { autorizacion: 'A123', importe: 30000, regalo: 'GC-1' })).venta;
@@ -59,9 +59,9 @@ porAlmacen('Pago mixto: tarjeta de regalo + tarjeta bancaria + efectivo', (alm) 
     assert.equal(corte.cobros_tarjeta_regalo, 50000);
     assert.equal(corte.cobros_tarjeta, 30000);
     assert.equal(corte.mxn.cobros, 50000 + 9900, 'el efectivo de la venta ($99) más el de la alta de la tarjeta ($500)');
-    const dev = s.svc.caja.devolver({ sale_id: v.sale_id, renglones: [{ linea_id: v.lineas[0]!.linea_id, qty: 1 }], motivo: 'x' });
-    assert.deepEqual(dev.reembolsos.map((r) => [r.metodo, r.monto]).sort(), [['efectivo', 9900], ['tarjeta', 30000], ['tarjeta_regalo', 50000]].sort());
-    assert.equal(s.svc.caja.saldoTarjeta('GC-1'), 50000, 'el saldo vuelve a la tarjeta');
+    // la venta se pagó con $500 de tarjeta de regalo: devolverla en dinero no se puede, solo con un cambio por mercancía
+    assert.throws(() => s.svc.caja.devolver({ sale_id: v.sale_id, renglones: [{ linea_id: v.lineas[0]!.linea_id, qty: 1 }], motivo: 'x' }), { codigo: 'DEVOLUCION_TARJETA_REGALO' });
+    assert.equal(s.svc.caja.saldoTarjeta('GC-1'), 0, 'el saldo no regresa a la tarjeta');
   });
   it('MX7 efectivo recibido y cambio en el mixto: $99 con un billete de $100 deja $1 de cambio y el corte lo descuenta', async (t) => {
     const { ctx, s, venta } = prep(t);

@@ -322,11 +322,11 @@ const folioHoja = (f: { folio: number; serie?: 'CR'; fee_deposito?: string; tipo
 
 /** Detalle de ventas para la contadora: una fila por ticket (folio, fecha, piezas, total y forma de pago), importes como NÚMEROS para poder sumar. */
 export function hojaDetalleVentas(r: import('./consultas.ts').Consolidado): Hoja {
-  const encabezados = ['Fecha', 'Folio', 'Tipo', 'Piezas', 'Total', 'Forma de pago', 'Tienda', 'Caja', 'Hora', 'Vendedora-Cajera', 'Vendió', 'Estado', 'Origen'];
+  const encabezados = ['Fecha', 'Folio', 'Tipo', 'Piezas', 'Total', 'Forma de pago', 'Tienda', 'Caja', 'Hora', 'Vendedora-Cajera', 'Vendió', 'Estado', 'Origen', 'Total del ticket'];
   const filas: Hoja['filas'] = [...r.filas].sort((a, b) => a.fecha_local.localeCompare(b.fecha_local) || a.tienda.localeCompare(b.tienda) || a.caja - b.caja || Number(!!a.serie) - Number(!!b.serie) || a.folio - b.folio).map((f) => [
-    serialExcel(f.fecha_local), folioHoja(f), f.serie ? 'Compra a crédito (empleada)' : f.tipo_ticket === 'devolucion' && f.cambio_de_mercancia ? 'Devolución por cambio de mercancía (resta)' : f.tipo_ticket === 'venta' && f.cambio_de_mercancia ? 'Venta · cambio de mercancía' : TIPO_TICKET[f.tipo_ticket], f.piezas, pesos(f.total), f.pago, NOMBRE_TIENDA[f.tienda] ?? f.tienda, f.caja, f.hora, f.cajero, f.vendedora, f.estado === 'cancelada' ? 'Cancelada' : 'Confirmada', f.historico ? 'POS anterior' : 'POS nuevo',
+    serialExcel(f.fecha_local), folioHoja(f), f.serie ? 'Compra a crédito (empleada)' : f.tipo_ticket === 'devolucion' && f.cambio_de_mercancia ? 'Devolución por cambio de mercancía (resta)' : f.tipo_ticket === 'venta' && f.vende_tarjeta_regalo ? 'Venta de tarjeta de regalo' : f.tipo_ticket === 'venta' && f.montos.tarjeta_regalo > 0 ? 'Venta · pagada en parte con tarjeta de regalo (solo cuenta la diferencia)' : f.tipo_ticket === 'venta' && f.cambio_de_mercancia ? 'Venta · cambio de mercancía' : TIPO_TICKET[f.tipo_ticket], f.piezas, pesos(f.venta_neta), f.pago, NOMBRE_TIENDA[f.tienda] ?? f.tienda, f.caja, f.hora, f.cajero, f.vendedora, f.estado === 'cancelada' ? 'Cancelada' : 'Confirmada', f.historico ? 'POS anterior' : 'POS nuevo', pesos(f.total),
   ]);
-  return { nombre: 'Detalle de ventas', encabezados, filas, textoCols: [8, 9, 10], formatoCols: { 0: 'dd/mm/yyyy', 4: '#,##0.00' } };
+  return { nombre: 'Detalle de ventas', encabezados, filas, textoCols: [8, 9, 10], formatoCols: { 0: 'dd/mm/yyyy', 4: '#,##0.00', 13: '#,##0.00' } };
 }
 
 /** «Detalle de ventas» para la auxiliar de la contadora: solo Fecha, Folio, Tipo, Piezas, Total, Forma de pago y Tienda (sin caja, hora, vendedoras, estado ni origen). */
@@ -358,7 +358,7 @@ export function hojaAnalisis(r: import('./analisis-ventas.ts').ResultadoAnalisis
 
 /** Resumen por día para la contadora: tickets, piezas y cobrado por forma de pago (sin cancelados). Los fees cuentan como cobro, no como piezas. */
 export function hojaResumenVentas(r: import('./consultas.ts').Consolidado): Hoja {
-  const encabezados = ['Fecha', 'Tienda', 'Tickets', 'Piezas', 'Efectivo', 'Tarjeta', 'Dólares (equivalente MXN)', 'Tarjeta de regalo', 'Otros', 'Mixto (sin desglose)', 'Crédito de empleadas (no es cobro)', 'Fees por daño', 'Total'];
+  const encabezados = ['Fecha', 'Tienda', 'Tickets', 'Piezas', 'Efectivo', 'Tarjeta', 'Dólares (equivalente MXN)', 'Pagado con tarjeta de regalo (ya se contó al venderla)', 'Otros', 'Mixto (sin desglose)', 'Crédito de empleadas (no es cobro)', 'Fees por daño', 'Total'];
   const dias = new Map<string, { fecha: string; tienda: string; tickets: number; piezas: number; efectivo: number; tarjeta: number; dolares: number; regalo: number; otro: number; mixto: number; credito: number; fees: number; total: number }>();
   for (const f of r.filas) {
     if (f.estado === 'cancelada') continue;
@@ -366,8 +366,8 @@ export function hojaResumenVentas(r: import('./consultas.ts').Consolidado): Hoja
     const d = dias.get(k) ?? { fecha: f.fecha_local, tienda: f.tienda, tickets: 0, piezas: 0, efectivo: 0, tarjeta: 0, dolares: 0, regalo: 0, otro: 0, mixto: 0, credito: 0, fees: 0, total: 0 };
     if (f.fee_deposito === undefined && f.tipo_ticket !== 'devolucion') d.tickets++;
     d.piezas += f.piezas; d.efectivo += f.montos.efectivo; d.tarjeta += f.montos.tarjeta; d.dolares += f.montos.dolares; d.regalo += f.montos.tarjeta_regalo; d.otro += f.montos.otro; d.mixto += f.montos.mixto; d.credito += f.montos.credito;
-    if (f.tipo_ticket === 'fee') d.fees += f.total;
-    d.total += f.total;
+    if (f.tipo_ticket === 'fee') d.fees += f.venta_neta;
+    d.total += f.venta_neta; // la venta: lo pagado con tarjeta de regalo no cuenta otra vez (ya fue venta al venderla)
     dias.set(k, d);
   }
   const lista = [...dias.values()].sort((a, b) => a.fecha.localeCompare(b.fecha) || a.tienda.localeCompare(b.tienda));

@@ -7,7 +7,7 @@ import { api, appAdmin } from './ayudas/app.ts';
 import { ALMACENES, nuevoMundo, politica, vender } from './ayudas/comun.ts';
 
 const fila = (fecha: string, vendedora: string, total: number, extra: Partial<FilaVenta> = {}): FilaVenta =>
-  ({ tienda: 'DUO', caja: 1, folio: 1, sale_id: `${fecha}${vendedora}${total}`, fecha_local: fecha, cajero: 'Caja', vendedora, total, total_mercancia: total, estado: 'confirmada', piezas: 1, pago: 'Efectivo', tipo_ticket: 'venta', historico: false, hora: '12:00', montos: {}, ...extra }) as never;
+  ({ tienda: 'DUO', caja: 1, folio: 1, sale_id: `${fecha}${vendedora}${total}`, fecha_local: fecha, cajero: 'Caja', vendedora, total, venta_neta: total, total_mercancia: total, estado: 'confirmada', piezas: 1, pago: 'Efectivo', tipo_ticket: 'venta', historico: false, hora: '12:00', montos: {}, ...extra }) as never;
 const FILAS: FilaVenta[] = [
   fila('2026-01-05', 'Ana', 10000), fila('2026-01-05', 'Ana', 20000), fila('2026-01-20', 'Beto', 30000), fila('2026-02-02', 'Ana', 5000),
   fila('2026-02-03', 'Autocompra', 7000), fila('2026-01-06', '', 9000, { historico: true, hora: '' }), fila('2025-12-30', 'Ana', 4000),

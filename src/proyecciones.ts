@@ -147,6 +147,17 @@ export function devoluciones(ops: Op[]): Devolucion[] {
     .map((o) => ({ ...o.payload, reembolsos: o.payload.reembolsos ?? [{ metodo: 'efectivo', monto: o.payload.importe }], ocurrio_en: o.ocurrio_en }));
 }
 
+// ── Qué cuenta como venta cuando hay tarjetas de regalo ──
+// La tarjeta de regalo vendida es venta el día que se vende (ahí entró el dinero). Cuando después se paga con ella, ese dinero NO es venta otra vez:
+// del ticket solo cuenta lo que no se pagó con la tarjeta. Ej.: tarjeta de $500 (venta de $500 ese día) y después un vestido de $899 pagado con ella y $399 en
+// efectivo: ese día la venta es de $399. Y una devolución solo resta cuando sale dinero o cambio de mercancía: lo reembolsado a tarjeta de regalo no resta.
+/** Lo pagado con tarjetas de regalo en un ticket (ese dinero ya se contó como venta al venderlas). */
+export const canjeDeTarjetaRegalo = (pagos: { metodo: string; monto: number }[] | undefined): number => (pagos ?? []).filter((p) => p.metodo === 'tarjeta_regalo').reduce((a, p) => a + p.monto, 0);
+/** Venta de un ticket: su total menos lo pagado con tarjeta de regalo. */
+export const ventaDeTicket = (v: { total: number; pagos?: { metodo: string; monto: number }[] }): number => v.total - canjeDeTarjetaRegalo(v.pagos);
+/** Lo que una devolución resta de las ventas: su importe menos lo que se reembolsó a una tarjeta de regalo (el dinero no salió de la caja). */
+export const restaDeDevolucion = (d: { importe: number; reembolsos?: { metodo: string; monto: number }[] }): number => d.importe - (d.reembolsos ?? []).filter((r) => r.metodo === 'tarjeta_regalo').reduce((a, r) => a + r.monto, 0);
+
 export function devueltoPorLinea(ops: Op[], saleId: string): Map<string, { qty: number; importe: number }> {
   const m = new Map<string, { qty: number; importe: number }>();
   for (const d of devoluciones(ops)) {

@@ -93,11 +93,11 @@ export function reporteDeCaja(ops: Op[], tienda: string, cajaGuardada: number, p
   const vivas = r.filas.filter((f) => f.estado !== 'cancelada');
   const suma = (k: 'efectivo' | 'tarjeta' | 'dolares' | 'tarjeta_regalo' | 'otro' | 'mixto' | 'credito') => vivas.reduce((a, f) => a + f.montos[k], 0);
   return {
-    tienda, caja, especial, periodo, desde, hasta, tickets: vivas.filter((f) => f.tipo_ticket !== 'devolucion').length, piezas: vivas.reduce((a, f) => a + f.piezas, 0), total: vivas.reduce((a, f) => a + f.total, 0),
+    tienda, caja, especial, periodo, desde, hasta, tickets: vivas.filter((f) => f.tipo_ticket !== 'devolucion').length, piezas: vivas.reduce((a, f) => a + f.piezas, 0), total: vivas.reduce((a, f) => a + f.venta_neta, 0),
     efectivo: suma('efectivo'), tarjeta: suma('tarjeta'), dolares: suma('dolares'), tarjeta_regalo: suma('tarjeta_regalo'), otros: suma('otro'), mixto: suma('mixto'), credito_empleadas: suma('credito'), creditos: vivas.filter((f) => f.serie === 'CR').length,
-    fees: vivas.filter((f) => f.tipo_ticket === 'fee').reduce((a, f) => a + f.total, 0), cambios: vivas.filter((f) => f.tipo_ticket === 'cambio').length,
-    abonos: vivas.filter((f) => f.tipo_ticket === 'abono').length, abonos_total: vivas.filter((f) => f.tipo_ticket === 'abono').reduce((a, f) => a + f.total, 0),
-    devoluciones: vivas.filter((f) => f.tipo_ticket === 'devolucion').length, devoluciones_total: vivas.filter((f) => f.tipo_ticket === 'devolucion').reduce((a, f) => a + f.total, 0),
+    fees: vivas.filter((f) => f.tipo_ticket === 'fee').reduce((a, f) => a + f.venta_neta, 0), cambios: vivas.filter((f) => f.tipo_ticket === 'cambio').length,
+    abonos: vivas.filter((f) => f.tipo_ticket === 'abono').length, abonos_total: vivas.filter((f) => f.tipo_ticket === 'abono').reduce((a, f) => a + f.venta_neta, 0),
+    devoluciones: vivas.filter((f) => f.tipo_ticket === 'devolucion').length, devoluciones_total: vivas.filter((f) => f.tipo_ticket === 'devolucion').reduce((a, f) => a + f.venta_neta, 0),
     historicos: vivas.filter((f) => f.historico).length,
     hojas: especial ? [hojaDetalleVentasContadora(r)] : [hojaDetalleVentas(r), hojaResumenVentas(r)],
     archivo: `reporte-de-ventas-${tienda === 'DUO' ? 'duo' : tienda === 'LON' ? 'london' : tienda.toLowerCase()}${especial ? '' : `-caja-${caja}`}-${periodo}.xlsx`,
@@ -116,7 +116,7 @@ export function correoDelReporte(r: ReporteCaja, o: { prueba?: boolean; corteA?:
   const asunto = `${o.prueba ? '[PRUEBA] ' : ''}${negocio} · Reporte de ventas de ${nombreDelMes(r.periodo)}${parcial ? ` (al ${fechaCorta(r.hasta)})` : ''}`;
   const lineas: [string, string][] = [
     ['Tickets', String(r.tickets)], ['Piezas vendidas', String(r.piezas)], ['Total cobrado', mxn(r.total - r.credito_empleadas)], ['Efectivo', mxn(r.efectivo)], ['Tarjeta', mxn(r.tarjeta)],
-    ...(r.dolares ? [['Dólares (equivalente en pesos)', mxn(r.dolares)] as [string, string]] : []), ...(r.tarjeta_regalo ? [['Tarjetas de regalo', mxn(r.tarjeta_regalo)] as [string, string]] : []),
+    ...(r.dolares ? [['Dólares (equivalente en pesos)', mxn(r.dolares)] as [string, string]] : []), ...(r.tarjeta_regalo ? [['Pagado con tarjeta de regalo (ya fue venta cuando se vendió la tarjeta; no se suma al total)', mxn(r.tarjeta_regalo)] as [string, string]] : []),
     ...(r.mixto ? [['Pagos mixtos sin desglose', mxn(r.mixto)] as [string, string]] : []),
     ...(r.creditos ? [[`Compras a crédito de empleadas (${r.creditos}, folios CR; no es dinero cobrado, se descuenta de nómina)`, mxn(r.credito_empleadas)] as [string, string]] : []), ...(r.fees ? [['Fees por daño (incluidos en el total)', mxn(r.fees)] as [string, string]] : []),
     ...(r.cambios ? [['Cambios sin diferencia', String(r.cambios)] as [string, string]] : []),

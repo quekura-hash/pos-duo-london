@@ -708,9 +708,11 @@ export function lineasTicketCorte(k: DatosCorte, cfg: NegocioCfg = NEGOCIOS[k.ti
     for (const z of envolver(`Se hizo un corte de arqueo a las ${hora} con ${formatoMXN(x.ventas)} de venta${x.fondo_confirmado ? ' y se confirmó fondo' : ''}${x.fondo_estado === 'faltante' ? ` con faltante de ${formatoMXN(-(x.fondo_diferencia ?? 0))}` : x.fondo_estado === 'sobrante' ? ` con sobrante de ${formatoMXN(x.fondo_diferencia ?? 0)}` : ''}.`, c)) L.push(t(z));
   }
   // 1) LO MÁS IMPORTANTE: la venta total del día
-  L.push({ texto: centrar('VENTA TOTAL DEL DÍA', c), negrita: true }, { texto: centrar(formatoMXN(k.ventas_mercancia), c), negrita: true, grande: true });
+  L.push({ texto: centrar('VENTA TOTAL DEL DÍA', c), negrita: true }, { texto: centrar(formatoMXN(k.venta_total_dia ?? k.ventas_mercancia), c), negrita: true, grande: true });
   L.push(t(dos(`${k.tickets} ticket${k.tickets === 1 ? '' : 's'} de venta`, k.descuentos ? `descuentos -${formatoMXN(k.descuentos)}` : '', c)));
-  if (k.tarjetas_regalo_vendidas) L.push(t(dos('Tarjetas de regalo (no son venta)', formatoMXN(k.tarjetas_regalo_vendidas), c)));
+  // La tarjeta de regalo vendida es venta hoy; lo pagado con una tarjeta ya fue venta cuando se vendió y no se cuenta otra vez.
+  if (k.tarjetas_regalo_vendidas) L.push(t(dos('Incluye tarjetas de regalo vendidas', formatoMXN(k.tarjetas_regalo_vendidas), c)));
+  if (k.cobros_tarjeta_regalo) L.push(t(dos('No incluye lo pagado con tarjeta de regalo', formatoMXN(k.cobros_tarjeta_regalo), c)));
   L.push(t(doble));
   // 2) cómo se cobró
   L.push(b(dos('TOTAL EN EFECTIVO', pesosCobrados === undefined ? 'No disponible' : formatoMXN(pesosCobrados + usdEquivalente), c)));

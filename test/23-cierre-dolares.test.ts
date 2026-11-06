@@ -82,16 +82,19 @@ porAlmacen('Cierre de pendientes de dólares: devoluciones, cancelaciones, bille
     assert.match(txt, /Reverso a tarjeta bancaria/);
   });
 
-  it('C3 tarjeta de regalo + dólares + efectivo: se devuelve a la tarjeta lo de la tarjeta y en pesos lo demás', (t) => {
+  it('C3 tarjeta de regalo + dólares + efectivo: lo de la tarjeta de regalo no se devuelve en dinero; lo demás sí, en pesos', (t) => {
     const ctx = nuevo();
     t.after(ctx.limpiar);
     const c = ctx.m.caja('DUO', 1);
     c.altaTarjetaRegalo({ codigo: 'G', monto: 20000 }); ctx.m.pump();
     const { cart } = carrito(ctx, 'DUO', 1, 50000, 2); // $1,000: tarjeta $200 + $800 con US$50 ($900) → cambio $100
     const v = c.cobrarConTarjetaRegalo(cart, 'G', 0, 'Ana', 5000);
-    const d = c.devolver({ sale_id: v.sale_id, renglones: [{ linea_id: v.lineas[0]!.linea_id, qty: 2 }], motivo: 'x' });
-    assert.deepEqual(d.reembolsos, [{ metodo: 'efectivo', monto: 80000 }, { metodo: 'tarjeta_regalo', monto: 20000, tarjeta: 'G' }]);
-    assert.equal(c.saldoTarjeta('G'), 20000);
+    // devolver todo incluiría los $200 de la tarjeta de regalo: eso solo se devuelve en mercancía
+    assert.throws(() => c.devolver({ sale_id: v.sale_id, renglones: [{ linea_id: v.lineas[0]!.linea_id, qty: 2 }], motivo: 'x' }), { codigo: 'DEVOLUCION_TARJETA_REGALO' });
+    // una pieza ($500) sí se devuelve, toda en pesos (lo pagado con dólares se devuelve en pesos con el importe original)
+    const d = c.devolver({ sale_id: v.sale_id, renglones: [{ linea_id: v.lineas[0]!.linea_id, qty: 1 }], motivo: 'x' });
+    assert.deepEqual(d.reembolsos, [{ metodo: 'efectivo', monto: 50000 }]);
+    assert.equal(c.saldoTarjeta('G'), 0, 'el dinero de la tarjeta no regresa a la tarjeta');
   });
 
   it('C4 anulada ANTES de recibir dinero ≠ cancelada DESPUÉS de recibir efectivo; el libro físico nunca se borra', (t) => {

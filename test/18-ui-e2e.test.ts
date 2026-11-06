@@ -449,12 +449,12 @@ describe('[navegador real — Chromium con Playwright, UI sobre SQLite]', { time
     assert.match((await a.textContent('#tabla-tarjetas tr[data-tarjeta="TR-0001"]'))!, /TR-0001.*DUO · Caja 1.*\$200\.00.*\$200\.00.*\$0\.00.*2027/);
     // el cajero no tiene la ruta del libro completo
     assert.equal((await fetch(`${app.url}/api/admin/tarjetas`)).status, 403);
-    // el reporte consolidado separa la venta de la tarjeta de la mercancía
+    // el reporte consolidado cuenta la tarjeta vendida ($200) y de la compra solo lo que no se pagó con ella ($360 − $200): no se duplica
     await a.click('#nav button[data-vista="reportes"]');
     await a.fill('#desde', '2026-10-01'); await a.fill('#hasta', '2026-10-01');
     await a.click('#filtros button[type="submit"]');
     await a.waitForSelector('#total-mercancia');
-    assert.deepEqual([await a.textContent('#total-consolidado'), await a.textContent('#total-mercancia')], ['$560.00', '$360.00']);
+    assert.deepEqual([await a.textContent('#total-consolidado'), await a.textContent('#total-mercancia')], ['$360.00', '$360.00']);
     assert.deepEqual(errores.filter((e) => !/409|403/.test(e)), []);
   });
 

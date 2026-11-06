@@ -101,14 +101,14 @@ export function analizarVentas(filas: FilaVenta[], o: { agrupar: Agrupar; desde?
       case 'semana': { const s = semanaIso(f.fecha_local); a = get(`${s.anio}-S${dos(s.semana)}`, `Sem ${s.semana} · ${rangoCorto(s.lunes)}`); break; }
       case 'dia': a = get(f.fecha_local, `${DIAS_CORTO[diaSemana(f.fecha_local)]} ${Number(f.fecha_local.slice(8))} ${MESES_CORTO[Number(f.fecha_local.slice(5, 7)) - 1]}`); break;
       case 'dia_semana': { const n = diaSemana(f.fecha_local); a = get(String(n), DIAS_SEMANA[n]![0]!.toUpperCase() + DIAS_SEMANA[n]!.slice(1)); break; }
-      case 'hora': case 'mapa_calor': a = get(dos(h), etiquetaHora(h)); matriz[diaSemana(f.fecha_local)]![h]! += f.total; break;
+      case 'hora': case 'mapa_calor': a = get(dos(h), etiquetaHora(h)); matriz[diaSemana(f.fecha_local)]![h]! += f.venta_neta; break;
       case 'forma_pago': a = get(f.pago, f.pago); break;
       case 'caja': a = get(`${f.tienda}/${f.caja}`, `${f.tienda === 'DUO' ? 'DÚO' : f.tienda === 'LON' ? 'London' : f.tienda} · Caja ${f.caja}`); break;
       default: a = get(f.tienda, f.tienda === 'DUO' ? 'DÚO New York' : f.tienda === 'LON' ? 'London Love' : f.tienda);
     }
     if (f.tipo_ticket === 'fee') a.fees += f.total;
-    else if (f.tipo_ticket === 'devolucion') { a.piezas += f.piezas; a.total_ventas += f.total; } // resta lo devuelto o cambiado; no es un ticket de venta
-    else { a.tickets++; a.piezas += f.piezas; a.total_ventas += f.total; }
+    else if (f.tipo_ticket === 'devolucion') { a.piezas += f.piezas; a.total_ventas += f.venta_neta; } // resta lo devuelto o cambiado; no es un ticket de venta
+    else { a.tickets++; a.piezas += f.piezas; a.total_ventas += f.venta_neta; }
     a.dias.add(f.fecha_local);
   }
 

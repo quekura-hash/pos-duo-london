@@ -10,7 +10,7 @@ import { ErrorDominio } from '../errores.ts';
 import type { Impresora } from '../impresion.ts';
 import { DIAS_CONSULTA_HISTORICA, FONDO_AUTORIZADO_DEFECTO, type Autoriza, type Caja } from '../nodos.ts';
 import { estadoPromo, type Promocion } from '../promociones.ts';
-import { conVentasCorregidas, personalConCuenta, mesesVigenciaTarjetas, clientesVip, excepcionesVip, cuentasEmpleadas, configEmpleadas, CRITERIOS_EXPEDIENTE, expedientesDe, expedienteVacio, registradaEn, CAMPOS_EDITABLES, catalogo, historialArticulo, nombresTienda, datosTiendas, departamentos as proyDepartamentos, devoluciones, type Devolucion, promocionesDe, recompensasDe, supervisoresDe, cajerosDe, administradoresDe, configSesionDe, permisos as proyPermisos, tarjetasRegalo, tiposDeCambio, tipoCambioVigente, ventas, type TipoCambio } from '../proyecciones.ts';
+import { conVentasCorregidas, personalConCuenta, mesesVigenciaTarjetas, clientesVip, excepcionesVip, cuentasEmpleadas, configEmpleadas, CRITERIOS_EXPEDIENTE, expedientesDe, expedienteVacio, registradaEn, CAMPOS_EDITABLES, catalogo, historialArticulo, nombresTienda, datosTiendas, departamentos as proyDepartamentos, devoluciones, restaDeDevolucion, type Devolucion, promocionesDe, recompensasDe, supervisoresDe, cajerosDe, administradoresDe, configSesionDe, permisos as proyPermisos, tarjetasRegalo, tiposDeCambio, tipoCambioVigente, ventas, type TipoCambio } from '../proyecciones.ts';
 import { hojaAnalisis, hojaAnalisisEmpleadas, hojaDetalleVentas, hojaResumenVentas, hojaDescuentos, hojaEntregas, hojaDolares, hojaInventario, leerInventario, PERFIL_CONFIRMADO, type Hoja } from '../inventario.ts';
 import { LOGOS_TICKET } from '../logos-ticket.ts';
 import { codigoFolioDeposito, codigoTicketDeposito, interpretarCodigoDeposito, resumenDepositosDia, TIPOS_DEPOSITO, type Deposito, type MovDeposito } from '../depositos.ts';
@@ -1978,15 +1978,16 @@ export class ServicioAdmin {
         return { ...r, articulo, mas: new Set(merc.map((l) => l.item_id)).size - 1 };
       });
     }
-    // Resumen del periodo con la MISMA fórmula de las ventas netas del resumen del día: mercancía de los tickets confirmados (sin tarjetas de regalo)
+    // Resumen del periodo con la MISMA fórmula de las ventas netas del resumen del día: venta de los tickets confirmados (con las tarjetas de regalo vendidas y sin lo pagado con ellas)
     // menos las devoluciones registradas en el periodo y cajas elegidos. Los tickets son las ventas confirmadas (no cuentan canceladas ni devoluciones).
     const confirmadasVenta = ordenadas.filter((r) => r.estado !== 'cancelada' && (r.tipo_ticket === 'venta' || r.tipo_ticket === 'abono'));
     const devsPeriodo = buscado || origen === 'anterior' ? [] : devoluciones(this.fuente()).filter((d) => {
       const dia = fechaLocal(d.ocurrio_en);
       return (!filtro.desde || dia >= filtro.desde) && (!filtro.hasta || dia <= filtro.hasta) && (!filtro.cajas || filtro.cajas.some((c) => c.tienda === d.tienda && c.caja === d.caja));
     });
-    const mercancia = confirmadasVenta.reduce((a, r) => a + r.total_mercancia, 0);
-    const devuelto = devsPeriodo.reduce((a, d) => a + d.importe, 0);
+    // La venta de cada ticket no cuenta lo pagado con tarjeta de regalo (ya fue venta al venderla); la devolución solo resta lo que no se reembolsó a una tarjeta de regalo.
+    const mercancia = confirmadasVenta.reduce((a, r) => a + r.venta_neta, 0);
+    const devuelto = devsPeriodo.reduce((a, d) => a + restaDeDevolucion(d), 0);
     const nTickets = confirmadasVenta.length;
     const totalNeto = mercancia - devuelto;
     const resumen = { total_ventas: totalNeto, tickets: nTickets, ticket_promedio: nTickets ? Math.round(totalNeto / nTickets) : 0, mercancia, devoluciones: devuelto };
@@ -2014,14 +2015,15 @@ export class ServicioAdmin {
       const d = devs.filter(aqui);
       const lineas = conf.flatMap((x) => x.lineas);
       const pagos = (m: string) => suma(conf.flatMap((x) => x.pagos.filter((p) => p.metodo === m).map((p) => p.monto)));
-      const ventaTotal = suma(lineas.filter((l) => !l.tarjeta_regalo).map((l) => l.importe));
+      // Venta del día = mercancía + tarjetas de regalo VENDIDAS (el dinero entró hoy) − lo pagado con tarjetas de regalo (ya fue venta el día que se vendieron).
+      const ventaTotal = suma(lineas.filter((l) => !l.tarjeta_regalo).map((l) => l.importe)) + suma(lineas.filter((l) => l.tarjeta_regalo).map((l) => l.importe)) - pagos('tarjeta_regalo');
       const reembolsado = suma(d.flatMap((x) => x.reembolsos.map((r) => r.monto)));
       const recibida = suma(d.filter((x) => x.por_cambio).map((x) => x.importe)) - suma(d.filter((x) => x.por_cambio).flatMap((x) => x.reembolsos.map((r) => r.monto)));
       return {
         tickets: conf.length, canceladas: v.length - conf.length, venta_total: ventaTotal, tarjetas_regalo: suma(lineas.filter((l) => l.tarjeta_regalo).map((l) => l.importe)),
         efectivo: pagos('efectivo') + pagos('efectivo_usd'), pesos: pagos('efectivo'), dolares_mxn: pagos('efectivo_usd'), tarjeta: pagos('tarjeta'), tarjeta_regalo: pagos('tarjeta_regalo'), credito_empleadas: pagos('credito_empleada'),
         mercancia_recibida_por_cambio: recibida, devoluciones_con_reembolso: suma(d.map((x) => x.importe)) - recibida, devuelto_a_tarjeta: suma(d.flatMap((x) => x.reembolsos.filter((r) => r.metodo === 'tarjeta').map((r) => r.monto))),
-        ventas_netas: ventaTotal - suma(d.map((x) => x.importe)), reembolsado,
+        ventas_netas: ventaTotal - suma(d.map(restaDeDevolucion)), reembolsado,
         retiros: suma(rt.map((x) => x.equivalente_mxn)), retiros_n: rt.length, gastos: suma(gt.map((x) => x.monto)), gastos_n: gt.length,
         // Depósitos en garantía del día (no son ventas): recibidos, devueltos, aplicados a compras, fees retenidos y lo que sigue pendiente de las clientas.
         depositos: resumenDepositosDia(depositosOps, dia, tienda, caja),

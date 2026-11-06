@@ -29,7 +29,7 @@ porAlmacen('Tarjetas de regalo: alta, cobro, cancelación, arbitraje y conflicto
     assert.equal(c.stockLocal(items[2]!.item_id), antes);
     const corte = c.corteEnVivo('2026-10-01');
     assert.deepEqual([corte.tickets, corte.ventas, corte.ventas_mercancia, corte.tarjetas_regalo_vendidas, corte.ventas_netas, corte.cobros_efectivo, corte.efectivo_esperado, corte.folio_final],
-      [1, 50000, 0, 50000, 0, 50000, 50000, 1]);
+      [1, 50000, 0, 50000, 50000, 50000, 50000, 1], 'la tarjeta vendida es venta el día que se vende');
     const txt = renderTicketTexto(construirTicket(r.venta));
     assert.match(txt, /Tarjeta de regalo TR-0001\nTR-0001 +\$500\.00/);
     assert.match(txt, /^1 Tarjeta de regalo TR-0001$/m);
@@ -59,7 +59,7 @@ porAlmacen('Tarjetas de regalo: alta, cobro, cancelación, arbitraje y conflicto
     assert.equal(c.saldoTarjeta('TR-0001'), 38000);
     const corte = c.corteEnVivo('2026-10-01');
     assert.deepEqual([corte.cobros_tarjeta_regalo, corte.cobros_efectivo, corte.efectivo_esperado], [MASCADA, 50000, 50000], 'el efectivo entró al vender la tarjeta, no al usarla');
-    assert.deepEqual([corte.ventas, corte.ventas_mercancia, corte.tarjetas_regalo_vendidas, corte.ventas_netas], [50000 + MASCADA, MASCADA, 50000, MASCADA], 'la mercancía pagada con la tarjeta cuenta una sola vez');
+    assert.deepEqual([corte.ventas, corte.ventas_mercancia, corte.tarjetas_regalo_vendidas, corte.ventas_netas], [50000 + MASCADA, MASCADA, 50000, 50000], 'la tarjeta vendida cuenta una vez ($500) y lo pagado con ella ($120) no se cuenta otra vez');
     const txt = renderTicketTexto(construirTicket(v));
     assert.match(txt, /Tarjeta de regalo +\$120\.00/);
     assert.match(txt, /Tarjeta: TR-0001 +Saldo \$380\.00/);
@@ -223,16 +223,16 @@ porAlmacen('Tarjetas de regalo: alta, cobro, cancelación, arbitraje y conflicto
     m.pump();
     const otro = carrito(m, items, 'DUO', 1);
     assert.throws(() => c.cobrarConTarjetaRegalo(otro.cart, 'VENCE', undefined), { codigo: 'TARJETA_VENCIDA' });
-    // devolver NO reinicia la vigencia (el saldo vuelve, pero sigue vencida)
-    c.devolver({ sale_id: v.sale_id, renglones: [{ linea_id: v.lineas[0]!.linea_id, qty: 1 }], motivo: 'x' });
+    // el dinero de una tarjeta de regalo no se devuelve en dinero (solo en mercancía): devolver no toca el saldo ni reinicia la vigencia
+    assert.throws(() => c.devolver({ sale_id: v.sale_id, renglones: [{ linea_id: v.lineas[0]!.linea_id, qty: 1 }], motivo: 'x' }), { codigo: 'DEVOLUCION_TARJETA_REGALO' });
     assert.equal(c.tarjetaRegalo('VENCE')!.vigente_hasta.slice(0, 10), '2027-10-01');
-    assert.equal(c.saldoTarjeta('VENCE'), 100000);
+    assert.equal(c.saldoTarjeta('VENCE'), 100000 - MASCADA);
     assert.throws(() => c.cobrarConTarjetaRegalo(otro.cart, 'VENCE', undefined), { codigo: 'TARJETA_VENCIDA' });
     // recargar en efectivo sí: 12 meses desde hoy
     const rec = c.recargarTarjetaRegalo({ codigo: 'VENCE', monto: 20000 });
     assert.deepEqual([rec.venta.lineas[0]!.tarjeta_regalo?.tipo, rec.venta.folio > 0], ['recarga', true]);
     assert.equal(c.tarjetaRegalo('VENCE')!.vigente_hasta.slice(0, 10), '2028-10-15');
-    assert.equal(c.saldoTarjeta('VENCE'), 120000);
+    assert.equal(c.saldoTarjeta('VENCE'), 100000 - MASCADA + 20000);
     m.pump();
     assert.equal(c.cobrarConTarjetaRegalo(otro.cart, 'VENCE', undefined).estado, 'confirmada');
     assert.throws(() => c.recargarTarjetaRegalo({ codigo: 'NOEXISTE', monto: 100 }), { codigo: 'TARJETA_INEXISTENTE' });
@@ -241,7 +241,7 @@ porAlmacen('Tarjetas de regalo: alta, cobro, cancelación, arbitraje y conflicto
     assert.deepEqual([corte.tarjetas_regalo_vendidas, corte.tarjetas_regalo_vendidas_n], [20000, 1]);
   });
 
-  it('TR12 P-26: devolver mercancía pagada con tarjeta regresa el dinero a la MISMA tarjeta (proporcional si fue mixto) y usa folio de la serie', (t) => {
+  it('TR12 P-26: lo pagado con tarjeta de regalo NO se devuelve en dinero: en efectivo solo vuelve lo pagado en efectivo, y usa folio de la serie', (t) => {
     const { m, items, limpiar } = nuevoMundo(alm, politica());
     t.after(limpiar);
     const c = m.caja('DUO', 1);
@@ -252,23 +252,25 @@ porAlmacen('Tarjetas de regalo: alta, cobro, cancelación, arbitraje y conflicto
     const v = c.cobrarConTarjetaRegalo(cart, 'DEV', 19000);
     assert.equal(c.saldoTarjeta('DEV'), 0);
     const lin = v.lineas[0]!.linea_id;
+    // la primera mascada (12000) sale toda en efectivo: hay 19000 pagados en efectivo
     const d1 = c.devolver({ sale_id: v.sale_id, renglones: [{ linea_id: lin, qty: 1 }], motivo: 'talla' });
-    // 12000 devueltos: 12000*5000/24000 = 2500 a la tarjeta y 9500 en efectivo
-    assert.deepEqual(d1.reembolsos, [{ metodo: 'efectivo', monto: 9500 }, { metodo: 'tarjeta_regalo', monto: 2500, tarjeta: 'DEV' }]);
+    assert.deepEqual(d1.reembolsos, [{ metodo: 'efectivo', monto: 12000 }]);
     assert.equal(d1.folio, v.folio + 1, 'mismo consecutivo que las ventas');
-    assert.equal(c.saldoTarjeta('DEV'), 2500);
-    const d2 = c.devolver({ sale_id: v.sale_id, renglones: [{ linea_id: lin, qty: 1 }], motivo: 'talla' });
-    assert.deepEqual(d2.reembolsos, [{ metodo: 'efectivo', monto: 9500 }, { metodo: 'tarjeta_regalo', monto: 2500, tarjeta: 'DEV' }]);
-    assert.equal(c.saldoTarjeta('DEV'), 5000, 'la tarjeta recupera exactamente lo que pagó');
+    assert.equal(c.saldoTarjeta('DEV'), 0, 'el dinero de la tarjeta no regresa a la tarjeta');
+    // la segunda necesitaría 5000 de la tarjeta de regalo: eso solo se devuelve en mercancía (un cambio)
+    assert.throws(() => c.devolver({ sale_id: v.sale_id, renglones: [{ linea_id: lin, qty: 1 }], motivo: 'talla' }), { codigo: 'DEVOLUCION_TARJETA_REGALO' });
+    assert.equal(c.saldoTarjeta('DEV'), 0);
     const corte = c.corteEnVivo('2026-10-01');
-    assert.deepEqual([corte.devoluciones, corte.devoluciones_en_efectivo, corte.devoluciones_a_tarjeta_regalo, corte.folios_de_devolucion], [24000, 19000, 5000, 2]);
-    assert.equal(corte.efectivo_esperado, 5000 + 19000 - 19000, 'alta + cobro − lo devuelto en efectivo');
+    assert.deepEqual([corte.devoluciones, corte.devoluciones_en_efectivo, corte.devoluciones_a_tarjeta_regalo, corte.folios_de_devolucion], [12000, 12000, 0, 1]);
+    assert.equal(corte.efectivo_esperado, 5000 + 19000 - 12000, 'alta + cobro − lo devuelto en efectivo');
+    // venta del día: tarjeta vendida (5000) + mercancía (24000) − pagado con la tarjeta (5000) − devolución (12000)
+    assert.deepEqual([corte.venta_total_dia, corte.ventas_netas], [5000 + 24000 - 5000, 5000 + 24000 - 5000 - 12000]);
     const txt = renderTicketDevolucionTexto(d1, ventas(c.ops()).get(v.sale_id)!);
     assert.match(txt, /DEVOLUCIÓN/);
     assert.match(txt, new RegExp(`Folio: ${String(d1.folio).padStart(6, '0')}`));
-    assert.match(txt, /Reembolso en efectivo MXN +\$95\.00/);
-    assert.match(txt, /A tarjeta de regalo DEV +\$25\.00/);
-    assert.equal(devoluciones(c.ops()).length, 2);
+    assert.match(txt, /Reembolso en efectivo MXN +\$120\.00/);
+    assert.doesNotMatch(txt, /A tarjeta de regalo/);
+    assert.equal(devoluciones(c.ops()).length, 1);
     assert.deepEqual(detectar(c.ops()).filter((i) => i.tipo.startsWith('folio_')), [], 'ventas y devoluciones no dejan huecos ni duplicados en la serie');
   });
 
@@ -293,7 +295,7 @@ porAlmacen('Tarjetas de regalo: alta, cobro, cancelación, arbitraje y conflicto
     assert.deepEqual([r.ok, r.motivo, r.tarjetas_vencidas], [false, 'tarjeta_vencida', ['H']]);
   });
 
-  it('TR15 el redondeo del reintegro a la tarjeta lo absorbe la última devolución: la tarjeta recupera exactamente lo que pagó', (t) => {
+  it('TR15 una venta pagada en parte con tarjeta de regalo se devuelve en efectivo hasta lo pagado en efectivo; el resto solo en mercancía', (t) => {
     const { m, items, limpiar } = nuevoMundo(alm, politica());
     t.after(limpiar);
     const c = m.caja('DUO', 1);
@@ -302,8 +304,9 @@ porAlmacen('Tarjetas de regalo: alta, cobro, cancelación, arbitraje y conflicto
     const { cart } = carrito(m, items, 'DUO', 1, 3); // 36000: 5000 con la tarjeta, 31000 en efectivo
     const v = c.cobrarConTarjetaRegalo(cart, 'RED', 31000);
     const lin = v.lineas[0]!.linea_id;
-    const aTarjeta = [1, 2, 3].map(() => c.devolver({ sale_id: v.sale_id, renglones: [{ linea_id: lin, qty: 1 }], motivo: 'x' }).reembolsos.find((r) => r.metodo === 'tarjeta_regalo')!.monto);
-    assert.deepEqual(aTarjeta, [1666, 1666, 1668]);
-    assert.equal(c.saldoTarjeta('RED'), 5000);
+    const dev = () => c.devolver({ sale_id: v.sale_id, renglones: [{ linea_id: lin, qty: 1 }], motivo: 'x' });
+    assert.deepEqual([dev(), dev()].map((d) => d.reembolsos), [[{ metodo: 'efectivo', monto: 12000 }], [{ metodo: 'efectivo', monto: 12000 }]]);
+    assert.throws(dev, { codigo: 'DEVOLUCION_TARJETA_REGALO' }, 'la tercera pieza incluye dinero de la tarjeta: solo en mercancía');
+    assert.equal(c.saldoTarjeta('RED'), 0, 'la tarjeta no recupera nada');
   });
 });

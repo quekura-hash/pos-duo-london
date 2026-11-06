@@ -16,7 +16,7 @@ import { TASA_SIN_VERIFICAR_OMISION, type Politicas } from './politicas.ts';
 import { Indice } from './indice.ts';
 import { localizarVentas } from './consultas.ts';
 import { addDias } from './util.ts';
-import { conVentasCorregidas, mesesVigenciaTarjetas, sumarMeses, historicasDuplicadas, reglasDuplicadosHistoricos, type ReglaDuplicadosHistoricos } from './proyecciones.ts';
+import { canjeDeTarjetaRegalo, conVentasCorregidas, restaDeDevolucion, mesesVigenciaTarjetas, sumarMeses, historicasDuplicadas, reglasDuplicadosHistoricos, type ReglaDuplicadosHistoricos } from './proyecciones.ts';
 import { avanceMetas, CONFIG_METAS_INICIAL, historicoPorDia, horaValida, lunesDe, metasDias, metasPublicadas, totalesPorDia, type AvancePeriodo, type ConfigMetas, type MetaTienda, type MetasPublicadas, type PeriodoMeta } from './metas.ts';
 import { CRITERIOS_EXPEDIENTE, expedientesDe, expedienteVacio, clientesVip, excepcionesVip, type ClienteVip, type ExcepcionesVip, type Expediente } from './proyecciones.ts';
 import { type ConfigEmpleadas, type CuentaEmpleada, configEmpleadas, cuentasEmpleadas, CAMPOS_EDITABLES, CAMPOS_TIENDA, type CampoEditable, departamentos, promocionesDe, recompensasDe, supervisoresDe, cajerosDe, personalConCuenta, administradoresDe, efectivoDeVenta, movimientosCaja, tipoCambioVigente, catalogo, devoluciones, devueltoPorLinea, existenciaVerificada, intentos, perdidasDocumentales, stock, ventas, type Devolucion, type ExistenciaVerificada, type Intento, type PerdidaDocumental, type TarjetaRegalo, type TipoCambio } from './proyecciones.ts';
@@ -2848,11 +2848,13 @@ export class Caja {
   }
 
   // ── reparto de un reembolso entre los métodos con que se pagó ──
-  private repartirReembolso(venta: Venta, importe: number, previas: Devolucion['reembolsos'], devueltoAntes: number): Devolucion['reembolsos'] {
+  /** `soloDinero`: lo pagado con tarjeta de regalo NO se regresa como dinero (ni a la tarjeta): solo en mercancía, con un cambio. */
+  private repartirReembolso(venta: Venta, importe: number, previas: Devolucion['reembolsos'], devueltoAntes: number, soloDinero = false): Devolucion['reembolsos'] {
     type Cubeta = { clave: string; metodo: 'efectivo' | 'tarjeta' | 'tarjeta_regalo' | 'credito_empleada'; tarjeta?: string; pagado: number; antes: number; monto: number };
     const cubetas = new Map<string, Cubeta>();
     const claveDe = (metodo: string, tarjeta?: string) => (metodo === 'tarjeta_regalo' ? `rg:${tarjeta}` : metodo === 'tarjeta' ? 'tarjeta' : metodo === 'credito_empleada' ? 'ce' : 'efectivo');
     for (const p of venta.pagos) {
+      if (soloDinero && p.metodo === 'tarjeta_regalo') continue;
       const clave = claveDe(p.metodo, p.tarjeta);
       const c = cubetas.get(clave) ?? { clave, metodo: p.metodo === 'tarjeta_regalo' ? 'tarjeta_regalo' : p.metodo === 'tarjeta' ? 'tarjeta' : p.metodo === 'credito_empleada' ? 'credito_empleada' : 'efectivo', tarjeta: p.tarjeta, pagado: 0, antes: 0, monto: 0 };
       c.pagado += p.monto;
@@ -2875,6 +2877,7 @@ export class Caja {
       c.monto += t;
       falta -= t;
     }
+    if (falta > 0 && soloDinero && canjeDeTarjetaRegalo(venta.pagos) > 0) throw new ErrorDominio('DEVOLUCION_TARJETA_REGALO', 'lo que se pagó con tarjeta de regalo no se devuelve en dinero, solo en mercancía: haga un cambio');
     if (falta > 0) throw new ErrorDominio('DEVOLUCION_EXCEDE', 'la devolución excede lo pagado por los métodos originales');
     return orden.filter((c) => c.monto > 0).map((c) => (c.metodo === 'tarjeta_regalo' ? { metodo: c.metodo, monto: c.monto, tarjeta: c.tarjeta } : { metodo: c.metodo, monto: c.monto }));
   }
@@ -2927,12 +2930,12 @@ export class Caja {
     if (previa) return { ...previa.payload, ocurrio_en: previa.ocurrio_en };
     const autorizo = this.verificarAutorizador(d.cajero ?? 'cajero', d.autoriza); // una devolución la autoriza otra persona
     const { venta, verificacion, lineas, importe, local } = this.validarRenglonesDevolucion(d);
-    // Cada método de pago se devuelve por su propia vía y NUNCA por más de lo que pagó: tarjeta de regalo → al saldo de la misma tarjeta;
+    // Cada método de pago se devuelve por su propia vía y NUNCA por más de lo que pagó. Lo pagado con tarjeta de regalo NO se devuelve en dinero (solo en mercancía, con un cambio);
     // tarjeta bancaria → reverso a esa tarjeta (no sale efectivo); efectivo (pesos o con dólares) → SOLO en pesos y con los importes
     // originales de la venta, sin recalcular con el tipo de cambio de hoy. Parcial: proporcional; la última devolución absorbe el redondeo.
     const previas = devoluciones(local).filter((x) => x.sale_id === d.sale_id);
     const devueltoAntes = previas.reduce((a, x) => a + x.importe, 0);
-    const reembolsos = this.repartirReembolso(venta, importe, previas.flatMap((x) => x.reembolsos), devueltoAntes);
+    const reembolsos = this.repartirReembolso(venta, importe, previas.flatMap((x) => x.reembolsos), devueltoAntes, true);
     this.renovarSiHaceFalta();
     const op = this.repo.tx(() => {
       // P-08 (decidido): la devolución consume folio de la MISMA serie que las ventas de esta caja.
@@ -3038,6 +3041,10 @@ export class Caja {
     const neto = this.totalNeto(c);
     if (neto >= 0) throw new ErrorDominio('SIN_SALDO_A_FAVOR', 'la clienta no tiene saldo a favor: se cobra la diferencia');
     const autorizo = this.verificarAutorizador(cajero, autoriza, true);
+    // El dinero de una tarjeta de regalo no se regresa en efectivo: solo se puede entregar en efectivo lo que la venta original pagó con dinero.
+    const original = this.validarRenglonesDevolucion({ sale_id: c.cambio.sale_id, renglones: c.cambio.renglones });
+    const permitido = Math.floor((original.importe * (original.venta.total - canjeDeTarjetaRegalo(original.venta.pagos))) / original.venta.total);
+    if (-neto > permitido) throw new ErrorDominio('DEVOLUCION_TARJETA_REGALO', 'lo que se pagó con tarjeta de regalo no se devuelve en dinero, solo en mercancía: elija otra mercancía para el saldo');
     const dev = { monto: -neto, autorizo };
     this.renovarSiHaceFalta();
     let venta: Venta | null = null;
@@ -3379,6 +3386,9 @@ export class Caja {
     // Las devoluciones también consumen folio de la serie (P-08).
     const folios = [...vs.filter((v) => !v.serie).map((v) => v.folio), ...devs.map((d) => d.folio).filter((f): f is number => f != null)];
     const ventasMercancia = suma(mercancia.map((l) => l.importe));
+    // Venta del día: mercancía + tarjetas de regalo VENDIDAS (el dinero entró hoy) − lo pagado con tarjetas de regalo (ya fue venta el día que se vendieron). Las devoluciones
+    // restan solo lo que no se reembolsó a una tarjeta de regalo.
+    const ventaDelDia = ventasMercancia + suma(deTarjeta.map((l) => l.importe)) - regalo;
     return {
       tienda: this.tienda, caja: this.caja, fecha, tickets: confirmadas.length,
       tickets_cancelados: cancelacionesPosteriores.length,
@@ -3386,13 +3396,13 @@ export class Caja {
       ventas_anuladas_antes_de_cobro: anuladas.length, cancelaciones_posteriores_al_cobro: cancelacionesPosteriores.length,
       ventas_brutas: suma(mercancia.map((l) => l.qty * l.precio_unit)), descuentos: suma(mercancia.map((l) => l.descuento)),
       // "ventas" = todo lo que pasó por la caja con folio; "ventas_mercancia" excluye las tarjetas de regalo (son un pasivo, no ingreso por mercancía).
-      ventas: suma(confirmadas.map((v) => v.total)), ventas_mercancia: ventasMercancia,
+      ventas: suma(confirmadas.map((v) => v.total)), ventas_mercancia: ventasMercancia, venta_total_dia: ventaDelDia,
       tarjetas_regalo_vendidas: suma(deTarjeta.map((l) => l.importe)), tarjetas_regalo_vendidas_n: deTarjeta.length,
       devoluciones: reembolsos, devoluciones_en_efectivo: enReembolsos('efectivo'), devoluciones_a_tarjeta: enReembolsos('tarjeta'), devoluciones_a_tarjeta_regalo: enReembolsos('tarjeta_regalo'),
       mercancia_recibida_por_cambio: recibidaPorCambio, devoluciones_con_reembolso: reembolsos - recibidaPorCambio,
       diferencias_cobradas_en_cambios: diferenciasCobradas, diferencias_devueltas_en_cambios: reembolsadoEnCambios,
       folios_de_devolucion: devs.length,
-      ventas_netas: ventasMercancia - reembolsos,
+      ventas_netas: ventaDelDia - suma(devs.map(restaDeDevolucion)),
       cobros_efectivo: efectivoCobrado, cobros_tarjeta: tarjeta, cobros_tarjeta_regalo: regalo, ventas_a_credito_empleadas: creditoEmpleadas, fondo_inicial: mxn.fondo, entradas: mxn.entradas, retiros: mxn.retiros, gastos: mxn.gastos, arqueos: this.arqueos(fecha),
       // Pesos FÍSICOS en el cajón (libro MXN): cobros recibidos − cambio entregado + fondo + entradas − devoluciones − cancelaciones − retiros.
       efectivo_esperado: mxn.esperado,
@@ -3500,7 +3510,7 @@ export class Caja {
     const sistemaTot = (this.corteEnVivo(fecha).cobros_tarjeta as number) - (this.corteEnVivo(fecha).devoluciones_a_tarjeta as number);
     if (pideTot && d.totalizacion !== sistemaTot && intentosTot < MAX_INTENTOS_TOTALIZACION) throw new ErrorDominio('TOTALIZACION_NO_VERIFICADA', `la totalización bancaria no coincide: verifíquela (lleva ${intentosTot} de ${MAX_INTENTOS_TOTALIZACION} intentos)`, { intentos: intentosTot });
     if (this.controlesConClave()) this.verificarClaveCajero(d.usuario, String(d.clave ?? ''));
-    const cierres_previos = previos.map((o) => ({ cerrado_en: o.ocurrio_en, cerrado_por: (o.payload.cerrado_por as string | undefined) ?? '', ventas: o.payload.ventas_mercancia as number, fondo_confirmado: o.payload.fondo_confirmado !== null && o.payload.fondo_confirmado !== undefined, fondo_estado: (o.payload.fondo_estado as string | null) ?? null, fondo_diferencia: (o.payload.fondo_diferencia as number | null) ?? 0 }));
+    const cierres_previos = previos.map((o) => ({ cerrado_en: o.ocurrio_en, cerrado_por: (o.payload.cerrado_por as string | undefined) ?? '', ventas: (o.payload.venta_total_dia ?? o.payload.ventas_mercancia) as number, fondo_confirmado: o.payload.fondo_confirmado !== null && o.payload.fondo_confirmado !== undefined, fondo_estado: (o.payload.fondo_estado as string | null) ?? null, fondo_diferencia: (o.payload.fondo_diferencia as number | null) ?? 0 }));
     const vivo = this.corteEnVivo(fecha);
     const sistemaTarjeta = (vivo.cobros_tarjeta as number) - (vivo.devoluciones_a_tarjeta as number);
     const totalizacion_bancaria = { capturado: d.totalizacion as number, sistema: sistemaTarjeta, diferencia: (d.totalizacion as number) - sistemaTarjeta, coincide: d.totalizacion === sistemaTarjeta, capturo: d.usuario, intentos: this.repo.kvGet<number>(`totbanco:${this.id}:${fecha}`) ?? 0, primera_captura: (this.repo.kvGet<number>(`totbanco:${this.id}:${fecha}`) ?? 0) > 0 ? this.repo.kvGet<number>(`totbanco1:${this.id}:${fecha}`) ?? (d.totalizacion as number) : (d.totalizacion as number) };
