@@ -72,8 +72,8 @@ describe('[navegador real] Depósitos en la caja', { timeout: 300_000, skip: chr
       await page.waitForSelector('#dep-ticket');
       const ticket = (await page.textContent('#dep-ticket'))!;
       assert.match(ticket, /COMPROBANTE DE DEPÓSITO/);
-      const codigo1 = /Código: (DEP-\S+)/.exec(ticket)![1]!;
-      assert.match(codigo1, /^DEP-D1-0001-[A-Z2-9]{6}$/);
+      const codigo1 = /Código: (DEP\S+)/.exec(ticket)![1]!;
+      assert.match(codigo1, /^DEPD10001[A-Z2-9]{6}$/);
       assert.equal(await page.locator('#dep-barras svg rect').count() > 20, true, 'la vista previa muestra el código de barras');
       assert.match(ticket, /Folio: DEP-D1-0001/);
       assert.match(ticket, /María González/);
@@ -152,7 +152,7 @@ describe('[navegador real] Depósitos en la caja', { timeout: 300_000, skip: chr
         await page.click('#dep-nuevo');
         await page.fill('#dep-clienta', nombre); await page.fill('#dep-monto', monto);
         await page.click('#dep-guardar'); await page.waitForSelector('#dep-ticket');
-        const cod = /Código: (DEP-\S+)/.exec((await page.textContent('#dep-ticket'))!)![1]!;
+        const cod = /Código: (DEP\S+)/.exec((await page.textContent('#dep-ticket'))!)![1]!;
         await page.click('#dep-listo');
         return cod;
       };

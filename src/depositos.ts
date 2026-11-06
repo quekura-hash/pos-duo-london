@@ -45,8 +45,12 @@ export interface Deposito {
   inconsistente: boolean;
   movimientos: MovDeposito[];
 }
-/** Texto del código de barras del comprobante: folio + secreto. Quien lo escanea demuestra que tiene el comprobante. */
-export const codigoTicketDeposito = (d: { folio: string; secreto: string }) => `${d.folio}-${d.secreto}`;
+/** Solo letras y números, en mayúsculas: lo único que sobrevive igual a cualquier distribución de teclado del lector. */
+const soloAlfanumerico = (s: string) => s.toUpperCase().replace(/[^A-Z0-9]/g, '');
+/** Texto del código de barras de un folio de depósito (`DEP-L1-0002` → `DEPL10002`): sin guiones ni símbolos. */
+export const codigoFolioDeposito = (folio: string) => soloAlfanumerico(folio);
+/** Texto del código de barras del comprobante: folio + secreto, solo letras y números (`DEPL10002HWE48U`). Quien lo escanea demuestra que tiene el comprobante. */
+export const codigoTicketDeposito = (d: { folio: string; secreto: string }) => `${soloAlfanumerico(d.folio)}${soloAlfanumerico(d.secreto)}`;
 const ALFABETO = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 /** Secreto aleatorio de 6 caracteres (sin letras ambiguas): se imprime en el comprobante, así que también se puede teclear. */
 export function generarSecretoDeposito(): string {
@@ -54,10 +58,30 @@ export function generarSecretoDeposito(): string {
   globalThis.crypto.getRandomValues(b);
   return [...b].map((x) => ALFABETO[x % ALFABETO.length]).join('');
 }
-/** Separa lo que leyó el lector (`DEP-D1-0001-K7M2Q9`) o escribió la cajera (`DEP-D1-0001`) en folio y, si lo trae, secreto. */
+/**
+ * Separa lo que leyó el lector o escribió la cajera en folio y, si lo trae, secreto. Acepta el código nuevo (`DEPL10002HWE48U`), el anterior
+ * con guiones (`DEP-L1-0002-HWE48U`) y lo que llega cuando el lector o el teclado ensucian la lectura: el `{B` que la impresora mete al
+ * principio del Code128 y símbolos en lugar de los guiones (`{BDEP'L1'0002'HWE48U` con el teclado mexicano). Todo lo anterior a «DEP» se ignora.
+ */
 export function interpretarCodigoDeposito(s: string): { folio: string; secreto: string | null } | null {
-  const m = /^(DEP-[A-Z0-9]+-\d+)(?:-([A-Z0-9]{6}))?$/i.exec(s.trim());
-  return m ? { folio: m[1]!.toUpperCase(), secreto: m[2] ? m[2].toUpperCase() : null } : null;
+  const desde = s.toUpperCase().indexOf('DEP');
+  if (desde < 0) return null;
+  const t = s.toUpperCase().slice(desde);
+  // Con separadores: DEP · L1 · 0002 · (secreto)
+  const p = t.split(/[^A-Z0-9]+/).filter(Boolean);
+  if (p.length >= 3 && p[0] === 'DEP' && /^[A-Z]\d+$/.test(p[1]!) && /^\d+$/.test(p[2]!)) {
+    if (p.length === 3) return { folio: `DEP-${p[1]}-${p[2]}`, secreto: null };
+    if (p.length === 4 && /^[A-Z0-9]{6}$/.test(p[3]!)) return { folio: `DEP-${p[1]}-${p[2]}`, secreto: p[3]! };
+    return null;
+  }
+  // Sin separadores: DEP + letra de tienda + caja (1 dígito) + número (4 dígitos o más) + secreto de 6 (opcional)
+  const m = /^DEP([A-Z])(\d)([A-Z0-9]+)$/.exec(soloAlfanumerico(t));
+  if (!m) return null;
+  const resto = m[3]!;
+  const folio = (n: string) => `DEP-${m[1]}${m[2]}-${n}`;
+  if (resto.length >= 10 && /^\d{4,}$/.test(resto.slice(0, -6))) return { folio: folio(resto.slice(0, -6)), secreto: resto.slice(-6) };
+  if (/^\d{4,}$/.test(resto)) return { folio: folio(resto), secreto: null };
+  return null;
 }
 
 export const TIPOS_DEPOSITO = ['deposito.recibido', 'deposito.devuelto', 'deposito.fee', 'deposito.aplicado', 'deposito.reintegrado'] as const;

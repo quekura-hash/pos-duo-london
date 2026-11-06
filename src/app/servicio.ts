@@ -13,7 +13,7 @@ import { estadoPromo, type Promocion } from '../promociones.ts';
 import { conVentasCorregidas, personalConCuenta, mesesVigenciaTarjetas, clientesVip, excepcionesVip, cuentasEmpleadas, configEmpleadas, CRITERIOS_EXPEDIENTE, expedientesDe, expedienteVacio, registradaEn, CAMPOS_EDITABLES, catalogo, historialArticulo, nombresTienda, datosTiendas, departamentos as proyDepartamentos, devoluciones, type Devolucion, promocionesDe, recompensasDe, supervisoresDe, cajerosDe, administradoresDe, configSesionDe, permisos as proyPermisos, tarjetasRegalo, tiposDeCambio, tipoCambioVigente, ventas, type TipoCambio } from '../proyecciones.ts';
 import { hojaAnalisis, hojaAnalisisEmpleadas, hojaDetalleVentas, hojaResumenVentas, hojaDescuentos, hojaEntregas, hojaDolares, hojaInventario, leerInventario, PERFIL_CONFIRMADO, type Hoja } from '../inventario.ts';
 import { LOGOS_TICKET } from '../logos-ticket.ts';
-import { codigoTicketDeposito, resumenDepositosDia, TIPOS_DEPOSITO, type Deposito, type MovDeposito } from '../depositos.ts';
+import { codigoFolioDeposito, codigoTicketDeposito, interpretarCodigoDeposito, resumenDepositosDia, TIPOS_DEPOSITO, type Deposito, type MovDeposito } from '../depositos.ts';
 import { svgCode128 } from '../codigo128.ts';
 import { detalleHistorica, detalleDeVenta, validarDatosClienta, type DatosClienta } from '../detalle-venta.ts';
 import { aplicarDatosTienda, codigoTicket, interpretarFolio, construirTicket, construirTicketRegalo, formatoMXN, NEGOCIOS, renderTextoEscPos, renderTicketCancelacionTexto, renderTicketGastoTexto, renderTicketDepositoTexto, renderTicketResolucionDepositoTexto, renderDepositoEscPos, type DatosTicketResolucion, renderTicketFirmaTexto, renderTicketDevolucionTexto, type ComprobanteClienta, renderTicketRetiroTexto, renderTicketEscPos, renderTicketCorteEscPos, renderTicketCorteTexto, renderTicketTexto, type NegocioCfg } from '../ticket.ts';
@@ -306,7 +306,8 @@ export class ServicioCaja {
   /** ¿Lo que escaneó la cajera es el código completo de UN comprobante vigente? (el cliente lo recuerda para no pedirlo dos veces). */
   private codigoLeido(q: string): boolean {
     const d = this.caja.buscarDepositos(q);
-    return d.length === 1 && q.trim().toUpperCase() === codigoTicketDeposito(d[0]!).toUpperCase();
+    const c = interpretarCodigoDeposito(q);
+    return d.length === 1 && c !== null && c.secreto !== null && c.secreto === d[0]!.secreto.toUpperCase() && c.folio === d[0]!.folio;
   }
   private depositoCompleto(id: string): Deposito {
     const d = this.caja.depositoPorId(id);
@@ -349,7 +350,7 @@ export class ServicioCaja {
     const cfg = this.negociosVivos()[d.tienda]!;
     const texto = renderTicketResolucionDepositoTexto(this.datosResolucion(d, m), cfg, reimpresion);
     // Solo la devolución saca dinero del cajón: es la única que abre el cajón. El código de barras de estos comprobantes es SOLO el folio (sin el secreto): no sirve para cobrar nada.
-    return this.imprimirConBarras(`depres:${opId}${reimpresion ? `:re${Date.now()}` : ''}`, texto, d.folio, m.tipo === 'devuelto' && reimpresion === 0, d.tienda, cfg.columnas);
+    return this.imprimirConBarras(`depres:${opId}${reimpresion ? `:re${Date.now()}` : ''}`, texto, codigoFolioDeposito(d.folio), m.tipo === 'devuelto' && reimpresion === 0, d.tienda, cfg.columnas);
   }
   async reimprimirResolucionDeposito(depositoId: string, opId: string) {
     const d = this.depositoCompleto(depositoId);

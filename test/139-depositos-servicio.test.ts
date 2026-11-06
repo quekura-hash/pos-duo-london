@@ -10,7 +10,7 @@ const VESTIDO = '0002026090782'; // $899.00
 const trabajos = (dir: string) => readdirSync(dir).filter((f) => f.endsWith('.bin')).sort().map((f) => ({ f, bin: readFileSync(join(dir, f)), txt: readFileSync(join(dir, f.replace(/\.bin$/, '.txt')), 'utf8') }));
 const contiene = (b: Buffer, ...x: number[]) => b.indexOf(Buffer.from(x)) >= 0;
 void after;
-const codigoDe = (r: { ticket_texto: string }) => /Código: (DEP-\S+)/.exec(r.ticket_texto)![1]!;
+const codigoDe = (r: { ticket_texto: string }) => /Código: (DEP\S+)/.exec(r.ticket_texto)![1]!;
 
 describe('Depósitos: servicio, impresión, permisos y pagos combinados', () => {
   it('DS1 impresión fallida: el depósito queda una sola vez, el reintento no lo duplica y se reimprime; el cajón y el código de barras salen donde corresponde', async (t) => {
@@ -35,7 +35,8 @@ describe('Depósitos: servicio, impresión, permisos y pagos combinados', () => 
     assert.match(p1!.txt, /COMPROBANTE DE DEPÓSITO[\s\S]*REIMPRESIÓN 1[\s\S]*Folio: DEP-D1-0001/);
     assert.ok(contiene(p1!.bin, 0x1d, 0x6b, 73), 'trae código de barras Code128 (GS k 73)');
     assert.ok(p1!.bin.includes(Buffer.from(`{B${codigoDe(r1.json)}`)), 'el código de barras lleva folio + secreto, escaneable por el lector de la caja');
-    assert.match(codigoDe(r1.json), /^DEP-D1-0001-[A-Z2-9]{6}$/);
+    assert.match(codigoDe(r1.json), /^DEPD10001[A-Z2-9]{6}$/, 'el código de barras es solo letras y números (sin guiones ni símbolos)');
+    assert.ok(!contiene(p1!.bin, 0x1d, 0x48, 2), 'el código de barras no imprime texto debajo (algunas impresoras ahí ponen el «{B»)');
     assert.ok(!contiene(p1!.bin, 0x1b, 0x70, 0x00), 'una reimpresión no abre el cajón');
     // un depósito nuevo SÍ abre el cajón
     const r3 = await api(caja.url, '/api/deposito', { ref: 'ref-2', clienta: 'Lupe Pérez', monto: 50000 });

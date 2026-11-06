@@ -21,6 +21,8 @@ it('BF0 interpretarFolio entiende el código impreso y el folio suelto', () => {
   assert.deepEqual(interpretarFolio('D2-000003'), { folio: 3, tienda: 'DUO', caja: 2 });
   assert.deepEqual(interpretarFolio(' d2000003 '), { folio: 3, tienda: 'DUO', caja: 2 });
   assert.deepEqual(interpretarFolio('L1-000120'), { folio: 120, tienda: 'LON', caja: 1 });
+  assert.deepEqual(interpretarFolio("{BD2'000003"), { folio: 3, tienda: 'DUO', caja: 2 }, 'lectura con el «{B» de la impresora y el guion cambiado por otro símbolo (teclado mexicano)');
+  assert.deepEqual(interpretarFolio('{BL1-000120'), { folio: 120, tienda: 'LON', caja: 1 });
   assert.deepEqual(interpretarFolio('000045'), { folio: 45 });
   assert.deepEqual(interpretarFolio('7'), { folio: 7 });
   for (const mal of ['', 'abc', 'X1-000003', 'D2-', '0', 'D2-000000']) assert.equal(interpretarFolio(mal), null, mal);

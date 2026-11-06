@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { it } from 'node:test';
-import { codigoTicketDeposito } from '../src/depositos.ts';
+import { codigoFolioDeposito, codigoTicketDeposito, interpretarCodigoDeposito } from '../src/depositos.ts';
 import { fechaLocal } from '../src/util.ts';
 import { nuevoMundo, politica, porAlmacen } from './ayudas/comun.ts';
 
@@ -241,6 +241,23 @@ porAlmacen('Depósitos en garantía: núcleo (recibir, buscar, resolver, aplicar
     const ok = c.devolverDeposito({ ...base, codigo: codigoTicketDeposito(c.depositoPorId(d.deposito_id)!).toLowerCase() });
     assert.equal(ok.deposito.estado, 'cerrado');
     assert.equal(ok.deposito.movimientos.at(-1)!.verificado_con, 'ticket');
+  });
+  it('DP20 el código leído tolera el «{B» de la impresora y símbolos en lugar de guiones (teclado mexicano); el código impreso es solo letras y números', (t) => {
+    const sec = 'HWE48U';
+    assert.equal(codigoTicketDeposito({ folio: 'DEP-L1-0002', secreto: sec }), 'DEPL10002HWE48U');
+    const ok = { folio: 'DEP-L1-0002', secreto: sec };
+    for (const leido of ['DEPL10002HWE48U', 'DEP-L1-0002-HWE48U', "{BDEP'L1'0002'HWE48U", '{BDEPL10002HWE48U', 'BDEPL10002HWE48U', "¨BDEP'L1'0002'HWE48U", ' dep-l1-0002-hwe48u ', "DEP'L10002'HWE48U"]) assert.deepEqual(interpretarCodigoDeposito(leido), ok, leido);
+    for (const leido of ['DEPL10002', 'DEP-L1-0002', "{BDEP'L1'0002", '{BDEPL10002']) assert.deepEqual(interpretarCodigoDeposito(leido), { folio: 'DEP-L1-0002', secreto: null }, leido);
+    for (const mal of ['', 'julia', 'Deposito', 'D1-000001', 'DEP-L1', 'DEP-L1-0002-ABC', 'DEPL1000']) assert.equal(interpretarCodigoDeposito(mal), null, mal);
+    // el folio solo (comprobantes de devolución) también va sin guiones
+    assert.deepEqual(interpretarCodigoDeposito(codigoFolioDeposito('DEP-L1-0002')), { folio: 'DEP-L1-0002', secreto: null });
+    // y la búsqueda encuentra el depósito con la lectura sucia
+    const { m, dep } = escenario(t);
+    const d = dep(1, 'Julia', 20000);
+    const c = m.caja('DUO', 1);
+    const sucio = `{B${codigoTicketDeposito(c.depositoPorId(d.deposito_id)!).replace(/^DEP([A-Z]\d)(\d{4})/, "DEP'$1'$2'")}`;
+    assert.deepEqual(c.buscarDepositos(sucio).map((x) => x.deposito_id), [d.deposito_id]);
+    assert.equal(c.devolverDeposito({ ref: 'sucio', deposito_id: d.deposito_id, confirmado: true, usuario: 'Ana', codigo: sucio }).deposito.estado, 'cerrado', 'la lectura sucia también sirve para cobrar');
   });
   it('DP19 el SVG del código de barras usa los patrones Code128 del lector ZXing y su dígito de control es correcto', async (t) => {
     void t;

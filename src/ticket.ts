@@ -60,9 +60,17 @@ export function codigoTicket(tienda: string, caja: number, folio: number, negoci
 /** Folio tal como se imprime: ventas `000123`; compras a crédito de empleada `CR-000123` (serie aparte). */
 export const folioImpreso = (folio: number | null | undefined, serie?: 'CR'): string => `${serie ? 'CR-' : ''}${String(folio ?? 0).padStart(6, '0')}`;
 
+/**
+ * Limpia lo que entrega un lector de códigos: quita el `{B` que algunas impresoras meten al principio del Code128 (y el símbolo que el teclado
+ * pone en lugar de «{») y cambia por «-» los símbolos que una distribución de teclado distinta pone en lugar del guion (`D1'000001`).
+ */
+export function limpiarLectura(texto: string): string {
+  const t = texto.trim().toUpperCase().replace(/^[^A-Z0-9\s]*\{?B(?=CR|[A-Z]\s*\d)/, '');
+  return t.replace(/[^A-Z0-9\s]+/g, '-');
+}
 /** Interpreta un código escaneado de un ticket. Un folio suelto (tickets antiguos) NO se interpreta: falta el contexto. */
 export function interpretarCodigoTicket(texto: string, negocios = NEGOCIOS): { tienda: string; caja: number; folio: number; serie?: 'CR' } | null {
-  const m = /^(CR-)?([A-Z])(\d)-(\d{6,})$/.exec(texto.trim());
+  const m = /^(CR-)?([A-Z])(\d)-(\d{6,})$/.exec(limpiarLectura(texto));
   if (!m) return null;
   const tienda = Object.keys(negocios).find((t) => negocios[t]!.letra === m[2]);
   return tienda ? { tienda, caja: Number(m[3]), folio: Number(m[4]), ...(m[1] ? { serie: 'CR' as const } : {}) } : null;
@@ -73,7 +81,7 @@ export function interpretarCodigoTicket(texto: string, negocios = NEGOCIOS): { t
  * Con el código se sabe de qué tienda y caja es; con el folio suelto no. null = no es un folio.
  */
 export function interpretarFolio(texto: unknown, negocios = NEGOCIOS): { folio: number; tienda?: string; caja?: number; serie?: 'CR' } | null {
-  const t = String(texto ?? '').trim();
+  const t = limpiarLectura(String(texto ?? ''));
   if (/^\d{1,9}$/.test(t)) return Number(t) > 0 ? { folio: Number(t) } : null;
   const cr = /^CR\s*-?\s*(\d{1,9})$/i.exec(t); // «CR-000012»: solo el folio de crédito (de cualquier caja)
   if (cr) return Number(cr[1]) > 0 ? { folio: Number(cr[1]), serie: 'CR' } : null;
@@ -466,7 +474,7 @@ export function renderDepositoEscPos(texto: string, codigo: string, opts: { abri
   if (codigo) {
     const datos = aCP858(`{B${codigo}`); // Code128 juego B
     const ancho = (opts.columnas ?? 42) * 12 >= 480 ? 2 : 1; // papel de 80 mm: módulo de 2 puntos; de 58 mm: 1, para que quepa el código largo
-    b.push(0x1b, 0x61, 1, 0x1d, 0x68, 80, 0x1d, 0x77, ancho, 0x1d, 0x48, 2, 0x1d, 0x6b, 73, datos.length, ...datos, 0x0a, 0x1b, 0x61, 0); // centrado, con el folio escrito debajo
+    b.push(0x1b, 0x61, 1, 0x1d, 0x68, 80, 0x1d, 0x77, ancho, 0x1d, 0x48, 0, 0x1d, 0x6b, 73, datos.length, ...datos, 0x0a, 0x1b, 0x61, 0); // centrado, SIN texto debajo (algunas impresoras imprimen ahí el «{B» del Code128; el folio ya va en el texto del comprobante)
   }
   b.push(0x0a, 0x0a, 0x1d, 0x56, 66, 0);
   return Uint8Array.from(b);
