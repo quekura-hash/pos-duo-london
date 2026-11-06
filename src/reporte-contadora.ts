@@ -1,7 +1,7 @@
 // Reporte mensual para la contadora: qué se manda, cuándo y con qué texto. Código PURO (sin red ni base de datos): lo usan la Edge Function
 // `reporte-contadora` y las pruebas. Un correo por CAJA (cada una con sus propios destinatarios), con el Excel «Detalle de ventas» + «Resumen por día» (ver hojaDetalleVentas).
 import { reporteConsolidado } from './consultas.ts';
-import { conPagosCorregidos } from './proyecciones.ts';
+import { conVentasCorregidas } from './proyecciones.ts';
 import { hojaDetalleVentas, hojaDetalleVentasContadora, hojaResumenVentas, type Hoja } from './inventario.ts';
 import type { Op } from './tipos.ts';
 import { fechaLocal } from './util.ts';
@@ -89,7 +89,7 @@ export function reporteDeCaja(ops: Op[], tienda: string, cajaGuardada: number, p
   const caja = especial ? cajaGuardada - BASE_ESPECIAL : cajaGuardada;
   const { desde, hasta: finMes } = rangoDelPeriodo(periodo);
   const hasta = hastaFecha && hastaFecha < finMes ? hastaFecha : finMes;
-  const r = reporteConsolidado({ rol: 'admin', usuario: 'reporte-mensual' } as never, conPagosCorregidos(ops), { desde, hasta, cajas: [{ tienda, caja }], historicas: true, fees: true, devoluciones: true });
+  const r = reporteConsolidado({ rol: 'admin', usuario: 'reporte-mensual' } as never, conVentasCorregidas(ops), { desde, hasta, cajas: [{ tienda, caja }], historicas: true, fees: true, devoluciones: true });
   const vivas = r.filas.filter((f) => f.estado !== 'cancelada');
   const suma = (k: 'efectivo' | 'tarjeta' | 'dolares' | 'tarjeta_regalo' | 'otro' | 'mixto' | 'credito') => vivas.reduce((a, f) => a + f.montos[k], 0);
   return {

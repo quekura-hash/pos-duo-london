@@ -16,7 +16,7 @@ import { TASA_SIN_VERIFICAR_OMISION, type Politicas } from './politicas.ts';
 import { Indice } from './indice.ts';
 import { localizarVentas } from './consultas.ts';
 import { addDias } from './util.ts';
-import { conPagosCorregidos, mesesVigenciaTarjetas, sumarMeses, historicasDuplicadas, reglasDuplicadosHistoricos, type ReglaDuplicadosHistoricos } from './proyecciones.ts';
+import { conVentasCorregidas, mesesVigenciaTarjetas, sumarMeses, historicasDuplicadas, reglasDuplicadosHistoricos, type ReglaDuplicadosHistoricos } from './proyecciones.ts';
 import { avanceMetas, CONFIG_METAS_INICIAL, historicoPorDia, horaValida, lunesDe, metasDias, metasPublicadas, totalesPorDia, type AvancePeriodo, type ConfigMetas, type MetaTienda, type MetasPublicadas, type PeriodoMeta } from './metas.ts';
 import { CRITERIOS_EXPEDIENTE, expedientesDe, expedienteVacio, clientesVip, excepcionesVip, type ClienteVip, type ExcepcionesVip, type Expediente } from './proyecciones.ts';
 import { type ConfigEmpleadas, type CuentaEmpleada, configEmpleadas, cuentasEmpleadas, CAMPOS_EDITABLES, CAMPOS_TIENDA, type CampoEditable, departamentos, promocionesDe, recompensasDe, supervisoresDe, cajerosDe, personalConCuenta, administradoresDe, efectivoDeVenta, movimientosCaja, tipoCambioVigente, catalogo, devoluciones, devueltoPorLinea, existenciaVerificada, intentos, perdidasDocumentales, stock, ventas, type Devolucion, type ExistenciaVerificada, type Intento, type PerdidaDocumental, type TarjetaRegalo, type TipoCambio } from './proyecciones.ts';
@@ -116,7 +116,7 @@ export const CAJA_DE_CREDITOS = 2;
 export interface DatosVentaTarjeta { codigo: string; monto: number; recibido?: number; cajero?: string; ref?: string; pago?: 'efectivo' | 'tarjeta'; autorizacion?: string; marca?: string; ultimos4?: string }
 const BROADCAST_TIENDA = new Set(['cajero.ubicacion', 'alm.recibida', 'inv.movement', 'inv.conteo', 'inv.verificacion_pendiente', 'doc.perdida_posible', 'item.created', 'item.item_no_assigned', 'giftcard.emitida', 'giftcard.recarga', 'giftcard.uso', 'giftcard.reintegro', 'deposito.recibido', 'deposito.devuelto', 'deposito.fee', 'deposito.aplicado', 'deposito.reintegrado']);
 // Lo que el central baja a hubs y cajas (catálogo y resoluciones administrativas).
-const CATALOGO = new Set(['venta.pago_corregido', 'cajero.ubicacion', 'item.created', 'item.item_no_assigned', 'item.codigo_corregido', 'doc.perdida_resuelta', 'giftcard.emitida', 'giftcard.recarga', 'giftcard.uso', 'giftcard.reintegro', 'config.tipo_cambio', 'permiso.asignado', 'depto.alta', 'depto.editado', 'alm.entrega', 'alm.faltante', 'promo.guardada', 'recompensa.guardada', 'supervisor.guardado', 'cajero.guardado', 'config.sesion', 'config.negocio', 'item.editado', 'caja.fondo_autorizado', 'cash.ajuste_admin', 'empleadas.config', 'empleada.credito', 'empleada.movimiento', 'venta.consulta', 'folio.continuacion', 'vip.guardado', 'vip.excepciones', 'metas.config', 'giftcard.config', 'caja.limite_efectivo']);
+const CATALOGO = new Set(['venta.corregida', 'cajero.ubicacion', 'item.created', 'item.item_no_assigned', 'item.codigo_corregido', 'doc.perdida_resuelta', 'giftcard.emitida', 'giftcard.recarga', 'giftcard.uso', 'giftcard.reintegro', 'config.tipo_cambio', 'permiso.asignado', 'depto.alta', 'depto.editado', 'alm.entrega', 'alm.faltante', 'promo.guardada', 'recompensa.guardada', 'supervisor.guardado', 'cajero.guardado', 'config.sesion', 'config.negocio', 'item.editado', 'caja.fondo_autorizado', 'cash.ajuste_admin', 'empleadas.config', 'empleada.credito', 'empleada.movimiento', 'venta.consulta', 'folio.continuacion', 'vip.guardado', 'vip.excepciones', 'metas.config', 'giftcard.config', 'caja.limite_efectivo']);
 /** Días de ventas del POS anterior que las cajas conservan para consulta. */
 export const DIAS_CONSULTA_HISTORICA = 60;
 /** Fondo fijo de cada caja mientras Administración no asigne otro (centavos). */
@@ -1423,7 +1423,7 @@ export class Caja {
   /** Solo operaciones de estos tipos (rutas calientes: no recorre toda la bitácora). */
   opsDe(...tipos: string[]): Op[] {
     // Quien pide ventas recibe sus pagos ya corregidos (si Administración corrigió la forma de pago de alguna).
-    if (tipos.includes('sale.confirmed') && !tipos.includes('venta.pago_corregido')) return conPagosCorregidos(this.repo.opsDeTipos([...tipos, 'venta.pago_corregido']));
+    if (tipos.includes('sale.confirmed') && !tipos.includes('venta.corregida')) return conVentasCorregidas(this.repo.opsDeTipos([...tipos, 'venta.corregida']));
     return this.repo.opsDeTipos(tipos);
   }
   opsVentas(): Op[] {

@@ -118,19 +118,24 @@ export interface Devolucion {
 }
 
 /**
- * Correcciones de la forma de pago de una venta ya registrada (op `venta.pago_corregido`: el ticket no se toca ni se borra; la corrección se aplica al leerlo).
- * Devuelve las operaciones con los pagos corregidos (la venta conserva los originales en `pagos_originales`); sin correcciones devuelve la misma lista.
- * También corrige el «medio» de la emisión o recarga de una tarjeta de regalo hecha en esa venta.
+ * Correcciones de una venta ya registrada (op `venta.corregida`; el ticket no se toca ni se borra, la corrección se aplica al leerlo):
+ *  · `pagos`: la forma de pago real (la venta conserva los originales en `pagos_originales`);
+ *  · `tarjetas_regalo`: renglones que en realidad eran la venta de una tarjeta de regalo (se cobraron como artículo): pasan a contar como tarjeta vendida, no como mercancía.
+ * También corrige el «medio» de la emisión o recarga de una tarjeta de regalo hecha en esa venta. Sin correcciones devuelve la misma lista.
  */
-export function conPagosCorregidos(ops: Op[]): Op[] {
+export function conVentasCorregidas(ops: Op[]): Op[] {
   let corr: Map<string, Op> | null = null;
-  for (const o of ops) if (o.tipo === 'venta.pago_corregido') (corr ??= new Map()).set(o.payload.sale_id, o);
+  for (const o of ops) if (o.tipo === 'venta.corregida') (corr ??= new Map()).set(o.payload.sale_id, o);
   if (!corr) return ops;
   const c = corr;
-  return ops.filter((o) => o.tipo !== 'venta.pago_corregido').map((o) => {
+  return ops.filter((o) => o.tipo !== 'venta.corregida').map((o) => {
     const k = c.get(o.payload?.sale_id);
     if (!k) return o;
-    if (o.tipo === 'sale.confirmed') return { ...o, payload: { ...o.payload, pagos: k.payload.pagos, pagos_originales: o.payload.pagos, pago_corregido: { motivo: k.payload.motivo ?? '', por: k.payload.por ?? '', en: k.ocurrio_en } } };
+    if (o.tipo === 'sale.confirmed') {
+      const regalo = new Map<string, { codigo: string; meses?: number }>((k.payload.tarjetas_regalo ?? []).map((t: { linea_id: string; codigo: string; meses?: number }) => [t.linea_id, t]));
+      const lineas = regalo.size ? o.payload.lineas.map((l: any) => { const t = regalo.get(l.linea_id); return t ? { ...l, item_id: `tarjeta_regalo:${t.codigo}`, codigo: t.codigo, descripcion: `Tarjeta de regalo ${t.codigo}`, departamento: 'TARJETAS DE REGALO', tarjeta_regalo: { tipo: 'alta', codigo: t.codigo, meses: t.meses ?? 12 } } : l; }) : o.payload.lineas;
+      return { ...o, payload: { ...o.payload, lineas, ...(k.payload.pagos ? { pagos: k.payload.pagos, pagos_originales: o.payload.pagos } : {}), venta_corregida: { motivo: k.payload.motivo ?? '', por: k.payload.por ?? '', en: k.ocurrio_en } } };
+    }
     if ((o.tipo === 'giftcard.emitida' || o.tipo === 'giftcard.recarga') && k.payload.medio) return { ...o, payload: { ...o.payload, medio: k.payload.medio } };
     return o;
   });

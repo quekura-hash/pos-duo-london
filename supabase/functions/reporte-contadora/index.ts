@@ -55,7 +55,7 @@ function dependencias(): Dependencias {
         paginas((a, b) => db.from('ops').select(cols).eq('tipo', 'venta.historica').order('seq').range(a, b)),
         paginas((a, b) => db.from('ops').select(cols).eq('tipo', 'historico.duplicados').order('seq').range(a, b)), // copias duplicadas que ya no cuentan
         paginas((a, b) => db.from('ops').select(cols).eq('tipo', 'return.registered').gte('ocurrio_en', desde).lt('ocurrio_en', hasta).order('seq').range(a, b)), // devoluciones y cambios: restan en el día en que ocurren
-        paginas((a, b) => db.from('ops').select(cols).eq('tipo', 'venta.pago_corregido').order('seq').range(a, b)), // ventas con la forma de pago corregida
+        paginas((a, b) => db.from('ops').select(cols).eq('tipo', 'venta.corregida').order('seq').range(a, b)), // ventas con la forma de pago corregida
       ]);
       return [...ventas, ...cancelaciones, ...historicas, ...reglas, ...devoluciones, ...correcciones] as never;
     },
