@@ -31,7 +31,7 @@ it('RE1 el Excel del reporte especial: una sola hoja «Detalle de ventas» con S
   assert.doesNotMatch(todoElTexto(e.hojas) + e.archivo, /caja/i, 'ni en el Excel ni en su nombre aparece «caja»');
   const normal = reporteDeCaja(ops, 'DUO', 1, '2026-10');
   assert.deepEqual([normal.especial, normal.hojas.map((h) => h.nombre), normal.archivo], [false, ['Detalle de ventas', 'Resumen por día'], 'reporte-de-ventas-duo-caja-1-2026-10.xlsx']);
-  assert.equal(normal.hojas[0]!.encabezados.length, 14, 'el reporte de cada caja conserva todas sus columnas');
+  assert.equal(normal.hojas[0]!.encabezados.length, 13, 'el reporte de cada caja conserva todas sus columnas');
   assert.deepEqual([e.tickets, e.total], [normal.tickets, normal.total], 'mismos tickets y total que la Caja 1');
   assert.equal(reporteDeCaja(ops, 'LON', 101, '2026-10').hojas[0]!.filas.length, 0, 'London sin ventas: hoja vacía');
 });

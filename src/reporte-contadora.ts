@@ -116,7 +116,7 @@ export function correoDelReporte(r: ReporteCaja, o: { prueba?: boolean; corteA?:
   const asunto = `${o.prueba ? '[PRUEBA] ' : ''}${negocio} · Reporte de ventas de ${nombreDelMes(r.periodo)}${parcial ? ` (al ${fechaCorta(r.hasta)})` : ''}`;
   const lineas: [string, string][] = [
     ['Tickets', String(r.tickets)], ['Piezas vendidas', String(r.piezas)], ['Total cobrado', mxn(r.total - r.credito_empleadas)], ['Efectivo', mxn(r.efectivo)], ['Tarjeta', mxn(r.tarjeta)],
-    ...(r.dolares ? [['Dólares (equivalente en pesos)', mxn(r.dolares)] as [string, string]] : []), ...(r.tarjeta_regalo ? [['Pagado con tarjeta de regalo (ya fue venta cuando se vendió la tarjeta; no se suma al total)', mxn(r.tarjeta_regalo)] as [string, string]] : []),
+    ...(r.dolares ? [['Dólares (equivalente en pesos)', mxn(r.dolares)] as [string, string]] : []), ...(r.tarjeta_regalo ? [['Tarjetas de regalo', mxn(r.tarjeta_regalo)] as [string, string]] : []),
     ...(r.mixto ? [['Pagos mixtos sin desglose', mxn(r.mixto)] as [string, string]] : []),
     ...(r.creditos ? [[`Compras a crédito de empleadas (${r.creditos}, folios CR; no es dinero cobrado, se descuenta de nómina)`, mxn(r.credito_empleadas)] as [string, string]] : []), ...(r.fees ? [['Fees por daño (incluidos en el total)', mxn(r.fees)] as [string, string]] : []),
     ...(r.cambios ? [['Cambios sin diferencia', String(r.cambios)] as [string, string]] : []),
