@@ -20,9 +20,9 @@ it('CR1 dos personas pueden tener la misma clave sin que el sistema avise que ya
   assert.equal((await api(caja.url, '/api/login', { usuario: 'Evelyn', clave: '2468' })).status, 200);
   const cart = (await api(caja.url, '/api/venta/nueva', {})).json.cart;
   const lin = (await api(caja.url, '/api/venta/escanear', { cart, codigo: '0002026090782' })).json.linea;
-  const d = await api(caja.url, '/api/venta/descuento', { cart, linea_id: lin.linea_id, tipo: 'pct', valor: 10, clave: '2468' });
+  const d = await api(caja.url, '/api/venta/descuento', { cart, linea_id: lin.linea_id, tipo: 'pct', valor: 10, motivo: 'cliente frecuente', clave: '2468' });
   assert.equal(d.status, 200, JSON.stringify(d.json));
   assert.equal(d.json.supervisor, 'Evelyn');
   // una clave que nadie tiene sigue sin valer
-  assert.equal((await api(caja.url, '/api/venta/descuento', { cart, linea_id: lin.linea_id, tipo: 'pct', valor: 10, clave: '9999' })).status >= 400, true);
+  assert.equal((await api(caja.url, '/api/venta/descuento', { cart, linea_id: lin.linea_id, tipo: 'pct', valor: 10, motivo: 'cliente frecuente', clave: '9999' })).status >= 400, true);
 });

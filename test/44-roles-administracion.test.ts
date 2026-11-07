@@ -72,7 +72,7 @@ porAlmacen('Roles de Administración: supervisor y almacenista; los cajeros no e
     await api(caja.url, '/api/login', { usuario: 'Lupe', clave: '4321' });
     const cart = (await api(caja.url, '/api/venta/nueva', {})).json.cart;
     await api(caja.url, '/api/venta/escanear', { cart, codigo: '0002026090782' });
-    const d = await api(caja.url, '/api/venta/descuento', { cart, linea_id: null, tipo: 'pct', valor: 10, clave: '2468' });
+    const d = await api(caja.url, '/api/venta/descuento', { cart, linea_id: null, tipo: 'pct', valor: 10, motivo: 'cliente frecuente', clave: '2468' });
     assert.equal(d.status, 200);
     assert.equal(d.json.supervisor, 'Edgardo');
     // si el supervisor se desactiva (hay otro) su clave de caja deja de valer
@@ -81,7 +81,7 @@ porAlmacen('Roles de Administración: supervisor y almacenista; los cajeros no e
     const ed = (await api(adm.url, '/api/admin/administradores')).json.administradores.find((a: any) => a.nombre === 'Edgardo');
     assert.equal((await api(adm.url, '/api/admin/administradores', { id: ed.id, activo: false })).status, 200);
     ctx.m.pump(); ctx.m.pump(); ctx.m.pump();
-    const d2 = await api(caja.url, '/api/venta/descuento', { cart, linea_id: null, tipo: 'pct', valor: 5, clave: '2468' });
+    const d2 = await api(caja.url, '/api/venta/descuento', { cart, linea_id: null, tipo: 'pct', valor: 5, motivo: 'cliente frecuente', clave: '2468' });
     assert.equal(d2.json.error.codigo, 'CLAVE_INVALIDA');
   });
 });

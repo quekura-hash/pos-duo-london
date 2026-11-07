@@ -36,12 +36,12 @@ it('SC1 el supervisor y la almacenista con clave de caja inician sesión y cobra
   const c2 = (await api(caja.url, '/api/venta/nueva', {})).json.cart;
   const l2 = (await api(caja.url, '/api/venta/escanear', { cart: c2, codigo: JEANS })).json.linea;
   // …un descuento lo autoriza con su PROPIA clave (queda anotado quién) o con la de un supervisor; la clave de otra persona que no es supervisora no sirve
-  const ajena = await api(caja.url, '/api/venta/descuento', { cart: c2, linea_id: l2.linea_id, tipo: 'pct', valor: 10, clave: '4321' });
+  const ajena = await api(caja.url, '/api/venta/descuento', { cart: c2, linea_id: l2.linea_id, tipo: 'pct', valor: 10, motivo: 'cliente frecuente', clave: '4321' });
   assert.equal(ajena.status >= 400, true, 'la clave de otra cajera no autoriza');
-  const propia = await api(caja.url, '/api/venta/descuento', { cart: c2, linea_id: l2.linea_id, tipo: 'pct', valor: 10, clave: '9753' });
+  const propia = await api(caja.url, '/api/venta/descuento', { cart: c2, linea_id: l2.linea_id, tipo: 'pct', valor: 10, motivo: 'cliente frecuente', clave: '9753' });
   assert.equal(propia.status, 200, JSON.stringify(propia.json));
   assert.equal(propia.json.supervisor, 'Mario');
-  const bueno = await api(caja.url, '/api/venta/descuento', { cart: c2, linea_id: l2.linea_id, tipo: 'pct', valor: 15, clave: '1357' });
+  const bueno = await api(caja.url, '/api/venta/descuento', { cart: c2, linea_id: l2.linea_id, tipo: 'pct', valor: 15, motivo: 'cliente frecuente', clave: '1357' });
   assert.equal(bueno.status, 200, JSON.stringify(bueno.json));
   assert.equal(bueno.json.supervisor, 'Evelin');
   const v2 = await api(caja.url, '/api/venta/cobrar-efectivo', { cart: c2, recibido: 100000 });

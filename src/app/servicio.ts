@@ -566,7 +566,7 @@ export class ServicioCaja {
     return this.finalizarCobro(this.caja.cobrarConCreditoEmpleada(cartId, this.actor.usuario));
   }
   /** Descuento manual: lo autoriza un supervisor con su clave, o quien atiende con la suya (queda anotado quién). */
-  aplicarDescuento(cartId: string, d: { linea_id?: string | null; tipo: 'pct' | 'monto'; valor: number }, clave: string) {
+  aplicarDescuento(cartId: string, d: { linea_id?: string | null; tipo: 'pct' | 'monto'; valor: number; motivo: string }, clave: string) {
     const r = this.caja.aplicarDescuentoManual(cartId, d, clave, this.actor.usuario);
     return { ...r, carrito: this.vista(cartId) };
   }

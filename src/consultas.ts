@@ -367,6 +367,8 @@ export interface FilaDescuento {
   ref: string;
   concepto: string;
   supervisor: string | null;
+  /** Solo en un descuento manual: el motivo que escribió quien lo autorizó (null en promociones, cupones, empleadas y VIP, o en ventas anteriores al registro). */
+  motivo: string | null;
   /** Mercancía de la venta a precio de lista. */
   importe_venta: number;
   monto: number;
@@ -394,13 +396,14 @@ export function descuentosPorCaja(actor: Actor, ops: Op[], f: Filtro = {}): Repo
     if (permitidas !== 'todas' && !permitidas.some((c) => mismaCaja(c, v))) continue;
     if (!enPeriodo(v.ocurrio_en, f)) continue;
     const bruto = v.lineas.filter((l) => !l.tarjeta_regalo).reduce((a, l) => a + l.qty * l.precio_unit, 0);
-    const grupos = new Map<string, { tipo: FilaDescuento['tipo']; ref: string; concepto: string; monto: number }>();
+    const grupos = new Map<string, { tipo: FilaDescuento['tipo']; ref: string; concepto: string; monto: number; motivos: Set<string> }>();
     for (const l of v.lineas) {
       const det = l.descuento_detalle ?? (l.descuento > 0 ? [{ tipo: 'manual' as const, ref: '', nombre: 'Descuento', monto: l.descuento }] : []);
       for (const d of det) {
         const k = `${d.tipo}|${d.ref}`;
-        const g = grupos.get(k) ?? { tipo: d.tipo, ref: d.ref, concepto: d.nombre, monto: 0 };
+        const g = grupos.get(k) ?? { tipo: d.tipo, ref: d.ref, concepto: d.nombre, monto: 0, motivos: new Set<string>() };
         g.monto += d.monto;
+        if (d.motivo) g.motivos.add(d.motivo);
         grupos.set(k, g);
       }
     }
@@ -411,6 +414,7 @@ export function descuentosPorCaja(actor: Actor, ops: Op[], f: Filtro = {}): Repo
         tienda: v.tienda, caja: v.caja, folio: v.folio, sale_id: v.sale_id, fecha_local: fechaLocal(v.ocurrio_en), hora: local.slice(11, 16), cajero: v.cajero,
         tipo: g.tipo, ref: g.ref, concepto: g.tipo === 'manual' ? 'Descuento autorizado' : g.concepto,
         supervisor: g.tipo === 'manual' ? (g.ref ? (nombresSup.get(g.ref) ?? g.concepto.replace(/^Descuento autorizado por /, '')) : 'sin registro de supervisor') : null,
+        motivo: g.tipo === 'manual' && g.motivos.size ? [...g.motivos].join(' / ') : null,
         importe_venta: bruto, monto: g.monto, pct_bp: bruto > 0 ? Math.round((g.monto * 10000) / bruto) : 0, estado: v.estado,
       });
     }

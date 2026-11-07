@@ -270,19 +270,19 @@ porAlmacen('Promociones, cupones y descuentos con clave de supervisor en la caja
     const esc = s.svc.escanear(cart, '0002026090782') as any; // $899
     s.svc.escanear(cart, '7501234567890'); // $120
     const lin = esc.linea.linea_id;
-    assert.throws(() => s.svc.aplicarDescuento(cart, { linea_id: lin, tipo: 'pct', valor: 10 }, '0000'), { codigo: 'CLAVE_INVALIDA' });
-    assert.throws(() => s.svc.aplicarDescuento(cart, { linea_id: lin, tipo: 'pct', valor: 10 }, ''), { codigo: 'CLAVE_INVALIDA' });
-    assert.throws(() => s.svc.aplicarDescuento(cart, { linea_id: lin, tipo: 'pct', valor: 101 }, '4321'), { codigo: 'DESCUENTO_INVALIDO' });
-    const r = s.svc.aplicarDescuento(cart, { linea_id: lin, tipo: 'pct', valor: 10 }, '4321');
+    assert.throws(() => s.svc.aplicarDescuento(cart, { linea_id: lin, tipo: 'pct', valor: 10, motivo: 'cliente frecuente' }, '0000'), { codigo: 'CLAVE_INVALIDA' });
+    assert.throws(() => s.svc.aplicarDescuento(cart, { linea_id: lin, tipo: 'pct', valor: 10, motivo: 'cliente frecuente' }, ''), { codigo: 'CLAVE_INVALIDA' });
+    assert.throws(() => s.svc.aplicarDescuento(cart, { linea_id: lin, tipo: 'pct', valor: 101, motivo: 'cliente frecuente' }, '4321'), { codigo: 'DESCUENTO_INVALIDO' });
+    const r = s.svc.aplicarDescuento(cart, { linea_id: lin, tipo: 'pct', valor: 10, motivo: 'cliente frecuente' }, '4321');
     assert.deepEqual([r.supervisor, r.carrito.total], ['Ana Supervisora', 80900 + 12000]);
     // reemplaza el descuento anterior de la línea; sobre toda la venta se reparte sin perder un centavo
-    const todo = s.svc.aplicarDescuento(cart, { tipo: 'monto', valor: 10001 }, '4321');
+    const todo = s.svc.aplicarDescuento(cart, { tipo: 'monto', valor: 10001, motivo: 'cliente frecuente' }, '4321');
     assert.equal(todo.carrito.descuentos, 10001);
     assert.equal(todo.carrito.lineas.reduce((x: number, l: any) => x + l.descuento, 0), 10001);
     s.svc.quitarDescuento(cart);
     assert.equal(s.svc.vista(cart).descuentos, 0);
     // 100 %: la venta queda registrada sin cobro
-    s.svc.aplicarDescuento(cart, { tipo: 'pct', valor: 100 }, '4321');
+    s.svc.aplicarDescuento(cart, { tipo: 'pct', valor: 100, motivo: 'cliente frecuente' }, '4321');
     assert.equal(s.svc.vista(cart).total, 0);
     const venta = await s.svc.cobrarEfectivo(cart, 0, 0);
     assert.deepEqual([venta.venta.total, venta.venta.pagos.length, venta.venta.lineas.every((l) => l.descuento_detalle![0]!.nombre.includes('Ana Supervisora'))], [0, 0, true]);
@@ -293,7 +293,7 @@ porAlmacen('Promociones, cupones y descuentos con clave de supervisor en la caja
     ctx.m.pump();
     const c2 = s.svc.nuevaVenta();
     const e2 = s.svc.escanear(c2, '7501234567890') as any;
-    assert.throws(() => s.svc.aplicarDescuento(c2, { linea_id: e2.linea.linea_id, tipo: 'pct', valor: 5 }, '4321'), { codigo: 'CLAVE_INVALIDA' });
+    assert.throws(() => s.svc.aplicarDescuento(c2, { linea_id: e2.linea.linea_id, tipo: 'pct', valor: 5, motivo: 'cliente frecuente' }, '4321'), { codigo: 'CLAVE_INVALIDA' });
     assert.equal(supervisorPorClave([], '4321'), null);
   });
 });

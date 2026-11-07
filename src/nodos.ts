@@ -1896,10 +1896,13 @@ export class Caja {
    * Descuento manual autorizado con la clave de un supervisor o con la propia de quien atiende (sin tope: hasta 100 %). `linea_id` = una línea; sin él, toda la venta
    * (repartido proporcionalmente). Reemplaza el descuento manual anterior de esas líneas. Queda anotado quién lo autorizó.
    */
-  aplicarDescuentoManual(cartId: string, d: { linea_id?: string | null; tipo: 'pct' | 'monto'; valor: number }, clave: string, usuario = ''): { supervisor: string } {
+  aplicarDescuentoManual(cartId: string, d: { linea_id?: string | null; tipo: 'pct' | 'monto'; valor: number; motivo: string }, clave: string, usuario = ''): { supervisor: string } {
     const c = this.cartGet(cartId);
     this.exigirAbierto(c);
     this.exigirSinCobroPendiente(c);
+    // El motivo es obligatorio y se pide antes que la clave: un motivo vacío no gasta un intento de clave.
+    const motivo = String(d.motivo ?? '').replace(/\s+/g, ' ').trim().slice(0, 200);
+    if (motivo.length < 3) throw new ErrorDominio('MOTIVO_REQUERIDO', 'escriba el motivo del descuento');
     // Autoriza un supervisor con su clave o, si no es la de un supervisor, quien tiene la sesión con la SUYA (Vendedora-Cajera o almacenista que cobra): queda anotado quién lo hizo.
     const supClave = supervisorPorClave(this.idx.supervisores(), String(clave ?? ''), usuario);
     let sup: { id: string; nombre: string };
@@ -1917,7 +1920,7 @@ export class Caja {
     const partes = (monto % 100 === 0 ? repartirPesos : repartir)(monto, lista);
     objetivo.forEach((l, i) => {
       const resto = (l.descuento_detalle ?? (l.descuento > 0 ? [{ tipo: 'manual' as const, ref: '', nombre: 'Descuento', monto: l.descuento }] : [])).filter((x) => x.tipo !== 'manual');
-      l.descuento_detalle = [...resto, ...(partes[i]! > 0 ? [{ tipo: 'manual' as const, ref: sup.id, nombre: `Descuento autorizado por ${sup.nombre}`, monto: partes[i]! }] : [])];
+      l.descuento_detalle = [...resto, ...(partes[i]! > 0 ? [{ tipo: 'manual' as const, ref: sup.id, nombre: `Descuento autorizado por ${sup.nombre}`, monto: partes[i]!, motivo }] : [])];
     });
     this.recalcular(c);
     this.repo.kvSet(`cart:${cartId}`, c);

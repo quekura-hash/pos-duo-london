@@ -518,6 +518,11 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     await page.waitForSelector('#form-descuento');
     await page.check('input[name="desc-alcance"][value="venta"]');
     await page.fill('#desc-valor', '100');
+    await page.fill('#desc-clave', '4321');
+    await page.click('#desc-aplicar'); // sin motivo no se aplica, aunque la clave sea buena
+    await page.waitForFunction(() => /motivo del descuento/i.test(document.querySelector('#msg-desc')!.textContent!));
+    assert.notEqual(await page.textContent('#total'), '$0.00');
+    await page.fill('#desc-motivo', 'Promoción de aniversario');
     await page.fill('#desc-clave', '0000');
     await page.click('#desc-aplicar');
     await page.waitForFunction(() => /clave (de quien autoriza )?no es (válida|correcta)/.test(document.querySelector('#msg-desc')!.textContent!));
@@ -547,6 +552,7 @@ describe('[navegador real] Versión de prueba en una sola página (motor en memo
     await page.click('#desc-aplicar');
     await page.waitForFunction(() => /menor al precio actual/.test(document.querySelector('#msg-desc')!.textContent!));
     await page.fill('#desc-valor', '399');
+    await page.fill('#desc-motivo', 'Está en la raca');
     await page.fill('#desc-clave', '4321');
     await page.click('#desc-aplicar');
     await page.waitForFunction(() => document.querySelector('#total')!.textContent === '$399.00');

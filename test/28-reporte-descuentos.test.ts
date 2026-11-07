@@ -28,8 +28,8 @@ porAlmacen('Reporte de promociones y descuentos autorizados por supervisor', (al
     // 2) cupón 10 % sobre la mascada de $120 = $12
     const v2 = await cobrar(venta(['7501234567890'], (c) => { s.svc.aplicarCupon(c, 'DIEZ'); }));
     // 3) Ana: 50 % a la mascada ($60)   4) Beto: 100 % a toda la venta de la mascada ($120)
-    const v3 = await cobrar(venta(['7501234567890'], (c, lin) => { s.svc.aplicarDescuento(c, { linea_id: lin, tipo: 'pct', valor: 50 }, '1111'); }));
-    const v4 = await cobrar(venta(['7501234567890'], (c) => { s.svc.aplicarDescuento(c, { tipo: 'pct', valor: 100 }, '2222'); }));
+    const v3 = await cobrar(venta(['7501234567890'], (c, lin) => { s.svc.aplicarDescuento(c, { linea_id: lin, tipo: 'pct', valor: 50, motivo: 'prenda con mancha' }, '1111'); }));
+    const v4 = await cobrar(venta(['7501234567890'], (c) => { s.svc.aplicarDescuento(c, { tipo: 'pct', valor: 100, motivo: '  regalo   de la gerencia ' }, '2222'); }));
     // 5) otro cupón en una venta que luego se cancela: no debe sumar
     const v5 = await cobrar(venta(['7501234567890'], (c) => { s.svc.aplicarCupon(c, 'DIEZ'); }));
     s.svc.cancelarVenta(v5.sale_id, 'prueba');
@@ -73,5 +73,36 @@ porAlmacen('Reporte de promociones y descuentos autorizados por supervisor', (al
     ctx.m.pump(); ctx.m.pump();
     const r = descuentosPorCaja({ rol: 'admin', usuario: 'x' }, ctx.m.central.repo.ops());
     assert.deepEqual(r.porSupervisor.map((x) => [x.supervisor, x.monto]), [['sin registro de supervisor', 2000]]);
+  });
+  it('RD2 el descuento manual exige un motivo (antes que la clave), lo guarda con la venta y lo muestra el reporte de Descuentos y su Excel; promociones y cupones no llevan motivo', async (t) => {
+    const ctx = nuevoMundo(alm, politica());
+    t.after(ctx.limpiar);
+    const a = new ServicioAdmin({ central: ctx.m.central, actor: { rol: 'admin', usuario: 'galo' }, fuente: () => ctx.m.central.repo.ops(), cajas: [{ tienda: 'DUO', caja: 1 }] });
+    a.guardarSupervisor({ nombre: 'Ana Supervisora', clave: '1111' });
+    a.guardarPromocion({ id: '', tipo: 'cupon', nombre: 'Cupón 10 %', activa: true, tiendas: ['DUO'], inicio: null, fin: null, codigo: 'DIEZ', pct: 10 });
+    ctx.m.pump();
+    const s = servicioDe(ctx, 'DUO', 1);
+    const c = s.svc.nuevaVenta();
+    const lin = (s.svc.escanear(c, '7501234567890') as any).linea.linea_id;
+    // sin motivo (vacío, solo espacios o muy corto) no se aplica, y tampoco gasta un intento de clave
+    for (const motivo of ['', '   ', 'a', undefined as never]) assert.throws(() => s.svc.aplicarDescuento(c, { linea_id: lin, tipo: 'pct', valor: 10, motivo }, '1111'), { codigo: 'MOTIVO_REQUERIDO' });
+    assert.throws(() => s.svc.aplicarDescuento(c, { linea_id: lin, tipo: 'pct', valor: 10, motivo: 'cliente frecuente' }, '0000'), { codigo: 'CLAVE_INVALIDA' });
+    assert.equal(s.svc.vista(c).descuentos, 0, 'nada se aplicó');
+    s.svc.aplicarDescuento(c, { linea_id: lin, tipo: 'pct', valor: 50, motivo: '  Prenda   con mancha  ' }, '1111');
+    const venta = (await s.svc.cobrarEfectivo(c, 500000, 0)).venta;
+    assert.equal(venta.lineas[0]!.descuento_detalle![0]!.motivo, 'Prenda con mancha', 'se guarda limpio, con espacios normalizados');
+    const c2 = s.svc.nuevaVenta();
+    s.svc.escanear(c2, '7501234567890'); s.svc.aplicarCupon(c2, 'DIEZ');
+    const v2 = (await s.svc.cobrarEfectivo(c2, 500000, 0)).venta;
+    ctx.m.pump(); ctx.m.pump();
+    const r = a.descuentos();
+    assert.equal(r.filas.find((f) => f.sale_id === venta.sale_id)!.motivo, 'Prenda con mancha');
+    assert.equal(r.filas.find((f) => f.sale_id === v2.sale_id)!.motivo, null, 'un cupón no lleva motivo');
+    const hoja = a.hojaDescuentos();
+    assert.equal(hoja.encabezados.at(-1), 'Motivo');
+    assert.deepEqual(hoja.filas.filter((f) => f.length).map((f) => f.at(-1)).filter(Boolean), ['Prenda con mancha']);
+    // un descuento hecho antes de existir el motivo se sigue leyendo (sin motivo)
+    const antes = descuentosPorCaja({ rol: 'admin', usuario: 'x' } as never, ctx.m.central.repo.ops());
+    assert.ok(antes.filas.every((f) => f.motivo === null || typeof f.motivo === 'string'));
   });
 });
