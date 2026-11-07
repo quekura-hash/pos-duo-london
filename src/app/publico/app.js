@@ -4446,11 +4446,12 @@ function reglaTexto(p) {
 }
 function reglaBase(p) {
   const acum = p.acumulable === false ? ' · una sola vez por compra' : ' · acumulable';
-  if (p.tipo === 'nxm') return `Lleva ${p.lleva}, paga ${p.paga} (${alcanceTexto(p.alcance ?? {})})${acum}`;
-  if (p.tipo === 'paquete') return `Lleva ${p.lleva} por ${mxn(p.precio)} (${alcanceTexto(p.alcance ?? {})})${acum}`;
-  if (p.tipo === 'por_cada') return `Por cada ${mxn(p.cada)} de compra, ${mxn(p.descuenta)} de descuento${acum}`;
+  const sinVF = p.venta_final === false ? ' · sin leyenda de venta final' : '';
+  if (p.tipo === 'nxm') return `Lleva ${p.lleva}, paga ${p.paga} (${alcanceTexto(p.alcance ?? {})})${acum}${sinVF}`;
+  if (p.tipo === 'paquete') return `Lleva ${p.lleva} por ${mxn(p.precio)} (${alcanceTexto(p.alcance ?? {})})${acum}${sinVF}`;
+  if (p.tipo === 'por_cada') return `Por cada ${mxn(p.cada)} de compra, ${mxn(p.descuenta)} de descuento${acum}${sinVF}`;
   const q = p.pct !== undefined ? `${p.pct} %` : mxn(p.monto);
-  return `Código ${p.codigo}: ${q} de descuento${p.minimo ? ` en compras desde ${mxn(p.minimo)}` : ''}${p.usos_max ? ` · máx. ${p.usos_max} uso(s)` : ''}`;
+  return `Código ${p.codigo}: ${q} de descuento${p.minimo ? ` en compras desde ${mxn(p.minimo)}` : ''}${p.usos_max ? ` · máx. ${p.usos_max} uso(s)` : ''}${sinVF}`;
 }
 const tiendasTexto = (p) => (p.tiendas?.length ? p.tiendas.map((t) => S.tiendasInfo?.find((x) => x.tienda === t)?.nombre ?? t).join(' y ') : 'Todas');
 const NOM_TIPO = { nxm: 'Lleva X, paga Y', paquete: 'Paquete a precio fijo', por_cada: 'Por cada $X de compra', cupon: 'Cupón' };
@@ -4535,6 +4536,7 @@ async function abrirPromo(p, preset) {
         <p class="nota">Un cupón no necesita elegir artículos: descuenta sobre toda la compra.</p>
       </div>
       <div data-tipo="nxm paquete por_cada"><label style="margin-top:8px"><input type="checkbox" id="pr-acumulable" ${q.acumulable === false ? '' : 'checked'}> <b>Acumulable</b>: se repite por cada grupo completo (8 piezas de un paquete de 4 = 2 paquetes; $2,650 con «por cada $500, $50» = $250 de descuento). Sin marcar, aplica una sola vez por compra.</label></div>
+      <label style="display:block;margin-top:8px"><input type="checkbox" id="pr-venta-final" ${q.venta_final === false ? '' : 'checked'}> <b>Imprimir «Venta final, no cambios ni devoluciones» en el ticket</b>. Desmárquela en promociones donde sí se aceptan cambios (por ejemplo, accesorios): si la compra solo lleva el descuento de esta promoción, el ticket no trae esa leyenda.</label>
       <p class="nota">En cada compra aplica una sola promoción o cupón (la que más descuento dé); no se combinan entre sí.</p>
       <fieldset style="border:1px solid var(--borde);border-radius:8px"><legend>Regalo al final del ticket</legend>
         <label><input type="checkbox" id="pr-regalo" ${q.regalo ? 'checked' : ''}> <b>Imprimir al final del ticket</b> (la promoción no se aplica sola: se regala con un QR para la próxima compra)</label>
@@ -4594,6 +4596,7 @@ async function abrirPromo(p, preset) {
     if (!body.tiendas.length) return err('Elija en qué tienda vale (una o ambas).');
     if (!$('#pr-sin-fin').checked && !body.fin) return err('Elija la fecha de término o marque «Sin fecha límite».');
     if (t !== 'cupon') body.acumulable = $('#pr-acumulable').checked;
+    body.venta_final = $('#pr-venta-final').checked;
     if (t === 'nxm' || t === 'paquete') {
       if (t === 'nxm') { body.lleva = Number($('#pr-lleva').value); body.paga = Number($('#pr-paga').value); }
       else { body.lleva = Number($('#pr-lleva2').value); body.precio = parseMXN($('#pr-precio').value); if (body.precio === null) return err('Escriba el precio del paquete en pesos.'); }

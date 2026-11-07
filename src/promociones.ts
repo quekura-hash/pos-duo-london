@@ -31,6 +31,8 @@ export interface Promocion {
   minimo?: number;
   /** Lleva-paga, paquete y por-cada: true (o sin dato) = se repite por cada grupo completo (8 piezas de un paquete de 4 = 2 paquetes); false = aplica una sola vez por compra. */
   acumulable?: boolean;
+  /** false = el ticket NO imprime «VENTA FINAL NO CAMBIOS NI DEVOLUCIONES» por el descuento de esta promoción (sin dato o true = sí lo imprime, como siempre). */
+  venta_final?: boolean;
   /** Veces que se puede canjear en total (null = sin límite). */
   usos_max?: number | null;
   /**
@@ -97,7 +99,7 @@ export function validarPromocion(p: Promocion, otras: Promocion[], tiendasValida
       regalo = { compra_minima: p.regalo.compra_minima, vigencia: { modo: 'dias', dias: v.dias } };
     } else return mal('indique cuánto tiempo vale lo que se regala (días o fechas)');
   }
-  const base: Promocion = { id: p.id, tipo: p.tipo, nombre, activa: !!p.activa, tiendas, inicio, fin, ...(p.tipo !== 'cupon' ? { acumulable: p.acumulable !== false } : {}), ...(regalo ? { regalo } : {}) };
+  const base: Promocion = { id: p.id, tipo: p.tipo, nombre, activa: !!p.activa, tiendas, inicio, fin, ...(p.tipo !== 'cupon' ? { acumulable: p.acumulable !== false } : {}), ...(p.venta_final === false ? { venta_final: false } : {}), ...(regalo ? { regalo } : {}) };
   if (p.tipo === 'nxm' || p.tipo === 'paquete') {
     if (p.tipo === 'nxm' && (!entero(p.lleva, 2) || !entero(p.paga, 1) || p.paga! >= p.lleva!)) return mal('«lleva» debe ser 2 o más y «paga» un número menor que «lleva»');
     if (p.tipo === 'paquete' && (!entero(p.lleva, 2) || !entero(p.precio, 0))) return mal('el paquete lleva 2 piezas o más y un precio total en pesos');
@@ -274,7 +276,7 @@ export function calcularDescuentos(lineas: Linea[], promos: Promocion[], codigoC
   if (mejor) {
     const deEmpleada = mejor.p.id === ID_DESCUENTO_EMPLEADA;
     const deVip = mejor.p.id === ID_DESCUENTO_VIP;
-    for (const [l, m] of mejor.por) l.descuento_detalle!.push({ tipo: deEmpleada ? 'empleada' : deVip ? 'vip' : esCanje(mejor.p) ? 'cupon' : 'promo', ref: deVip ? vip!.id : mejor.p.id, nombre: deEmpleada ? `Descuento de empleada ${l.uniforme ? empleada!.pct_uniforme : empleada!.pct}%${l.uniforme ? ' (uniforme)' : ''}` : mejor.p.nombre, monto: m });
+    for (const [l, m] of mejor.por) l.descuento_detalle!.push({ tipo: deEmpleada ? 'empleada' : deVip ? 'vip' : esCanje(mejor.p) ? 'cupon' : 'promo', ref: deVip ? vip!.id : mejor.p.id, nombre: deEmpleada ? `Descuento de empleada ${l.uniforme ? empleada!.pct_uniforme : empleada!.pct}%${l.uniforme ? ' (uniforme)' : ''}` : mejor.p.nombre, monto: m, ...(mejor.p.venta_final === false && !deEmpleada && !deVip ? { sin_venta_final: true } : {}) });
     if (!esCanje(mejor.p) && !deEmpleada && !deVip) aplicadas.push({ promo_id: mejor.p.id, nombre: mejor.p.nombre, tipo: mejor.p.tipo, monto: mejor.total });
   }
   if (cupon && !cupon.motivo) {

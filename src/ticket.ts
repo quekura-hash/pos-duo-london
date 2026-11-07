@@ -103,7 +103,7 @@ export interface LineaTicket {
   descuento: number;
   importe: number;
   /** Origen del descuento (promoción, cupón o descuento autorizado). */
-  descuentos?: { tipo: 'manual' | 'promo' | 'cupon' | 'empleada' | 'vip'; nombre: string; monto: number }[];
+  descuentos?: { tipo: 'manual' | 'promo' | 'cupon' | 'empleada' | 'vip'; nombre: string; monto: number; motivo?: string }[];
   /** Venta o recarga de tarjeta de regalo: no lleva Item #, marca, estilo ni lote. */
   tarjeta_regalo?: boolean;
   /** Meses de vigencia de la tarjeta vendida (si falta, 12). */
@@ -173,11 +173,14 @@ export const encabezadoDe = (cfg: NegocioCfg): string[] => [cfg.direccion, cfg.c
 
 export const AVISO_VESTIDO_NOCHE = 'EN VESTIDO DE NOCHE NO HAY CAMBIOS NI DEVOLUCIONES';
 export const AVISO_VENTA_FINAL = 'VENTA FINAL NO CAMBIOS NI DEVOLUCIONES';
-/** Avisos en letras grandes de un ticket: lleva vestido de noche y/o algún descuento (cualquiera: manual, promoción, cupón, empleada o VIP). */
+/**
+ * Avisos en letras grandes de un ticket: lleva vestido de noche y/o algún descuento (manual, promoción, cupón, empleada o VIP). Una promoción puede pedir que su
+ * descuento NO imprima «venta final» (`sin_venta_final`): si todos los descuentos del ticket son de ese tipo, el aviso no sale.
+ */
 export function avisosGrandes(v: Pick<Venta, 'lineas'>): string[] {
   const out: string[] = [];
   if (v.lineas.some((l) => !l.tarjeta_regalo && /\bnoche\b/.test(String(l.departamento ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()))) out.push(AVISO_VESTIDO_NOCHE);
-  if (v.lineas.some((l) => l.descuento > 0)) out.push(AVISO_VENTA_FINAL);
+  if (v.lineas.some((l) => l.descuento > 0 && (!l.descuento_detalle?.length || l.descuento_detalle.some((d) => !d.sin_venta_final)))) out.push(AVISO_VENTA_FINAL);
   return out;
 }
 export function construirTicket(v: Venta, cfg: NegocioCfg = NEGOCIOS[v.tienda]!, reimpresion = 0, negocios = NEGOCIOS, cambio?: { dev: Devolucion; origen: Venta }): Ticket {
@@ -188,7 +191,7 @@ export function construirTicket(v: Venta, cfg: NegocioCfg = NEGOCIOS[v.tienda]!,
     fecha: `${d}/${mo}/${y}`, hora: local.slice(11, 16), folio: v.folio, ...(v.serie ? { serie: v.serie } : {}), ...(v.credito ? { credito: v.credito } : {}), codigo_ticket: codigoTicket(v.tienda, v.caja, v.folio, negocios, v.serie),
     lineas: v.lineas.map((l) => ({
       item_no: l.item_no, codigo: l.codigo, descripcion: l.descripcion, marca: l.marca, estilo: l.estilo, lote: l.lote,
-      qty: l.qty, precio_unit: l.precio_unit, descuento: l.descuento, importe: l.importe, descuentos: l.descuento_detalle?.map((d) => ({ tipo: d.tipo, nombre: d.nombre, monto: d.monto })), tarjeta_regalo: l.tarjeta_regalo ? true : undefined, ...(l.tarjeta_regalo?.meses ? { vigencia_meses: l.tarjeta_regalo.meses } : {}),
+      qty: l.qty, precio_unit: l.precio_unit, descuento: l.descuento, importe: l.importe, descuentos: l.descuento_detalle?.map((d) => ({ tipo: d.tipo, nombre: d.nombre, monto: d.monto, ...(d.motivo ? { motivo: d.motivo } : {}) })), tarjeta_regalo: l.tarjeta_regalo ? true : undefined, ...(l.tarjeta_regalo?.meses ? { vigencia_meses: l.tarjeta_regalo.meses } : {}),
     })),
     total: v.total,
     ...(cambio ? { cambio: cambioDeTicket(v, cambio.dev, cambio.origen, negocios) } : {}),
@@ -322,6 +325,9 @@ function armarTicket(t: Ticket): string[] {
       } else L.push(dos('Descuento', `-${formatoMXN(l.descuento)}`, c));
     }
   }
+  // Motivo del descuento manual: una sola vez en el ticket (un descuento a toda la venta se reparte en varios renglones con el mismo motivo).
+  const motivos = [...new Set(t.lineas.flatMap((l) => (l.descuentos ?? []).map((d) => d.motivo).filter((m): m is string => !!m)))];
+  for (const m of motivos) L.push(...envolver(`Motivo del descuento: ${m}`, c));
   if (t.cambio) {
     // Lo recibido a cambio baja el total de la operación en este mismo ticket; no es dinero ni un saldo a favor.
     L.push(regla, 'SE RECIBIÓ A CAMBIO:');
