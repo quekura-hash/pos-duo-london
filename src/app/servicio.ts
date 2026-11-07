@@ -1942,7 +1942,7 @@ export class ServicioAdmin {
     }));
   }
   reporte(f: Filtro = {}) {
-    return reporteConsolidado(this.actor, this.fuente(), { fees: true, devoluciones: true, ...f });
+    return reporteConsolidado(this.actor, this.fuente(), { devoluciones: true, ...f });
   }
   /**
    * Historial de ventas de todas las tiendas y cajas, con las importadas del POS anterior marcadas (`historico`; de ellas solo se conserva folio, fecha,
@@ -1953,7 +1953,7 @@ export class ServicioAdmin {
     const { folio: texto, origen, ...filtro } = f;
     const buscado = texto === undefined || texto === '' ? null : interpretarFolio(texto);
     if (texto !== undefined && texto !== '' && !buscado) throw new ErrorDominio('DATOS_INVALIDOS', 'el folio no es válido: escriba el número o el código del ticket (por ejemplo D2-000003)');
-    const filas = this.reporte({ ...filtro, historicas: origen !== 'nuevo', fees: false, devoluciones: false }).filas
+    const filas = this.reporte({ ...filtro, historicas: origen !== 'nuevo', devoluciones: false }).filas
       .filter((r) => (origen === 'anterior' ? r.historico : true))
       
       .filter((r) => !buscado || (r.folio === buscado.folio && (buscado.serie === 'CR') === !!r.serie && (!buscado.tienda || (!r.historico && r.tienda === buscado.tienda)) && (buscado.caja === undefined || r.caja === buscado.caja)))

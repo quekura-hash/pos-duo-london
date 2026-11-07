@@ -89,12 +89,11 @@ export function reporteDeCaja(ops: Op[], tienda: string, cajaGuardada: number, p
   const caja = especial ? cajaGuardada - BASE_ESPECIAL : cajaGuardada;
   const { desde, hasta: finMes } = rangoDelPeriodo(periodo);
   const hasta = hastaFecha && hastaFecha < finMes ? hastaFecha : finMes;
-  const r = reporteConsolidado({ rol: 'admin', usuario: 'reporte-mensual' } as never, conVentasCorregidas(ops), { desde, hasta, cajas: [{ tienda, caja }], historicas: true, fees: true, devoluciones: true });
+  const r = reporteConsolidado({ rol: 'admin', usuario: 'reporte-mensual' } as never, conVentasCorregidas(ops), { desde, hasta, cajas: [{ tienda, caja }], historicas: true, devoluciones: true });
   const vivas = r.filas.filter((f) => f.estado !== 'cancelada');
   const suma = (k: 'efectivo' | 'tarjeta' | 'dolares' | 'tarjeta_regalo' | 'otro' | 'mixto' | 'credito') => vivas.reduce((a, f) => a + f.montos[k], 0);
-  // tickets: ni una devolución ni el fee de un depósito cuentan como ticket
   return {
-    tienda, caja, especial, periodo, desde, hasta, tickets: vivas.filter((f) => f.tipo_ticket !== 'devolucion' && f.fee_deposito === undefined).length, piezas: vivas.reduce((a, f) => a + f.piezas, 0), total: vivas.reduce((a, f) => a + f.venta_neta, 0),
+    tienda, caja, especial, periodo, desde, hasta, tickets: vivas.filter((f) => f.tipo_ticket !== 'devolucion').length, piezas: vivas.reduce((a, f) => a + f.piezas, 0), total: vivas.reduce((a, f) => a + f.venta_neta, 0),
     efectivo: suma('efectivo'), tarjeta: suma('tarjeta'), dolares: suma('dolares'), tarjeta_regalo: suma('tarjeta_regalo'), otros: suma('otro'), mixto: suma('mixto'), credito_empleadas: suma('credito'), creditos: vivas.filter((f) => f.serie === 'CR').length,
     fees: vivas.filter((f) => f.tipo_ticket === 'fee').reduce((a, f) => a + f.venta_neta, 0), cambios: vivas.filter((f) => f.tipo_ticket === 'cambio').length,
     abonos: vivas.filter((f) => f.tipo_ticket === 'abono').length, abonos_total: vivas.filter((f) => f.tipo_ticket === 'abono').reduce((a, f) => a + f.venta_neta, 0),

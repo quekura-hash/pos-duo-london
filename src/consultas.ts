@@ -15,8 +15,6 @@ export interface Filtro {
   historicas?: boolean;
   /** Solo estas tiendas (además de `cajas`, si viene). */
   tiendas?: string[];
-  /** Incluir los fees por daño retenidos de depósitos (filas `tipo_ticket: 'fee'`): Análisis y Reportes sí; el Historial de ventas no (no son tickets). */
-  fees?: boolean;
   /**
    * Incluir cada devolución y cada cambio como una fila en NEGATIVO (`tipo_ticket: 'devolucion'`, con su propio folio): así el total del periodo es lo realmente vendido
    * y no cuenta dos veces lo que luego se devolvió. Reportes, Análisis y el reporte de la contadora sí; el Historial de ventas no (no son tickets de venta).
@@ -59,8 +57,6 @@ export interface FilaVenta {
   vende_tarjeta_regalo?: boolean;
   /** Ticket de venta que es el cambio de mercancía de una devolución anterior (su crédito se pagó con la mercancía devuelta). */
   cambio_de_mercancia?: boolean;
-  /** Solo fees retenidos de un depósito en garantía: su folio (DEP-D1-0001). No es un ticket: no cuenta como venta ni como ticket. */
-  fee_deposito?: string;
   /** Cuánto se cobró por cada forma de pago (centavos MXN). `mixto` = pago mixto de una venta histórica sin desglose. */
   montos: MontosPago;
 }
@@ -165,23 +161,7 @@ export function ventasPorCaja(actor: Actor, ops: Op[], f: Filtro = {}): FilaVent
       });
     }
   }
-  // Fees por daño retenidos de depósitos: ingreso por daño (NO venta, NO ticket); no entra efectivo nuevo, así que sus montos por forma de pago van en cero.
-  if (f.fees) {
-    const folios = new Map<string, string>();
-    for (const o of ops) if (o.tipo === 'deposito.recibido') folios.set(o.payload.deposito_id, o.payload.folio);
-    for (const o of ops) {
-      if (o.tipo !== 'deposito.fee') continue;
-      const p = o.payload;
-      if (permitidas !== 'todas' && !permitidas.some((c) => mismaCaja(c, p))) continue;
-      if (f.tiendas && !f.tiendas.includes(p.tienda)) continue;
-      if (!enPeriodo(o.ocurrio_en, f)) continue;
-      filas.push({
-        tienda: p.tienda, caja: p.caja, folio: 0, sale_id: `fee-deposito:${o.op_id}`, fecha_local: fechaLocal(o.ocurrio_en), cajero: p.usuario ?? '', vendedora: '', total: p.monto, venta_neta: p.monto, total_mercancia: 0,
-        estado: 'confirmada', piezas: 0, pago: 'Depósito retenido', tipo_ticket: 'fee', historico: false, fee_deposito: p.folio ?? folios.get(p.deposito_id) ?? '',
-        hora: new Date(Date.parse(o.ocurrio_en) - 7 * 3600_000).toISOString().slice(11, 16), montos: sinMontos(),
-      });
-    }
-  }
+  // Los fees por daño retenidos de un depósito NO son venta ni ingreso (pagan el arreglo de la prenda): no aparecen en los reportes; solo entran al efectivo esperado del corte.
   if (actor.rol === 'admin' && f.historicas !== false) {
     const descartadas = historicasDuplicadas(ops); // copias de la misma venta importadas con otra caja: no cuentan
     for (const o of ops) {
@@ -219,7 +199,6 @@ export function reporteConsolidado(actor: Actor, ops: Op[], f: Filtro = {}): Con
     if (r.estado === 'cancelada') continue;
     const k = `${r.tienda}/${r.caja}${r.historico ? '/hist' : ''}`;
     const a = porCaja.get(k) ?? { tienda: r.tienda, caja: r.caja, tickets: 0, total: 0, total_mercancia: 0, ...(r.historico ? { historico: true } : {}) };
-    if (r.fee_deposito !== undefined) { a.total += r.venta_neta; porCaja.set(k, a); continue; } // fee de un depósito: ingreso por daño, no es ticket
     if (r.tipo_ticket === 'devolucion') { a.total += r.venta_neta; a.total_mercancia += r.total_mercancia; porCaja.set(k, a); continue; } // devolución o cambio: resta, no es ticket
     a.tickets++;
     a.total += r.venta_neta;

@@ -3,11 +3,12 @@ import { it } from 'node:test';
 import { ServicioAdmin } from '../src/app/servicio.ts';
 import { hojaDetalleVentas, hojaResumenVentas } from '../src/inventario.ts';
 import { codigoTicketDeposito } from '../src/depositos.ts';
+import { correoDelReporte, reporteDeCaja } from '../src/reporte-contadora.ts';
 import { fechaLocal } from '../src/util.ts';
 import { nuevoMundo, politica, porAlmacen, vender } from './ayudas/comun.ts';
 
-porAlmacen('Fees por daño de depósitos en Análisis y Reportes', (alm) => {
-  it('FD1 el fee retenido es ingreso por daño: suma en Análisis, Reportes y Excel, pero no es ticket ni sale en el Historial', (t) => {
+porAlmacen('Fees por daño de depósitos: no son venta ni ingreso; solo quedan en el efectivo del corte', (alm) => {
+  it('FD1 el fee retenido paga el arreglo de la prenda: no suma a Análisis, Reportes, Excel, ventas netas ni al reporte de la contadora, y SÍ queda en el efectivo esperado y en el bloque de depósitos del corte', (t) => {
     const ctx = nuevoMundo(alm, politica());
     t.after(ctx.limpiar);
     const { m, items } = ctx;
@@ -20,35 +21,35 @@ porAlmacen('Fees por daño de depósitos en Análisis y Reportes', (alm) => {
     m.pump(); m.pump(); m.pump();
     const hoy = fechaLocal(m.reloj.now());
 
-    // Análisis: el fee cuenta en el total pero no como ticket; las ventas siguen igual
+    // Análisis: solo la venta
     const mes = a.analisisVentas({ agrupar: 'mes', desde: `${hoy.slice(0, 4)}-01-01`, hasta: `${hoy.slice(0, 4)}-12-31` });
     const fila = mes.filas.find((f) => f.clave === hoy.slice(0, 7))!;
-    assert.deepEqual([fila.tickets, fila.total_ventas, fila.fees, fila.total], [1, venta.total, 15000, venta.total + 15000]);
+    assert.deepEqual([fila.tickets, fila.total_ventas, fila.fees, fila.total], [1, venta.total, 0, venta.total]);
 
-    // Reportes: la fila existe como fee, el total la incluye y los tickets no
+    // Reportes y Excel: ninguna fila ni total de fee
     const r = a.reporte({});
-    const fee = r.filas.find((x) => x.tipo_ticket === 'fee')!;
-    assert.deepEqual([fee.fee_deposito, fee.total, fee.total_mercancia, fee.piezas, fee.estado], ['DEP-D1-0001', 15000, 0, 0, 'confirmada']);
-    assert.equal(r.porCaja[0]!.tickets, 1, 'el fee no es un ticket');
-    assert.equal(r.total, venta.total + 15000);
-    assert.equal(r.total_mercancia, venta.total, 'ni es mercancía');
-
-    // Excel de la contadora
-    const det = hojaDetalleVentas(r).filas.find((f) => f[2] === 'Fee por daño')!;
-    assert.deepEqual([det[1], det[4]], ['DEP-D1-0001', 150]);
+    assert.equal(r.filas.filter((x) => x.tipo_ticket === 'fee').length, 0);
+    assert.equal(r.porCaja[0]!.tickets, 1);
+    assert.equal(r.total, venta.total);
+    assert.equal(hojaDetalleVentas(r).filas.filter((f) => f[2] === 'Fee por daño').length, 0);
     const diaXls = hojaResumenVentas(r).filas[0]!;
-    assert.deepEqual([diaXls[2], diaXls[11], diaXls[12]], [1, 150, (venta.total + 15000) / 100], 'tickets 1; fees 150; total con el fee');
+    assert.deepEqual([diaXls[2], diaXls[11], diaXls[12]], [1, 0, venta.total / 100]);
 
-    // El Historial de ventas no lista fees (no son tickets que se puedan abrir) y su resumen no los cuenta
-    const h = a.historialVentas({});
-    assert.equal(h.ventas.filter((x) => x.tipo_ticket === 'fee').length, 0);
-    assert.equal(h.resumen.tickets, 1);
-    // Resumen del día de Administración: los depósitos aparecen aparte de las ventas (que no se mueven)
+    // Reporte de la contadora: ni suma ni menciona el fee (aunque las operaciones de depósito estuvieran presentes)
+    const rc = reporteDeCaja(m.central.repo.ops(), 'DUO', 1, hoy.slice(0, 7));
+    assert.deepEqual([rc.tickets, rc.fees, rc.total], [1, 0, venta.total]);
+    assert.doesNotMatch(correoDelReporte(rc).texto, /Fees/);
+
+    // Resumen del día y corte: ventas netas sin el fee; el fee aparece en el bloque de depósitos y el efectivo esperado lo conserva
     const dia = a.resumenDia();
     assert.deepEqual([dia.total.depositos.recibidos, dia.total.depositos.devueltos, dia.total.depositos.fees, dia.total.depositos.aplicados, dia.total.depositos.pendiente], [30000, 15000, 15000, 0, 0]);
     assert.equal(dia.total.ventas_netas, venta.total, 'los depósitos no cambian las ventas netas');
-    assert.equal(dia.tiendas.find((x: any) => x.tienda === 'DUO')!.depositos.recibidos_n, 1);
-    // devolver el resto del depósito no genera ingreso: solo hay UNA fila de fee
-    assert.equal(r.filas.filter((x) => x.tipo_ticket === 'fee').length, 1);
+    const corte = caja.corteEnVivo(hoy);
+    assert.equal(corte.ventas_netas, venta.total);
+    assert.equal(corte.depositos.fees, 15000);
+    // efectivo: venta + depósito recibido − depósito devuelto (el fee retenido queda en el cajón: 30000 − 15000)
+    assert.equal(corte.efectivo_esperado, venta.total + 30000 - 15000, 'el fee queda dentro del efectivo esperado');
+    // el Historial de ventas tampoco lo lista
+    assert.equal(a.historialVentas({}).ventas.filter((x) => x.tipo_ticket === 'fee').length, 0);
   });
 });
