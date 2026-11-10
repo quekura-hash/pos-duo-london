@@ -743,8 +743,10 @@ export class ServicioCaja {
       folio = f.folio; cajaBuscada = f.caja; serieBuscada = f.serie;
     }
     // Un día a la vez y dentro de los últimos 2 meses. Un folio o un artículo escaneado es una búsqueda puntual (no un listado por periodo): solo devuelve lo reciente.
-    if (q.fecha) this.exigirFechaReciente(q.fecha);
-    else if (!(q.folio !== undefined && q.folio !== null && String(q.folio).trim() !== '') && !q.codigo && !q.item_id) throw new ErrorDominio('DATOS_INVALIDOS', 'indique la fecha (un día), un folio o escanee el artículo');
+    // Con un folio NO se limita al día que traiga la pantalla (por omisión, hoy): el ticket puede ser de cualquier día de los últimos 2 meses.
+    const porFolio = folio !== undefined;
+    if (q.fecha && !porFolio) this.exigirFechaReciente(q.fecha);
+    else if (!porFolio && !q.codigo && !q.item_id) throw new ErrorDominio('DATOS_INVALIDOS', 'indique la fecha (un día), un folio o escanee el artículo');
     let item_id = q.item_id;
     if (!item_id && q.codigo) {
       const art = this.caja.buscarPorCodigo(q.codigo.trim());
@@ -753,8 +755,8 @@ export class ServicioCaja {
       item_id = art[0]!.item_id;
     }
     const aUtc = (hhmm: string) => new Date(Date.parse(`${q.fecha}T${hhmm}:00Z`) + 7 * 3600_000).toISOString();
-    const desde = q.fecha ? aUtc(q.desde || '00:00') : undefined;
-    const hasta = q.fecha ? aUtc(q.hasta || '23:59').replace(':00.000Z', ':59.999Z') : undefined;
+    const desde = q.fecha && !porFolio ? aUtc(q.desde || '00:00') : undefined;
+    const hasta = q.fecha && !porFolio ? aUtc(q.hasta || '23:59').replace(':00.000Z', ':59.999Z') : undefined;
     const r = this.caja.buscarVentas({ desde, hasta, item_id, folio, serie: serieBuscada });
     if (cajaBuscada !== undefined) r.resultados = r.resultados.filter((v) => v.caja === cajaBuscada);
     const limite = this.limiteHistorial();

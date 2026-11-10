@@ -430,7 +430,8 @@ const folioDe = (x) => `${x.serie ? 'CR-' : ''}${String(x.folio).padStart(6, '0'
 const LETRAS_TIENDA = { DUO: 'D', LON: 'L' };
 const letraTienda = (t) => LETRAS_TIENDA[t] ?? '';
 function interpretarFolioUI(texto) {
-  const t = String(texto).trim();
+  // El lector de códigos puede anteponer «{B» y el teclado cambiar el guion por otro símbolo: se limpia igual que en el servidor.
+  const t = String(texto).trim().toUpperCase().replace(/^[^A-Z0-9\s]*\{?B(?=CR|[A-Z]\s*\d)/, '').replace(/[^A-Z0-9\s]+/g, '-');
   if (/^\d{1,9}$/.test(t)) return Number(t) > 0 ? { folio: Number(t) } : null;
   const m = /^([A-Za-z])\s*(\d)\s*-?\s*(\d{1,9})$/.exec(t);
   return m && Number(m[3]) > 0 ? { folio: Number(m[3]), caja: Number(m[2]), letra: m[1].toUpperCase() } : null;
@@ -1860,25 +1861,29 @@ const minHistorialCaja = () => new Date(Date.parse(S.estado.fecha_local + 'T12:0
 
 async function vistaVentas() {
   const hoy = S.estado.fecha_local;
-  const fecha = S.fechaHistorial ?? hoy;
-  const j = await api(`/api/ventas?fecha=${encodeURIComponent(fecha)}`);
+  let fecha = S.fechaHistorial ?? hoy;
   const folioBuscado = (S.folioHistorial ?? '').trim();
   // El folio se busca como lo imprime el ticket (D2-000003) o suelto (3). Si es de otra caja, se avisa en cuál se hizo.
   const pf = folioBuscado ? interpretarFolioUI(folioBuscado) : null;
   const mismaCaja = (r) => !pf || (r.folio === pf.folio && (pf.caja === undefined || (r.caja === pf.caja && (!pf.letra || pf.letra === letraTienda(r.tienda)))));
-  const filas = folioBuscado ? (pf ? j.ventas.filter(mismaCaja) : []) : j.ventas;
   let avisoFolio = '';
   let anteriores = [];
+  let hallado = null;
   if (folioBuscado && !pf) avisoFolio = 'El folio no es válido: escriba el número o el código del ticket (por ejemplo D2-000003).';
   else if (pf) {
     try {
       const o = await api(`/api/ventas/buscar?folio=${encodeURIComponent(folioBuscado)}`);
+      // Con un folio la pantalla va al día de esa venta (la fecha que traía solo era la de hoy).
+      hallado = o.resultados.find((v) => v.propia && v.folio === pf.folio && (pf.caja === undefined || v.caja === pf.caja)) ?? null;
+      if (hallado) { fecha = new Date(Date.parse(hallado.ocurrio_en) - 7 * 3600e3).toISOString().slice(0, 10); S.fechaHistorial = fecha; }
       const ajenas = o.resultados.filter((v) => !v.propia);
       if (o.aviso) avisoFolio = o.aviso;
       else if (ajenas.length) avisoFolio = `${ajenas.length === 1 ? 'Esa venta es' : 'Esas ventas son'} de la ${[...new Set(ajenas.map((v) => `Caja ${v.caja} (${v.codigo_ticket})`))].join(' y de la ')}. Realice la operación en ${ajenas.length === 1 ? 'esa caja' : 'esas cajas'}.`;
     } catch { /* sin conexión con el hub: solo se ve esta caja */ }
   }
   if (pf && pf.caja === undefined) { try { anteriores = (await api(`/api/ventas/anteriores?folio=${encodeURIComponent(folioBuscado)}`)).ventas; } catch { /* sin datos del POS anterior */ } }
+  const j = await api(`/api/ventas?fecha=${encodeURIComponent(fecha)}`);
+  const filas = folioBuscado ? (pf ? j.ventas.filter(mismaCaja) : []) : j.ventas;
   $('#vista').innerHTML = `<div class="titulo-vista">${ico('clock')}<h1>Historial de mi caja</h1></div><div id="mensaje-hist" class="mensaje" role="status" aria-live="polite"></div>
     <form id="form-historial" class="filtros panel" autocomplete="off"><label>Fecha <input type="date" id="hist-fecha" value="${esc(fecha)}" min="${minHistorialCaja()}" max="${esc(hoy)}"></label>
       <label>Folio <input id="hist-folio" placeholder="D2-000003" value="${esc(folioBuscado)}" style="width:130px;padding:6px;border:1px solid var(--borde);border-radius:6px;background:var(--superficie)"></label>
@@ -2824,7 +2829,8 @@ async function buscarVentasDev() {
   const p = new URLSearchParams();
   const codigo = $('#bv-codigo').value.trim(), folio = $('#bv-folio').value.trim();
   // Con artículo escaneado no hace falta la fecha: se muestra su historial de ventas en la tienda.
-  if (!codigo) { p.set('fecha', $('#bv-fecha').value); p.set('desde', $('#bv-desde').value); p.set('hasta', $('#bv-hasta').value); }
+  // Con un folio tampoco: el ticket puede ser de otro día (por omisión la fecha de la pantalla es hoy).
+  if (!codigo && !folio) { p.set('fecha', $('#bv-fecha').value); p.set('desde', $('#bv-desde').value); p.set('hasta', $('#bv-hasta').value); }
   if (codigo) p.set('codigo', codigo);
   if (folio) p.set('folio', folio);
   try {

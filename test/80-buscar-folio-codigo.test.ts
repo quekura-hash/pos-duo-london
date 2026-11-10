@@ -62,6 +62,23 @@ porAlmacen('Buscar un ticket por su código (D2-000001) y avisar en qué caja se
     assert.equal((await api(adm.url, '/api/admin/ventas?desde=2026-10-01&hasta=2026-10-01&folio=1')).json.ventas.length, 2);
     assert.equal((await api(adm.url, '/api/admin/ventas?desde=2026-10-01&hasta=2026-10-01&folio=L1-000001')).json.ventas.length, 0);
   });
+  it('BF2 con un folio se encuentra la venta de otro día aunque la pantalla traiga la fecha de hoy (lo que rompía «Aceptar cambio»); el lector con «{B» y símbolos también', async (t) => {
+    const { ctx, c1 } = await preparar(t);
+    ctx.m.reloj.fijar('2026-10-06T15:00:00Z'); // cinco días después de la venta
+    const hoy = '2026-10-06';
+    // sin folio la búsqueda sigue siendo de UN día: no ve la venta de hace cinco días
+    assert.deepEqual((await api(c1.url, `/api/ventas/buscar?fecha=${hoy}&desde=00:00&hasta=23:59`)).json.resultados, []);
+    // con el folio y la fecha de hoy en el formulario (como lo manda la pantalla): la encuentra y se puede cambiar
+    for (const folio of ['D1-000001', '1', "{BD1'000001", '{BD1-000001', ' d1000001 ']) {
+      const r = (await api(c1.url, `/api/ventas/buscar?fecha=${hoy}&desde=00:00&hasta=23:59&folio=${encodeURIComponent(folio)}`)).json;
+      assert.deepEqual(r.resultados.filter((v: any) => v.propia).map((v: any) => [v.codigo_ticket, v.propia]), [['D1-000001', true]], folio);
+    }
+    // y el cambio se puede iniciar sobre esa venta
+    const hallada = (await api(c1.url, `/api/ventas/buscar?folio=D1-000001`)).json.resultados[0];
+    const cart = (await api(c1.url, '/api/venta/nueva', {})).json.cart;
+    const ini = await api(c1.url, '/api/venta/cambio/iniciar', { cart, sale_id: hallada.sale_id, renglones: [{ linea_id: hallada.lineas[0].linea_id, qty: 1 }], clienta: { nombre: 'Ana López', telefono: '6535351717' }, motivo: 'talla' });
+    assert.equal(ini.status, 200, JSON.stringify(ini.json));
+  });
 });
 
 describe('[navegador real] Buscar ticket por código en el historial', { timeout: 240_000, skip: chromiumPath ? false : 'Chromium no encontrado (defina POS_CHROMIUM)' }, () => {
@@ -94,5 +111,29 @@ describe('[navegador real] Buscar ticket por código en el historial', { timeout
     await page.press('#bv-folio', 'Enter');
     await page.waitForSelector('[data-venta-ajena]');
     assert.match((await page.textContent('[data-venta-ajena]'))!, /Esta venta se hizo en la Caja 2/);
+  });
+  it('UB2 una venta de hace días: al escribir o escanear su folio el historial va a su día y «Aceptar cambio» la encuentra', async (t) => {
+    const browser = await chromium.launch({ executablePath: chromiumPath, args: ['--no-sandbox'] });
+    const ctx = nuevoMundo(sqlite, politica());
+    const c1 = await appCajero(ctx, 'DUO', 1, 'Ana');
+    t.after(async () => { await browser.close(); await c1.cerrar(); ctx.limpiar(); });
+    await vender(c1);
+    ctx.m.pump(); ctx.m.pump(); ctx.m.pump();
+    ctx.m.reloj.fijar('2026-10-06T15:00:00Z'); // la venta es de hace cinco días y la pantalla trae la fecha de hoy
+    const page = await (await browser.newContext({ viewport: { width: 1366, height: 820 }, locale: 'es-MX' })).newPage();
+    await page.goto(c1.url);
+    await page.click('#nav button[data-vista="ventas"]');
+    await page.waitForSelector('#form-historial');
+    assert.equal(await page.inputValue('#hist-fecha'), '2026-10-06');
+    // el lector antepone «{B» y el teclado cambia el guion por otro símbolo
+    await page.fill('#hist-folio', "{BD1'000001");
+    await page.click('#form-historial button[type="submit"]');
+    await page.waitForSelector('#tabla-ventas tr[data-detalle]');
+    assert.match((await page.textContent('#tabla-ventas tbody'))!, /D1-000001/);
+    assert.equal(await page.inputValue('#hist-fecha'), '2026-10-01', 'la pantalla fue al día de la venta');
+    // «Aceptar cambio» desde esa fila: la pantalla de cambio trae la fecha de hoy y aun así encuentra la venta
+    await page.click('[data-cambio]');
+    await page.waitForSelector('[data-venta-propia]');
+    assert.match((await page.textContent('[data-venta-propia]'))!, /D1-000001/);
   });
 });
