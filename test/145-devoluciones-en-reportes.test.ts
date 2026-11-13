@@ -32,22 +32,20 @@ porAlmacen('Devoluciones y cambios: restan el día en que ocurren, así el mes n
     ctx.m.pump(); ctx.m.pump();
     const ops = ctx.m.central.repo.ops();
 
-    // Reporte de la contadora: ventas 120 + 899 + 450 − 120 devuelto = $1,349 (no $1,469).
+    // Reporte de la contadora: ventas 120 + 899 + 330 de diferencia = $1,349 (no $1,469). El cambio es UN solo folio y UN solo renglón.
     const rep = reporteDeCaja(ops, 'DUO', 1, '2026-11');
-    assert.equal(rep.total, 12000 + 89900 + 45000 - 12000, 'el total del mes resta lo devuelto');
-    assert.equal(rep.tickets, 3, 'la devolución no es un ticket de venta');
-    assert.equal(rep.devoluciones, 1);
-    assert.equal(rep.devoluciones_total, -12000);
+    assert.equal(rep.total, 12000 + 89900 + 33000, 'el total del mes: la venta, la otra y solo la diferencia del cambio');
+    assert.equal(rep.tickets, 3, 'tres folios');
+    assert.equal(rep.devoluciones, 0, 'no hay renglón de devolución: no regresó dinero');
     assert.equal(rep.efectivo, 12000 + 89900 + 33000, 'solo entró en efectivo lo que de verdad se cobró');
-    assert.equal(rep.otros, 0, 'el crédito de la mercancía devuelta se compensa a sí mismo');
+    assert.equal(rep.otros, 0, 'el crédito de la mercancía devuelta no cuenta como dinero');
     const detalle = rep.hojas[0]!;
-    const filaDev = detalle.filas.find((f) => String(f[2]).startsWith('Devolución'))!;
-    assert.deepEqual([filaDev[3], filaDev[4]], [-1, -120], 'fila de devolución: piezas y total en negativo');
-    assert.equal(typeof filaDev[1], 'number', 'la devolución lleva su propio folio de la serie');
-    assert.ok(detalle.filas.some((f) => f[2] === 'Venta · cambio de mercancía'), 'el ticket del cambio se marca como cambio de mercancía');
+    assert.equal(detalle.filas.some((f) => String(f[2]).startsWith('Devolución')), false, 'ninguna fila de devolución ni en negativo');
+    const filaCambio = detalle.filas.find((f) => f[1] === 3)!;
+    assert.deepEqual([filaCambio[2], filaCambio[3], filaCambio[4]], ['Venta', 0, 330], 'se llevó algo más caro: el folio queda como venta de la diferencia (una pieza entra y otra sale)');
     const folios = detalle.filas.map((f) => Number(f[1])).sort((a, b) => a - b);
-    assert.deepEqual(folios, [1, 2, 3, 4], 'folios consecutivos: ninguno falta sin explicación');
-    assert.match(correoDelReporte(rep).texto, /Devoluciones y cambios \(1; ya restados del total\): −\$120\.00/);
+    assert.deepEqual(folios, [1, 2, 3], 'folios consecutivos: el cambio no consumió un segundo folio');
+    assert.doesNotMatch(correoDelReporte(rep).texto, /Devoluciones y cambios/);
 
     // Análisis (por mes) y metas coinciden con el reporte; el día de ayer no se toca.
     const an = analizarVentas(reporteConsolidado(ADMIN, ops, { desde: '2026-11-01', hasta: '2026-11-30', devoluciones: true }).filas, { agrupar: 'mes', desde: '2026-11-01', hasta: '2026-11-30' });

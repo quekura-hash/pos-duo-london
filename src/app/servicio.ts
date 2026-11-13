@@ -418,9 +418,9 @@ export class ServicioCaja {
   private cambioDe(v: Venta) {
     return cambioDeVenta(this.caja.opsDe('sale.confirmed', 'sale.cancelled', 'return.registered'), v);
   }
-  private comprobanteDeDevolucion(d: Devolucion, v: Venta, seLleva?: { descripcion: string; qty: number; importe?: number }[], nuevoTotal?: number): ComprobanteClienta {
+  private comprobanteDeDevolucion(d: Devolucion, v: Venta, seLleva?: { descripcion: string; qty: number; importe?: number }[], nuevoTotal?: number, folioVenta?: number): ComprobanteClienta {
     return {
-      tipo: d.por_cambio && d.venta_cambio ? 'cambio' : 'devolucion', tienda: d.tienda, caja: d.caja, folio: d.folio ?? 0, ocurrio_en: d.ocurrio_en, cajero: d.cajero, autorizado_por: d.autorizado_por ?? null,
+      tipo: d.por_cambio && d.venta_cambio ? 'cambio' : 'devolucion', tienda: d.tienda, caja: d.caja, folio: d.folio ?? folioVenta ?? 0, ocurrio_en: d.ocurrio_en, cajero: d.cajero, autorizado_por: d.autorizado_por ?? null,
       clienta: d.clienta ?? null, motivo: d.por_cambio ? d.motivo_cambio ?? null : d.motivo, venta: v, lineas: d.lineas.map((l) => ({ linea_id: l.linea_id, qty: l.qty, importe: l.importe })), importe: d.importe, reembolsos: d.reembolsos, se_lleva: seLleva, nuevo_total: nuevoTotal,
     };
   }
@@ -684,7 +684,7 @@ export class ServicioCaja {
     // Cambio con venta nueva: el ticket de la clienta ES el de la venta (muestra lo nuevo y lo recibido a cambio). Solo se agrega el de control interno para firma.
     let comprobantes: { ticket_firma: string; impresion_firma: { ok: boolean; error?: string } } | null = null;
     if (cambio && !sinComprobanteDeCambio && !yaImpreso) {
-      const c = this.comprobanteDeDevolucion(cambio.dev, cambio.origen, venta.lineas.map((l) => ({ descripcion: l.descripcion, qty: l.qty, importe: l.importe })), venta.total);
+      const c = this.comprobanteDeDevolucion(cambio.dev, cambio.origen, venta.lineas.map((l) => ({ descripcion: l.descripcion, qty: l.qty, importe: l.importe })), venta.total, venta.folio);
       const r = await this.imprimirFirma(c);
       comprobantes = { ticket_firma: r.ticket_firma, impresion_firma: r.impresion_firma };
     }
@@ -852,7 +852,7 @@ export class ServicioCaja {
     if (venta) {
       // Con mercancía nueva es UN cambio: el ticket de la clienta es el de la venta (artículo nuevo, recibido a cambio y diferencia a devolver) más el de firma.
       const cobro = await this.finalizarCobro(venta, true);
-      const firma = await this.imprimirFirma(this.comprobanteDeDevolucion(d, origen, venta.lineas.map((l) => ({ descripcion: l.descripcion, qty: l.qty, importe: l.importe })), venta.total));
+      const firma = await this.imprimirFirma(this.comprobanteDeDevolucion(d, origen, venta.lineas.map((l) => ({ descripcion: l.descripcion, qty: l.qty, importe: l.importe })), venta.total, venta.folio));
       return { devolucion: d, ticket_texto: cobro.ticket_texto, impresion: cobro.impresion, ticket_firma: firma.ticket_firma, impresion_firma: firma.impresion_firma, venta: cobro.venta, ticket_venta: cobro.ticket_texto, impresion_venta: cobro.impresion };
     }
     // Sin mercancía nueva es una devolución: comprobante para la clienta y copia de control para firma.
@@ -2018,7 +2018,7 @@ export class ServicioAdmin {
       const lineas = conf.flatMap((x) => x.lineas);
       const pagos = (m: string) => suma(conf.flatMap((x) => x.pagos.filter((p) => p.metodo === m).map((p) => p.monto)));
       // Venta del día = mercancía + tarjetas de regalo VENDIDAS (el dinero entró hoy) − lo pagado con tarjetas de regalo (ya fue venta el día que se vendieron).
-      const ventaTotal = suma(lineas.filter((l) => !l.tarjeta_regalo).map((l) => l.importe)) + suma(lineas.filter((l) => l.tarjeta_regalo).map((l) => l.importe)) - pagos('tarjeta_regalo');
+      const ventaTotal = suma(lineas.filter((l) => !l.tarjeta_regalo).map((l) => l.importe)) + suma(lineas.filter((l) => l.tarjeta_regalo).map((l) => l.importe)) - pagos('tarjeta_regalo') - suma(conf.filter((x) => x.cambio_unico).flatMap((x) => x.pagos.filter((p) => p.metodo === 'credito_cambio').map((p) => p.monto)));
       const reembolsado = suma(d.flatMap((x) => x.reembolsos.map((r) => r.monto)));
       const recibida = suma(d.filter((x) => x.por_cambio).map((x) => x.importe)) - suma(d.filter((x) => x.por_cambio).flatMap((x) => x.reembolsos.map((r) => r.monto)));
       return {

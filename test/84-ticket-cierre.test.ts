@@ -71,7 +71,7 @@ porAlmacen('Ticket de cierre de corte: 5 ventas (una con tarjeta), una devoluci�
     const iVenta = ticket.indexOf('VENTA TOTAL DEL DÍA'), iEfectivo = ticket.indexOf('TOTAL EN EFECTIVO'), iTarjeta = ticket.indexOf('TOTAL EN TARJETA'), iFondo = ticket.indexOf('FONDO\n'), iCambios = ticket.indexOf('CAMBIOS Y DEVOLUCIONES'), iNetas = ticket.indexOf('VENTAS NETAS'), iConc = ticket.indexOf('CONCILIACIÓN DEL EFECTIVO EN PESOS');
     assert.ok(iVenta > 0 && iVenta < iEfectivo && iEfectivo < iTarjeta && iTarjeta < iFondo && iFondo < iCambios && iCambios < iNetas && iNetas < iConc, 'jerarquía: venta total, efectivo, tarjeta, fondo, cambios, netas, conciliación');
     assert.match(ticket, /^ +DÚO New York\n +AV\. LIBERTAD[\s\S]*KARINA PALAFOX[\s\S]*RFC: PAVK[\s\S]*Tienda DUO - Caja 1\n +TELÉFONO 534-0607/, 'datos de la tienda como en el ticket de venta');
-    assert.match(ticket, /\$4,068\.00/);
+    assert.match(ticket, /\$3,948\.00/);
     assert.match(ticket, /TOTAL EN EFECTIVO +\$3,049\.00\n +Total en pesos +\$3,049\.00\n +Total en dólares +US\$0\.00/);
     assert.match(ticket, /TOTAL EN TARJETA +\$899\.00/);
     assert.match(ticket, /Fondo autorizado +\$5,000\.00\nFondo confirmado +\$5,000\.00\nFondo completo/);

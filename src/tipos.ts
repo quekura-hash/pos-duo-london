@@ -82,6 +82,7 @@ export interface Linea {
   de_limbo?: number;
 }
 
+/** Venta (ticket) tal como la proyecta la bitácora. `cambio_unico`: el ticket es un cambio de mercancía en UN solo folio (sin folio aparte para lo devuelto); su venta es lo que no cubrió el crédito del cambio. */
 export interface Venta {
   sale_id: string;
   tienda: string;
@@ -89,6 +90,8 @@ export interface Venta {
   folio: number;
   /** `CR`: compra a crédito de una empleada. Lleva su propia serie de folios (por caja), aparte de la de ventas: ese dinero nunca entra a la caja. */
   serie?: 'CR';
+  /** Cambio de mercancía en UN solo folio (sin folio aparte para lo devuelto): su venta es lo que no cubrió el crédito del cambio. Los cambios anteriores no lo llevan. */
+  cambio_unico?: boolean;
   /** Solo en una compra a crédito: cómo quedó la cuenta de la empleada al cobrar (límite, saldo, disponible y sus últimos abonos). No cambia al reimprimir. */
   credito?: { limite: number; saldo: number; disponible: number; abonos: { fecha: string; monto: number }[] };
   cajero: string;

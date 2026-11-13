@@ -47,9 +47,9 @@ it('RD1 el resumen del día junta las dos tiendas: venta total, efectivo, tarjet
   const { adm } = await escenario(t);
   const r = (await api(adm.url, '/api/admin/resumen-dia?fecha=2026-10-01')).json;
   const duo = r.tiendas.find((x: any) => x.tienda === 'DUO'), lon = r.tiendas.find((x: any) => x.tienda === 'LON');
-  assert.deepEqual([duo.tickets, duo.venta_total, duo.efectivo, duo.tarjeta, duo.mercancia_recibida_por_cambio, duo.devoluciones_con_reembolso, duo.ventas_netas], [3, 146900, 122900, 12000, 12000, 0, 134900]);
+  assert.deepEqual([duo.tickets, duo.venta_total, duo.efectivo, duo.tarjeta, duo.mercancia_recibida_por_cambio, duo.devoluciones_con_reembolso, duo.ventas_netas], [3, 134900, 122900, 12000, 12000, 0, 134900]);
   assert.deepEqual([lon.tickets, lon.venta_total, lon.efectivo, lon.devoluciones_con_reembolso, lon.ventas_netas], [1, 45000, 45000, 45000, 0]);
-  assert.deepEqual([r.total.tickets, r.total.venta_total, r.total.efectivo, r.total.pesos, r.total.tarjeta, r.total.mercancia_recibida_por_cambio, r.total.devoluciones_con_reembolso, r.total.ventas_netas], [4, 191900, 167900, 167900, 12000, 12000, 45000, 134900]);
+  assert.deepEqual([r.total.tickets, r.total.venta_total, r.total.efectivo, r.total.pesos, r.total.tarjeta, r.total.mercancia_recibida_por_cambio, r.total.devoluciones_con_reembolso, r.total.ventas_netas], [4, 179900, 167900, 167900, 12000, 12000, 45000, 134900]);
   // otro día: en ceros
   const otro = (await api(adm.url, '/api/admin/resumen-dia?fecha=2026-09-30')).json;
   assert.deepEqual([otro.total.tickets, otro.total.venta_total, otro.total.ventas_netas], [0, 0, 0]);
@@ -65,7 +65,7 @@ it('RD3 el resumen también viene desglosado por caja: cada caja con su venta y 
   }
   const duo = r.tiendas.find((x: any) => x.tienda === 'DUO'), lon = r.tiendas.find((x: any) => x.tienda === 'LON');
   const c1 = duo.detalle_cajas.find((c: any) => c.caja === 1), c2 = duo.detalle_cajas.find((c: any) => c.caja === 2);
-  assert.deepEqual([c1.tickets, c1.venta_total, c1.efectivo, c1.tarjeta, c1.tarjeta_regalo], [3, 146900, 122900, 12000, 0]);
+  assert.deepEqual([c1.tickets, c1.venta_total, c1.efectivo, c1.tarjeta, c1.tarjeta_regalo], [3, 134900, 122900, 12000, 0]);
   assert.deepEqual([c2.tickets, c2.venta_total, c2.efectivo, c2.tarjeta], [0, 0, 0, 0], 'la caja 2 sin ventas sale en ceros');
   assert.deepEqual(lon.detalle_cajas.find((c: any) => c.caja === 1).venta_total, 45000);
 });
@@ -82,7 +82,7 @@ describe('[navegador real] Resumen del día en Reportes', { timeout: 240_000, sk
     await page.waitForSelector('#rd-total');
     // el servidor de prueba corre «hoy» en 2026-10-01
     await page.fill('#rd-fecha', '2026-10-01');
-    await page.waitForFunction(() => document.querySelector('#rd-total')!.textContent === '$1,919.00');
+    await page.waitForFunction(() => document.querySelector('#rd-total')!.textContent === '$1,799.00');
     assert.match((await page.textContent('#rd-venta-total'))!, /VENTA TOTAL DEL DÍA · 01\/10\/2026[\s\S]*4 tickets/);
     assert.equal(await page.textContent('#rd-efectivo'), '$1,679.00');
     assert.equal(await page.textContent('#rd-tarjeta'), '$120.00');
@@ -90,7 +90,7 @@ describe('[navegador real] Resumen del día en Reportes', { timeout: 240_000, sk
     assert.match((await page.textContent('#rd-tiendas [data-tienda="LON"]'))!, /\$450\.00[\s\S]*1 ticket/);
     // desglose por tienda y por caja: «Caja D1» con su venta y Efectivo / T. Cred. / T. Reg.
     const d1 = page.locator('#rd-por-caja [data-caja="DUO/1"]');
-    assert.match((await d1.textContent())!, /Caja D1[\s\S]*\$1,469\.00[\s\S]*Efectivo[\s\S]*\$1,229\.00[\s\S]*T\. Cred\.[\s\S]*\$120\.00[\s\S]*T\. Reg\.[\s\S]*\$0\.00/);
+    assert.match((await d1.textContent())!, /Caja D1[\s\S]*\$1,349\.00[\s\S]*Efectivo[\s\S]*\$1,229\.00[\s\S]*T\. Cred\.[\s\S]*\$120\.00[\s\S]*T\. Reg\.[\s\S]*\$0\.00/);
     assert.equal((await page.textContent('#rd-por-caja [data-caja="DUO/2"] [data-col="venta"]'))!.trim(), '$0.00');
     assert.match((await page.textContent('#rd-por-caja [data-caja="LON/1"]'))!, /Caja L1/);
     const g = await page.locator('#rd-venta-total .kpi-valor').evaluate((e) => parseFloat(getComputedStyle(e).fontSize));

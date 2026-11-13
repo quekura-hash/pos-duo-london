@@ -80,6 +80,7 @@ export function ventas(ops: Op[]): Map<string, Venta> {
         ...(p.recompensas?.length ? { recompensas: p.recompensas } : {}),
         ...(p.empleada ? { empleada: p.empleada } : {}),
         ...(p.vip ? { vip: p.vip } : {}),
+        ...(p.cambio_unico ? { cambio_unico: true } : {}),
       });
     }
   }
@@ -101,6 +102,8 @@ export interface Devolucion {
   importe: number;
   /** Folio de la MISMA serie que las ventas de la caja (P-08). Las devoluciones anteriores a esta regla no lo tienen. */
   folio?: number;
+  /** Devolución por cambio hecha en el MISMO folio de la venta nueva: no tiene folio propio ni renglón aparte; solo resta el dinero que salió. */
+  folio_unico?: boolean;
   /** Cómo se regresó el dinero: a la tarjeta de regalo con que se pagó y, el resto, en efectivo. */
   /** `efectivo` = pesos que salen del cajón; `tarjeta` = reverso a la tarjeta bancaria original (no sale efectivo); `tarjeta_regalo` = saldo a la misma tarjeta. */
   reembolsos: { metodo: 'efectivo' | 'tarjeta' | 'tarjeta_regalo' | 'credito_empleada'; monto: number; tarjeta?: string }[];
@@ -153,10 +156,20 @@ export function devoluciones(ops: Op[]): Devolucion[] {
 // efectivo: ese día la venta es de $399. Y una devolución solo resta cuando sale dinero o cambio de mercancía: lo reembolsado a tarjeta de regalo no resta.
 /** Lo pagado con tarjetas de regalo en un ticket (ese dinero ya se contó como venta al venderlas). */
 export const canjeDeTarjetaRegalo = (pagos: { metodo: string; monto: number }[] | undefined): number => (pagos ?? []).filter((p) => p.metodo === 'tarjeta_regalo').reduce((a, p) => a + p.monto, 0);
-/** Venta de un ticket: su total menos lo pagado con tarjeta de regalo. */
-export const ventaDeTicket = (v: { total: number; pagos?: { metodo: string; monto: number }[] }): number => v.total - canjeDeTarjetaRegalo(v.pagos);
-/** Lo que una devolución resta de las ventas: su importe menos lo que se reembolsó a una tarjeta de regalo (el dinero no salió de la caja). */
-export const restaDeDevolucion = (d: { importe: number; reembolsos?: { metodo: string; monto: number }[] }): number => d.importe - (d.reembolsos ?? []).filter((r) => r.metodo === 'tarjeta_regalo').reduce((a, r) => a + r.monto, 0);
+/** Lo que cubrió el crédito de un cambio de mercancía en un ticket (lo devuelto se aplica a la compra nueva: no es dinero). */
+export const creditoDeCambio = (pagos: { metodo: string; monto: number }[] | undefined): number => (pagos ?? []).filter((p) => p.metodo === 'credito_cambio').reduce((a, p) => a + p.monto, 0);
+/**
+ * Venta de un ticket: su total menos lo pagado con tarjeta de regalo. En un cambio en UN solo folio (`cambio_unico`) también se resta el crédito del cambio: la venta es solo
+ * la diferencia que paga la clienta (cambio parejo = $0; se lleva $150 más = $150). Los cambios anteriores (con folio aparte para la devolución) no se tocan.
+ */
+export const ventaDeTicket = (v: { total: number; pagos?: { metodo: string; monto: number }[]; cambio_unico?: boolean }): number => v.total - canjeDeTarjetaRegalo(v.pagos) - (v.cambio_unico ? creditoDeCambio(v.pagos) : 0);
+/**
+ * Lo que una devolución resta de las ventas: su importe menos lo que se reembolsó a una tarjeta de regalo (el dinero no salió de la caja). La devolución de un cambio en un
+ * solo folio (`folio_unico`) resta solo el dinero que sale (efectivo o tarjeta): lo demás se aplicó a la compra nueva.
+ */
+export const restaDeDevolucion = (d: { importe: number; reembolsos?: { metodo: string; monto: number }[]; folio_unico?: boolean }): number => d.folio_unico
+  ? (d.reembolsos ?? []).filter((r) => r.metodo !== 'tarjeta_regalo').reduce((a, r) => a + r.monto, 0)
+  : d.importe - (d.reembolsos ?? []).filter((r) => r.metodo === 'tarjeta_regalo').reduce((a, r) => a + r.monto, 0);
 
 export function devueltoPorLinea(ops: Op[], saleId: string): Map<string, { qty: number; importe: number }> {
   const m = new Map<string, { qty: number; importe: number }>();

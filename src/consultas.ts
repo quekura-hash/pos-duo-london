@@ -55,6 +55,8 @@ export interface FilaVenta {
   hora: string;
   /** El ticket vendió una tarjeta de regalo (alta o recarga): esa venta cuenta el día que se vende. */
   vende_tarjeta_regalo?: boolean;
+  /** Solo cambios en UN solo folio: qué fue en realidad (`cambio` = parejo, $0; `venta` = la clienta pagó diferencia; `devolucion` = se le regresó dinero). */
+  resultado_cambio?: 'cambio' | 'venta' | 'devolucion';
   /** Ticket de venta que es el cambio de mercancía de una devolución anterior (su crédito se pagó con la mercancía devuelta). */
   cambio_de_mercancia?: boolean;
   /** Cuánto se cobró por cada forma de pago (centavos MXN). `mixto` = pago mixto de una venta histórica sin desglose. */
@@ -126,21 +128,32 @@ export function ventasPorCaja(actor: Actor, ops: Op[], f: Filtro = {}): FilaVent
   const filas: FilaVenta[] = [];
   const todasVentas = ventas(ops);
   const ventasDeCambio = new Set(devoluciones(ops).filter((d) => d.por_cambio && d.venta_cambio).map((d) => d.venta_cambio as string));
+  // Cambios de mercancía en UN solo folio: la devolución de lo recibido no tiene folio ni renglón propio; el renglón de la venta nueva lo resume.
+  const cambioUnico = new Map<string, ReturnType<typeof devoluciones>[number]>();
+  for (const d of devoluciones(ops)) if (d.folio_unico && d.venta_cambio) cambioUnico.set(d.venta_cambio as string, d);
   for (const v of todasVentas.values()) {
     if (permitidas !== 'todas' && !permitidas.some((c) => mismaCaja(c, v))) continue;
     if (f.tiendas && !f.tiendas.includes(v.tienda)) continue;
     if (!enPeriodo(v.ocurrio_en, f)) continue;
+    const du = v.cambio_unico ? cambioUnico.get(v.sale_id) : undefined;
+    // Dinero que salió de la caja en ese cambio (si la clienta se llevó algo más barato y se le regresó la diferencia).
+    const salio = du ? du.reembolsos.filter((r) => r.metodo !== 'tarjeta_regalo').reduce((a, r) => a + r.monto, 0) : 0;
+    const neta = ventaDeTicket(v) - salio;
+    const montos = (v.pagos ?? []).reduce((m: MontosPago, x: { metodo: string; monto: number }) => { if (v.cambio_unico && x.metodo === 'credito_cambio') return m; const k = x.metodo === 'efectivo' ? 'efectivo' : x.metodo === 'tarjeta' ? 'tarjeta' : x.metodo === 'efectivo_usd' ? 'dolares' : x.metodo === 'tarjeta_regalo' ? 'tarjeta_regalo' : x.metodo === 'credito_empleada' ? 'credito' : 'otro'; m[k] += x.monto; return m; }, sinMontos());
+    if (salio > 0) for (const r of du!.reembolsos) { if (r.metodo === 'tarjeta_regalo') continue; montos[r.metodo === 'tarjeta' ? 'tarjeta' : 'efectivo'] -= r.monto; }
     filas.push({
       tienda: v.tienda, caja: v.caja, folio: v.folio, ...(v.serie ? { serie: v.serie } : {}), sale_id: v.sale_id,
-      fecha_local: fechaLocal(v.ocurrio_en), cajero: v.cajero, vendedora: v.vendedora === undefined ? '' : v.vendedora_id ? v.vendedora : 'Autocompra', total: v.total, venta_neta: ventaDeTicket(v), total_mercancia: v.lineas.filter((l) => !l.tarjeta_regalo).reduce((a, l) => a + l.importe, 0), estado: v.estado,
-      piezas: v.lineas.filter((l) => !l.tarjeta_regalo).reduce((a, l) => a + l.qty, 0), pago: etiquetaPago((v.pagos ?? []).map((x: { metodo: string }) => x.metodo)), tipo_ticket: 'venta', historico: false, ...(ventasDeCambio.has(v.sale_id) ? { cambio_de_mercancia: true } : {}), ...(v.lineas.some((l) => l.tarjeta_regalo) ? { vende_tarjeta_regalo: true } : {}),
+      fecha_local: fechaLocal(v.ocurrio_en), cajero: v.cajero, vendedora: v.vendedora === undefined ? '' : v.vendedora_id ? v.vendedora : 'Autocompra', total: v.total, venta_neta: neta, total_mercancia: v.lineas.filter((l) => !l.tarjeta_regalo).reduce((a, l) => a + l.importe, 0), estado: v.estado,
+      piezas: v.lineas.filter((l) => !l.tarjeta_regalo).reduce((a, l) => a + l.qty, 0) - (du ? du.lineas.reduce((a, l) => a + l.qty, 0) : 0), pago: etiquetaPago((v.pagos ?? []).map((x: { metodo: string }) => x.metodo)), tipo_ticket: 'venta', historico: false, ...(ventasDeCambio.has(v.sale_id) ? { cambio_de_mercancia: true } : {}), ...(v.lineas.some((l) => l.tarjeta_regalo) ? { vende_tarjeta_regalo: true } : {}),
+      ...(v.cambio_unico ? { resultado_cambio: neta > 0 ? 'venta' as const : neta < 0 ? 'devolucion' as const : 'cambio' as const } : {}),
       hora: new Date(Date.parse(v.ocurrio_en) - 7 * 3600_000).toISOString().slice(11, 16),
-      montos: (v.pagos ?? []).reduce((m: MontosPago, x: { metodo: string; monto: number }) => { const k = x.metodo === 'efectivo' ? 'efectivo' : x.metodo === 'tarjeta' ? 'tarjeta' : x.metodo === 'efectivo_usd' ? 'dolares' : x.metodo === 'tarjeta_regalo' ? 'tarjeta_regalo' : x.metodo === 'credito_empleada' ? 'credito' : 'otro'; m[k] += x.monto; return m; }, sinMontos()),
+      montos,
     });
   }
   // Devoluciones y cambios: restan en el día en que ocurren (lo vendido antes no se toca). Una fila negativa con su folio; no es ticket de venta.
   if (f.devoluciones) {
     for (const d of devoluciones(ops)) {
+      if (d.folio_unico) continue; // ya va resumida en el renglón de su venta
       if (permitidas !== 'todas' && !permitidas.some((c) => mismaCaja(c, d))) continue;
       if (f.tiendas && !f.tiendas.includes(d.tienda)) continue;
       if (!enPeriodo(d.ocurrio_en, f)) continue;

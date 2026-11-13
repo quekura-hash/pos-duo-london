@@ -2472,6 +2472,8 @@ export class Caja {
         ...(c.empleada ? { empleada: c.empleada } : {}),
         ...(c.vip ? { vip: c.vip } : {}),
         ...(c.cambio ? { cambio_de: { sale_id: c.cambio.sale_id, folio: c.cambio.folio_origen } } : {}),
+        // Un cambio con artículos nuevos va en UN solo folio: el de esta venta (la devolución de lo recibido no consume otro folio).
+        ...(c.cambio && c.lineas.length > 0 ? { cambio_unico: true } : {}),
         ...(c.vendedora ? { vendedora_id: c.vendedora.id, vendedora: c.vendedora.alias } : {}),
       }, `sale:${c.id}`);
       this.ctx.fallo?.('tras_venta');
@@ -3016,12 +3018,13 @@ export class Caja {
     const r = this.validarRenglonesDevolucion({ sale_id: cambio.sale_id, renglones: cambio.renglones });
     if (r.importe !== cambio.credito) throw new ErrorDominio('CAMBIO_DESACTUALIZADO', 'las piezas del cambio ya se devolvieron en otra operación: empiece el cambio de nuevo');
     const efectivo = devolverEfectivo?.monto ?? 0;
-    const folio = this.siguienteFolio();
+    // Con ticket de venta nuevo, la devolución NO consume folio (todo el cambio va en el folio de la venta); sin ticket (solo se regresa dinero) sí lleva el suyo.
+    const folio = ventaCambioId ? null : this.siguienteFolio();
     const o = this.emitir('return.registered', {
       devolucion_id: id, sale_id: cambio.sale_id, tienda: this.tienda, caja: this.caja, folio,
       tienda_origen: r.venta.tienda, caja_origen: r.venta.caja, folio_origen: r.venta.folio,
       lineas: r.lineas, importe: r.importe, reembolsos: efectivo > 0 ? [{ metodo: 'efectivo', monto: efectivo }] : [],
-      motivo: 'cambio', cajero, verificacion: r.verificacion, por_cambio: true, ...(ventaCambioId ? { venta_cambio: ventaCambioId } : {}),
+      motivo: 'cambio', cajero, verificacion: r.verificacion, por_cambio: true, ...(ventaCambioId ? { venta_cambio: ventaCambioId, folio_unico: true } : {}),
       ...(cambio.clienta ? { clienta: cambio.clienta } : {}), ...(cambio.motivo ? { motivo_cambio: cambio.motivo } : {}),
       ...(devolverEfectivo?.autorizo ? { autorizado_por: devolverEfectivo.autorizo } : {}),
     }, `ret:${id}`);
@@ -3391,7 +3394,8 @@ export class Caja {
     const ventasMercancia = suma(mercancia.map((l) => l.importe));
     // Venta del día: mercancía + tarjetas de regalo VENDIDAS (el dinero entró hoy) − lo pagado con tarjetas de regalo (ya fue venta el día que se vendieron). Las devoluciones
     // restan solo lo que no se reembolsó a una tarjeta de regalo.
-    const ventaDelDia = ventasMercancia + suma(deTarjeta.map((l) => l.importe)) - regalo;
+    const creditoCambioUnico = suma(confirmadas.filter((v) => v.cambio_unico).flatMap((v) => v.pagos.filter((p) => p.metodo === 'credito_cambio').map((p) => p.monto))); // lo devuelto en un cambio de un solo folio no es venta nueva
+    const ventaDelDia = ventasMercancia + suma(deTarjeta.map((l) => l.importe)) - regalo - creditoCambioUnico;
     return {
       tienda: this.tienda, caja: this.caja, fecha, tickets: confirmadas.length,
       tickets_cancelados: cancelacionesPosteriores.length,
