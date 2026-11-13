@@ -43,7 +43,7 @@ export function fechaHoraLocal(iso: string): { fecha: string; hora: string } {
 export const inicioDiaUtc = (fecha: string) => new Date(`${fecha}T07:00:00.000Z`);
 export const fechaCorta = (fecha: string) => `${fecha.slice(8, 10)}/${fecha.slice(5, 7)}`;
 
-export interface VentaMin { sale_id: string; tienda: string; caja: number; folio: number; cajero: string; total: number; vendedora?: string; lineas?: { qty: number; tarjeta_regalo?: boolean }[]; pagos?: { metodo: string }[] }
+export interface VentaMin { sale_id: string; tienda: string; caja: number; folio: number; cajero: string; total: number; vendedora?: string; lineas?: { qty: number; tarjeta_regalo?: boolean }[]; pagos?: { metodo: string; monto?: number }[]; /** Cambio de mercancía en un solo folio: su venta es lo que no cubrió el crédito del cambio. */ cambio_unico?: boolean }
 
 /** Un aviso por operación. `venta` es el contexto de una cancelación (la operación solo trae el `sale_id`). null = esa operación no genera aviso. */
 export function avisoDeOp(op: OpMin, ctx: { venta?: VentaMin | null } = {}): Aviso | null {
@@ -123,21 +123,31 @@ export function debeEnviar(prefs: Partial<Prefs> | null | undefined, aviso: Pick
 /** Una operación vieja (p. ej. ventas que una caja subió al recuperar internet) no avisa: sería una avalancha. */
 export const esReciente = (op: Pick<OpMin, 'ocurrio_en'>, ahora: string, minutos = 15) => Date.parse(ahora) - Date.parse(op.ocurrio_en) <= minutos * 60_000;
 
-export interface DatosDia { fecha: string; ventas: VentaMin[]; canceladas: string[]; devoluciones: { tienda: string; importe: number }[] }
+export interface DevolucionMin { tienda: string; importe: number; folio_unico?: boolean; reembolsos?: { metodo: string; monto: number }[] }
+export interface DatosDia { fecha: string; ventas: VentaMin[]; canceladas: string[]; devoluciones: DevolucionMin[] }
+
+// Mismas reglas que Reportes y el corte (src/proyecciones.ts): la tarjeta de regalo es venta el día que se vende; lo pagado con ella no se cuenta otra vez; en un cambio de un solo
+// folio la venta es la diferencia que paga la clienta; y una devolución solo resta lo que no se reembolsó a una tarjeta de regalo (en un cambio de un solo folio, solo el dinero que sale).
+const sumaPagos = (pagos: { metodo: string; monto?: number }[] | undefined, metodo: string) => (pagos ?? []).filter((p) => p.metodo === metodo).reduce((a, p) => a + (p.monto ?? 0), 0);
+export const ventaDelTicket = (v: VentaMin): number => v.total - sumaPagos(v.pagos, 'tarjeta_regalo') - (v.cambio_unico ? sumaPagos(v.pagos, 'credito_cambio') : 0);
+export const restaDelDevuelto = (d: DevolucionMin): number => {
+  const r = d.reembolsos ?? [];
+  return d.folio_unico ? r.filter((x) => x.metodo !== 'tarjeta_regalo').reduce((a, x) => a + x.monto, 0) : d.importe - r.filter((x) => x.metodo === 'tarjeta_regalo').reduce((a, x) => a + x.monto, 0);
+};
 /** Resumen del día por tienda y total (ventas netas de cancelaciones y devoluciones). */
 export function resumenDelDia(d: DatosDia, tiendas: string[]): Aviso | null {
   const canceladas = new Set(d.canceladas);
   const filas = tiendas.map((t) => {
     const vs = d.ventas.filter((v) => v.tienda === t && !canceladas.has(v.sale_id));
-    const bruto = vs.reduce((a, v) => a + v.total, 0);
-    const devs = d.devoluciones.filter((x) => x.tienda === t).reduce((a, x) => a + x.importe, 0);
+    const bruto = vs.reduce((a, v) => a + ventaDelTicket(v), 0);
+    const devs = d.devoluciones.filter((x) => x.tienda === t).reduce((a, x) => a + restaDelDevuelto(x), 0);
     return { t, tickets: vs.length, bruto, devs, neto: bruto - devs, canc: d.ventas.filter((v) => v.tienda === t && canceladas.has(v.sale_id)).length };
   });
   const tickets = filas.reduce((a, f) => a + f.tickets, 0);
   const neto = filas.reduce((a, f) => a + f.neto, 0);
   const lineas = filas.map((f) => `${nombreTienda(f.t)}: ${f.tickets} ticket${f.tickets === 1 ? '' : 's'} · ${mxn(f.neto)}${f.devs ? ` (dev. ${mxn(f.devs)})` : ''}${f.canc ? ` · ${f.canc} canc.` : ''}`);
   if (filas.length > 1) lineas.push(`Total: ${tickets} tickets · ${mxn(neto)}`);
-  return { tipo: 'resumen_dia', tienda: null, monto: neto, tag: `resumen:${d.fecha}`, url: './#reportes', titulo: `Resumen del día ${fechaCorta(d.fecha)} · ${mxn(neto)}`, cuerpo: lineas.join('\n') };
+  return { tipo: 'resumen_dia', tienda: null, monto: neto, tag: `resumen:${d.fecha}`, url: './#reportes', titulo: `Ventas netas del día ${fechaCorta(d.fecha)} · ${mxn(neto)}`, cuerpo: lineas.join('\n') };
 }
 
 /** ¿Toca enviar ya el resumen del día a este dispositivo? Una vez al día, a su hora local o después. */

@@ -94,7 +94,7 @@ async function datosDelDia(fecha: string): Promise<DatosDia> {
     fecha,
     ventas: filas.filter((f) => f.tipo === 'sale.confirmed').map((f) => f.payload as VentaMin),
     canceladas: filas.filter((f) => f.tipo === 'sale.cancelled').map((f) => f.payload.sale_id as string),
-    devoluciones: filas.filter((f) => f.tipo === 'return.registered').map((f) => ({ tienda: f.payload.tienda as string, importe: f.payload.importe as number })),
+    devoluciones: filas.filter((f) => f.tipo === 'return.registered').map((f) => ({ tienda: f.payload.tienda as string, importe: f.payload.importe as number, folio_unico: f.payload.folio_unico === true, reembolsos: (f.payload.reembolsos ?? []) as { metodo: string; monto: number }[] })),
   };
 }
 

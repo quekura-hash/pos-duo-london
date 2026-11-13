@@ -62,7 +62,7 @@ test('NT3 una operación vieja no avisa; fechas y horas locales de Hermosillo (U
 test('NT4 resumen del día: por tienda y total, sin lo cancelado y restando devoluciones; llega una vez al día a su hora', () => {
   const vs = [{ ...VENTA, sale_id: 'a', total: 100000 }, { ...VENTA, sale_id: 'b', total: 50000 }, { ...VENTA, sale_id: 'c', total: 30000 }, { ...VENTA, sale_id: 'd', tienda: 'LON', caja: 1, total: 20000 }];
   const r = resumenDelDia({ fecha: '2026-10-21', ventas: vs, canceladas: ['c'], devoluciones: [{ tienda: 'DUO', importe: 10000 }] }, ['DUO', 'LON'])!;
-  assert.equal(r.titulo, 'Resumen del día 21/10 · $1,600.00');
+  assert.equal(r.titulo, 'Ventas netas del día 21/10 · $1,600.00');
   assert.equal(r.cuerpo, 'DÚO: 2 tickets · $1,400.00 (dev. $100.00) · 1 canc.\nLondon: 1 ticket · $200.00\nTotal: 3 tickets · $1,600.00');
   assert.equal(resumenDelDia({ fecha: '2026-10-21', ventas: [], canceladas: [], devoluciones: [] }, ['DUO'])!.cuerpo, 'DÚO: 0 tickets · $0.00');
   // 21:00 locales = 04:00 UTC del día siguiente.
@@ -71,6 +71,23 @@ test('NT4 resumen del día: por tienda y total, sin lo cancelado y restando devo
   assert.equal(tocaResumen(undefined, '2026-10-21', '2026-10-22T04:15:00.000Z'), false, 'ya se mandó hoy');
   assert.equal(tocaResumen({ resumen_hora: '22:30' }, null, '2026-10-22T04:00:00.000Z'), false);
   assert.equal(tocaResumen({ resumen_dia: false }, null, '2026-10-22T05:00:00.000Z'), false);
+});
+
+test('NT4b el resumen del día sigue las mismas reglas que el corte: tarjeta de regalo cuenta al venderla y no al pagar con ella; el cambio de un folio es la diferencia; la devolución resta solo lo que no fue a tarjeta de regalo', () => {
+  const d = (extra: object) => ({ ...VENTA, ...extra });
+  const vs = [
+    d({ sale_id: 'g1', total: 50000 }), // se vende una tarjeta de regalo de $500: es venta hoy
+    d({ sale_id: 'g2', total: 89900, pagos: [{ metodo: 'tarjeta_regalo', monto: 50000 }, { metodo: 'efectivo', monto: 39900 }] }), // vestido de $899 pagado con la tarjeta: solo cuentan $399
+    d({ sale_id: 'c1', total: 45000, cambio_unico: true, pagos: [{ metodo: 'credito_cambio', monto: 12000 }, { metodo: 'efectivo', monto: 33000 }] }), // cambio de $120 por $450: la venta es la diferencia de $330
+  ];
+  const devs = [
+    { tienda: 'DUO', importe: 12000, folio_unico: true, reembolsos: [] }, // la devolución del cambio no resta: ya se aplicó a la compra nueva
+    { tienda: 'DUO', importe: 10000, reembolsos: [{ metodo: 'efectivo', monto: 6000 }, { metodo: 'tarjeta_regalo', monto: 4000 }] }, // devolución: solo resta lo que no fue a tarjeta de regalo
+  ];
+  const r = resumenDelDia({ fecha: '2026-10-21', ventas: vs, canceladas: [], devoluciones: devs }, ['DUO'])!;
+  assert.equal(r.monto, 50000 + 39900 + 33000 - 6000);
+  assert.equal(r.titulo, 'Ventas netas del día 21/10 · $1,169.00');
+  assert.equal(r.cuerpo, 'DÚO: 3 tickets · $1,169.00 (dev. $60.00)');
 });
 
 test('NT5 las preferencias que llegan del teléfono se limpian y nunca rompen', () => {
