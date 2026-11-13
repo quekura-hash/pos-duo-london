@@ -91,7 +91,7 @@ porAlmacen('Empleadas: descuento de empleada (15 % / 30 % uniforme), crédito co
     const c = await corte(caja);
     assert.deepEqual([c.ventas_mercancia, c.ventas_a_credito_empleadas, c.cobros_efectivo, c.efectivo_esperado, c.cobros_tarjeta], [76400, 76400, 0, 0, 0]);
     // el ticket de cierre y el resumen del día muestran el crédito aparte, sin sumarlo a los cobros
-    assert.match(renderTicketCorteTexto(c, NEGOCIOS.DUO), /VENTA TOTAL DEL DÍA[\s\S]*TOTAL EN EFECTIVO +\$0\.00[\s\S]*Ventas a crédito de empleadas \(no es cobro\) +\$764\.00/);
+    assert.match(renderTicketCorteTexto(c, NEGOCIOS.DUO), /VENTAS NETAS[\s\S]*TOTAL EN EFECTIVO +\$0\.00[\s\S]*Ventas a crédito de empleadas \(no es cobro\) +\$764\.00/);
     sync(ctx);
     const rd = (await api(adm.url, '/api/admin/resumen-dia?fecha=2026-10-01')).json.total;
     assert.deepEqual([rd.venta_total, rd.credito_empleadas, rd.efectivo, rd.tarjeta, rd.ventas_netas], [76400, 76400, 0, 0, 76400]);

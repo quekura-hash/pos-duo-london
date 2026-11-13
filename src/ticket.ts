@@ -688,7 +688,7 @@ export type DatosCorte = Record<string, any>;
 /** Un renglón del ticket de cierre: `negrita` y `grande` solo cambian cómo lo marca la impresora; el texto es el mismo. */
 export interface LineaCorte { texto: string; negrita?: boolean; grande?: boolean }
 /**
- * Ticket de cierre de caja, por orden de importancia: encabezado de la tienda (sin logo), VENTA TOTAL DEL DÍA, totales por forma de pago
+ * Ticket de cierre de caja, por orden de importancia: encabezado de la tienda (sin logo), VENTAS NETAS (ya sin devoluciones), totales por forma de pago
  * (efectivo, pesos, dólares, tarjeta), fondo, cambios y devoluciones con las ventas netas, y al final la conciliación del efectivo.
  */
 export function lineasTicketCorte(k: DatosCorte, cfg: NegocioCfg = NEGOCIOS[k.tienda]!, opts: { reimpresion?: number } = {}): LineaCorte[] {
@@ -714,7 +714,7 @@ export function lineasTicketCorte(k: DatosCorte, cfg: NegocioCfg = NEGOCIOS[k.ti
     for (const z of envolver(`Se hizo un corte de arqueo a las ${hora} con ${formatoMXN(x.ventas)} de venta${x.fondo_confirmado ? ' y se confirmó fondo' : ''}${x.fondo_estado === 'faltante' ? ` con faltante de ${formatoMXN(-(x.fondo_diferencia ?? 0))}` : x.fondo_estado === 'sobrante' ? ` con sobrante de ${formatoMXN(x.fondo_diferencia ?? 0)}` : ''}.`, c)) L.push(t(z));
   }
   // 1) LO MÁS IMPORTANTE: la venta total del día
-  L.push({ texto: centrar('VENTA TOTAL DEL DÍA', c), negrita: true }, { texto: centrar(formatoMXN(k.venta_total_dia ?? k.ventas_mercancia), c), negrita: true, grande: true });
+  L.push({ texto: centrar('VENTAS NETAS', c), negrita: true }, { texto: centrar(formatoMXN(k.ventas_netas), c), negrita: true, grande: true });
   L.push(t(dos(`${k.tickets} ticket${k.tickets === 1 ? '' : 's'} de venta`, k.descuentos ? `descuentos -${formatoMXN(k.descuentos)}` : '', c)));
   // La tarjeta de regalo vendida es venta hoy; lo pagado con una tarjeta ya fue venta cuando se vendió y no se cuenta otra vez.
   if (k.tarjetas_regalo_vendidas) L.push(t(dos('Incluye tarjetas de regalo vendidas', formatoMXN(k.tarjetas_regalo_vendidas), c)));
@@ -745,8 +745,8 @@ export function lineasTicketCorte(k: DatosCorte, cfg: NegocioCfg = NEGOCIOS[k.ti
   // 4) cambios y devoluciones, y las ventas netas
   L.push(b('CAMBIOS Y DEVOLUCIONES'), t(dos('Mercancía recibida a cambio', dato(k.mercancia_recibida_por_cambio), c)), t(dos('Diferencias cobradas en cambios', dato(k.diferencias_cobradas_en_cambios), c)), t(dos('Devoluciones con reembolso', dato(k.devoluciones_con_reembolso), c)));
   if (k.tickets_cancelados) L.push(t(dos('Ventas canceladas', String(k.tickets_cancelados), c)));
-  // VENTAS NETAS sobresale del resto: título en negritas y el importe en doble tamaño, como la venta total del día.
-  L.push(t(regla), { texto: centrar('VENTAS NETAS', c), negrita: true }, { texto: centrar(formatoMXN(k.ventas_netas), c), negrita: true, grande: true }, t(doble));
+  // VENTAS NETAS ya salió arriba, en grande: no se repite aquí.
+  L.push(t(doble));
   // Depósitos en garantía: NO son ventas; se muestran aparte para que el efectivo esperado se pueda conciliar.
   const dp = k.depositos as { recibidos: number; devueltos: number; aplicados: number; fees: number; pendiente: number; pendiente_n: number } | undefined;
   if (dp && (dp.recibidos || dp.devueltos || dp.aplicados || dp.fees || dp.pendiente)) {

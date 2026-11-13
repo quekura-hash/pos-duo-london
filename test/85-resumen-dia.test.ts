@@ -82,12 +82,12 @@ describe('[navegador real] Resumen del día en Reportes', { timeout: 240_000, sk
     await page.waitForSelector('#rd-total');
     // el servidor de prueba corre «hoy» en 2026-10-01
     await page.fill('#rd-fecha', '2026-10-01');
-    await page.waitForFunction(() => document.querySelector('#rd-total')!.textContent === '$1,799.00');
-    assert.match((await page.textContent('#rd-venta-total'))!, /VENTA TOTAL DEL DÍA · 01\/10\/2026[\s\S]*4 tickets/);
+    await page.waitForFunction(() => document.querySelector('#rd-total')!.textContent === '$1,349.00');
+    assert.match((await page.textContent('#rd-venta-total'))!, /VENTAS NETAS · 01\/10\/2026[\s\S]*4 tickets/);
     assert.equal(await page.textContent('#rd-efectivo'), '$1,679.00');
     assert.equal(await page.textContent('#rd-tarjeta'), '$120.00');
-    assert.equal((await page.textContent('#rd-netas'))!.trim(), '$1,349.00');
-    assert.match((await page.textContent('#rd-tiendas [data-tienda="LON"]'))!, /\$450\.00[\s\S]*1 ticket/);
+    assert.equal(await page.locator('#rd-netas').count(), 0, 'ventas netas ya no se repite abajo');
+    assert.match((await page.textContent('#rd-tiendas [data-tienda="LON"]'))!, /\$0\.00[\s\S]*1 ticket[\s\S]*Efectivo \$450\.00/);
     // desglose por tienda y por caja: «Caja D1» con su venta y Efectivo / T. Cred. / T. Reg.
     const d1 = page.locator('#rd-por-caja [data-caja="DUO/1"]');
     assert.match((await d1.textContent())!, /Caja D1[\s\S]*\$1,349\.00[\s\S]*Efectivo[\s\S]*\$1,229\.00[\s\S]*T\. Cred\.[\s\S]*\$120\.00[\s\S]*T\. Reg\.[\s\S]*\$0\.00/);

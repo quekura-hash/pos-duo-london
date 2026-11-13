@@ -68,10 +68,12 @@ porAlmacen('Ticket de cierre de corte: 5 ventas (una con tarjeta), una devoluci�
     writeFileSync('/tmp/claude-0/ticket-cierre.txt', ticket);
     // cifras: efectivo 899+120+450+1,250 = 2,719 + 330 del cambio − 450 de la devolución = 2,599
     assert.equal(esperado, pesos(2599));
-    const iVenta = ticket.indexOf('VENTA TOTAL DEL DÍA'), iEfectivo = ticket.indexOf('TOTAL EN EFECTIVO'), iTarjeta = ticket.indexOf('TOTAL EN TARJETA'), iFondo = ticket.indexOf('FONDO\n'), iCambios = ticket.indexOf('CAMBIOS Y DEVOLUCIONES'), iNetas = ticket.indexOf('VENTAS NETAS'), iConc = ticket.indexOf('CONCILIACIÓN DEL EFECTIVO EN PESOS');
-    assert.ok(iVenta > 0 && iVenta < iEfectivo && iEfectivo < iTarjeta && iTarjeta < iFondo && iFondo < iCambios && iCambios < iNetas && iNetas < iConc, 'jerarquía: venta total, efectivo, tarjeta, fondo, cambios, netas, conciliación');
+    const iVenta = ticket.indexOf('VENTAS NETAS'), iEfectivo = ticket.indexOf('TOTAL EN EFECTIVO'), iTarjeta = ticket.indexOf('TOTAL EN TARJETA'), iFondo = ticket.indexOf('FONDO\n'), iCambios = ticket.indexOf('CAMBIOS Y DEVOLUCIONES'), iConc = ticket.indexOf('CONCILIACIÓN DEL EFECTIVO EN PESOS');
+    assert.ok(iVenta > 0 && iVenta < iEfectivo && iEfectivo < iTarjeta && iTarjeta < iFondo && iFondo < iCambios && iCambios < iConc, 'jerarquía: ventas netas (arriba, una sola vez), efectivo, tarjeta, fondo, cambios, conciliación');
+    assert.equal((ticket.match(/VENTAS NETAS/g) ?? []).length, 1, 'VENTAS NETAS sale una sola vez, arriba');
+    assert.doesNotMatch(ticket, /VENTA TOTAL DEL DÍA/);
     assert.match(ticket, /^ +DÚO New York\n +AV\. LIBERTAD[\s\S]*KARINA PALAFOX[\s\S]*RFC: PAVK[\s\S]*Tienda DUO - Caja 1\n +TELÉFONO 534-0607/, 'datos de la tienda como en el ticket de venta');
-    assert.match(ticket, /\$3,948\.00/);
+    assert.doesNotMatch(ticket, /\$3,948\.00/, 'ya no se muestra la venta total (ventas + devoluciones)');
     assert.match(ticket, /TOTAL EN EFECTIVO +\$3,049\.00\n +Total en pesos +\$3,049\.00\n +Total en dólares +US\$0\.00/);
     assert.match(ticket, /TOTAL EN TARJETA +\$899\.00/);
     assert.match(ticket, /Fondo autorizado +\$5,000\.00\nFondo confirmado +\$5,000\.00\nFondo completo/);

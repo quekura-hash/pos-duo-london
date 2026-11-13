@@ -102,7 +102,7 @@ porAlmacen('Cierre de caja guiado: fondo fijo, conteo de ventas, diferencias reg
     const c = await api(caja.url, '/api/corte/cerrar', { clave: '4321', totalizacion: 0, observaciones: 'Corte sin incidencias.' });
     assert.equal(c.status, 200, JSON.stringify(c.json));
     assert.equal(readdirSync(caja.s.impresora.dir).filter((f) => f.endsWith('.txt')).length, antesCierre + 1, 'al cerrar sale el ticket de cierre');
-    assert.match(c.json.ticket_texto, /CIERRE DE CAJA[\s\S]*VENTA TOTAL DEL DÍA/);
+    assert.match(c.json.ticket_texto, /CIERRE DE CAJA[\s\S]*VENTAS NETAS/);
     assert.deepEqual([c.json.corte.cerrado_por, c.json.corte.observaciones, c.json.corte.fondo_confirmado, c.json.corte.fondo_autorizado, c.json.corte.diferencia_mxn], ['Lupe', 'Corte sin incidencias.', pesos(5000), pesos(5000), 0]);
     // cerrado: no se modifica el fondo ni se cierra dos veces; el cierre guardado no cambia
     assert.equal((await fondo(caja, den(5000))).json.error.codigo, 'CORTE_CERRADO');
@@ -201,7 +201,7 @@ porAlmacen('Cierre de caja guiado: fondo fijo, conteo de ventas, diferencias reg
     // reimprimir: sale el mismo cierre guardado, marcado como reimpresión 1; la siguiente, 2
     const r1 = await api(caja.url, '/api/corte/reimprimir', {});
     assert.deepEqual([r1.status, r1.json.impresion.ok, r1.json.reimpresion], [200, true, 1]);
-    assert.match(r1.json.ticket_texto, /\*\*\* CIERRE DE CAJA \*\*\*\n +REIMPRESIÓN 1[\s\S]*VENTA TOTAL DEL DÍA[\s\S]*Observaciones: prueba/);
+    assert.match(r1.json.ticket_texto, /\*\*\* CIERRE DE CAJA \*\*\*\n +REIMPRESIÓN 1[\s\S]*VENTAS NETAS[\s\S]*Observaciones: prueba/);
     assert.equal((await api(caja.url, '/api/corte/reimprimir', {})).json.reimpresion, 2);
     assert.equal(impresos().length, antes + 2);
     // cerrar otra vez no vuelve a imprimir

@@ -63,14 +63,14 @@ describe('[navegador real] Reportes en el teléfono: tres bloques claros', { tim
     const ys = [await y(page, '#resumen-dia'), await y(page, '#filtros'), ...(hayContadora ? [await y(page, '#panel-contadora')] : [])];
     assert.deepEqual([...ys].sort((a, b) => a - b), ys, `orden de los bloques: ${ys}`);
     // 1 · Resumen: el dato más importante es la venta total del día; el hero va antes que las tiendas y es el texto más grande.
-    assert.match((await page.textContent('#rd-venta-total'))!, /VENTA TOTAL DEL DÍA · \d\d\/\d\d\/\d{4}[\s\S]*4 tickets/);
+    assert.match((await page.textContent('#rd-venta-total'))!, /VENTAS NETAS · \d\d\/\d\d\/\d{4}[\s\S]*4 tickets/);
     assert.equal(await page.textContent('#rd-total'), '$6,133.00');
     const tam = await page.evaluate(() => { const f = (s: string) => parseFloat(getComputedStyle(document.querySelector(s)!).fontSize); return { hero: f('#rd-total'), tienda: f('#rd-tiendas .kpi > b'), cobro: f('#rd-efectivo'), titulo: f('#resumen-dia h2') }; });
     assert.ok(tam.hero >= 40 && tam.hero > tam.tienda && tam.tienda > tam.cobro && tam.hero > tam.titulo * 2, JSON.stringify(tam));
     const yHero = await y(page, '#rd-venta-total'), yTiendas = await y(page, '#rd-tiendas'), yCobro = await y(page, '.kpi-cobro'), yCajas = await y(page, '#rd-por-caja'), yCambios = await y(page, '.panel-resumen');
     assert.deepEqual([yHero, yTiendas, yCobro, yCajas, yCambios].sort((a, b) => a - b), [yHero, yTiendas, yCobro, yCajas, yCambios]);
     // Todo lo que ya existía en el resumen sigue presente (mismos ids y datos).
-    for (const id of ['#rd-efectivo', '#rd-pesos', '#rd-dolares', '#rd-tarjeta', '#rd-cambio', '#rd-devoluciones', '#rd-netas', '#rd-retiros', '#rd-gastos', '#rd-fecha']) assert.equal(await page.locator(id).count(), 1, id);
+    for (const id of ['#rd-efectivo', '#rd-pesos', '#rd-dolares', '#rd-tarjeta', '#rd-cambio', '#rd-devoluciones', '#rd-retiros', '#rd-gastos', '#rd-fecha']) assert.equal(await page.locator(id).count(), 1, id);
     assert.equal((await page.textContent('#rd-tiendas [data-tienda="DUO"] [data-col="venta"]'))!.trim(), '$5,540.00');
     assert.equal(await page.locator('#rd-por-caja .caja-detalle').count(), 4);
     assert.equal(await page.locator('#rd-por-caja .caja-detalle .ic').count() > 8, true, 'las filas llevan iconos');
