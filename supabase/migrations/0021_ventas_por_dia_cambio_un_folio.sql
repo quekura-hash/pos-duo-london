@@ -1,6 +1,6 @@
 -- 0021: ventas por día con el cambio de mercancía en UN solo folio. En un cambio nuevo (`cambio_unico`) la venta es solo la diferencia que paga la clienta: se resta el crédito del
 -- cambio (pago `credito_cambio`); y la devolución de ese cambio (`folio_unico`) resta únicamente el dinero que salió (efectivo o tarjeta). Los cambios anteriores (con folio aparte
--- para la devolución) no llevan esas marcas y se calculan igual que antes. Debe coincidir con totalesPorDia (src/metas.ts). Misma firma que 0017/0019/0020. PENDIENTE de aplicar a producción.
+-- para la devolución) no llevan esas marcas y se calculan igual que antes. Debe coincidir con totalesPorDia (src/metas.ts). Misma firma que 0017/0019/0020. Aplicada a producción.
 -- (0017) ventas por día de la tienda, calculadas en el central con las MISMAS reglas que Administración (ventas confirmadas no canceladas + ventas importadas del
 -- POS anterior sin las copias duplicadas descartadas). La barra de metas de la caja la consulta, así marca lo mismo que Administración.
 -- Administración ve todas las tiendas; una caja, solo la suya. Solo lectura.
