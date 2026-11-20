@@ -8,7 +8,7 @@
 --      - la lista de personal (cajero.guardado y supervisor.guardado) SIN la sal ni la huella de la clave ni el perfil: solo id, nombre, activo, eliminado, tienda.
 --    Nunca ve ventas normales, cortes, reportes ni claves.
 --  · ESCRIBE (pos.subir_ops, para el asistente): lo de inventario y almacén y empleada.movimiento de tipo `abono`. Cualquier otra cosa se rechaza.
--- Es idempotente. Misma firma que las funciones actuales. PENDIENTE de aplicar a producción.
+-- Es idempotente. Misma firma que las funciones actuales. Aplicada a producción.
 
 alter table pos.admins drop constraint if exists admins_rol_check;
 alter table pos.admins add constraint admins_rol_check check (rol in ('supervisor', 'almacenista', 'asistente', 'caja', 'publicador'));
