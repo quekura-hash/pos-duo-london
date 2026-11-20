@@ -231,3 +231,41 @@ describe('[navegador real] Administración web en el iPhone: Evelyn (asistente) 
     assert.deepEqual(errores, []);
   });
 });
+
+test('AS5 si el rol de la cuenta cambia, la réplica guardada se rehace sola (si no, su cursor «al día» dejaría fuera lo de Empleadas) sin perder lo aún no subido', async () => {
+  const { iniciarAdminNube } = await import('../src/app/admin-nube.ts');
+  const db = await centralLocal();
+  const sup = await usuario(db, 'edgardo@x.mx', 'supervisor');
+  const eve = await usuario(db, 'evelyn@x.mx', 'almacenista');
+  await new ClientePglite(db, sup).subirOps([
+    op('cajero.guardado', 'c1', { id: 'caj-ana', nombre: 'Ana', activo: true, sal: 'SAL', hash: 'HASH', tienda: 'DUO' }),
+    op('empleada.credito', 'e1', { empleada_id: 'caj-ana', limite: 300000, motivo: 'alta', por: 'Edgardo' }),
+    op('item.created', 'i1', { item_id: 'a1', codigo: '7500000000011', item_no: '1', marca: 'X', descripcion: 'BLUSA', estilo: '', lote: '', departamento: 'Dama', precio: 10000 }),
+  ]);
+  const datos = new Map<string, any>();
+  const almacen = { async leer(k: string) { return datos.get(k); }, async escribir(k: string, e: any) { datos.set(k, e); }, async borrar(k: string) { datos.delete(k); } };
+  let rol: 'almacenista' | 'asistente' = 'almacenista';
+  const cliente = () => {
+    const c = () => new ClientePglite(db, eve);
+    return { async iniciarSesion() {}, async miPerfil() { return { rol, alias: 'Evelyn', usuario_id: eve }; }, cerrarSesion() {}, subirOps: (o: any) => c().subirOps(o), bajarOps: (d: number, l: number) => c().bajarOps(d, l) };
+  };
+  // Como almacenista baja su réplica (solo almacén) y la guarda.
+  const a1 = iniciarAdminNube({ cliente: cliente(), almacen });
+  await a1.entrar('evelyn@x.mx', 'buena');
+  assert.equal((await a1.atender('GET', '/api/sesion', undefined)).status, 200);
+  assert.equal(datos.size, 1);
+  assert.equal(JSON.stringify(datos.get(`replica:${eve}`).ops.map((o: any) => o.tipo).sort()), JSON.stringify(['item.created']));
+  // Algo hecho sin internet que aún no se sube: no se debe perder.
+  datos.get(`replica:${eve}`).ops.push(op('item.editado', 'pend-1', { item_id: 'a1', cambios: { marca: 'Y' } }));
+  datos.get(`replica:${eve}`).outbox.push(['pend-1|central', false]);
+  // La suben a asistente: al entrar rehace la réplica y ya ve las cuentas.
+  rol = 'asistente';
+  await db.query(`update pos.admins set rol = 'asistente' where user_id = $1`, [eve]);
+  const a2 = iniciarAdminNube({ cliente: cliente(), almacen });
+  await a2.entrar('evelyn@x.mx', 'buena');
+  const cuentas = (await a2.atender('GET', '/api/admin/empleadas', undefined)).json as { empleadas: { nombre: string }[] };
+  assert.deepEqual(cuentas.empleadas.map((e) => e.nombre), ['Ana']);
+  assert.equal(JSON.stringify(datos.get(`replica:${eve}`).kv.find(([k]: [string]) => k === 'rol_replica')), JSON.stringify(['rol_replica', '"asistente"']));
+  await a2.sincronizar();
+  assert.equal(Number((await db.query<{ n: number }>(`select count(*)::int as n from pos.ops where op_id = 'pend-1'`)).rows[0]!.n), 1, 'lo pendiente se subió');
+});

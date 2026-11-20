@@ -99,8 +99,19 @@ export function iniciarAdminNube(o: { cliente: ClienteNube; almacen?: AlmacenRep
           P14_venta_con_inventario_no_verificado: 'permitir_con_aviso', K_folios: 30, K_item_no: 50,
         }),
       });
-      const guardada = await o.almacen?.leer(claveReplica(p.usuario_id)).catch(() => undefined);
+      let guardada = await o.almacen?.leer(claveReplica(p.usuario_id)).catch(() => undefined);
+      // Cada rol baja datos distintos del central. Si el rol de esta cuenta cambió desde que se guardó la réplica (p. ej. de almacenista a asistente), lo que ya
+      // se bajó está incompleto y su cursor diría «ya estoy al día»: se descarta y se baja de nuevo, conservando solo lo que aún no se había subido.
+      // Una réplica anterior a esta versión no trae el rol: se respeta si es de supervisor (siempre bajó todo) y se rehace en cualquier otro caso.
+      if (guardada) {
+        const rolGuardado = (() => { const v = guardada.kv.find(([k]) => k === 'rol_replica')?.[1]; try { return v === undefined ? undefined : (JSON.parse(v) as string); } catch { return undefined; } })();
+        if (rolGuardado !== undefined ? rolGuardado !== p.rol : p.rol !== 'supervisor') {
+          const pendientes = new Set(guardada.outbox.filter(([, acked]) => !acked).map(([k]) => k.slice(0, k.lastIndexOf('|'))));
+          guardada = { desde: 0, ops: guardada.ops.filter((op) => pendientes.has(op.op_id)), outbox: guardada.outbox.filter(([, acked]) => !acked), kv: [] };
+        }
+      }
       if (guardada) repo().importar(guardada);
+      repo().kvSet('rol_replica', p.rol);
       ponerHora();
       puente = new PuenteCentral(repo(), cliente);
       servicio = new ServicioAdmin({
