@@ -589,6 +589,16 @@ Reemplaza lo dicho de «administradores» en la sección 35: quien entra a Admin
 - **Pendiente de definir con el propietario**: qué otras operaciones de la caja deben pedir la clave de un supervisor (hoy solo los descuentos). Candidatas: cancelar una venta ya cobrada, devoluciones, retiros, fondo y entradas de efectivo, anular una venta con artículos, cambiar un precio en la venta.
 - **Verificado**: pruebas RO1–RO3 (ambos almacenes) y de navegador (B18: roles, menú del almacenista, precio de solo lectura, cajero rechazado, supervisor completo).
 
+### Rol asistente (migración 0022)
+
+Un cuarto rol de Administración para quien ayuda con el almacén y los créditos de empleadas sin ver ventas, reportes ni configuración.
+
+- **Qué ve y hace**: Inventario y Almacén (igual que el almacenista) y **Crédito de empleadas**: cuentas, movimientos, nómina y **abonos de nómina**. Los **ajustes**, el **límite de crédito**, los porcentajes de descuento, el alta de personal y todo lo demás siguen siendo solo del supervisor (el servidor responde 403 `PROHIBIDO`; en la pantalla ni se ofrecen).
+- **Qué baja de la nube** (`pos.bajar_ops`, función `pos.ops_para_asistente`): lo de inventario y almacén y, nada más, `empleada.credito`, `empleada.movimiento`, `empleadas.config`, `cajero.ubicacion`, las compras a crédito de empleada con sus cancelaciones y devoluciones, y la lista del personal **sin sal, huella de clave, perfil ni foto**. Nunca ventas normales, cortes ni claves.
+- **Qué sube**: lo de almacén y `empleada.movimiento` de tipo `abono`; todo lo demás se rechaza en `pos.subir_ops`. Cada abono queda a su nombre.
+- **Alta**: el rol vive en `pos.admins` (Supabase); en Personal › «Agregar persona» existe la opción Asistente para el registro local. Si también cobra, recibe clave de caja pero no autoriza descuentos (como el almacenista).
+- **Verificado**: pruebas AS1 (central real: qué baja y qué sube), AS2 (rutas y permisos) y AS3–AS4 (navegador, incluida la Administración web en iPhone contra el central simulado).
+
 ## 37. Claves en la caja: retiros, cancelaciones y devoluciones [P]
 
 Resuelve el pendiente de la sección 36. Un cajero puede vender, cobrar, hacer retiros, cortes, tarjetas de regalo y devoluciones, y dar de alta artículos; estas operaciones piden clave así:
