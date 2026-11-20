@@ -84,10 +84,10 @@ export class ClienteSupabase implements ClienteCentral {
   }
 
   /** Rol y alias de quien inició sesión, según pos.admins (null = no es administrador del negocio o está dado de baja). */
-  async miPerfil(): Promise<{ rol: 'supervisor' | 'almacenista' | 'caja'; alias: string; usuario_id: string; tienda: string | null; caja: number | null } | null> {
+  async miPerfil(): Promise<{ rol: 'supervisor' | 'almacenista' | 'asistente' | 'caja'; alias: string; usuario_id: string; tienda: string | null; caja: number | null } | null> {
     if (!this.sesion?.usuario_id) throw new Error('Sin sesión en el central.');
     const id = this.sesion.usuario_id;
-    const filas = await this.leer<{ rol: 'supervisor' | 'almacenista' | 'caja'; alias: string; activo: boolean; tienda: string | null; caja: number | null }[]>(`admins?select=rol,alias,activo,tienda,caja&user_id=eq.${encodeURIComponent(id)}`);
+    const filas = await this.leer<{ rol: 'supervisor' | 'almacenista' | 'asistente' | 'caja'; alias: string; activo: boolean; tienda: string | null; caja: number | null }[]>(`admins?select=rol,alias,activo,tienda,caja&user_id=eq.${encodeURIComponent(id)}`);
     const a = filas[0];
     return a && a.activo ? { rol: a.rol, alias: a.alias, usuario_id: id, tienda: a.tienda ?? null, caja: a.caja ?? null } : null;
   }

@@ -828,7 +828,7 @@ export class Central {
     if (d.clave) { sal = uuid(); hash = hashClave(sal, d.clave); }
     const id = actual?.id ?? `adm-${uuid().slice(0, 8)}`;
     const rol: RolAdmin = actual ? (actual.rol ?? 'supervisor') : (d.rol ?? 'supervisor');
-    if (rol !== 'supervisor' && rol !== 'almacenista') return { ok: false, error: { codigo: 'DATOS_INVALIDOS', mensaje: 'el rol es supervisor o almacenista' } };
+    if (rol !== 'supervisor' && rol !== 'almacenista' && rol !== 'asistente') return { ok: false, error: { codigo: 'DATOS_INVALIDOS', mensaje: 'el rol es supervisor, almacenista o asistente' } };
     if (!actual && lista.length === 0 && rol !== 'supervisor') return { ok: false, error: { codigo: 'DATOS_INVALIDOS', mensaje: 'el primer usuario de Administración debe ser supervisor: es quien crea a los demás' } };
     const supervisoresActivos = lista.filter((c) => c.id !== actual?.id && c.activo && (c.rol ?? 'supervisor') === 'supervisor').length + (rol === 'supervisor' && activo ? 1 : 0);
     if (supervisoresActivos === 0) return { ok: false, error: { codigo: 'ULTIMO_SUPERVISOR', mensaje: 'debe quedar al menos un supervisor activo (es quien administra a los demás)' } };
@@ -840,7 +840,7 @@ export class Central {
       const enlazado = `sup-${id.slice(4)}`;
       const existe = supervisoresDe(ops).some((s) => s.id === enlazado);
       if (d.clave_caja || existe) {
-        const r = this.guardarSupervisor({ ...(existe ? { id: enlazado } : { id_nuevo: enlazado }), nombre, clave: d.clave_caja || undefined, activo, solo_caja: rol === 'almacenista', dueno: rol === 'supervisor' && (adminDueno({ nombre, perfil: pf.perfil }) || (actual ? this.esDueno(ops, actual) : false)), foto: pf.perfil?.foto ?? null }, por);
+        const r = this.guardarSupervisor({ ...(existe ? { id: enlazado } : { id_nuevo: enlazado }), nombre, clave: d.clave_caja || undefined, activo, solo_caja: rol !== 'supervisor', dueno: rol === 'supervisor' && (adminDueno({ nombre, perfil: pf.perfil }) || (actual ? this.esDueno(ops, actual) : false)), foto: pf.perfil?.foto ?? null }, por);
         if (!r.ok) return { ok: false, error: { codigo: 'DATOS_INVALIDOS', mensaje: r.error.mensaje } };
       }
     }

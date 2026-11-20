@@ -4754,10 +4754,14 @@ async function vistaHorarios() {
   cuerpoVista().innerHTML = `<section class="panel"><h2 style="margin-top:0">Horarios</h2><p class="nota">En desarrollo: aquí se organizarán los horarios y turnos del personal. Lo vamos a definir juntos.</p></section>`;
 }
 async function vistaPersonal(tab) {
+  // El asistente trabaja solo las cuentas de crédito de las empleadas (ver, abonar y ver movimientos) y la nómina.
+  const esAsistente = S.sesion?.rol_usuario === 'asistente';
+  const tabs = esAsistente ? TABS_PERSONAL.filter(([id]) => id === 'descuento' || id === 'nomina').map(([id, , icono]) => [id, id === 'descuento' ? 'Cuentas de crédito' : 'Nómina', icono]) : TABS_PERSONAL;
   tab = tab ?? S.personalTab ?? 'perfiles';
+  if (!tabs.some(([id]) => id === tab)) tab = tabs[0][0];
   S.personalTab = tab;
-  $('#vista').innerHTML = `<div class="titulo-vista">${ico('user')}<h1>Personal</h1></div>
-    <div class="filas" role="tablist" aria-label="Personal" style="margin-bottom:12px">${TABS_PERSONAL.map(([id, rotulo, icono]) => `<button class="btn" type="button" role="tab" id="per-tab-${id}" data-tab="${id}" aria-selected="${id === tab}" style="${id === tab ? 'background:var(--acento);color:var(--acento-texto);border-color:var(--acento)' : ''}">${ico(icono)}<span>${rotulo}</span></button>`).join('')}</div>
+  $('#vista').innerHTML = `<div class="titulo-vista">${ico('user')}<h1>${esAsistente ? 'Crédito de empleadas' : 'Personal'}</h1></div>
+    <div class="filas" role="tablist" aria-label="Personal" style="margin-bottom:12px">${tabs.map(([id, rotulo, icono]) => `<button class="btn" type="button" role="tab" id="per-tab-${id}" data-tab="${id}" aria-selected="${id === tab}" style="${id === tab ? 'background:var(--acento);color:var(--acento-texto);border-color:var(--acento)' : ''}">${ico(icono)}<span>${rotulo}</span></button>`).join('')}</div>
     <div id="personal-cuerpo" role="tabpanel"></div>`;
   for (const b of $('#vista').querySelectorAll('[role="tab"]')) b.addEventListener('click', () => vistaPersonal(b.dataset.tab));
   await ({ perfiles: vistaCajeros, descuento: vistaDescuentoCredito, nomina: vistaNomina, horarios: vistaHorarios })[tab]();
@@ -4766,7 +4770,9 @@ async function vistaPersonal(tab) {
 async function vistaDescuentoCredito() {
   const j = await api('/api/admin/empleadas');
   const hoy = new Date(Date.now() - 7 * 3600e3).toISOString().slice(0, 10);
-  cuerpoVista().innerHTML = `    <section class="panel"><h2 style="margin-top:0">Descuento de empleada</h2>
+  // El asistente solo ve las cuentas y registra abonos de nómina: los porcentajes, el límite de crédito y los ajustes son del supervisor.
+  const soloAbonos = S.sesion?.rol_usuario === 'asistente';
+  const configHtml = soloAbonos ? '<div id="msg-emp-admin" class="mensaje" role="status" aria-live="polite"></div>' : `    <section class="panel"><h2 style="margin-top:0">Descuento de empleada</h2>
       <p class="nota">Se aplica solo en una «Venta a empleada» (la empleada confirma con su clave). No se combina con promociones ni cupones: gana el que más le convenga. En la caja se marcan los uniformes de la tienda.</p>
       <form id="form-emp-config" class="filas" style="align-items:end" autocomplete="off">
         <div class="campo" style="margin:0"><label for="ec-pct">Mercancía regular (%)</label><input id="ec-pct" type="number" min="1" max="100" value="${j.config.pct}" style="width:90px"></div>
@@ -4777,27 +4783,36 @@ async function vistaDescuentoCredito() {
         <div class="campo"><label for="ex-marcas">Marcas (una por renglón)</label><textarea id="ex-marcas" rows="3" class="texto" placeholder="Victoria's Secret">${esc((j.config.marcas ?? []).join('\n'))}</textarea></div>
         <div class="campo"><label for="ex-deptos">Departamentos (uno por renglón)</label><textarea id="ex-deptos" rows="3" class="texto" placeholder="Skincare">${esc((j.config.departamentos ?? []).join('\n'))}</textarea>${(j.departamentos ?? []).length ? `<small class="nota">Departamentos que existen: ${esc(j.departamentos.join(', '))}</small>` : ''}</div>
         <button class="btn btn-primario" type="submit" style="width:auto">${ico('check')}<span>Guardar excepciones</span></button></form>
-      <div id="msg-emp-admin" class="mensaje" role="status" aria-live="polite"></div></section>
+      <div id="msg-emp-admin" class="mensaje" role="status" aria-live="polite"></div></section>`;
+  cuerpoVista().innerHTML = `${configHtml}
     <section class="panel" style="margin-top:12px"><h2 style="margin-top:0">Cuentas de crédito</h2>
       <p class="nota">El crédito no es dinero cobrado: la venta cuenta en la venta del día y baja el inventario, pero no entra al corte ni al efectivo. Aquí queda lo que cada empleada debe; los abonos se registran cuando se le descuenta de la nómina. <b>Total por cobrar: <span id="emp-total">${mxn(j.total_por_cobrar)}</span></b></p>
       <div class="tabla-cont"><table id="tabla-empleadas"><thead><tr><th>Empleada</th><th class="num">Límite</th><th class="num">Cargos</th><th class="num">Devoluciones</th><th class="num">Abonos</th><th class="num">Ajustes</th><th class="num">Debe</th><th class="num">Disponible</th><th></th></tr></thead><tbody>
       ${j.empleadas.map((e) => `<tr data-emp="${esc(e.id)}"><td>${esc(e.nombre)}${e.activa ? '' : ' <small>(ya no trabaja)</small>'}</td><td class="num" data-col="limite">${mxn(e.limite)}</td><td class="num" data-col="cargos">${mxn(e.cargos)}</td><td class="num">${mxn(e.devoluciones)}</td><td class="num" data-col="abonos">${mxn(e.abonos)}</td><td class="num">${mxn(e.ajustes)}</td><td class="num" data-col="saldo"><b>${mxn(e.saldo)}</b></td><td class="num" data-col="disponible">${mxn(e.disponible)}</td>
-        <td class="filas" style="flex-wrap:nowrap"><button class="btn em-limite" type="button">${ico('pencil')}<span>Límite</span></button><button class="btn em-abono" type="button">${ico('cash')}<span>Abono de nómina</span></button><button class="btn em-ajuste" type="button">${ico('plus')}<span>Ajuste</span></button><button class="btn em-mov" type="button">${ico('clock')}<span>Movimientos</span></button></td></tr>`).join('') || '<tr><td colspan="9" class="vacio">Aún no hay empleadas dadas de alta en Personal › Perfiles.</td></tr>'}</tbody></table></div>
-      <form id="form-emp" hidden autocomplete="off" style="margin-top:12px;border-top:1px solid var(--borde);padding-top:10px"></form>
-      <div id="emp-movimientos"></div></section>`;
-  const msg = (t, tipo = 'error') => { const m = $('#msg-emp-admin'); m.className = `mensaje ${tipo}`; m.textContent = t; };
-  $('#form-emp-config').addEventListener('submit', async (ev) => {
+        <td class="filas" style="flex-wrap:nowrap">${soloAbonos ? '' : `<button class="btn em-limite" type="button">${ico('pencil')}<span>Límite</span></button>`}<button class="btn em-abono" type="button">${ico('cash')}<span>Abono de nómina</span></button>${soloAbonos ? '' : `<button class="btn em-ajuste" type="button">${ico('plus')}<span>Ajuste</span></button>`}<button class="btn em-mov" type="button">${ico('clock')}<span>Movimientos</span></button></td></tr>
+        <tr class="emp-det" data-det="${esc(e.id)}" hidden><td colspan="9" data-label=""></td></tr>`).join('') || '<tr><td colspan="9" class="vacio">Aún no hay empleadas dadas de alta en Personal › Perfiles.</td></tr>'}</tbody></table></div>
+    </section>`;
+  const msg = (t, tipo = 'error') => { const m = $('#msg-emp-admin'); m.className = `mensaje ${tipo}`; m.textContent = t; m.scrollIntoView({ block: 'nearest' }); };
+  $('#form-emp-config')?.addEventListener('submit', async (ev) => {
     ev.preventDefault();
     try { await api('/api/admin/empleadas/config', { pct: Number($('#ec-pct').value), pct_uniforme: Number($('#ec-uni').value) }); msg('Porcentajes guardados. Las cajas los reciben al sincronizar.', 'ok'); }
     catch (e) { msg(e.message); }
   });
-  $('#form-emp-ex').addEventListener('submit', async (ev) => {
+  $('#form-emp-ex')?.addEventListener('submit', async (ev) => {
     ev.preventDefault();
     const lineas = (t) => t.split('\n').map((x) => x.trim()).filter(Boolean);
     try { await api('/api/admin/empleadas/config', { marcas: lineas($('#ex-marcas').value), departamentos: lineas($('#ex-deptos').value) }); msg('Excepciones guardadas. Las cajas las reciben al sincronizar.', 'ok'); }
     catch (e) { msg(e.message); }
   });
-  const abrir = (e, tipo) => {
+  // Cada empleada tiene su propia ventana (una fila de detalle justo debajo de ella) para el formulario y los movimientos; solo una abierta a la vez.
+  const cerrarDet = () => { for (const x of $('#tabla-empleadas').querySelectorAll('tr.emp-det')) { x.hidden = true; x.firstElementChild.innerHTML = ''; x.previousElementSibling.classList.remove('abierta'); } };
+  const abrirDet = (tr) => {
+    const det = tr.nextElementSibling;
+    if (det.hidden) { cerrarDet(); det.firstElementChild.innerHTML = '<form id="form-emp" hidden autocomplete="off"></form><div id="emp-movimientos"></div>'; det.hidden = false; tr.classList.add('abierta'); }
+    return det;
+  };
+  const abrir = (e, tipo, tr) => {
+    abrirDet(tr);
     const f = $('#form-emp'); f.hidden = false;
     const enviar = (ruta, cuerpo, ok) => async (ev) => { ev.preventDefault(); try { await api(ruta, cuerpo()); await vistaDescuentoCredito(); const m = $('#msg-emp-admin'); m.className = 'mensaje ok'; m.textContent = ok; } catch (er) { msg(er.message); } };
     const botones = (rotulo) => `<div class="filas"><button class="btn" type="button" id="ef-cancelar">Cancelar</button><button class="btn btn-primario" type="submit" style="width:auto;flex:1">${ico('check')}<span>${rotulo}</span></button></div>`;
@@ -4814,22 +4829,29 @@ async function vistaDescuentoCredito() {
         <div class="campo"><label for="ef-motivo">${abono ? 'Nota' : 'Motivo'}</label><input id="ef-motivo" class="texto" maxlength="120" value="${abono ? 'Descuento de nómina' : ''}"></div>${botones('Registrar')}`;
       f.onsubmit = enviar('/api/admin/empleadas/movimiento', () => ({ empleada_id: e.id, tipo: abono ? 'abono' : $('#ef-tipo').value, monto: parseMXN($('#ef-monto').value), motivo: $('#ef-motivo').value, ...(abono ? { periodo: $('#ef-periodo').value } : {}), ref }), 'Movimiento registrado.');
     }
-    $('#ef-cancelar').addEventListener('click', () => { f.hidden = true; });
+    $('#ef-cancelar').addEventListener('click', () => { f.hidden = true; if (!$('#emp-movimientos').innerHTML) cerrarDet(); });
     $('#ef-monto').focus();
+    tr.nextElementSibling.scrollIntoView({ block: 'nearest' });
   };
   for (const tr of $('#tabla-empleadas').querySelectorAll('tr[data-emp]')) {
     const e = j.empleadas.find((x) => x.id === tr.dataset.emp);
-    tr.querySelector('.em-limite').addEventListener('click', () => abrir(e, 'limite'));
-    tr.querySelector('.em-abono').addEventListener('click', () => abrir(e, 'abono'));
-    tr.querySelector('.em-ajuste').addEventListener('click', () => abrir(e, 'ajuste'));
+    tr.querySelector('.em-limite')?.addEventListener('click', () => abrir(e, 'limite', tr));
+    tr.querySelector('.em-abono').addEventListener('click', () => abrir(e, 'abono', tr));
+    tr.querySelector('.em-ajuste')?.addEventListener('click', () => abrir(e, 'ajuste', tr));
     tr.querySelector('.em-mov').addEventListener('click', async () => {
+      // Si ya están a la vista, el mismo botón los cierra.
+      if (!tr.nextElementSibling.hidden && $('#emp-movimientos')?.innerHTML) { $('#emp-movimientos').innerHTML = ''; if ($('#form-emp').hidden) cerrarDet(); return; }
       const r = await api(`/api/admin/empleadas/movimientos?id=${encodeURIComponent(e.id)}`);
       const NOM = { cargo: 'Compra a crédito', devolucion: 'Devolución', abono: 'Abono de nómina', ajuste_cargo: 'Ajuste (cargo)', ajuste_abono: 'Ajuste (a favor)' };
       const filas = (solo) => r.movimientos.filter((m) => !solo || m.tipo === 'abono' || m.tipo === 'ajuste_abono').map((m) => `<tr><td>${esc(m.fecha.split('-').reverse().join('/'))}</td><td>${NOM[m.tipo]}</td><td>${esc(m.detalle)}${m.periodo ? ` · ${esc(m.periodo)}` : ''}${m.por ? ` · ${esc(m.por)}` : ''}</td><td class="num">${['cargo', 'ajuste_cargo'].includes(m.tipo) ? '' : '-'}${mxn(m.monto)}</td><td class="num">${mxn(m.saldo_despues)}</td></tr>`).join('') || '<tr><td colspan="5" class="vacio">Sin movimientos.</td></tr>';
+      abrirDet(tr);
       $('#emp-movimientos').innerHTML = `<h3>Cuenta de ${esc(e.nombre)}</h3>
         <p id="emp-resumen" class="nota">Límite <b>${mxn(r.limite)}</b> · Debe <b>${mxn(r.saldo)}</b> · <b>Crédito disponible ${mxn(r.disponible)}</b> · Abonado en total ${mxn(r.abonado)}</p>
         <div class="filas"><button class="btn" type="button" id="emp-ver-todo" aria-pressed="true">Todos los movimientos</button><button class="btn" type="button" id="emp-ver-abonos" aria-pressed="false">Solo abonos</button></div>
-        <div class="tabla-cont"><table id="tabla-emp-mov"><thead><tr><th>Fecha</th><th>Movimiento</th><th>Detalle</th><th class="num">Monto</th><th class="num">Debe después</th></tr></thead><tbody>${filas(false)}</tbody></table></div>`;
+        <div class="tabla-cont"><table id="tabla-emp-mov"><thead><tr><th>Fecha</th><th>Movimiento</th><th>Detalle</th><th class="num">Monto</th><th class="num">Debe después</th></tr></thead><tbody>${filas(false)}</tbody></table></div>
+        <div class="filas"><button class="btn" type="button" id="emp-cerrar-mov">Cerrar movimientos</button></div>`;
+      $('#emp-cerrar-mov').addEventListener('click', () => { $('#emp-movimientos').innerHTML = ''; if ($('#form-emp').hidden) cerrarDet(); tr.scrollIntoView({ block: 'nearest' }); });
+      tr.nextElementSibling.scrollIntoView({ block: 'nearest' });
       for (const [id, solo] of [['#emp-ver-todo', false], ['#emp-ver-abonos', true]]) $(id).addEventListener('click', () => { $('#tabla-emp-mov tbody').innerHTML = filas(solo); $('#emp-ver-todo').setAttribute('aria-pressed', String(!solo)); $('#emp-ver-abonos').setAttribute('aria-pressed', String(solo)); });
     });
   }
@@ -5251,6 +5273,7 @@ function abrirRolesPermisos(hayAdmins) {
     ${hayAdmins ? '' : '<div class="mensaje aviso"><b>Esta consola está abierta: cualquiera que la abra puede entrar.</b> Cree el primer usuario (debe ser supervisor) para que pida usuario y contraseña. Quien lo crea queda dentro.</div>'}
     ${rol('user', 'Supervisor', 'Ve todo Administración, autoriza operaciones en la caja y también puede iniciar sesión y cobrar en la caja con su clave de caja (4 a 8 dígitos).')}
     ${rol('warehouse', 'Almacenista', 'Solo Inventario y Almacén, con permiso para cambiar precios y fijar las existencias reales; si también cobra, ponle una clave de caja (cobra, pero no autoriza descuentos).')}
+    ${rol('cash', 'Asistente', 'Inventario, Almacén y las cuentas de crédito de las empleadas: ve las cuentas y sus movimientos, registra abonos de nómina y consulta la nómina. Los ajustes, el límite de crédito y los porcentajes de descuento son solo del supervisor. Si también cobra, ponle una clave de caja (cobra, pero no autoriza descuentos).')}
     ${rol('lock', 'Entrada a Administración', 'Entran con su usuario y contraseña (6 a 40 caracteres), que solo viven en el servidor central. Las Vendedoras-Cajeras no entran a Administración.')}
     ${rol('cash', 'Vendedora-Cajera', 'Cada Vendedora-Cajera tiene su propia clave (4 a 8 dígitos) para confirmar operaciones a su nombre, como dar de alta un artículo en la caja.')}
     ${rol('tag', 'Usuario (alias)', 'El <b>usuario (alias)</b> es con el que entra a la caja y el que sale en tickets y reportes; los nombres, apellidos, teléfono, dirección y foto son su registro.')}
@@ -5300,7 +5323,7 @@ async function vistaCajeros() {
   const botonEliminar = (cls, motivoNo) => `<button class="btn btn-peligro ${cls}" type="button" ${motivoNo ? `disabled title="${esc(motivoNo)}"` : 'title="Quitarla por completo (pide su clave corta)"'}>${ico('trash')}<span>Eliminar</span></button>`;
   const btnP = (cls, icono, texto, titulo) => `<button class="btn ${cls}" type="button" title="${titulo}">${ico(icono)}<span>${texto}</span></button>`;
   const btnActivo = (cls, x) => btnP(cls, 'power', x.activo ? 'Desactivar' : 'Activar', x.activo ? 'Desactivar (ya no podrá entrar)' : 'Volver a activar');
-  const filaAdmin = (x) => `<tr data-admin="${esc(x.id)}" data-rol="${x.rol}" class="fila-usuario persona-card" tabindex="0" title="Clic para editar los datos de ${esc(x.nombre)}"><td class="p-cab">${celdaPersona(x, estadoPill(x))}</td><td class="p-rol" data-label="Rol">${x.rol === 'almacenista' ? 'Almacenista' : 'Supervisor'}</td><td class="p-tienda" data-col="tienda" data-label="Tienda">—</td>
+  const filaAdmin = (x) => `<tr data-admin="${esc(x.id)}" data-rol="${x.rol}" class="fila-usuario persona-card" tabindex="0" title="Clic para editar los datos de ${esc(x.nombre)}"><td class="p-cab">${celdaPersona(x, estadoPill(x))}</td><td class="p-rol" data-label="Rol">${{ almacenista: 'Almacenista', asistente: 'Asistente' }[x.rol] ?? 'Supervisor'}</td><td class="p-tienda" data-col="tienda" data-label="Tienda">—</td>
     <td class="p-acc">${btnP('a-editar', 'pencil', 'Editar', 'Editar sus datos')}${btnP('a-claves', 'key', 'Gestionar claves', 'Contraseña de Administración y clave de caja')}${btnActivo('a-activo', x)}${botonEliminar('a-eliminar', x.protegido ? 'Cuenta protegida: no se puede eliminar' : esYo(x) ? 'Es su propio usuario' : '')}</td></tr>`;
   const filaCajera = (x) => `<tr data-cajero="${esc(x.id)}" data-rol="cajero" class="fila-usuario persona-card" tabindex="0" title="Clic para editar los datos de ${esc(x.nombre)}"><td class="p-cab">${celdaPersona(x, estadoPill(x))}</td><td class="p-rol" data-label="Rol">Vendedora-Cajera</td><td class="p-tienda" data-col="tienda" data-label="Tienda">${esc(NOM_TIENDA_TRAB[x.tienda ?? ''] ?? x.tienda)}</td>
     <td class="p-acc">${btnP('c-editar', 'pencil', 'Editar', 'Editar sus datos')}${btnP('c-claves', 'key', 'Gestionar claves', 'Clave de caja')}${btnActivo('c-activo', x)}<button class="btn btn-peligro c-eliminar" type="button" title="Quitarla por completo (pide su clave corta)">${ico('trash')}<span>Eliminar</span></button></td></tr>`;
@@ -5314,13 +5337,13 @@ async function vistaCajeros() {
   cuerpoVista().innerHTML = `<section class="panel" id="panel-personal"><div class="per-cab"><h2>Perfiles</h2><button class="btn btn-roles" type="button" id="per-roles" aria-haspopup="dialog">${ico('info')}<span>Roles y permisos</span></button></div>
     ${hayAdmins ? '' : '<div class="mensaje aviso" id="per-aviso-abierta" role="status"><b>Esta consola está abierta: cualquiera que la abra puede entrar.</b> Cree el primer usuario (debe ser supervisor) para que pida usuario y contraseña. Quien lo crea queda dentro.</div>'}
     <div class="per-controles"><div class="per-buscador"><i class="ic per-lupa" aria-hidden="true">${ico('search')}</i><input id="per-buscar" type="search" placeholder="Buscar por nombre, alias o teléfono" autocomplete="off" aria-label="Buscar personal"></div>
-      <select id="per-filtro" aria-label="Mostrar personal"><option value="">Todo el personal</option><option value="cajero">Vendedoras-Cajeras</option><option value="supervisor">Supervisores</option><option value="almacenista">Almacenistas</option></select>
+      <select id="per-filtro" aria-label="Mostrar personal"><option value="">Todo el personal</option><option value="cajero">Vendedoras-Cajeras</option><option value="supervisor">Supervisores</option><option value="almacenista">Almacenistas</option><option value="asistente">Asistentes</option></select>
       <span class="per-contador" id="per-contador" role="status" aria-live="polite"></span></div>
     <div id="msg-admins" class="mensaje" role="status" aria-live="polite"></div>
     <div id="msg-cajeros" class="mensaje" role="status" aria-live="polite"></div>
     <div class="tabla-cont per-lista"><table id="tabla-personal"><thead><tr><th>Persona</th><th>Rol</th><th>Tienda</th><th>Acciones</th></tr></thead><tbody>${filas}</tbody></table></div><p id="per-vacio" class="nota" hidden>Nadie coincide con la búsqueda.</p></section>
     <section class="panel" id="panel-alta" style="margin-top:12px"><h2 style="margin-top:0">Agregar persona</h2>
-    <div class="campo" style="max-width:320px"><label for="alta-rol">¿A quién vas a dar de alta?</label><select id="alta-rol" style="width:100%;padding:10px;border:2px solid var(--borde);border-radius:10px;background:var(--superficie)"><option value="cajero">Vendedora-Cajera</option><option value="supervisor">Supervisor</option><option value="almacenista" ${administradores.length ? '' : 'disabled'}>Almacenista</option></select></div>
+    <div class="campo" style="max-width:320px"><label for="alta-rol">¿A quién vas a dar de alta?</label><select id="alta-rol" style="width:100%;padding:10px;border:2px solid var(--borde);border-radius:10px;background:var(--superficie)"><option value="cajero">Vendedora-Cajera</option><option value="supervisor">Supervisor</option><option value="almacenista" ${administradores.length ? '' : 'disabled'}>Almacenista</option><option value="asistente" ${administradores.length ? '' : 'disabled'}>Asistente</option></select></div>
     <div id="alta-cajero">
         <form id="form-cajero" class="filas" style="margin-top:12px;align-items:flex-end"><div class="campo"><label for="caj-nombre">Usuario (alias)</label><input id="caj-nombre" class="texto" maxlength="40" autocomplete="off" name="alias-caj-nombre" data-lpignore="true" required></div>${perfilCampos('caj')} <div class="campo"><label for="caj-clave">Clave</label><input id="caj-clave" type="text" data-pin inputmode="numeric" autocomplete="off" required></div>
       <div class="campo"><label for="caj-tienda">Tienda donde trabaja</label><select id="caj-tienda" style="padding:10px;border:2px solid var(--borde);border-radius:10px;background:var(--superficie)">${Object.entries(NOM_TIENDA_TRAB).map(([k, t]) => `<option value="${k}">${t}</option>`).join('')}</select></div>
@@ -5350,7 +5373,7 @@ async function vistaCajeros() {
     const r = $('#alta-rol').value;
     $('#alta-cajero').hidden = r !== 'cajero';
     $('#alta-admin').hidden = r === 'cajero';
-    $('#txt-btn-adm').textContent = r === 'almacenista' ? 'Agregar almacenista' : 'Agregar supervisor';
+    $('#txt-btn-adm').textContent = { almacenista: 'Agregar almacenista', asistente: 'Agregar asistente' }[r] ?? 'Agregar supervisor';
   };
   $('#alta-rol').addEventListener('change', rolAlta);
   rolAlta();

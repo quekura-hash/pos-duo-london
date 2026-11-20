@@ -4,9 +4,9 @@
   function anotar(raiz) {
     var tablas = raiz.querySelectorAll ? raiz.querySelectorAll('table') : [];
     Array.prototype.forEach.call(tablas, function (t) {
-      var ths = Array.prototype.map.call(t.querySelectorAll('thead th'), function (th) { return th.textContent.replace(/\s+/g, ' ').trim(); });
+      var ths = Array.prototype.map.call(t.querySelectorAll(':scope > thead > tr > th'), function (th) { return th.textContent.replace(/\s+/g, ' ').trim(); });
       if (!ths.length) return;
-      Array.prototype.forEach.call(t.querySelectorAll('tbody tr'), function (tr) {
+      Array.prototype.forEach.call(t.querySelectorAll(':scope > tbody > tr'), function (tr) {
         Array.prototype.forEach.call(tr.children, function (td, i) {
           if (td.tagName === 'TD' && td.getAttribute('data-label') === null) td.setAttribute('data-label', ths[i] || '');
         });

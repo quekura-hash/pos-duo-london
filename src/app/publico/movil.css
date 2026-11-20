@@ -540,3 +540,13 @@
   .panel-seccion { padding: 14px; }
   .panel-seccion .ps-cab h2 { font-size: 18px; }
 }
+
+/* Cuentas de crédito de empleadas (celular): el detalle queda pegado a la tarjeta de la empleada, como parte de ella. */
+@media (max-width: 820px) {
+  #tabla-empleadas tbody tr.abierta { margin-bottom: 0; border-bottom-left-radius: 0; border-bottom-right-radius: 0; border-bottom-color: transparent; }
+  #tabla-empleadas tbody tr.emp-det { margin: 0 0 10px; padding: 0; border-top: 0; border-top-left-radius: 0; border-top-right-radius: 0; background: var(--superficie-2, var(--superficie)); }
+  #tabla-empleadas tbody tr.emp-det > td { display: block; padding: 10px 12px 12px; text-align: left; }
+  #tabla-empleadas tbody tr.emp-det[hidden] { display: none; }
+  #tabla-empleadas #emp-movimientos .tabla-cont { overflow-x: auto; }
+}
+@media (max-width: 820px) { #form-emp .filas .btn-primario { flex: 1 1 140px !important; } }

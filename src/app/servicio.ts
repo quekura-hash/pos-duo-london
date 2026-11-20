@@ -1187,7 +1187,7 @@ export class ServicioAdmin {
    */
   fijarExistencias(d: { ajuste_id: string; item_id: string; cantidades: Record<string, number>; motivo?: string; solo_revisar?: boolean }) {
     if (!this.central) throw new ErrorDominio('SIN_CENTRAL', 'esta sesión no tiene acceso al servicio central');
-    if (this.rol() !== 'supervisor' && this.rol() !== 'almacenista') throw new ErrorDominio('PROHIBIDO', 'solo un supervisor o un almacenista corrige las existencias');
+    if (this.rol() !== 'supervisor' && this.rol() !== 'almacenista' && this.rol() !== 'asistente') throw new ErrorDominio('PROHIBIDO', 'solo un supervisor, un almacenista o un asistente corrige las existencias');
     const cantidades: Record<string, number> = {};
     for (const [k, v] of Object.entries(d.cantidades ?? {})) cantidades[String(k)] = Number(v);
     const r = this.central.fijarExistencias({ ajuste_id: String(d.ajuste_id ?? ''), item_id: String(d.item_id ?? ''), cantidades, motivo: d.motivo, por: this.actor.usuario, solo_revisar: !!d.solo_revisar });
@@ -1461,6 +1461,7 @@ export class ServicioAdmin {
     return this.empleadasCuentas();
   }
   movimientoEmpleada(d: { empleada_id: string; tipo: 'abono' | 'ajuste_cargo' | 'ajuste_abono'; monto: number; motivo: string; periodo?: string; ref: string }) {
+    if (this.rol() === 'asistente' && d.tipo !== 'abono') throw new ErrorDominio('PROHIBIDO', 'el asistente registra abonos de nómina; los ajustes los hace un supervisor');
     if (!this.central) throw new ErrorDominio('SIN_CENTRAL', 'esta sesión no tiene acceso al servicio central');
     const r = this.central.registrarMovimientoEmpleada({ empleada_id: String(d.empleada_id ?? ''), tipo: d.tipo, monto: Number(d.monto), motivo: String(d.motivo ?? ''), periodo: d.periodo, ref: String(d.ref ?? '') }, this.actor.usuario);
     if (!r.ok) throw new ErrorDominio('DATOS_INVALIDOS', r.error.mensaje);
@@ -1591,13 +1592,15 @@ export class ServicioAdmin {
     return info;
   }
   rol(): RolAdmin { return this.rolUsuario ?? 'supervisor'; }
-  /** Pantallas de Administración que ve cada rol (el almacenista solo trabaja Inventario y Almacén). */
+  /** Pantallas de Administración que ve cada rol (el almacenista solo trabaja Inventario y Almacén; el asistente, además, las cuentas de crédito de empleadas). */
   nav(): string[] {
+    if (this.rol() === 'asistente') return ['inventario', 'almacen', 'empleadas'];
     return this.rol() === 'almacenista' ? ['inventario', 'almacen'] : ['inventario', 'almacen', 'promociones', 'tarjetas', 'reportes', 'historial', 'analisis', 'cortes', 'empleadas', 'configuracion', 'ayuda'];
   }
-  /** ¿El rol de la sesión puede llamar a esta ruta de Administración? El supervisor, todo; el almacenista, solo lo de Inventario y Almacén. */
+  /** ¿El rol de la sesión puede llamar a esta ruta de Administración? El supervisor, todo; el almacenista, solo lo de Inventario y Almacén; el asistente, eso y las cuentas de empleadas (ver y abonar). */
   puede(metodo: string, ruta: string): boolean {
     if (this.rol() === 'supervisor') return true;
+    if (this.rol() === 'asistente' && (/^GET \/api\/admin\/empleadas(\/(movimientos|nomina))?$/.test(`${metodo} ${ruta}`) || `${metodo} ${ruta}` === 'POST /api/admin/empleadas/movimiento')) return true;
     return /^(GET|POST) \/api\/admin\/(almacen|limbo)(\/|$)/.test(`${metodo} ${ruta}`) || /^GET \/api\/admin\/(inventario|entregas|articulos|articulo\/historial|departamentos|tipo-cambio)$/.test(`${metodo} ${ruta}`) || `${metodo} ${ruta}` === 'POST /api/admin/articulos' || /^(GET|POST) \/api\/admin\/existencias$/.test(`${metodo} ${ruta}`);
   }
   administradores() {

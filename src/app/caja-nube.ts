@@ -15,7 +15,7 @@ import { ServicioCaja } from './servicio.ts';
 
 export interface ClienteCaja extends ClienteCentral {
   iniciarSesion(correo: string, clave: string): Promise<void>;
-  miPerfil(): Promise<{ rol: 'supervisor' | 'almacenista' | 'caja'; alias: string; usuario_id: string; tienda?: string | null; caja?: number | null } | null>;
+  miPerfil(): Promise<{ rol: 'supervisor' | 'almacenista' | 'asistente' | 'caja'; alias: string; usuario_id: string; tienda?: string | null; caja?: number | null } | null>;
   cerrarSesion(): void;
   readonly conSesion: boolean;
 }

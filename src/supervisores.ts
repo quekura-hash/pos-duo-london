@@ -82,8 +82,8 @@ export function mezclarPerfil(actual: Perfil | undefined, d: Partial<Perfil> | u
   return { ok: true, perfil: vacio ? undefined : out };
 }
 /** Administrador: contraseña de 6 a 40 caracteres. Sus registros solo viven en el central (no se reparten a las cajas). */
-/** Quien entra a Administración: el supervisor ve todo y autoriza en la caja; el almacenista solo trabaja Inventario y Almacén. Sin `rol` (registros anteriores) vale supervisor. */
-export type RolAdmin = 'supervisor' | 'almacenista';
+/** Quien entra a Administración: el supervisor ve todo y autoriza en la caja; el almacenista solo trabaja Inventario y Almacén; el asistente, Inventario, Almacén y las cuentas de crédito de empleadas (ve cuentas y movimientos y registra abonos). Sin `rol` (registros anteriores) vale supervisor. */
+export type RolAdmin = 'supervisor' | 'almacenista' | 'asistente';
 export type Administrador = Cajero & { rol?: RolAdmin };
 /** Cuentas de Administración que no se pueden eliminar (los dueños del sistema), por nombres y apellidos del perfil. */
 const ADMINS_PROTEGIDOS = ['edgardo morales', 'karina palafox'];

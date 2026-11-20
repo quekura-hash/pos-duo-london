@@ -3,7 +3,7 @@ import { after } from 'node:test';
 import { PGlite } from '@electric-sql/pglite';
 import type { ClienteCentral, FilaCentral } from '../../src/transporte/puente-central.ts';
 
-const MIGRACIONES = ['0001_central.sql', '0002_actualizaciones.sql', '0003_cajas.sql', '0004_publicador.sql', '0005_notificaciones.sql', '0007_reporte_contadora.sql', '0008_reporte_reintentos.sql', '0009_trabajadoras.sql', '0010_cierre_guiado.sql', '0011_empleadas.sql', '0012_consulta_ventas_anteriores.sql', '0014_clientes_vip.sql', '0015_metas_venta.sql', '0016_limite_efectivo.sql', '0017_ventas_por_dia.sql'].map((n) => new URL(`../../supabase/migrations/${n}`, import.meta.url));
+const MIGRACIONES = ['0001_central.sql', '0002_actualizaciones.sql', '0003_cajas.sql', '0004_publicador.sql', '0005_notificaciones.sql', '0007_reporte_contadora.sql', '0008_reporte_reintentos.sql', '0009_trabajadoras.sql', '0010_cierre_guiado.sql', '0011_empleadas.sql', '0012_consulta_ventas_anteriores.sql', '0014_clientes_vip.sql', '0015_metas_venta.sql', '0016_limite_efectivo.sql', '0017_ventas_por_dia.sql', '0022_asistente.sql'].map((n) => new URL(`../../supabase/migrations/${n}`, import.meta.url));
 
 const abiertas: PGlite[] = [];
 // PGlite deja un temporizador interno por instancia: se cierran todas al terminar para que el proceso de pruebas salga.
@@ -41,7 +41,7 @@ export async function centralLocal(): Promise<PGlite> {
   return db;
 }
 
-export async function usuario(db: PGlite, correo: string, rol?: 'supervisor' | 'almacenista' | 'caja' | 'publicador', activo = true, caja?: { tienda: string; caja: number }): Promise<string> {
+export async function usuario(db: PGlite, correo: string, rol?: 'supervisor' | 'almacenista' | 'asistente' | 'caja' | 'publicador', activo = true, caja?: { tienda: string; caja: number }): Promise<string> {
   const r = await db.query<{ id: string }>('insert into auth.users (email) values ($1) returning id', [correo]);
   const id = r.rows[0]!.id;
   if (rol) await db.query('insert into pos.admins (user_id, rol, alias, activo, tienda, caja) values ($1, $2, $3, $4, $5, $6)', [id, rol, correo, activo, caja?.tienda ?? null, caja?.caja ?? null]);
