@@ -2432,6 +2432,14 @@ export class Caja {
   }
 
   /** Bitácora de impresión: una falla de impresora nunca duplica ni revierte la venta. */
+  /** Marca de auditoría: la cajera confirmó un efectivo recibido que el sistema consideró inusual (ver efectivo-inusual.ts). No cambia la venta. */
+  registrarEfectivoInusual(d: { sale_id: string; motivos: string[]; recibido: number; aplicar: number; cambio: number; usuario: string }): Op | null {
+    const v = ventas(this.opsVentas()).get(d.sale_id);
+    if (!v || v.tienda !== this.tienda || v.caja !== this.caja) throw new ErrorDominio('PROHIBIDO', 'solo se marcan ventas de la propia caja');
+    const id = `efectivo.inusual:${d.sale_id}`;
+    if (this.repo.tieneOp(id)) return null;
+    return this.emitir('efectivo.inusual', { sale_id: d.sale_id, tienda: this.tienda, caja: this.caja, folio: v.folio, cajero: d.usuario, motivos: d.motivos, recibido: d.recibido, aplicar: d.aplicar, cambio: d.cambio }, id);
+  }
   registrarImpresion(d: { sale_id: string; tipo: 'original' | 'reimpresion' | 'regalo'; resultado: 'ok' | 'error'; error?: string; usuario: string }): Op {
     const v = ventas(this.opsVentas()).get(d.sale_id);
     if (!v || v.tienda !== this.tienda || v.caja !== this.caja) throw new ErrorDominio('PROHIBIDO', 'solo se imprimen ventas de la propia caja');

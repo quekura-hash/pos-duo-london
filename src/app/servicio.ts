@@ -1,11 +1,12 @@
 import { revisarReporteAnterior, idVentaHistorica } from '../ventas-historicas.ts';
+import { revisarEfectivo } from '../efectivo-inusual.ts';
 import { AGRUPACIONES, AGRUPACIONES_EMPLEADA, analizarPorEmpleada, analizarVentas, type Agrupar, type AgruparEmpleada } from '../analisis-ventas.ts';
 import { gastosPorCaja, retirosPorCaja, cortesPorCaja, ultimoCortePorCaja, descuentosPorCaja, dolaresPorCaja, reporteConsolidado, ventasPorCaja, ventasPorVendedora, type Filtro } from '../consultas.ts';
 import type { GastoRegistrado } from '../gastos.ts';
 import { DENOMS_FERIA, MINIMO_FERIA, estimarFeria } from '../feria.ts';
 import { DIAS_URGENTE, diasHasta, entradasDeArticulo, existenciaAlmacen, faltantes, recepcionesPendientes, recordatoriosPiso, reporteEntregas, revisarAlta, type AltaManual } from '../almacen.ts';
 import { DEPARTAMENTOS_BASE, resolverDepartamento } from '../departamentos.ts';
-import { formatoTasa } from '../dinero.ts';
+import { formatoTasa, usdAMxn } from '../dinero.ts';
 import { ErrorDominio } from '../errores.ts';
 import type { Impresora } from '../impresion.ts';
 import { DIAS_CONSULTA_HISTORICA, FONDO_AUTORIZADO_DEFECTO, type Autoriza, type Caja } from '../nodos.ts';
@@ -19,7 +20,7 @@ import { detalleHistorica, detalleDeVenta, validarDatosClienta, type DatosClient
 import { aplicarDatosTienda, codigoTicket, interpretarFolio, construirTicket, construirTicketRegalo, formatoMXN, NEGOCIOS, renderTextoEscPos, renderTicketCancelacionTexto, renderTicketGastoTexto, renderTicketDepositoTexto, renderTicketResolucionDepositoTexto, renderDepositoEscPos, type DatosTicketResolucion, renderTicketFirmaTexto, renderTicketDevolucionTexto, type ComprobanteClienta, renderTicketRetiroTexto, renderTicketEscPos, renderTicketCorteEscPos, renderTicketCorteTexto, renderTicketTexto, type NegocioCfg } from '../ticket.ts';
 import { promoDeRegla, type ReglaRecompensa } from '../recompensas.ts';
 import { adminDueno, adminProtegido, hashClave, nombreClave, supervisorPorClave, type Perfil, type RolAdmin } from '../supervisores.ts';
-import { LIMBO, type Actor, type Articulo, type Linea, type Op, type Venta } from '../tipos.ts';
+import { LIMBO, type Actor, type Articulo, type Linea, type Op, type Pago, type Venta } from '../tipos.ts';
 import { fechaLocal, addDias } from '../util.ts';
 import { avanceMetas, CONFIG_METAS_INICIAL, diasDelPeriodo, lunesDe, metasDias, metasPublicadas, totalesPorDia, type AvancePeriodo, type PeriodoMeta } from '../metas.ts';
 
@@ -441,7 +442,7 @@ export class ServicioCaja {
   /** Detalle de una venta de ESTA caja (hora, cajera, prendas, pagos, cambios y cancelación). */
   detalleVenta(saleId: string) {
     this.exigirVentaReciente(saleId);
-    const d = detalleDeVenta(this.caja.opsDe('sale.confirmed', 'sale.cancelled', 'return.registered'), saleId);
+    const d = detalleDeVenta(this.caja.opsDe('sale.confirmed', 'sale.cancelled', 'return.registered', 'efectivo.inusual'), saleId);
     if (!d || d.tienda !== this.caja.tienda || d.caja !== this.caja.caja) throw new ErrorDominio('PROHIBIDO', 'solo se consultan ventas de la propia caja');
     return { detalle: { ...d, codigo_ticket: codigoTicket(d.tienda, d.caja, d.folio, undefined, d.serie) }, ticket_texto: this.ticketTexto(saleId) };
   }
@@ -661,18 +662,46 @@ export class ServicioCaja {
    * Cobra en efectivo: guarda venta, pago, folio y movimientos de inventario en una sola transacción y SOLO DESPUÉS imprime.
    * Una falla de impresión no revierte ni duplica nada: la venta queda guardada y el ticket se reimprime con el mismo folio.
    */
-  async cobrarEfectivo(cartId: string, recibido: number, usd = 0) {
+  async cobrarEfectivo(cartId: string, recibido: number, usd = 0, inusual = false) {
     // Sin dólares es el cobro en pesos de siempre; con dólares, pesos y dólares (el cambio se entrega en pesos).
-    if (usd > 0) return this.finalizarCobro(this.caja.cobrarEfectivoMixto(cartId, { usd, pesos: recibido }, this.actor.usuario));
-    return this.finalizarCobro(this.caja.cobrarEfectivo(cartId, recibido, this.actor.usuario));
+    const r = usd > 0 ? await this.finalizarCobro(this.caja.cobrarEfectivoMixto(cartId, { usd, pesos: recibido }, this.actor.usuario)) : await this.finalizarCobro(this.caja.cobrarEfectivo(cartId, recibido, this.actor.usuario));
+    this.marcarEfectivoInusual(r.venta, inusual);
+    return r;
+  }
+  /**
+   * Antes de cobrar: ¿lo recibido en efectivo se ve raro? (cambio de más de $1,000, un monto poco común o dólares con centavos). Solo avisa: la cajera confirma o corrige.
+   * `aplicar` es lo que se cobra en efectivo (el total, o el resto después de tarjeta o tarjeta de regalo); `pesos` y `usd`, lo que escribió, en centavos.
+   */
+  revisarEfectivo(d: { aplicar: number; pesos: number; usd?: number }) {
+    const aplicar = Number(d.aplicar), pesos = Number(d.pesos), usd = Number(d.usd ?? 0);
+    if (![aplicar, pesos, usd].every((x) => Number.isInteger(x) && x >= 0)) throw new ErrorDominio('PAGO_INVALIDO', 'importes recibidos inválidos');
+    const tasa = this.caja.tipoCambio();
+    return revisarEfectivo({ aplicar, pesos, usd, equivalente: usd > 0 && tasa ? usdAMxn(usd, tasa.tasa) : 0 });
+  }
+  /** Si la cajera confirmó un efectivo inusual, queda la marca (la venta no cambia). Se vuelve a evaluar aquí: solo se marca lo que de verdad lo era. */
+  private marcarEfectivoInusual(venta: Venta, confirmado: boolean) {
+    if (!confirmado) return;
+    const ef = venta.pagos.filter((p) => p.metodo === 'efectivo' || p.metodo === 'efectivo_usd');
+    if (!ef.length) return;
+    const suma = (f: (p: Pago) => number) => ef.reduce((a, p) => a + f(p), 0);
+    const rev = revisarEfectivo({
+      aplicar: suma((p) => p.monto), pesos: suma((p) => (p.metodo === 'efectivo' ? (p.recibido ?? p.monto) : (p.pesos_recibidos ?? 0))),
+      usd: suma((p) => (p.metodo === 'efectivo_usd' ? (p.usd ?? 0) : 0)), equivalente: suma((p) => (p.metodo === 'efectivo_usd' ? (p.equivalente ?? 0) : 0)),
+    });
+    if (rev.inusual) this.caja.registrarEfectivoInusual({ sale_id: venta.sale_id, motivos: rev.motivos, recibido: rev.recibido, aplicar: rev.aplicar, cambio: rev.cambio, usuario: this.actor.usuario });
   }
   /** Tarjeta de regalo (todo el saldo necesario) y, si no alcanza, el resto en efectivo. */
-  async cobrarTarjetaRegalo(cartId: string, codigo: string, recibido?: number, usd = 0) {
-    return this.finalizarCobro(this.caja.cobrarConTarjetaRegalo(cartId, codigo, recibido, this.actor.usuario, usd));
+  async cobrarTarjetaRegalo(cartId: string, codigo: string, recibido?: number, usd = 0, inusual = false) {
+    const r = await this.finalizarCobro(this.caja.cobrarConTarjetaRegalo(cartId, codigo, recibido, this.actor.usuario, usd));
+    this.marcarEfectivoInusual(r.venta, inusual);
+    return r;
   }
   /** Tarjeta con captura manual del comprobante (la terminal bancaria aún no está integrada). */
-  async cobrarTarjetaManual(cartId: string, d: { importe?: number; autorizacion?: string; marca?: string; ultimos4?: string; regalo?: string; recibido?: number }) {
-    return this.finalizarCobro(this.caja.cobrarConTarjetaManual(cartId, d, this.actor.usuario));
+  async cobrarTarjetaManual(cartId: string, d: { importe?: number; autorizacion?: string; marca?: string; ultimos4?: string; regalo?: string; recibido?: number; inusual?: boolean }) {
+    const { inusual, ...datos } = d;
+    const r = await this.finalizarCobro(this.caja.cobrarConTarjetaManual(cartId, datos, this.actor.usuario));
+    this.marcarEfectivoInusual(r.venta, !!inusual);
+    return r;
   }
   private async finalizarCobro(venta: Venta, sinComprobanteDeCambio = false) {
     this.revisarFeria();

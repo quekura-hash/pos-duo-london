@@ -1188,28 +1188,81 @@ async function accionLinea(id, a) {
   $('#scan').focus();
 }
 
+/** El efectivo que se va a recibir en este cobro (lo que se cobra en efectivo, pesos y dólares escritos), o null si no se escribió ninguno (paga exacto) o no hay efectivo. */
+function efectivoPorCobrar() {
+  if (S.forma === 'tarjeta' || S.forma === 'mixto') {
+    const t = repartoTarjeta();
+    return S.forma === 'mixto' && t.recibido !== undefined && t.resto > 0 ? { aplicar: t.resto, pesos: t.recibido, usd: 0 } : null;
+  }
+  if (S.forma === 'credito') return null;
+  if (S.forma === 'regalo') {
+    const { resto } = repartoRegalo();
+    const c = calcEfectivo(resto);
+    return resto > 0 && c.valido ? { aplicar: resto, pesos: c.pesos, usd: c.usd } : null;
+  }
+  const c = calcEfectivo(S.carrito.total);
+  return c.valido ? { aplicar: S.carrito.total, pesos: c.pesos, usd: c.usd } : null;
+}
+const MOTIVOS_EFECTIVO_INUSUAL = {
+  cambio_grande: 'El cambio a dar es mayor a $1,000.',
+  monto_extrano: 'Es un monto poco común para pagar en efectivo. ¿No será el número de autorización de una tarjeta?',
+  dolares_con_centavos: 'Los dólares solo se reciben en billetes enteros.',
+};
+/** Aviso antes de cobrar un efectivo que se ve raro: la cajera lo corrige o lo confirma como correcto. Devuelve true solo si confirma. */
+function confirmarEfectivoInusual(rev) {
+  return new Promise((resolver) => {
+    const d = dialogo('dlg-efectivo-inusual');
+    d.setAttribute('aria-labelledby', 'ei-titulo');
+    d.innerHTML = `<h2 id="ei-titulo" style="margin-top:0">${ico('info')} Efectivo inusual: revise lo recibido</h2>
+      <div class="mensaje aviso" id="ei-motivos" role="alert">${rev.motivos.map((m) => esc(MOTIVOS_EFECTIVO_INUSUAL[m] ?? m)).join('<br>')}</div>
+      <div class="hero-feria" style="margin:10px 0"><span class="hero-etiqueta">RECIBIDO</span><b class="hero-monto" id="ei-recibido" style="font-size:44px">${mxn(rev.recibido)}</b></div>
+      <p style="margin:4px 0">Por cobrar en efectivo: <b id="ei-aplicar">${mxn(rev.aplicar)}</b></p>
+      <p style="margin:4px 0">Cambio a dar: <b id="ei-cambio">${mxn(rev.cambio)}</b></p>
+      <p class="nota">Si la clienta pagó con tarjeta, toque «Corregir» y elija Tarjeta.</p>
+      <div class="filas"><button class="btn btn-primario" type="button" id="ei-corregir">${ico('pencil')}<span>Corregir</span></button><button class="btn" type="button" id="ei-confirmar">${ico('check')}<span>Sí, es correcto</span></button></div>`;
+    let listo = false;
+    const fin = (v) => { if (listo) return; listo = true; if (d.open) d.close(); resolver(v); };
+    $('#ei-corregir').addEventListener('click', () => fin(false));
+    $('#ei-confirmar').addEventListener('click', () => fin(true));
+    d.addEventListener('close', () => fin(false), { once: true });
+    d.showModal();
+    $('#ei-corregir').focus();
+  });
+}
+
 async function cobrar() {
   const b = $('#btn-cobrar');
   b.disabled = true;
   try {
+    // Efectivo que se ve raro (p. ej. el número de autorización de una tarjeta escrito en «Pesos recibidos»): se pide confirmar antes de cobrar.
+    let inusual = false;
+    const ef = efectivoPorCobrar();
+    if (ef) {
+      const rev = await api('/api/venta/revisar-efectivo', ef);
+      if (rev.inusual) {
+        if (!(await confirmarEfectivoInusual(rev))) { recalcular(); ($('#recibido') ?? $('#tj-recibido'))?.focus(); return; }
+        inusual = true;
+      }
+    }
+    const marca = inusual ? { inusual: true } : {};
     let r;
     if (S.forma === 'tarjeta' || S.forma === 'mixto') {
       const t = repartoTarjeta();
       if (S.forma === 'mixto' && t.regalo > 0 && t.importe === 0) {
         // Tarjeta de regalo + efectivo (sin terminal bancaria): el efectivo del resto se cobra exacto.
-        r = await api('/api/venta/cobrar-regalo', { cart: S.cart, codigo: S.tarjeta.codigo, ...(t.resto > 0 ? { recibido: t.recibido ?? t.resto } : {}) });
+        r = await api('/api/venta/cobrar-regalo', { cart: S.cart, codigo: S.tarjeta.codigo, ...(t.resto > 0 ? { recibido: t.recibido ?? t.resto } : {}), ...marca });
       } else {
-        r = await api('/api/venta/cobrar-tarjeta', { cart: S.cart, autorizacion: leerAuth(), ...(S.forma === 'mixto' ? { importe: t.importe } : {}), ...(S.forma === 'mixto' && t.regalo > 0 ? { regalo: S.tarjeta.codigo } : {}), ...(S.forma === 'mixto' && t.recibido !== undefined && t.resto > 0 ? { recibido: t.recibido } : {}) });
+        r = await api('/api/venta/cobrar-tarjeta', { cart: S.cart, autorizacion: leerAuth(), ...(S.forma === 'mixto' ? { importe: t.importe } : {}), ...(S.forma === 'mixto' && t.regalo > 0 ? { regalo: S.tarjeta.codigo } : {}), ...(S.forma === 'mixto' && t.recibido !== undefined && t.resto > 0 ? { recibido: t.recibido } : {}), ...marca });
       }
     } else if (S.forma === 'credito') {
       r = await api('/api/venta/cobrar-credito-empleada', { cart: S.cart });
     } else if (S.forma === 'regalo') {
       const { resto } = repartoRegalo();
       const c = calcEfectivo(resto);
-      r = await api('/api/venta/cobrar-regalo', { cart: S.cart, codigo: S.tarjeta.codigo, ...(resto > 0 ? { recibido: c.pesos, ...(c.usd > 0 ? { usd: c.usd } : {}) } : {}) });
+      r = await api('/api/venta/cobrar-regalo', { cart: S.cart, codigo: S.tarjeta.codigo, ...(resto > 0 ? { recibido: c.pesos, ...(c.usd > 0 ? { usd: c.usd } : {}) } : {}), ...marca });
     } else {
       const c = calcEfectivo(S.carrito.total);
-      r = await api('/api/venta/cobrar-efectivo', { cart: S.cart, recibido: c.pesos, ...(c.usd > 0 ? { usd: c.usd } : {}) });
+      r = await api('/api/venta/cobrar-efectivo', { cart: S.cart, recibido: c.pesos, ...(c.usd > 0 ? { usd: c.usd } : {}), ...marca });
     }
     pintarMetas().catch(() => {});
     pintarLimiteEfectivo().catch(() => {});
@@ -1834,7 +1887,7 @@ async function abrirDetalleVenta(saleId, { acciones, ruta, alCambiar } = {}) {
     : '';
   d.innerHTML = `<h2 id="dv-titulo" style="margin:0 0 4px">Venta ${folio}</h2>
     <p id="dv-resumen" style="margin:0 0 8px"><span class="insignia ${esc(v.estado)}">${esc(v.estado)}</span> · ${esc(v.tienda)} · Caja ${v.caja} · <b>${esc(v.fecha_local.split('-').reverse().join('/'))} ${esc(h12(v.hora))}</b></p>
-    <dl class="resumen" id="dv-datos" style="margin:0 0 8px"><dt>Vendedora-Cajera</dt><dd>${esc(v.cajero)}</dd><dt>Venta por</dt><dd>${esc(v.vendedora || '—')}</dd><dt>Forma de pago</dt><dd>${pagos}</dd></dl>
+    <dl class="resumen" id="dv-datos" style="margin:0 0 8px"><dt>Vendedora-Cajera</dt><dd>${esc(v.cajero)}</dd><dt>Venta por</dt><dd>${esc(v.vendedora || '—')}</dd><dt>Forma de pago</dt><dd>${pagos}</dd>${v.efectivo_inusual ? `<dt>Efectivo</dt><dd id="dv-inusual"><b>Confirmado como inusual</b>: recibido ${mxn(v.efectivo_inusual.recibido)}, cambio ${mxn(v.efectivo_inusual.cambio)}</dd>` : ''}</dl>
     ${canc}
     <div class="tabla-cont"><table id="dv-lineas"><thead><tr><th class="num">Cant.</th><th>Prenda</th><th class="num">Precio</th><th class="num">Importe</th></tr></thead><tbody>${lineas}</tbody><tfoot><tr><th colspan="3" style="text-align:right">Total</th><td class="num"><b>${mxn(v.total)}</b></td></tr></tfoot></table></div>
     ${devs}

@@ -29,6 +29,8 @@ export interface DetalleVenta {
   cancelacion: null | { ocurrio_en: string; motivo: string; cancelo: string; autorizado_por: string | null; clienta: DatosClienta | null };
   /** Cambios y devoluciones que ya tuvo la venta. */
   devoluciones: { folio: number | null; ocurrio_en: string; importe: number; motivo: string; por_cambio: boolean; cajero: string; autorizado_por: string | null; clienta: DatosClienta | null; piezas: number }[];
+  /** La cajera confirmó un efectivo recibido que el sistema consideró inusual (ver efectivo-inusual.ts); la venta no cambió, solo queda la marca. */
+  efectivo_inusual?: { motivos: string[]; recibido: number; cambio: number };
   /** ¿Se puede cancelar completa? (confirmada, sin tarjetas de regalo y sin devoluciones previas). */
   cancelable: boolean;
   /** ¿Quedan piezas por cambiar o devolver? */
@@ -50,6 +52,7 @@ export function detalleDeVenta(ops: Op[], saleId: string): DetalleVenta | null {
     precio_unit: l.precio_unit, descuento: l.descuento, importe: l.importe, tarjeta_regalo: !!l.tarjeta_regalo,
   }));
   const conTarjetaRegalo = lineas.some((l) => l.tarjeta_regalo);
+  const inusual = ops.find((o) => o.tipo === 'efectivo.inusual' && o.payload.sale_id === saleId);
   return {
     sale_id: v.sale_id, tienda: v.tienda, caja: v.caja, folio: v.folio, ...(v.serie ? { serie: v.serie } : {}), ...(v.credito ? { credito: v.credito } : {}), ocurrio_en: v.ocurrio_en, fecha_local: fechaLocal(v.ocurrio_en), hora: hora(v.ocurrio_en),
     cajero: v.cajero, vendedora: v.vendedora ?? '', estado: v.estado, total: v.total, lineas, pagos: v.pagos,
@@ -60,6 +63,7 @@ export function detalleDeVenta(ops: Op[], saleId: string): DetalleVenta | null {
       folio: d.folio ?? null, ocurrio_en: d.ocurrio_en, importe: d.importe, motivo: d.por_cambio && d.motivo_cambio ? d.motivo_cambio : d.motivo, por_cambio: !!d.por_cambio, cajero: d.cajero,
       autorizado_por: d.autorizado_por ?? null, clienta: d.clienta ?? null, piezas: d.lineas.reduce((a, l) => a + l.qty, 0),
     })),
+    ...(inusual ? { efectivo_inusual: { motivos: inusual.payload.motivos ?? [], recibido: inusual.payload.recibido ?? 0, cambio: inusual.payload.cambio ?? 0 } } : {}),
     cancelable: v.estado === 'confirmada' && !conTarjetaRegalo && devs.length === 0,
     con_piezas_disponibles: v.estado === 'confirmada' && lineas.some((l) => !l.tarjeta_regalo && l.qty - l.devuelto > 0),
   };

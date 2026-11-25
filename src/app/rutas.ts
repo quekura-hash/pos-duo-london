@@ -76,7 +76,8 @@ export async function atender(o: { cajero?: ServicioCaja; admin?: ServicioAdmin 
       case 'POST /api/venta/cantidad': return ok({ carrito: exigirCajero().cambiarCantidad(b.cart, b.linea_id, Number(b.qty)) });
       case 'POST /api/venta/editar-linea': return ok(exigirCajero().editarLinea(b.cart, b.linea_id, { precio_unit: b.precio_unit === undefined ? undefined : Number(b.precio_unit), descripcion: b.descripcion }, b.clave === undefined ? undefined : String(b.clave), !!b.sin_supervisor));
       case 'POST /api/venta/quitar': return ok({ carrito: exigirCajero().quitarLinea(b.cart, b.linea_id) });
-      case 'POST /api/venta/cobrar-efectivo': return ok(await exigirCajero().cobrarEfectivo(b.cart, Number(b.recibido ?? 0), Number(b.usd ?? 0)));
+      case 'POST /api/venta/cobrar-efectivo': return ok(await exigirCajero().cobrarEfectivo(b.cart, Number(b.recibido ?? 0), Number(b.usd ?? 0), b.inusual === true));
+      case 'POST /api/venta/revisar-efectivo': return ok(exigirCajero().revisarEfectivo({ aplicar: Number(b.aplicar ?? 0), pesos: Number(b.pesos ?? 0), usd: Number(b.usd ?? 0) }));
       case 'POST /api/venta/tasa': return ok(exigirCajero().bloquearTasa(b.cart, !!b.renovar));
       case 'GET /api/tipo-cambio': return ok({ tipo_cambio: exigirCajero().tipoCambio() });
       case 'POST /api/tipo-cambio': return ok({ tipo_cambio: await exigirCajero().fijarTipoCambio(Number(b.tasa), !!b.confirmar) });
@@ -121,8 +122,8 @@ export async function atender(o: { cajero?: ServicioCaja; admin?: ServicioAdmin 
       case 'GET /api/venta/autorizadores': return ok(exigirCajero().autorizadores());
       case 'POST /api/venta/cancelar': return ok(await exigirCajero().revertirVenta({ sale_id: String(b.sale_id ?? ''), motivo: b.motivo, clienta: b.clienta, autoriza: b.autoriza }));
       case 'GET /api/venta/detalle': return ok(exigirCajero().detalleVenta(q.get('sale_id') ?? ''));
-      case 'POST /api/venta/cobrar-tarjeta': return ok(await exigirCajero().cobrarTarjetaManual(b.cart, { importe: b.importe === undefined || b.importe === null ? undefined : Number(b.importe), autorizacion: String(b.autorizacion ?? ''), marca: b.marca, ultimos4: b.ultimos4, regalo: b.regalo === undefined || b.regalo === null || b.regalo === '' ? undefined : String(b.regalo), recibido: b.recibido === undefined || b.recibido === null || b.recibido === '' ? undefined : Number(b.recibido) }));
-      case 'POST /api/venta/cobrar-regalo': return ok(await exigirCajero().cobrarTarjetaRegalo(b.cart, String(b.codigo ?? ''), b.recibido === undefined || b.recibido === null ? undefined : Number(b.recibido), Number(b.usd ?? 0)));
+      case 'POST /api/venta/cobrar-tarjeta': return ok(await exigirCajero().cobrarTarjetaManual(b.cart, { importe: b.importe === undefined || b.importe === null ? undefined : Number(b.importe), autorizacion: String(b.autorizacion ?? ''), marca: b.marca, ultimos4: b.ultimos4, regalo: b.regalo === undefined || b.regalo === null || b.regalo === '' ? undefined : String(b.regalo), recibido: b.recibido === undefined || b.recibido === null || b.recibido === '' ? undefined : Number(b.recibido), inusual: b.inusual === true }));
+      case 'POST /api/venta/cobrar-regalo': return ok(await exigirCajero().cobrarTarjetaRegalo(b.cart, String(b.codigo ?? ''), b.recibido === undefined || b.recibido === null ? undefined : Number(b.recibido), Number(b.usd ?? 0), b.inusual === true));
       case 'GET /api/tarjeta': return ok({ tarjeta: exigirCajero().consultarTarjeta(q.get('codigo') ?? '') });
       case 'POST /api/tarjeta/alta': return ok(await exigirCajero().altaTarjetaRegalo(String(b.codigo ?? ''), Number(b.monto), b.recibido === undefined ? undefined : Number(b.recibido), b.ref, { pago: b.pago, autorizacion: b.autorizacion, marca: b.marca, ultimos4: b.ultimos4 }));
       case 'GET /api/tarjetas': return ok({ tarjetas: exigirCajero().tarjetasPropias() });
