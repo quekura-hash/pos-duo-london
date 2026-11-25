@@ -619,6 +619,8 @@ describe('[navegador real — Chromium con Playwright, UI sobre SQLite]', { time
     await page.waitForSelector('#bloque-usd:not([hidden])');
     assert.equal(await page.textContent('#cambio'), '$1,780.00');
     await page.click('#btn-cobrar');
+    await page.waitForSelector('#dlg-efectivo-inusual[open]'); // cambio de más de $1,000: se pide confirmar el efectivo
+    await page.click('#ei-confirmar');
     await page.waitForSelector('#dlg-ticket[open]');
     await page.click('#btn-nueva');
 
@@ -772,6 +774,8 @@ describe('[navegador real — Chromium con Playwright, UI sobre SQLite]', { time
     assert.equal(await page.locator('#btn-cobrar').isDisabled(), false, 'la advertencia no bloquea el cobro');
     await page.screenshot({ path: join(CAPTURAS, '20-advertencia-de-cambio.png') });
     await page.click('#btn-cobrar');
+    await page.waitForSelector('#dlg-efectivo-inusual[open]'); // cambio de más de $1,000: se pide confirmar el efectivo
+    await page.click('#ei-confirmar');
     await page.waitForSelector('#dlg-ticket[open]');
     assert.match((await page.textContent('#avisos-venta'))!, /el cambio entregado superó en \$1,580\.00/);
     await page.click('#btn-nueva');
