@@ -11,7 +11,7 @@ import { ErrorDominio } from '../errores.ts';
 import type { Impresora } from '../impresion.ts';
 import { DIAS_CONSULTA_HISTORICA, FONDO_AUTORIZADO_DEFECTO, type Autoriza, type Caja } from '../nodos.ts';
 import { estadoPromo, type Promocion } from '../promociones.ts';
-import { conVentasCorregidas, personalConCuenta, mesesVigenciaTarjetas, clientesVip, excepcionesVip, cuentasEmpleadas, configEmpleadas, CRITERIOS_EXPEDIENTE, expedientesDe, expedienteVacio, registradaEn, CAMPOS_EDITABLES, catalogo, historialArticulo, nombresTienda, datosTiendas, departamentos as proyDepartamentos, devoluciones, restaDeDevolucion, type Devolucion, promocionesDe, recompensasDe, supervisoresDe, cajerosDe, administradoresDe, configSesionDe, permisos as proyPermisos, tarjetasRegalo, tiposDeCambio, tipoCambioVigente, ventas, type TipoCambio } from '../proyecciones.ts';
+import { conVentasCorregidas, personalConCuenta, mesesVigenciaTarjetas, clientesVip, excepcionesVip, cuentasEmpleadas, configEmpleadas, CRITERIOS_EXPEDIENTE, expedientesDe, expedienteVacio, registradaEn, CAMPOS_EDITABLES, catalogo, historialArticulo, resumenArticulo, nombresTienda, datosTiendas, departamentos as proyDepartamentos, devoluciones, restaDeDevolucion, type Devolucion, promocionesDe, recompensasDe, supervisoresDe, cajerosDe, administradoresDe, configSesionDe, permisos as proyPermisos, tarjetasRegalo, tiposDeCambio, tipoCambioVigente, ventas, type TipoCambio } from '../proyecciones.ts';
 import { hojaAnalisis, hojaAnalisisEmpleadas, hojaDetalleVentas, hojaResumenVentas, hojaDescuentos, hojaEntregas, hojaDolares, hojaInventario, leerInventario, PERFIL_CONFIRMADO, type Hoja } from '../inventario.ts';
 import { LOGOS_TICKET } from '../logos-ticket.ts';
 import { codigoFolioDeposito, codigoTicketDeposito, interpretarCodigoDeposito, resumenDepositosDia, TIPOS_DEPOSITO, type Deposito, type MovDeposito } from '../depositos.ts';
@@ -1336,7 +1336,20 @@ export class ServicioAdmin {
       }
       return { ocurrio_en: e.ocurrio_en, tipo: e.tipo, evento, detalle, por: e.por };
     });
-    return { articulo: { item_id: a.item_id, item_no: a.item_no, codigo: a.codigo, descripcion: a.descripcion, marca: a.marca }, eventos };
+    return { articulo: { item_id: a.item_id, item_no: a.item_no, codigo: a.codigo, descripcion: a.descripcion, marca: a.marca }, resumen: this.resumenDeArticulo(ops, itemId, a.precio, t), eventos };
+  }
+  /** Encabezado del historial: alta (cuándo, dónde y quién), cambios de precio y piezas vendidas por tienda. Quien no ve las ventas (almacén y asistente) no recibe las vendidas. */
+  private resumenDeArticulo(ops: Op[], itemId: string, precioActual: number, t: (c: string) => string) {
+    const r = resumenArticulo(ops, itemId, precioActual);
+    const origen = r.alta?.origen ?? '';
+    const caja = /^(DUO|LON|LIMBO)\/(\d+)$/.exec(origen);
+    const donde = !r.alta ? null : caja ? `${t(caja[1]!)} · caja ${caja[2]}` : origen.startsWith('importacion') ? 'Administración (importación de inventario)' : origen.startsWith('almacen') ? 'Administración (almacén)' : 'Administración';
+    const verVentas = this.rol() === 'supervisor';
+    return {
+      alta: r.alta ? { ocurrio_en: r.alta.ocurrio_en, donde, por: r.alta.por ?? (caja ? null : 'Administración') } : null,
+      precio: { ...r.precio },
+      vendidas: verVentas ? r.vendidas.map((v) => ({ tienda: v.tienda, nombre: t(v.tienda), vendidas: v.vendidas, canceladas: v.canceladas, devueltas: v.devueltas, neto: v.neto })) : null,
+    };
   }
 
   // ── promociones, cupones y supervisores ──

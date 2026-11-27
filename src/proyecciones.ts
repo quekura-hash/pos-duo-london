@@ -509,13 +509,15 @@ export interface EventoArticulo {
 /** Historia de un artículo: alta, cambios del catálogo, movimientos del almacén, ventas, cancelaciones, devoluciones y conteos. Más reciente primero. */
 export function historialArticulo(ops: Op[], itemId: string): EventoArticulo[] {
   const ev: EventoArticulo[] = [];
+  // Quién dio de alta el artículo en una caja (la cajera que lo autorizó con su clave); en altas de Administración no hay cajera.
+  const cajeraAlta = ops.find((o) => o.tipo === 'articulo.alta_autorizada' && o.payload.item_id === itemId)?.payload.cajero as string | undefined;
   const entradas = new Map<string, { qty: number; pedimento: string | null }>();
   const ventasDe = new Map<string, { tienda: string; caja: number; folio: number; lineas: { item_id: string; qty: number; importe: number }[] }>();
   for (const o of ops) {
     const p = o.payload;
     switch (o.tipo) {
       case 'item.created':
-        if (p.item_id === itemId) ev.push({ ocurrio_en: o.ocurrio_en, tipo: 'alta', datos: { origen: p.origen, precio: p.precio, codigo: p.codigo }, por: String(p.origen ?? '') });
+        if (p.item_id === itemId) ev.push({ ocurrio_en: o.ocurrio_en, tipo: 'alta', datos: { origen: p.origen, precio: p.precio, codigo: p.codigo }, por: cajeraAlta || (/^(importacion|almacen)/.test(String(p.origen ?? '')) ? 'Administración' : String(p.origen ?? '')) });
         break;
       case 'item.editado':
         if (p.item_id === itemId) ev.push({ ocurrio_en: o.ocurrio_en, tipo: 'cambio', datos: { cambios: p.cambios }, por: p.por ?? '' });
@@ -571,6 +573,47 @@ export function historialArticulo(ops: Op[], itemId: string): EventoArticulo[] {
   }
   // más reciente primero; a igual hora, el que ocurrió después en la bitácora
   return ev.map((e, i) => ({ e, i })).sort((a, b) => b.e.ocurrio_en.localeCompare(a.e.ocurrio_en) || b.i - a.i).map((x) => x.e);
+}
+
+export interface ResumenArticulo {
+  /** Cuándo, de dónde (`origen` en crudo: LON/1, DUO/2, importacion:imp1, almacen:lote…) y quién dio de alta el artículo; null si no hay registro de alta. */
+  alta: { ocurrio_en: string; origen: string; por: string | null } | null;
+  precio: { inicial: number | null; actual: number; cambios: number; ultimo: { ocurrio_en: string; por: string; antes: number; despues: number } | null };
+  /** Piezas por tienda: vendidas, canceladas, devueltas y las netas (vendidas − canceladas − devueltas). Siempre salen DÚO y London. */
+  vendidas: { tienda: string; vendidas: number; canceladas: number; devueltas: number; neto: number }[];
+}
+/** Resumen de un artículo para el encabezado de su historial: alta (cuándo, dónde y quién), cambios de precio y piezas vendidas por tienda. */
+export function resumenArticulo(ops: Op[], itemId: string, precioActual: number): ResumenArticulo {
+  let alta: ResumenArticulo['alta'] = null, inicial: number | null = null;
+  let cajero: string | null = null;
+  const cambios: { ocurrio_en: string; por: string; antes: number; despues: number }[] = [];
+  const ventasDe = new Map<string, { tienda: string; qty: number }>();
+  const por = new Map<string, { vendidas: number; canceladas: number; devueltas: number }>();
+  const de = (t: string) => { let x = por.get(t); if (!x) { x = { vendidas: 0, canceladas: 0, devueltas: 0 }; por.set(t, x); } return x; };
+  de('DUO'); de('LON');
+  for (const o of ops) {
+    const p = o.payload;
+    if (o.tipo === 'item.created' && p.item_id === itemId) { alta = { ocurrio_en: o.ocurrio_en, origen: String(p.origen ?? ''), por: null }; inicial = typeof p.precio === 'number' ? p.precio : null; }
+    else if (o.tipo === 'articulo.alta_autorizada' && p.item_id === itemId) cajero = String(p.cajero ?? '') || null;
+    else if (o.tipo === 'item.editado' && p.item_id === itemId && p.cambios?.precio) cambios.push({ ocurrio_en: o.ocurrio_en, por: String(p.por ?? ''), antes: Number(p.cambios.precio.antes), despues: Number(p.cambios.precio.despues) });
+    else if (o.tipo === 'sale.confirmed') {
+      const qty = (p.lineas as { item_id: string; qty: number }[]).filter((l) => l.item_id === itemId).reduce((a, l) => a + l.qty, 0);
+      if (qty) { ventasDe.set(p.sale_id, { tienda: p.tienda, qty }); de(p.tienda).vendidas += qty; }
+    } else if (o.tipo === 'sale.cancelled') {
+      const v = ventasDe.get(p.sale_id);
+      if (v) de(v.tienda).canceladas += v.qty;
+    } else if (o.tipo === 'return.registered') {
+      const qty = ((p.lineas ?? []) as { item_id: string; qty: number }[]).filter((l) => l.item_id === itemId).reduce((a, l) => a + l.qty, 0);
+      if (qty) de(p.tienda).devueltas += qty;
+    }
+  }
+  if (alta) alta.por = cajero;
+  const orden = (t: string) => (t === 'DUO' ? 0 : t === 'LON' ? 1 : 2);
+  return {
+    alta,
+    precio: { inicial, actual: precioActual, cambios: cambios.length, ultimo: cambios.at(-1) ?? null },
+    vendidas: [...por].sort((a, b) => orden(a[0]) - orden(b[0]) || a[0].localeCompare(b[0])).map(([tienda, x]) => ({ tienda, ...x, neto: x.vendidas - x.canceladas - x.devueltas })),
+  };
 }
 
 export function recompensasDe(ops: Op[]): import('./recompensas.ts').ReglaRecompensa[] {

@@ -2723,7 +2723,7 @@ async function abrirArticulo(a) {
     if (!h.hidden) { h.hidden = true; return; }
     try {
       const r = await api(`/api/admin/articulo/historial?item_id=${encodeURIComponent(a.item_id)}`);
-      h.innerHTML = `<h3>Historial</h3><table id="tabla-art-historial"><thead><tr><th>Fecha y hora</th><th>Evento</th><th>Detalle</th><th>Quién</th></tr></thead><tbody>${r.eventos.map((e) => `<tr data-tipo="${esc(e.tipo)}"><td>${esc(fechaHora(e.ocurrio_en))}</td><td>${esc(e.evento)}</td><td class="desc">${esc(e.detalle)}</td><td>${esc(e.por)}</td></tr>`).join('') || '<tr><td colspan="4" class="vacio">Sin movimientos.</td></tr>'}</tbody></table>`;
+      h.innerHTML = `<h3>Historial</h3>${resumenArticuloHtml(r.resumen)}<table id="tabla-art-historial"><thead><tr><th>Fecha y hora</th><th>Evento</th><th>Detalle</th><th>Quién</th></tr></thead><tbody>${r.eventos.map((e) => `<tr data-tipo="${esc(e.tipo)}"><td>${esc(fechaHora(e.ocurrio_en))}</td><td>${esc(e.evento)}</td><td class="desc">${esc(e.detalle)}</td><td>${esc(e.por)}</td></tr>`).join('') || '<tr><td colspan="4" class="vacio">Sin movimientos.</td></tr>'}</tbody></table>`;
       h.hidden = false;
     } catch (e) { const m = $('#msg-art'); m.className = 'mensaje error'; m.textContent = e.message; }
   });
@@ -5287,6 +5287,20 @@ function abrirEliminarTrabajadora(x, aviso, recargar, ruta = '/api/admin/cajeros
   $('#et-clave').focus();
 }
 /** Edita los datos de una persona ya registrada (alias, nombres, apellidos, teléfono, dirección y foto). */
+/** Encabezado del historial de un artículo: alta (cuándo, dónde y quién), cambios de precio y piezas vendidas por tienda. */
+function resumenArticuloHtml(rs) {
+  if (!rs) return '';
+  const fila = (k, v) => `<div class="ar-fila"><span class="ar-k">${k}</span><span class="ar-v">${v}</span></div>`;
+  const alta = rs.alta ? `${esc(fechaHora(rs.alta.ocurrio_en))} · <b>${esc(rs.alta.donde)}</b>${rs.alta.por ? ` · ${esc(rs.alta.por)}` : ''}` : 'Sin registro de alta';
+  const p = rs.precio;
+  const precio = p.cambios
+    ? `<b>${mxn(p.actual)}</b> · ${p.cambios} cambio${p.cambios === 1 ? '' : 's'} de precio (el último: ${mxn(p.ultimo.antes)} → ${mxn(p.ultimo.despues)} · ${esc(p.ultimo.por || '—')} · ${esc(fechaHora(p.ultimo.ocurrio_en))})`
+    : `<b>${mxn(p.actual)}</b> · sin cambios de precio`;
+  const vend = rs.vendidas
+    ? `${rs.vendidas.map((v) => `${esc(v.nombre)} <b>${v.neto}</b>`).join(' · ')}${rs.vendidas.some((v) => v.canceladas || v.devueltas) ? ' <small>(sin contar cancelaciones ni devoluciones)</small>' : ''}`
+    : '<small>solo lo ve un supervisor</small>';
+  return `<div class="art-resumen" id="art-resumen">${fila('Alta', alta)}${fila('Precio', precio)}${fila('Vendidas', vend)}</div>`;
+}
 function abrirEditarEmpleado(tipo, x, recargar) {
   const d = dialogo('dlg-empleado');
   d.setAttribute('aria-labelledby', 'emp-titulo');
